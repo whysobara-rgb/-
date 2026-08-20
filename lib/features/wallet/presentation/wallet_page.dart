@@ -9,9 +9,10 @@ import 'point_history_page.dart';
 
 /// 가치가차 - 하단 탭 "충전" 화면.
 ///
-/// ※ 기획 정책상 유료 포인트 충전 기능은 제공하지 않는다.
-/// 이 화면은 실제 결제/충전이 아니라 "GP 현황 확인 + 이용 내역 확인 +
-/// 랜덤박스 구매 유도" 역할을 한다.
+/// GP 현황 확인 + 실제 충전(데모 결제 시뮬레이션, POST /wallet/topup) +
+/// 이용 내역 확인 + 랜덤박스 구매 유도 역할을 한다.
+/// 박스 상세화면에서 잔액 부족으로 이 탭으로 이동해온 경우, 상단 충전 버튼을
+/// 통해 결제를 마친 뒤에만 다시 박스를 열 수 있는 흐름을 유도한다.
 /// 최근 포인트 내역은 백엔드 GET /wallet/point-history에서 실시간으로 가져온다.
 class WalletPage extends StatefulWidget {
   /// "랜덤박스 구매하러 가기" 탭 시 하단 네비게이션을 홈(0번) 탭으로
@@ -28,6 +29,7 @@ class _WalletPageState extends State<WalletPage> {
   final _repository = const PointHistoryRepository();
   List<PointHistoryEntry> _recentHistory = [];
   bool _isLoading = true;
+  bool _isTopupInProgress = false;
 
   @override
   void initState() {
@@ -57,6 +59,80 @@ class _WalletPageState extends State<WalletPage> {
     Navigator.of(
       context,
     ).push(MaterialPageRoute(builder: (context) => const PointHistoryPage()));
+  }
+
+  /// 충전 금액 선택 밋텀시트를 열고, 선택된 금액으로 결제 시뮬레이션을
+  /// 진행한다. 결제 성공 시 실제 백엔드 POST /wallet/topup을 호출하고,
+  /// 성공하면 AuthProvider.refreshProfile()로 잔액을 갱신한다.
+  Future<void> _openTopupSheet() async {
+    final amount = await showModalBottomSheet<int>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) => const _TopupAmountSheet(),
+    );
+    if (amount == null || !mounted) return;
+
+    // 결제 시뮬레이션 다이얼로그 (실제 PG 연동 전까지의 데모).
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          '결제 확인',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
+        content: Text('$amount GP를 충전하시겠습니까?\n(데모 결제로 즉시 반영됩니다)'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text(
+              '취소',
+              style: TextStyle(color: AppColors.textSecondary),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text(
+              '결제하기',
+              style: TextStyle(
+                color: AppColors.goldPrimary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _isTopupInProgress = true);
+    try {
+      await const ApiClient().post('/wallet/topup', body: {'amount': amount});
+      if (!mounted) return;
+      await context.read<AuthProvider>().refreshProfile();
+      if (!mounted) return;
+      await _loadRecentHistory();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$amount GP가 충전되었습니다')),
+      );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('충전 중 오류가 발생했습니다')));
+    } finally {
+      if (mounted) setState(() => _isTopupInProgress = false);
+    }
   }
 
   @override
@@ -118,6 +194,44 @@ class _WalletPageState extends State<WalletPage> {
                       ),
                     ),
                     const SizedBox(height: 16),
+                    // ── 충전하기 버튼 ──
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: AppColors.goldGradient,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Material(
+                          type: MaterialType.transparency,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(12),
+                            onTap: _isTopupInProgress ? null : _openTopupSheet,
+                            child: Center(
+                              child: _isTopupInProgress
+                                  ? const SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2.2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : const Text(
+                                      '포인트 충전하기',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
                     Align(
                       alignment: Alignment.centerRight,
                       child: TextButton(
@@ -308,5 +422,202 @@ class _HistoryPreviewTile extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+/// GP 충전 금액을 선택하는 바텀시트.
+///
+/// 프리셋 금액(10,000/30,000/50,000/100,000 GP) 또는 직접 입력을 통해
+/// 충전할 금액을 선택하고, "충전하기"를 누르면 선택된 금액을 pop한다.
+class _TopupAmountSheet extends StatefulWidget {
+  const _TopupAmountSheet();
+
+  @override
+  State<_TopupAmountSheet> createState() => _TopupAmountSheetState();
+}
+
+class _TopupAmountSheetState extends State<_TopupAmountSheet> {
+  static const List<int> _presets = [10000, 30000, 50000, 100000];
+
+  int? _selected;
+  final _customController = TextEditingController();
+
+  @override
+  void dispose() {
+    _customController.dispose();
+    super.dispose();
+  }
+
+  void _selectPreset(int amount) {
+    setState(() {
+      _selected = amount;
+      _customController.clear();
+    });
+  }
+
+  int? get _effectiveAmount {
+    final custom = int.tryParse(_customController.text.trim());
+    if (custom != null && custom > 0) return custom;
+    return _selected;
+  }
+
+  void _confirm() {
+    final amount = _effectiveAmount;
+    if (amount == null || amount < 100 || amount > 1000000) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('충전 금액은 100 ~ 1,000,000 GP 사이여야 합니다')),
+      );
+      return;
+    }
+    Navigator.of(context).pop(amount);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 24,
+        right: 24,
+        top: 20,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.surfaceBorder,
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          const Text(
+            '포인트 충전',
+            style: TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            '충전할 GP 금액을 선택해주세요 (데모 결제)',
+            style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: 20),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: _presets.map((amount) {
+              final isSelected =
+                  _selected == amount && _customController.text.isEmpty;
+              return GestureDetector(
+                onTap: () => _selectPreset(amount),
+                child: Container(
+                  width: (MediaQuery.of(context).size.width - 48 - 10) / 2,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? AppColors.goldPrimary.withValues(alpha: 0.12)
+                        : const Color(0xFFF5F5F5),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isSelected
+                          ? AppColors.goldPrimary
+                          : Colors.transparent,
+                      width: 1.5,
+                    ),
+                  ),
+                  child: Text(
+                    '${_formatAmount(amount)} GP',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: isSelected
+                          ? AppColors.goldSecondary
+                          : AppColors.textPrimary,
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            '직접 입력',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 6),
+          TextField(
+            controller: _customController,
+            keyboardType: TextInputType.number,
+            style: const TextStyle(fontSize: 14),
+            onChanged: (_) => setState(() {}),
+            decoration: InputDecoration(
+              hintText: '충전할 GP 금액 입력',
+              filled: true,
+              fillColor: const Color(0xFFF5F5F5),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide.none,
+              ),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: 12,
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: AppColors.goldGradient,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Material(
+                type: MaterialType.transparency,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: _confirm,
+                  child: const Center(
+                    child: Text(
+                      '충전하기',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatAmount(int amount) {
+    final str = amount.toString();
+    final buffer = StringBuffer();
+    for (int i = 0; i < str.length; i++) {
+      final posFromEnd = str.length - i;
+      buffer.write(str[i]);
+      if (posFromEnd > 1 && posFromEnd % 3 == 1) buffer.write(',');
+    }
+    return buffer.toString();
   }
 }

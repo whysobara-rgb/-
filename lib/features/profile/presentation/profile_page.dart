@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../../core/network/api_client.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../shared/providers/auth_provider.dart';
 import '../../../shared/providers/gp_provider.dart';
@@ -22,14 +23,19 @@ class ProfilePage extends StatefulWidget {
 
 class _ProfilePageState extends State<ProfilePage> {
   final _inventoryRepository = const InventoryRepository();
+  final _apiClient = const ApiClient();
 
   int _storedCount = 0;
   int _deliveredCount = 0;
+  int _totalDrawCount = 0;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadInventoryStats());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadInventoryStats();
+      _loadDrawStats();
+    });
   }
 
   Future<void> _loadInventoryStats() async {
@@ -44,6 +50,20 @@ class _ProfilePageState extends State<ProfilePage> {
       });
     } catch (_) {
       // 조용히 무시 (마이 화면 진입 시 실패해도 치명적이지 않음).
+    }
+  }
+
+  /// GET /draws/stats로 누적 뽑기횟수를 조회한다.
+  Future<void> _loadDrawStats() async {
+    try {
+      final data = await _apiClient.get('/draws/stats');
+      if (!mounted) return;
+      final map = data as Map<String, dynamic>;
+      setState(() {
+        _totalDrawCount = (map['totalDrawCount'] as num?)?.toInt() ?? 0;
+      });
+    } catch (_) {
+      // 조용히 무시.
     }
   }
 
@@ -103,10 +123,6 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget build(BuildContext context) {
     final gp = context.watch<GpProvider>();
     final user = context.watch<AuthProvider>().currentUser;
-
-    // 총 뽑기횟수는 별도 집계 API가 아직 없어 임시로 0으로 표시한다.
-    // TODO: 이후 GET /draws 집계 응답이 추가되면 교체해야 함.
-    const totalDrawCount = 0;
 
     return Scaffold(
       backgroundColor: AppColors.scaffoldBg,
@@ -254,7 +270,7 @@ class _ProfilePageState extends State<ProfilePage> {
                       children: [
                         Expanded(
                           child: _StatColumn(
-                            value: '$totalDrawCount',
+                            value: '$_totalDrawCount',
                             label: '총 뽑기횟수',
                           ),
                         ),

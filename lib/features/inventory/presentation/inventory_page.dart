@@ -167,28 +167,10 @@ class _InventoryPageState extends State<InventoryPage> {
     });
   }
 
-  // 잠금(lock) 토글은 현재 백엔드에 대응 API가 없어(원 5개 요구사항 범위 밖),
-  // 클라이언트 로컬 상태만 변경하는 데모용 동작으로 유지한다.
+  // 잠금(lock) 토글은 현재 백엔드에 대응 API가 없어 출시 후 지원 예정으로 안내한다.
   void _toggleLock(String id) {
-    bool nowLocked = false;
-    setState(() {
-      _items = _items.map((item) {
-        if (item.id != id) return item;
-        nowLocked = !item.isLocked;
-        return InventoryItem(
-          id: item.id,
-          name: item.name,
-          grade: item.grade,
-          price: item.price,
-          icon: item.icon,
-          status: item.status,
-          acquiredAt: item.acquiredAt,
-          isLocked: nowLocked,
-        );
-      }).toList();
-    });
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(nowLocked ? '잠금되었습니다' : '잠금 해제되었습니다')),
+      const SnackBar(content: Text('잠금 기능은 출시 후 지원 예정입니다')),
     );
   }
 
@@ -236,103 +218,18 @@ class _InventoryPageState extends State<InventoryPage> {
     }
   }
 
-  // ── 액션 2: 포인트전환 (백엔드 미지원 - 데모 UI로 유지) ────────────
+  // ── 액션 2: 포인트전환 (백엔드 미지원 - 출시 후 지원 예정 안내) ────────────
   void _onConvertToPoints() {
-    if (!_hasSelection) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('포인트로 전환할 상품을 선택해주세요')));
-      return;
-    }
-
-    final selected = _selectedItems;
-    final hasLocked = selected.any((item) => item.isLocked);
-    if (hasLocked) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('잠금된 상품은 포인트 전환이 불가합니다')));
-      return;
-    }
-
-    final hasPremium = selected.any((item) => item.grade == 'S');
-
-    showDialog<void>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          title: const Text(
-            '포인트 전환',
-            style: TextStyle(fontWeight: FontWeight.w700),
-          ),
-          content: const Text('일반 상품은 소비자가의 10%로 전환됩니다. 계속하시겠습니까?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text(
-                '취소',
-                style: TextStyle(color: AppColors.textSecondary),
-              ),
-            ),
-            TextButton(
-              onPressed: () {
-                Navigator.of(dialogContext).pop();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      hasPremium
-                          ? '포인트 전환 완료 (프리미엄 등급 상품은 100% 환급 및 배송)'
-                          : '포인트 전환 완료',
-                    ),
-                  ),
-                );
-                _clearSelection();
-              },
-              child: const Text(
-                '확인',
-                style: TextStyle(
-                  color: AppColors.goldSecondary,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ],
-        );
-      },
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('포인트 전환 기능은 출시 후 지원 예정입니다')),
     );
   }
 
-  // ── 액션 3: 장바구니 (백엔드 미지원 - 데모 UI로 유지, 선택 상품 잠금 처리) ──
+  // ── 액션 3: 장바구니 (백엔드 미지원 - 출시 후 지원 예정 안내) ──
   void _onAddToCart() {
-    if (!_hasSelection) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('장바구니에 담을 상품을 선택해주세요')));
-      return;
-    }
-
-    final selectedIds = {..._selectedIds};
-    setState(() {
-      _items = _items.map((item) {
-        if (!selectedIds.contains(item.id)) return item;
-        return InventoryItem(
-          id: item.id,
-          name: item.name,
-          grade: item.grade,
-          price: item.price,
-          icon: item.icon,
-          status: item.status,
-          acquiredAt: item.acquiredAt,
-          isLocked: true,
-        );
-      }).toList();
-    });
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('선택한 상품을 장바구니(잠금) 처리했습니다')));
-    _clearSelection();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('장바구니 기능은 출시 후 지원 예정입니다')),
+    );
   }
 
   void _openSortSheet() {
