@@ -144,15 +144,18 @@ class AppColors {
   );
 
   /// 메인 럭키 PICK 배너용 오가닉 멀티스톱 그라데이션
-  /// (코랄 오렌지 → 바이올렛 → 스카이블루)
+  /// (코랄 오렌지 → 핑크 마젠타 → 바이올렛 → 스카이블루)
+  /// 중간 톤에 화사한 핑크/마젠타를 추가해 탁한 보라 뭉침을 방지하고
+  /// 축제 느낌의 톡톡 튀는 색감을 낸다.
   static const LinearGradient luckyBannerGradient = LinearGradient(
     colors: [
-      Color(0xFFFF7A59),
-      Color(0xFFB05CE0),
-      Color(0xFF8B5CF6),
-      Color(0xFF4FA8FF),
+      Color(0xFFFF7A59), // 코랄 오렌지
+      Color(0xFFFF5FA8), // 핑크 마젠타
+      Color(0xFFB05CE0), // 라이트 바이올렛
+      Color(0xFF7C6EF5), // 바이올렛-블루
+      Color(0xFF4FA8FF), // 스카이블루
     ],
-    stops: [0.0, 0.4, 0.7, 1.0],
+    stops: [0.0, 0.28, 0.52, 0.75, 1.0],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );

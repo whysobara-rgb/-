@@ -1,14 +1,16 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/utils/product_image_mapper.dart';
 import '../../domain/capsule_box.dart';
 
 /// 가치가차 - 홈 상품 그리드에 사용되는 캡슐(랜덤박스) 카드.
 ///
-/// Claymorphism & Pastel 3D 스타일 - 깨끗한 화이트 라운드 카드
-/// (border-radius 20px) 위에 실제 상품 이미지를 얹고, 우측 상단에
-/// 대각선 리본 뱃지(HOT=주황, NEW=민트)를 배치한다. 상품명은 블랙 볼드,
-/// 가격은 바이올렛 포인트 컬러로 강조한다.
+/// Claymorphism & Pastel 3D 스타일 - 순백색 라운드 카드
+/// (border-radius 20px) + 연한 파스텔 소프트 섀도우 위에 3D
+/// 클레이 렌더링 상품 이미지를 얹고, 우측 상단 모서리에 걸쳐지는
+/// 로제트(원형+리본 꼬리) 뱃지(HOT=주황, NEW=민트)를 배치한다.
+/// 상품명은 블랙 볼드, 가격은 바이올렛 포인트 컬러로 강조한다.
 class CapsuleBoxCard extends StatelessWidget {
   final CapsuleBox box;
   final VoidCallback onTap;
@@ -17,22 +19,21 @@ class CapsuleBoxCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: AppColors.surfaceElevated,
-      borderRadius: BorderRadius.circular(20),
-      elevation: 0,
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
       clipBehavior: Clip.antiAlias,
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.06),
-              blurRadius: 16,
-              offset: const Offset(0, 6),
-            ),
-          ],
-        ),
+      child: Material(
+        color: Colors.transparent,
         child: InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(20),
@@ -46,23 +47,21 @@ class CapsuleBoxCard extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // ── 상단 썸네일: 실제 상품 이미지 ──
+                  // ── 상단 썸네일: 순백 배경 + 3D 클레이 상품 이미지 ──
                   SizedBox(
                     height: thumbnailHeight,
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
-                        ClipRRect(
-                          borderRadius: const BorderRadius.vertical(
-                            top: Radius.circular(20),
-                          ),
+                        ColoredBox(
+                          color: Colors.white,
                           child: _Thumbnail(box: box),
                         ),
                         if (box.badgeLabel != null)
                           Positioned(
-                            top: 0,
-                            right: 0,
-                            child: _RibbonBadge(
+                            top: -2,
+                            right: -2,
+                            child: _RosetteBadge(
                               isNew: box.badgeLabel == 'NEW',
                             ),
                           ),
@@ -111,12 +110,12 @@ class CapsuleBoxCard extends StatelessWidget {
   }
 }
 
-/// 카드 우측 상단에 걸쳐지는 대각선 3D 리본 뱃지.
-/// HOT = 주황 리본, NEW = 민트 리본.
-class _RibbonBadge extends StatelessWidget {
+/// 카드 우측 상단 모서리에 걸쳐지는 로제트(원형+리본 꼬리) 뱃지.
+/// HOT = 주황 리본, NEW = 민트 리본. 텍스트는 원형 중앙에 정렬된다.
+class _RosetteBadge extends StatelessWidget {
   final bool isNew;
 
-  const _RibbonBadge({required this.isNew});
+  const _RosetteBadge({required this.isNew});
 
   @override
   Widget build(BuildContext context) {
@@ -126,42 +125,92 @@ class _RibbonBadge extends StatelessWidget {
         : const Color(0xFFFF6B3D);
 
     return SizedBox(
-      width: 64,
-      height: 64,
-      child: Transform.rotate(
-        angle: 0.7854, // 45도
-        child: Container(
-          width: 90,
-          margin: const EdgeInsets.only(top: 14),
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          decoration: BoxDecoration(
-            gradient: gradient,
-            boxShadow: [
-              BoxShadow(
-                color: shadowColor.withValues(alpha: 0.5),
-                blurRadius: 4,
-                offset: const Offset(0, 2),
+      width: 52,
+      height: 60,
+      child: Stack(
+        alignment: Alignment.topCenter,
+        clipBehavior: Clip.none,
+        children: [
+          // 리본 꼬리 (원형 배지 하단, V자 노치)
+          Positioned(
+            top: 26,
+            child: ClipPath(
+              clipper: _RibbonTailClipper(),
+              child: Container(
+                width: 34,
+                height: 18,
+                decoration: BoxDecoration(
+                  gradient: gradient,
+                  boxShadow: [
+                    BoxShadow(
+                      color: shadowColor.withValues(alpha: 0.35),
+                      blurRadius: 3,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
               ),
-            ],
-          ),
-          child: Text(
-            isNew ? 'NEW' : 'HOT',
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 10,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 0.5,
             ),
           ),
-        ),
+          // 원형 로제트 배지 본체
+          Positioned(
+            top: 6,
+            child: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                gradient: gradient,
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 2),
+                boxShadow: [
+                  BoxShadow(
+                    color: shadowColor.withValues(alpha: 0.45),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+              ),
+              alignment: Alignment.center,
+              child: Text(
+                isNew ? 'NEW' : 'HOT',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 9.5,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.2,
+                  height: 1,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
+/// 리본 꼬리 하단에 V자(제비꼬리) 노치를 만드는 클리퍼.
+class _RibbonTailClipper extends CustomClipper<Path> {
+  @override
+  Path getClip(Size size) {
+    final path = Path();
+    path.moveTo(0, 0);
+    path.lineTo(size.width, 0);
+    path.lineTo(size.width, size.height);
+    path.lineTo(size.width / 2, size.height - 6);
+    path.lineTo(0, size.height);
+    path.close();
+    return path;
+  }
+
+  @override
+  bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
+}
+
 /// 카드 썸네일: [imageUrl]이 있으면 실제 사진, 없거나 로딩 실패 시
-/// 그라데이션 + 아이콘으로 폴백.
+/// 로컬 3D 클레이 렌더링 상품 이미지로 폴백한다 (2D 픽토그램 아이콘은
+/// 상단 톤앤매너와 이질감이 있어 더 이상 사용하지 않는다).
 class _Thumbnail extends StatelessWidget {
   final CapsuleBox box;
 
@@ -171,49 +220,36 @@ class _Thumbnail extends StatelessWidget {
   Widget build(BuildContext context) {
     final url = box.imageUrl;
     if (url == null || url.isEmpty) {
-      return _IconFallback(box: box);
+      return _ClayProductImage(box: box);
     }
     return CachedNetworkImage(
       imageUrl: url,
       fit: BoxFit.cover,
       fadeInDuration: const Duration(milliseconds: 200),
-      placeholder: (context, url) => Container(
-        color: AppColors.surfaceElevated2,
-        child: const Center(
-          child: SizedBox(
-            width: 20,
-            height: 20,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              color: AppColors.accentViolet,
-            ),
-          ),
-        ),
-      ),
-      errorWidget: (context, url, error) => _IconFallback(box: box),
+      placeholder: (context, url) => _ClayProductImage(box: box),
+      errorWidget: (context, url, error) => _ClayProductImage(box: box),
     );
   }
 }
 
-class _IconFallback extends StatelessWidget {
+/// 상품 카테고리에 맞는 로컬 3D 클레이 렌더링 이미지를 파스텔
+/// 배경 위에 여백을 두고 배치하는 위젯.
+class _ClayProductImage extends StatelessWidget {
   final CapsuleBox box;
 
-  const _IconFallback({required this.box});
+  const _ClayProductImage({required this.box});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            box.accentColor.withValues(alpha: 0.85),
-            AppColors.surfaceElevated2,
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
+      color: box.accentColor.withValues(alpha: 0.08),
+      padding: const EdgeInsets.all(18),
+      child: Image.asset(
+        ProductImageMapper.resolve(box.iconName),
+        fit: BoxFit.contain,
+        errorBuilder: (context, error, stackTrace) =>
+            Center(child: Icon(box.icon, size: 48, color: box.accentColor)),
       ),
-      child: Center(child: Icon(box.icon, size: 48, color: Colors.white)),
     );
   }
 }

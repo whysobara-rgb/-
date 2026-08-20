@@ -1,11 +1,12 @@
 {
-    "name": "gacha_vault",
-    "short_name": "gacha_vault",
+    "name": "GACHI GACHA",
+    "short_name": "GACHI GACHA",
     "start_url": ".",
-    "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "display": "fullscreen",
+    "display_override": ["window-controls-overlay", "standalone", "fullscreen"],
+    "background_color": "#FFF8EF",
+    "theme_color": "#FFF8EF",
+    "description": "GACHI GACHA - 프리미엄 랜덤박스 뽑기 앱",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

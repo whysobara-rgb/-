@@ -71,8 +71,14 @@ class _FloatingNavBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 홈 인디케이터/시스템 제스처 바 위에 여유 있는 마진을 두어
+    // 플로팅 네비게이션 바가 화면 하단 UI와 겹치지 않도록 한다.
+    final bottomInset = MediaQuery.of(context).padding.bottom;
+    final bottomMargin = bottomInset > 0 ? bottomInset + 10 : 18.0;
+
     return SafeArea(
-      minimum: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+      top: false,
+      minimum: EdgeInsets.fromLTRB(20, 0, 20, bottomMargin),
       child: Container(
         height: 66,
         decoration: BoxDecoration(

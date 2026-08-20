@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/utils/product_image_mapper.dart';
 import '../../../shared/providers/gp_provider.dart';
 import '../../home/data/capsule_box_repository.dart';
 import '../../home/domain/capsule_box.dart';
@@ -503,18 +504,15 @@ class _VisualBanner extends StatelessWidget {
   }
 
   Widget _iconFallback() {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            box.accentColor.withValues(alpha: 0.6),
-            AppColors.scaffoldBg,
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
+    return Container(
+      color: box.accentColor.withValues(alpha: 0.08),
+      padding: const EdgeInsets.all(36),
+      child: Image.asset(
+        ProductImageMapper.resolve(box.iconName),
+        fit: BoxFit.contain,
+        errorBuilder: (context, error, stackTrace) =>
+            Center(child: Icon(box.icon, size: 96, color: box.accentColor)),
       ),
-      child: Center(child: Icon(box.icon, size: 96, color: Colors.white)),
     );
   }
 }

@@ -70,6 +70,7 @@ flutter:
   # 클레이모피즘(Claymorphism) 리디자인 - 3D 캐릭터/아이콘 이미지 에셋
   assets:
     - assets/images/
+    - assets/images/products/
 
   # 클레이모피즘(Claymorphism) 리디자인 - 라운드 고딕 폰트
   fonts:

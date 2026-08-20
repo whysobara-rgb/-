@@ -59,32 +59,46 @@ class QuickMenuRow extends StatelessWidget {
           child: Column(
             children: [
               Container(
-                width: 58,
-                height: 58,
+                width: 64,
+                height: 64,
                 decoration: BoxDecoration(
                   gradient: item.gradient,
                   shape: BoxShape.circle,
                   boxShadow: [
                     // 깊은 소프트 그림자 (입체감)
                     BoxShadow(
-                      color: item.shadowColor.withValues(alpha: 0.45),
-                      blurRadius: 14,
-                      offset: const Offset(0, 7),
+                      color: item.shadowColor.withValues(alpha: 0.5),
+                      blurRadius: 16,
+                      offset: const Offset(0, 8),
                     ),
                     // 상단 하이라이트 (클레이 볼륨감)
                     BoxShadow(
-                      color: Colors.white.withValues(alpha: 0.5),
+                      color: Colors.white.withValues(alpha: 0.6),
                       blurRadius: 4,
                       offset: const Offset(-2, -2),
                     ),
                   ],
                 ),
-                padding: const EdgeInsets.all(9),
-                child: Image.asset(
-                  item.imagePath,
-                  fit: BoxFit.contain,
-                  errorBuilder: (context, error, stackTrace) =>
-                      const SizedBox.shrink(),
+                padding: const EdgeInsets.all(8),
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    // 은은한 화이트 글로우 - 3D 오브젝트 시인성/대비 강화
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.white.withValues(alpha: 0.22),
+                      ),
+                    ),
+                    Image.asset(
+                      item.imagePath,
+                      fit: BoxFit.contain,
+                      errorBuilder: (context, error, stackTrace) =>
+                          const SizedBox.shrink(),
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(height: 8),

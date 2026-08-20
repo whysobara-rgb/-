@@ -108,18 +108,29 @@ class HomeBannerCarousel extends StatelessWidget {
   }
 }
 
-/// 배경에 흩뿌려진 작은 별/반짝이 컨페티 점들.
+/// 배경에 흩뿌려진 별/반짝이 + 알록달록 컨페티(색종이·리본 조각) 효과.
+/// 선물상자 캐릭터 주변으로 축제/뽑기 느낌의 생동감을 더한다.
 class _ConfettiLayer extends StatelessWidget {
   const _ConfettiLayer();
 
-  static const List<Offset> _positions = [
+  // 화이트 별/반짝이 (은은한 배경 텍스처)
+  static const List<Offset> _starPositions = [
     Offset(0.12, 0.18),
-    Offset(0.28, 0.62),
     Offset(0.45, 0.15),
-    Offset(0.62, 0.75),
-    Offset(0.78, 0.22),
     Offset(0.08, 0.78),
-    Offset(0.52, 0.42),
+    Offset(0.30, 0.85),
+  ];
+
+  // 컬러 색종이 조각 (사각형, 회전) - 위치/색상/회전각/크기
+  static const List<_ConfettiPiece> _confetti = [
+    _ConfettiPiece(Offset(0.30, 0.62), Color(0xFFFFE08A), 0.4, 9),
+    _ConfettiPiece(Offset(0.62, 0.20), Color(0xFF6EE7C8), -0.3, 8),
+    _ConfettiPiece(Offset(0.70, 0.68), Color(0xFFFF9EC4), 0.6, 10),
+    _ConfettiPiece(Offset(0.85, 0.35), Color(0xFFFFFFFF), -0.5, 7),
+    _ConfettiPiece(Offset(0.55, 0.80), Color(0xFFFFC93C), 0.25, 8),
+    _ConfettiPiece(Offset(0.18, 0.45), Color(0xFF8BCBFF), -0.4, 9),
+    _ConfettiPiece(Offset(0.90, 0.15), Color(0xFFFF9EC4), 0.5, 7),
+    _ConfettiPiece(Offset(0.40, 0.30), Color(0xFFFFFFFF), 0.35, 6),
   ];
 
   @override
@@ -127,21 +138,52 @@ class _ConfettiLayer extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         return Stack(
-          children: List.generate(_positions.length, (index) {
-            final pos = _positions[index];
-            final isStar = index.isEven;
-            return Positioned(
-              left: pos.dx * constraints.maxWidth,
-              top: pos.dy * constraints.maxHeight,
-              child: Icon(
-                isStar ? Icons.star_rounded : Icons.circle,
-                color: Colors.white.withValues(alpha: isStar ? 0.55 : 0.35),
-                size: isStar ? 12 : 6,
-              ),
-            );
-          }),
+          children: [
+            // 화이트 별 반짝이
+            ...List.generate(_starPositions.length, (index) {
+              final pos = _starPositions[index];
+              return Positioned(
+                left: pos.dx * constraints.maxWidth,
+                top: pos.dy * constraints.maxHeight,
+                child: Icon(
+                  Icons.star_rounded,
+                  color: Colors.white.withValues(alpha: 0.6),
+                  size: 12,
+                ),
+              );
+            }),
+            // 컬러 색종이/리본 조각
+            ...List.generate(_confetti.length, (index) {
+              final piece = _confetti[index];
+              return Positioned(
+                left: piece.position.dx * constraints.maxWidth,
+                top: piece.position.dy * constraints.maxHeight,
+                child: Transform.rotate(
+                  angle: piece.rotation,
+                  child: Container(
+                    width: piece.size,
+                    height: piece.size * 0.5,
+                    decoration: BoxDecoration(
+                      color: piece.color.withValues(alpha: 0.85),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+              );
+            }),
+          ],
         );
       },
     );
   }
+}
+
+/// 컨페티(색종이) 조각 하나의 위치/색상/회전각/크기 정보.
+class _ConfettiPiece {
+  final Offset position;
+  final Color color;
+  final double rotation;
+  final double size;
+
+  const _ConfettiPiece(this.position, this.color, this.rotation, this.size);
 }

@@ -21,6 +21,10 @@ class CapsuleBox {
   /// 썸네일 중앙에 표시할 대표 아이콘.
   final IconData icon;
 
+  /// 백엔드 원본 iconName 문자열. 로컬 3D 클레이 렌더링 상품
+  /// 이미지([ProductImageMapper])를 찾기 위한 키로 사용된다.
+  final String? iconName;
+
   /// 카드 좌상단 뱃지 라벨 (예: SPECIAL, NEW). 없으면 null.
   final String? badgeLabel;
 
@@ -36,6 +40,7 @@ class CapsuleBox {
     required this.name,
     required this.priceWon,
     required this.icon,
+    this.iconName,
     this.badgeLabel,
     required this.accentColor,
     this.imageUrl,
@@ -49,6 +54,7 @@ class CapsuleBox {
       name: json['title'] as String,
       priceWon: (json['price'] as num).toInt(),
       icon: IconMapper.resolve(json['iconName'] as String?),
+      iconName: json['iconName'] as String?,
       badgeLabel: json['badgeLabel'] as String?,
       accentColor: colorFromHex(json['accentColorHex'] as String?),
       imageUrl: json['imageUrl'] as String?,
