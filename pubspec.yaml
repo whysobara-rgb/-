@@ -38,6 +38,10 @@ dependencies:
   # State management
   provider: 6.1.5+1
 
+  # Networking & local storage (for real backend API integration)
+  http: 1.5.0
+  shared_preferences: 2.5.3
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
