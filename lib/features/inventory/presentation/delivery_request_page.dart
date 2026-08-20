@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/constants/rank_colors.dart';
+import '../../../core/network/api_client.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../shared/providers/auth_provider.dart';
 import '../../../shared/providers/gp_provider.dart';
 import '../domain/inventory_item.dart';
 
@@ -20,7 +22,10 @@ class DeliveryRequestPage extends StatefulWidget {
 }
 
 class _DeliveryRequestPageState extends State<DeliveryRequestPage> {
+  // 백엔드 ShippingService.DELIVERY_FEE(3000 GP)와 동일한 고정 배송비.
   static const int _deliveryFee = 3000;
+
+  final ApiClient _apiClient = const ApiClient();
 
   final _recipientController = TextEditingController();
   final _phoneController = TextEditingController();
@@ -28,6 +33,8 @@ class _DeliveryRequestPageState extends State<DeliveryRequestPage> {
   final _addressController = TextEditingController();
   final _detailAddressController = TextEditingController();
   final _notesController = TextEditingController();
+
+  bool _isSubmitting = false;
 
   @override
   void dispose() {
@@ -64,7 +71,8 @@ class _DeliveryRequestPageState extends State<DeliveryRequestPage> {
       ..showSnackBar(SnackBar(content: Text(message)));
   }
 
-  void _submit() {
+  Future<void> _submit() async {
+    if (_isSubmitting) return;
     if (_recipientController.text.trim().isEmpty) {
       _showWarning('받는 사람을 입력해주세요');
       return;
@@ -78,37 +86,74 @@ class _DeliveryRequestPageState extends State<DeliveryRequestPage> {
       return;
     }
 
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          title: const Text(
-            '배송 신청 완료',
-            style: TextStyle(fontWeight: FontWeight.w700),
-          ),
-          content: const Text("배송 신청이 완료되었습니다!\n상품이 '준비중' 상태로 변경됩니다."),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(dialogContext).pop();
-                Navigator.of(context).pop(true);
-              },
-              child: const Text(
-                '확인',
-                style: TextStyle(
-                  color: AppColors.goldSecondary,
-                  fontWeight: FontWeight.w700,
+    // 우편번호/상세주소는 백엔드 DTO에 별도 필드가 없으므로 기본 주소에 합쳐 전송한다.
+    final fullAddress = [
+      _addressController.text.trim(),
+      _detailAddressController.text.trim(),
+    ].where((s) => s.isNotEmpty).join(' ');
+
+    setState(() => _isSubmitting = true);
+    try {
+      await _apiClient.post(
+        '/shipping-requests',
+        body: {
+          'recipientName': _recipientController.text.trim(),
+          'phone': _phoneController.text.trim(),
+          'address': fullAddress,
+          if (_notesController.text.trim().isNotEmpty)
+            'notes': _notesController.text.trim(),
+          'inventoryItemIds': widget.items
+              .map((item) => item.numericId)
+              .toList(),
+        },
+      );
+
+      // 배송비(GP) 차감이 서버에서 이루어졌으므로 최신 잔액을 다시 조회한다.
+      if (mounted) {
+        await context.read<AuthProvider>().refreshProfile();
+      }
+
+      if (!mounted) return;
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: const Text(
+              '배송 신청 완료',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            content: const Text("배송 신청이 완료되었습니다!\n상품이 '배송요청' 상태로 변경됩니다."),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.of(dialogContext).pop();
+                  Navigator.of(context).pop(true);
+                },
+                child: const Text(
+                  '확인',
+                  style: TextStyle(
+                    color: AppColors.goldSecondary,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
-            ),
-          ],
-        );
-      },
-    );
+            ],
+          );
+        },
+      );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      _showWarning(e.message);
+    } catch (_) {
+      if (!mounted) return;
+      _showWarning('배송 신청 중 오류가 발생했습니다');
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
   }
 
   @override
@@ -484,10 +529,19 @@ class _DeliveryRequestPageState extends State<DeliveryRequestPage> {
           color: Colors.transparent,
           borderRadius: BorderRadius.circular(14),
           child: InkWell(
-            onTap: _submit,
+            onTap: _isSubmitting ? null : _submit,
             borderRadius: BorderRadius.circular(14),
-            child: const Center(
-              child: Text(
+            child: Center(
+              child: _isSubmitting
+                  ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.5,
+                        color: AppColors.textPrimary,
+                      ),
+                    )
+                  : const Text(
                 '배송 신청하기',
                 style: TextStyle(
                   fontSize: 16,

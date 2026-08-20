@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../shared/providers/auth_provider.dart';
+import 'signup_page.dart';
 import 'widgets/social_login_button.dart';
 
 /// 가치가차 - 로그인 페이지
@@ -32,15 +33,30 @@ class _LoginPageState extends State<LoginPage> {
     ).showSnackBar(SnackBar(content: Text('$provider 로그인은 아직 준비중입니다')));
   }
 
-  void _handleEmailLogin() {
-    // 더미 로그인: 유효성 검사 없이 바로 로그인 처리 후 홈으로 이동.
-    context.read<AuthProvider>().login();
+  Future<void> _handleEmailLogin() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+    if (email.isEmpty || password.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('이메일과 비밀번호를 입력해주세요')));
+      return;
+    }
+
+    final auth = context.read<AuthProvider>();
+    final success = await auth.login(email: email, password: password);
+    if (!mounted) return;
+    if (!success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(auth.errorMessage ?? '로그인에 실패했습니다')),
+      );
+    }
   }
 
   void _handleSignUp() {
-    ScaffoldMessenger.of(
+    Navigator.of(
       context,
-    ).showSnackBar(const SnackBar(content: Text('회원가입은 아직 준비중입니다')));
+    ).push(MaterialPageRoute(builder: (context) => const SignupPage()));
   }
 
   @override
@@ -255,28 +271,39 @@ class _LoginPageState extends State<LoginPage> {
 
   // ── 이메일 로그인 버튼 ───────────────────────────────────────────
   Widget _buildLoginButton() {
+    final isLoading = context.watch<AuthProvider>().isLoading;
     return Container(
       width: double.infinity,
       height: 54,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
-        gradient: AppColors.goldGradient,
+        gradient: isLoading ? null : AppColors.goldGradient,
+        color: isLoading ? AppColors.surfaceBorder : null,
       ),
       child: Material(
         color: Colors.transparent,
         borderRadius: BorderRadius.circular(12),
         child: InkWell(
-          onTap: _handleEmailLogin,
+          onTap: isLoading ? null : _handleEmailLogin,
           borderRadius: BorderRadius.circular(12),
-          child: const Center(
-            child: Text(
-              '이메일로 로그인',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF1A1A1A),
-              ),
-            ),
+          child: Center(
+            child: isLoading
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      color: AppColors.textSecondary,
+                    ),
+                  )
+                : const Text(
+                    '이메일로 로그인',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF1A1A1A),
+                    ),
+                  ),
           ),
         ),
       ),

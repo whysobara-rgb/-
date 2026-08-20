@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
+import '../../../core/utils/icon_mapper.dart';
 
 /// 가치가차 - "인기 랜덤박스" 그리드에 사용되는 캡슐 박스 모델.
 ///
-/// 다크 프로모션 카드 스타일(썸네일 그라데이션 + 뱃지 + 이름/가격)로
-/// 표시되는 더미 데이터 모델. 추후 실제 API 응답 모델로 교체하기 쉽도록
-/// 필드를 단순하게 유지.
+/// 백엔드 GET /gachas 응답을 기반으로 하며, [id]는 뽑기 요청
+/// (POST /draws)에 그대로 전달되는 백엔드 Gacha.id(숫자)이다.
 class CapsuleBox {
-  final String id;
+  /// 백엔드 Gacha.id.
+  final int id;
 
   /// 카드에는 노출되지 않는 홍보용 태그라인 (예: "PREMIUM HIT!").
   /// 추후 상세 화면 등에서 활용 가능하도록 보관.
@@ -14,7 +15,7 @@ class CapsuleBox {
 
   final String name;
 
-  /// 원화 가격 (예: 10000 -> "₩10,000")
+  /// GP(포인트) 가격. 백엔드 Gacha.price(통화 GP)와 1:1 대응.
   final int priceWon;
 
   /// 썸네일 중앙에 표시할 대표 아이콘.
@@ -36,7 +37,20 @@ class CapsuleBox {
     required this.accentColor,
   });
 
-  /// 화면 표시용 원화 가격 포맷 (예: "₩10,000")
+  /// 백엔드 `GET /gachas` 응답 아이템 1개를 [CapsuleBox]로 변환한다.
+  factory CapsuleBox.fromJson(Map<String, dynamic> json) {
+    return CapsuleBox(
+      id: json['id'] as int,
+      tagline: json['tagline'] as String?,
+      name: json['title'] as String,
+      priceWon: (json['price'] as num).toInt(),
+      icon: IconMapper.resolve(json['iconName'] as String?),
+      badgeLabel: json['badgeLabel'] as String?,
+      accentColor: colorFromHex(json['accentColorHex'] as String?),
+    );
+  }
+
+  /// 화면 표시용 GP 가격 포맷 (예: "10,000 GP")
   String get formattedPrice {
     final str = priceWon.toString();
     final buffer = StringBuffer();
@@ -47,6 +61,6 @@ class CapsuleBox {
         buffer.write(',');
       }
     }
-    return '₩${buffer.toString()}';
+    return '${buffer.toString()} GP';
   }
 }

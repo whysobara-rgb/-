@@ -89,6 +89,8 @@ class _GachaResultPageState extends State<GachaResultPage>
   }
 
   void _saveToInventory() {
+    // 뽑기 결과는 서버(POST /draws)에서 이미 인벤토리에 저장되었으므로
+    // 여기서는 확인 메시지만 보여주고 홈으로 복귀한다.
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text('보관함에 저장되었습니다')));

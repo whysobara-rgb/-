@@ -9,11 +9,43 @@ import '../../wallet/presentation/point_history_page.dart';
 /// 가치가차 - 하단 탭 "마이" 화면.
 ///
 /// 전체 배경은 화이트이며, 상단 프로필 카드만 darkSurface로 대비를 준다.
-class ProfilePage extends StatelessWidget {
+/// 활동 요약(보관상품수/배송완료수)은 백엔드 GET /inventory에서 실시간으로 가져온다.
+class ProfilePage extends StatefulWidget {
   /// "충전" 탭으로 이동하기 위한 콜백. [MainNavigation]에서 전달된다.
   final VoidCallback onGoToWallet;
 
   const ProfilePage({super.key, required this.onGoToWallet});
+
+  @override
+  State<ProfilePage> createState() => _ProfilePageState();
+}
+
+class _ProfilePageState extends State<ProfilePage> {
+  final _inventoryRepository = const InventoryRepository();
+
+  int _storedCount = 0;
+  int _deliveredCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadInventoryStats());
+  }
+
+  Future<void> _loadInventoryStats() async {
+    try {
+      final items = await _inventoryRepository.getAll();
+      if (!mounted) return;
+      setState(() {
+        _storedCount = items.length;
+        _deliveredCount = items
+            .where((item) => item.status == InventoryStatus.delivered)
+            .length;
+      });
+    } catch (_) {
+      // 조용히 무시 (마이 화면 진입 시 실패해도 치명적이지 않음).
+    }
+  }
 
   void _openPointHistory(BuildContext context) {
     Navigator.of(
@@ -49,9 +81,9 @@ class ProfilePage extends StatelessWidget {
               ),
             ),
             TextButton(
-              onPressed: () {
+              onPressed: () async {
                 Navigator.of(dialogContext).pop();
-                context.read<AuthProvider>().logout();
+                await context.read<AuthProvider>().logout();
               },
               child: const Text(
                 '로그아웃',
@@ -70,16 +102,11 @@ class ProfilePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gp = context.watch<GpProvider>();
+    final user = context.watch<AuthProvider>().currentUser;
 
-    // 활동 요약(뽑기횟수/보관상품수/배송완료수)에 사용되는 더미 데이터.
-    // 추후 실제 API 연동 시 이 값들을 서버 응답으로 교체하면 됨.
-    const inventoryRepository = InventoryRepository();
-    final inventoryItems = inventoryRepository.getDummyItems();
-    final storedCount = inventoryItems.length;
-    final deliveredCount = inventoryItems
-        .where((item) => item.status == InventoryStatus.delivered)
-        .length;
-    const totalDrawCount = 42;
+    // 총 뽑기횟수는 별도 집계 API가 아직 없어 임시로 0으로 표시한다.
+    // TODO: 이후 GET /draws 집계 응답이 추가되면 교체해야 함.
+    const totalDrawCount = 0;
 
     return Scaffold(
       backgroundColor: AppColors.scaffoldBg,
@@ -130,9 +157,9 @@ class ProfilePage extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
-                              '손귀성',
-                              style: TextStyle(
+                            Text(
+                              user?.nickname ?? '',
+                              style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 17,
                                 fontWeight: FontWeight.w700,
@@ -140,8 +167,8 @@ class ProfilePage extends StatelessWidget {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              'sohn****@gachigacha.com',
-                              style: TextStyle(
+                              user?.maskedEmail ?? '',
+                              style: const TextStyle(
                                 color: AppColors.textOnDarkSecondary,
                                 fontSize: 12,
                               ),
@@ -182,7 +209,7 @@ class ProfilePage extends StatelessWidget {
                         borderRadius: BorderRadius.circular(20),
                         child: InkWell(
                           borderRadius: BorderRadius.circular(20),
-                          onTap: onGoToWallet,
+                          onTap: widget.onGoToWallet,
                           child: const Padding(
                             padding: EdgeInsets.symmetric(
                               horizontal: 14,
@@ -238,7 +265,7 @@ class ProfilePage extends StatelessWidget {
                         ),
                         Expanded(
                           child: _StatColumn(
-                            value: '$storedCount',
+                            value: '$_storedCount',
                             label: '보관 상품수',
                           ),
                         ),
@@ -249,7 +276,7 @@ class ProfilePage extends StatelessWidget {
                         ),
                         Expanded(
                           child: _StatColumn(
-                            value: '$deliveredCount',
+                            value: '$_deliveredCount',
                             label: '배송완료수',
                           ),
                         ),

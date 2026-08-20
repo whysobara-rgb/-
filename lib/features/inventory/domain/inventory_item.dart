@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
+import '../../../core/network/api_client.dart';
+import '../../../core/utils/grade_mapper.dart';
 
 /// 가치가차 - 보관함(내 박스)에 보관 중인 뽑기 획득 상품의 배송/처리 상태.
+///
+/// 백엔드 `InventoryStatus` enum(STORED/SHIPPING_REQUESTED/SHIPPING/DELIVERED)과
+/// 1:1 대응된다 (변환은 [_statusFromBackend]/[_statusToBackend] 참고).
 enum InventoryStatus {
   /// 보관중 (아직 별도 요청 없음)
   stored,
@@ -30,24 +35,71 @@ extension InventoryStatusLabel on InventoryStatus {
   }
 }
 
+/// 백엔드 status 문자열("STORED" 등) -> Flutter [InventoryStatus] 변환.
+InventoryStatus _statusFromBackend(String? backendStatus) {
+  switch (backendStatus) {
+    case 'SHIPPING_REQUESTED':
+      return InventoryStatus.shippingRequested;
+    case 'SHIPPING':
+      return InventoryStatus.shipping;
+    case 'DELIVERED':
+      return InventoryStatus.delivered;
+    case 'STORED':
+    default:
+      return InventoryStatus.stored;
+  }
+}
+
+/// Flutter [InventoryStatus] -> 백엔드 status 문자열 변환 (목록 조회 필터용).
+String _statusToBackend(InventoryStatus status) {
+  switch (status) {
+    case InventoryStatus.stored:
+      return 'STORED';
+    case InventoryStatus.shippingRequested:
+      return 'SHIPPING_REQUESTED';
+    case InventoryStatus.shipping:
+      return 'SHIPPING';
+    case InventoryStatus.delivered:
+      return 'DELIVERED';
+  }
+}
+
+/// 백엔드 아이템은 gacha와 달리 개별 iconName을 내려주지 않으므로,
+/// 등급(rarity)에 따라 대표 아이콘을 매핑한다.
+IconData _iconForRarity(String? rarity) {
+  switch (rarity) {
+    case 'SSR':
+      return Icons.workspace_premium_rounded;
+    case 'SR':
+      return Icons.auto_awesome_rounded;
+    case 'R':
+      return Icons.card_giftcard_rounded;
+    case 'N':
+    default:
+      return Icons.inventory_2_rounded;
+  }
+}
+
 /// 가치가차 - 보관함에 표시되는 뽑기 획득 상품 아이템 모델.
 ///
-/// 추후 실제 API 응답 모델로 교체하기 쉽도록 필드를 단순하게 유지한다.
+/// 백엔드 `GET /inventory` 응답 항목을 그대로 반영한다.
 class InventoryItem {
+  /// 리스트/선택(Set) 식별자로 사용되는 문자열 ID.
+  /// 실제 값은 백엔드 `inventoryItemId`(숫자)의 문자열 표현이다.
   final String id;
   final String name;
 
-  /// 등급 코드 ("S"/"A"/"B"/"C")
+  /// 등급 코드 ("S"/"A"/"B"/"C"). 백엔드 rarity(N/R/SR/SSR)를 [GradeMapper]로 변환한 값.
   final String grade;
 
-  /// 상품 소비자가 (원화)
+  /// 상품 추정 가치 (GP).
   final int price;
 
   final IconData icon;
 
   final InventoryStatus status;
 
-  /// 잠금 여부. 잠금된 상품은 포인트 전환이 불가하다.
+  /// 잠금 여부. 잠금된 상품은 배송/포인트 전환이 불가하다.
   final bool isLocked;
 
   /// 획득 시각 (최근 획득순 정렬에 사용).
@@ -64,7 +116,28 @@ class InventoryItem {
     this.isLocked = false,
   });
 
-  /// 화면 표시용 가격 포맷 (예: "1,200,000원")
+  /// 배송 신청(`POST /shipping-requests`) 시 백엔드에 전달할 숫자 PK.
+  int get numericId => int.tryParse(id) ?? 0;
+
+  /// 백엔드 `GET /inventory` 응답의 items[] 항목 1개를 [InventoryItem]으로 변환한다.
+  factory InventoryItem.fromJson(Map<String, dynamic> json) {
+    final rarity = json['rarity'] as String?;
+    final acquiredAtRaw = json['acquiredAt'] as String?;
+    return InventoryItem(
+      id: (json['inventoryItemId'] as num).toString(),
+      name: json['name'] as String? ?? '',
+      grade: GradeMapper.toUiGrade(rarity),
+      price: (json['estimatedValue'] as num?)?.toInt() ?? 0,
+      icon: _iconForRarity(rarity),
+      status: _statusFromBackend(json['status'] as String?),
+      acquiredAt: acquiredAtRaw != null
+          ? (DateTime.tryParse(acquiredAtRaw) ?? DateTime.now())
+          : DateTime.now(),
+      isLocked: json['isLocked'] as bool? ?? false,
+    );
+  }
+
+  /// 화면 표시용 가격 포맷 (예: "1,200,000 GP")
   String get formattedPrice {
     final str = price.toString();
     final buffer = StringBuffer();
@@ -73,7 +146,7 @@ class InventoryItem {
       buffer.write(str[i]);
       if (posFromEnd > 1 && posFromEnd % 3 == 1) buffer.write(',');
     }
-    return '${buffer.toString()}원';
+    return '${buffer.toString()} GP';
   }
 }
 
@@ -102,90 +175,24 @@ extension InventorySortOptionLabel on InventorySortOption {
   }
 }
 
-/// 보관함 더미 데이터 저장소.
-///
-/// 추후 실제 API/DB 연동 시 이 클래스의 구현만 교체하면 되도록
-/// 인터페이스를 단순하게 유지한다.
+/// 보관함 데이터 저장소. 백엔드 `GET /inventory`와 통신한다.
 class InventoryRepository {
-  const InventoryRepository();
+  final ApiClient _apiClient;
 
-  List<InventoryItem> getDummyItems() {
-    final now = DateTime.now();
-    return [
-      InventoryItem(
-        id: 'inv_001',
-        name: '명품 시계',
-        grade: 'S',
-        price: 2500000,
-        icon: Icons.watch_rounded,
-        status: InventoryStatus.stored,
-        acquiredAt: now.subtract(const Duration(minutes: 5)),
-        isLocked: true,
-      ),
-      InventoryItem(
-        id: 'inv_002',
-        name: '프리미엄 지갑',
-        grade: 'A',
-        price: 450000,
-        icon: Icons.account_balance_wallet_rounded,
-        status: InventoryStatus.shippingRequested,
-        acquiredAt: now.subtract(const Duration(hours: 2)),
-      ),
-      InventoryItem(
-        id: 'inv_003',
-        name: '무선 이어폰',
-        grade: 'A',
-        price: 329000,
-        icon: Icons.headphones_rounded,
-        status: InventoryStatus.shipping,
-        acquiredAt: now.subtract(const Duration(hours: 6)),
-      ),
-      InventoryItem(
-        id: 'inv_004',
-        name: '브랜드 운동화',
-        grade: 'B',
-        price: 89000,
-        icon: Icons.sports_soccer_rounded,
-        status: InventoryStatus.delivered,
-        acquiredAt: now.subtract(const Duration(days: 1)),
-      ),
-      InventoryItem(
-        id: 'inv_005',
-        name: '향수 세트',
-        grade: 'B',
-        price: 65000,
-        icon: Icons.local_florist_rounded,
-        status: InventoryStatus.stored,
-        acquiredAt: now.subtract(const Duration(days: 2)),
-      ),
-      InventoryItem(
-        id: 'inv_006',
-        name: '카페 기프티콘',
-        grade: 'C',
-        price: 6500,
-        icon: Icons.local_cafe_rounded,
-        status: InventoryStatus.delivered,
-        acquiredAt: now.subtract(const Duration(days: 3)),
-      ),
-      InventoryItem(
-        id: 'inv_007',
-        name: '편의점 상품권',
-        grade: 'C',
-        price: 5000,
-        icon: Icons.card_giftcard_rounded,
-        status: InventoryStatus.stored,
-        acquiredAt: now.subtract(const Duration(days: 4)),
-        isLocked: true,
-      ),
-      InventoryItem(
-        id: 'inv_008',
-        name: '프리미엄 스마트폰',
-        grade: 'S',
-        price: 1200000,
-        icon: Icons.phone_iphone_rounded,
-        status: InventoryStatus.shipping,
-        acquiredAt: now.subtract(const Duration(days: 5)),
-      ),
-    ];
+  const InventoryRepository({ApiClient apiClient = const ApiClient()})
+    : _apiClient = apiClient;
+
+  /// 보관함 전체 목록을 조회한다. [status]를 지정하면 해당 상태만 필터링한다.
+  Future<List<InventoryItem>> getAll({InventoryStatus? status}) async {
+    final query = <String>['page=1', 'limit=100'];
+    if (status != null) {
+      query.add('status=${_statusToBackend(status)}');
+    }
+    final data = await _apiClient.get('/inventory?${query.join('&')}');
+    final map = data as Map<String, dynamic>;
+    final items = map['items'] as List<dynamic>? ?? [];
+    return items
+        .map((e) => InventoryItem.fromJson(e as Map<String, dynamic>))
+        .toList();
   }
 }
