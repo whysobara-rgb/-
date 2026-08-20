@@ -11,9 +11,9 @@ import 'gacha_animation_page.dart';
 
 /// 가치가차 - 캡슐(랜덤박스) 상세 화면.
 ///
-/// "다크 차콜 + 네온 라임그린" 단일 톤 디자인. 백엔드 `GET /gachas/:id`를
-/// 통해 실시간 재고와 실제 럭키 라인업 구성을 가져와 표시한다.
-/// 홈 화면 카드 탭 시 push되는 화면.
+/// "Vivid Pastel Pop" 크림 화이트 배경 + 코랄 액센트 디자인. 백엔드
+/// `GET /gachas/:id`를 통해 실시간 재고와 실제 럭키 라인업 구성을 가져와
+/// 표시한다. 홈 화면 카드 탭 시 push되는 화면.
 class GachaDetailPage extends StatefulWidget {
   final CapsuleBox box;
 
@@ -519,7 +519,7 @@ class _VisualBanner extends StatelessWidget {
   }
 }
 
-/// [3] 실시간 재고 카드 (다크 표면 + 진행률 표시).
+/// [3] 실시간 재고 카드 (화이트 카드 + 진행률 표시).
 class _StockCard extends StatelessWidget {
   final int totalStock;
   final int soldStock;
@@ -542,6 +542,13 @@ class _StockCard extends StatelessWidget {
         color: AppColors.surfaceElevated,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.surfaceBorder),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -631,6 +638,13 @@ class _LuckyLineupCard extends StatelessWidget {
         color: AppColors.surfaceElevated,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.surfaceBorder),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         children: [
@@ -789,11 +803,18 @@ class _BottomPurchaseBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppColors.surfaceShell,
-        border: Border(
+        border: const Border(
           top: BorderSide(color: AppColors.surfaceBorder, width: 1),
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 12,
+            offset: const Offset(0, -3),
+          ),
+        ],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,

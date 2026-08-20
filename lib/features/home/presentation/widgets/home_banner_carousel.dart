@@ -2,10 +2,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../../core/theme/app_colors.dart';
 
-/// 가치가차 - 홈 메인 배너 (다크 프로모션 카드, 3개, 자동 슬라이드).
+/// 가치가차 - 홈 메인 배너 (비비드 그라데이션 프로모션 카드, 3개, 자동 슬라이드).
 ///
 /// PageView + PageController + Timer로 3초 간격 자동 슬라이드하며,
 /// 우하단에 반투명 검정 pill로 "1/3" 형식의 페이지 표시를 보여준다.
+/// 3장의 배너가 각기 다른 비비드 그라데이션(코랄→바이올렛 / 민트→스카이 /
+/// 옐로우→코랄)을 사용해 화면이 단조롭지 않도록 구성한다.
 class HomeBannerCarousel extends StatefulWidget {
   const HomeBannerCarousel({super.key});
 
@@ -14,7 +16,7 @@ class HomeBannerCarousel extends StatefulWidget {
 }
 
 class _BannerData {
-  final List<Color> gradient;
+  final Gradient gradient;
   final IconData icon;
 
   const _BannerData({required this.gradient, required this.icon});
@@ -23,15 +25,15 @@ class _BannerData {
 class _HomeBannerCarouselState extends State<HomeBannerCarousel> {
   static const List<_BannerData> _banners = [
     _BannerData(
-      gradient: [Color(0xFF1E1E1E), Color(0xFF3A2E12)],
+      gradient: AppColors.heroGradient,
       icon: Icons.watch_rounded,
     ),
     _BannerData(
-      gradient: [Color(0xFF1E1E1E), Color(0xFF2A2338)],
+      gradient: AppColors.heroGradientMint,
       icon: Icons.diamond_rounded,
     ),
     _BannerData(
-      gradient: [Color(0xFF1E1E1E), Color(0xFF1F3A2E)],
+      gradient: AppColors.heroGradientYellow,
       icon: Icons.shopping_bag_rounded,
     ),
   ];
@@ -99,12 +101,15 @@ class _BannerCard extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Container(
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          gradient: LinearGradient(
-            colors: banner.gradient,
-            begin: Alignment.centerLeft,
-            end: Alignment.centerRight,
-          ),
+          borderRadius: BorderRadius.circular(20),
+          gradient: banner.gradient,
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.accentViolet.withValues(alpha: 0.18),
+              blurRadius: 16,
+              offset: const Offset(0, 8),
+            ),
+          ],
         ),
         child: Stack(
           children: [
@@ -134,7 +139,7 @@ class _BannerCard extends StatelessWidget {
                 child: Icon(
                   banner.icon,
                   size: 70,
-                  color: AppColors.goldPrimary,
+                  color: Colors.white.withValues(alpha: 0.9),
                 ),
               ),
             ),
@@ -148,7 +153,7 @@ class _BannerCard extends StatelessWidget {
                   vertical: 4,
                 ),
                 decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.45),
+                  color: Colors.black.withValues(alpha: 0.25),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(

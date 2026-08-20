@@ -20,6 +20,8 @@ class CapsuleBoxCard extends StatelessWidget {
     return Material(
       color: AppColors.surfaceElevated,
       borderRadius: BorderRadius.circular(16),
+      elevation: 3,
+      shadowColor: Colors.black.withValues(alpha: 0.12),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,

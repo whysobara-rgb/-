@@ -33,13 +33,13 @@ class GachaVaultApp extends StatelessWidget {
       child: MaterialApp(
         title: '가치가차',
         debugShowCheckedModeBanner: false,
-        theme: AppTheme.darkTheme,
-        themeMode: ThemeMode.dark,
+        theme: AppTheme.lightTheme,
+        themeMode: ThemeMode.light,
         // 전역 모바일 프레임: 웹/넓은 화면에서도 앱이 모바일 폭(최대 430)으로
-        // 중앙 정렬되고, 남는 좌우 영역은 다크 톤(darkSurface)으로 채워진다.
+        // 중앙 정렬되고, 남는 좌우 영역은 앱 배경과 동일한 크림톤으로 채워진다.
         builder: (context, child) {
           return Container(
-            color: AppColors.darkSurface,
+            color: AppColors.scaffoldBg,
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 430),

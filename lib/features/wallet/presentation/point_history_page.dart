@@ -124,9 +124,15 @@ class _PointHistoryPageState extends State<PointHistoryPage> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: AppColors.surfaceElevated,
+                  gradient: AppColors.heroGradient,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppColors.surfaceBorder),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.accentViolet.withValues(alpha: 0.25),
+                      blurRadius: 16,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -141,7 +147,7 @@ class _PointHistoryPageState extends State<PointHistoryPage> {
                     Text(
                       '${gp.formattedBalance} GP',
                       style: const TextStyle(
-                        color: AppColors.goldPrimary,
+                        color: AppColors.textOnDark,
                         fontSize: 20,
                         fontWeight: FontWeight.w800,
                       ),

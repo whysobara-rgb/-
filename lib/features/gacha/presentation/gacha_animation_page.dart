@@ -10,11 +10,11 @@ import 'gacha_result_page.dart';
 
 /// 가치가차 - 캡슐 뽑기 진행 중 보여지는 전체 화면 애니메이션.
 ///
-/// 앱 전체는 화이트+골드 테마이지만, 이 화면만은 몰입감을 위해
-/// darkSurface(#111111) 배경을 유지한다. 중앙 박스 아이콘이 좌우로
-/// 흔들리는 애니메이션을 재생하면서 동시에 백엔드 `POST /draws`를
-/// 호출하고, 애니메이션 완료(또는 SKIP) + API 응답 수신이 모두
-/// 끝나면 [GachaResultPage]로 화면을 교체(replace)한다.
+/// 앱 전체는 크림 화이트+코랄 테마이지만, 이 화면만은 "캡슐을 여는 특별한
+/// 순간"의 몰입감을 위해 비비드 코랄→바이올렛 히어로 그라데이션 배경을
+/// 사용한다. 중앙 박스 아이콘이 좌우로 흔들리는 애니메이션을 재생하면서
+/// 동시에 백엔드 `POST /draws`를 호출하고, 애니메이션 완료(또는 SKIP) +
+/// API 응답 수신이 모두 끝나면 [GachaResultPage]로 화면을 교체(replace)한다.
 class GachaAnimationPage extends StatefulWidget {
   final CapsuleBox box;
   final int count;
@@ -126,8 +126,9 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.darkSurface,
-      body: SafeArea(
+      body: DecoratedBox(
+        decoration: const BoxDecoration(gradient: AppColors.heroGradient),
+        child: SafeArea(
         child: Stack(
           children: [
             Center(
@@ -142,14 +143,20 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
                         child: child,
                       );
                     },
-                    child: ShaderMask(
-                      shaderCallback: (bounds) =>
-                          AppColors.goldGradient.createShader(
-                            Rect.fromLTWH(0, 0, bounds.width, bounds.height),
-                          ),
+                    child: Container(
+                      width: 160,
+                      height: 160,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.18),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.4),
+                          width: 2,
+                        ),
+                      ),
                       child: const Icon(
                         Icons.all_inbox_rounded,
-                        size: 120,
+                        size: 88,
                         color: Colors.white,
                       ),
                     ),
@@ -160,7 +167,7 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 16,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                 ],
@@ -173,10 +180,10 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
               bottom: 16,
               child: TextButton(
                 onPressed: _skip,
-                child: const Text(
+                child: Text(
                   'SKIP',
                   style: TextStyle(
-                    color: AppColors.goldPrimary,
+                    color: Colors.white.withValues(alpha: 0.9),
                     fontSize: 14,
                     fontWeight: FontWeight.w800,
                     letterSpacing: 1,
@@ -185,7 +192,7 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
               ),
             ),
 
-            // ── 하단 골드 진행률 표시 ──
+            // ── 하단 진행률 표시 ──
             Positioned(
               left: 24,
               right: 24,
@@ -198,9 +205,9 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
                     child: LinearProgressIndicator(
                       value: _controller.value,
                       minHeight: 6,
-                      backgroundColor: Colors.white.withValues(alpha: 0.15),
+                      backgroundColor: Colors.white.withValues(alpha: 0.25),
                       valueColor: const AlwaysStoppedAnimation<Color>(
-                        AppColors.goldPrimary,
+                        Colors.white,
                       ),
                     ),
                   );
@@ -208,6 +215,7 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
               ),
             ),
           ],
+        ),
         ),
       ),
     );

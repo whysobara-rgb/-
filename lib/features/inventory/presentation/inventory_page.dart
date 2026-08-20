@@ -7,8 +7,8 @@ import 'delivery_request_page.dart';
 
 /// 가치가차 - 하단 탭 "박스"(보관함) 화면.
 ///
-/// "화이트 앱 셸 + 다크 포인트" 컨셉으로, 전체 배경은 화이트이며
-/// 골드 컬러가 선택/강조 요소에 사용된다.
+/// "Vivid Pastel Pop" 컨셉으로, 전체 배경은 크림 화이트이며
+/// 코랄 액센트가 선택/강조 요소에 사용된다.
 /// 보관함 목록은 백엔드 `GET /inventory`에서 실시간으로 가져온다.
 class InventoryPage extends StatefulWidget {
   const InventoryPage({super.key});
@@ -367,6 +367,13 @@ class _InventoryPageState extends State<InventoryPage> {
                           color: AppColors.surfaceElevated,
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(color: AppColors.surfaceBorder),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.05),
+                              blurRadius: 12,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
                         ),
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -671,6 +678,13 @@ class _InventoryItemCard extends StatelessWidget {
         color: AppColors.surfaceElevated,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: AppColors.surfaceBorder),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       clipBehavior: Clip.antiAlias,
       child: Row(

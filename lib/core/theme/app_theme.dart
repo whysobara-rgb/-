@@ -1,31 +1,31 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'app_colors.dart';
 
 /// 가치가차 - 앱 전역 테마.
 ///
-/// "다크 차콜 + 네온 라임그린" 단일 톤 테마. 앱 배경/AppBar/하단 네비게이션이
-/// 모두 다크 차콜 베이스이며, 네온 라임그린(#C9F32B) 강조 컬러로 선택 상태와
-/// 핵심 CTA를 강조한다. (실제 출시된 프리미엄 랜덤박스 앱들의 다크 UI 관용구를
-/// 따른다.)
+/// "비비드 파스텔 팝(Vivid Pastel Pop)" 라이트 테마. 크림 화이트 배경 위에
+/// 코랄·바이올렛·민트·옐로우 등 여러 비비드 포인트 컬러를 함께 사용해
+/// 밝고 경쾌하면서도 프리미엄한 Gen Z 감성의 UI를 구성한다.
 class AppTheme {
   AppTheme._();
 
-  static ThemeData get darkTheme {
+  static ThemeData get lightTheme {
     final base = ThemeData(
-      brightness: Brightness.dark,
+      brightness: Brightness.light,
       useMaterial3: true,
       fontFamily: 'Roboto',
     );
 
     final colorScheme = base.colorScheme.copyWith(
-      brightness: Brightness.dark,
-      primary: AppColors.neonPrimary,
-      onPrimary: Colors.black,
-      secondary: AppColors.neonPrimaryDark,
-      onSecondary: Colors.black,
+      brightness: Brightness.light,
+      primary: AppColors.primary,
+      onPrimary: Colors.white,
+      secondary: AppColors.accentViolet,
+      onSecondary: Colors.white,
       surface: AppColors.surfaceElevated,
       onSurface: AppColors.textPrimary,
-      error: AppColors.badgeSpecial,
+      error: AppColors.error,
       onError: Colors.white,
     );
 
@@ -35,7 +35,7 @@ class AppTheme {
       canvasColor: AppColors.scaffoldBg,
 
       appBarTheme: const AppBarTheme(
-        backgroundColor: AppColors.surfaceShell,
+        backgroundColor: AppColors.scaffoldBg,
         elevation: 0,
         centerTitle: false,
         surfaceTintColor: Colors.transparent,
@@ -46,18 +46,16 @@ class AppTheme {
           letterSpacing: 0.3,
         ),
         iconTheme: IconThemeData(color: AppColors.textPrimary),
-        shape: Border(
-          bottom: BorderSide(color: AppColors.surfaceBorder, width: 1),
-        ),
+        systemOverlayStyle: SystemUiOverlayStyle.dark,
       ),
 
       bottomNavigationBarTheme: const BottomNavigationBarThemeData(
-        backgroundColor: AppColors.surfaceShell,
-        selectedItemColor: AppColors.neonPrimary,
-        unselectedItemColor: Color(0xFF6E6E76),
+        backgroundColor: Colors.white,
+        selectedItemColor: AppColors.primary,
+        unselectedItemColor: Color(0xFFBFB8C4),
         showUnselectedLabels: true,
         type: BottomNavigationBarType.fixed,
-        elevation: 0,
+        elevation: 8,
         selectedLabelStyle: TextStyle(
           fontSize: 11,
           fontWeight: FontWeight.w700,
@@ -70,7 +68,8 @@ class AppTheme {
 
       cardTheme: CardThemeData(
         color: AppColors.surfaceElevated,
-        elevation: 0,
+        elevation: 2,
+        shadowColor: Colors.black.withValues(alpha: 0.08),
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
@@ -93,16 +92,16 @@ class AppTheme {
       ),
 
       tabBarTheme: const TabBarThemeData(
-        labelColor: AppColors.textPrimary,
+        labelColor: AppColors.primary,
         unselectedLabelColor: AppColors.textSecondary,
-        indicatorColor: AppColors.neonPrimary,
+        indicatorColor: AppColors.primary,
         dividerColor: AppColors.surfaceBorder,
       ),
 
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.neonPrimary,
-          foregroundColor: Colors.black,
+          backgroundColor: AppColors.primary,
+          foregroundColor: Colors.white,
           elevation: 0,
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
           shape: RoundedRectangleBorder(
@@ -113,7 +112,7 @@ class AppTheme {
       ),
 
       textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(foregroundColor: AppColors.neonPrimary),
+        style: TextButton.styleFrom(foregroundColor: AppColors.primary),
       ),
 
       outlinedButtonTheme: OutlinedButtonThemeData(
@@ -147,15 +146,15 @@ class AppTheme {
       iconTheme: const IconThemeData(color: AppColors.textPrimary),
 
       snackBarTheme: SnackBarThemeData(
-        backgroundColor: AppColors.surfaceElevated2,
-        contentTextStyle: const TextStyle(color: AppColors.textPrimary),
+        backgroundColor: AppColors.textPrimary,
+        contentTextStyle: const TextStyle(color: Colors.white),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
   }
 
-  /// 하위 호환용 별칭. 기존 코드에서 AppTheme.lightTheme을 참조하던 부분이
-  /// 있어도 동작하도록 새 다크 테마를 그대로 가리킨다.
-  static ThemeData get lightTheme => darkTheme;
+  /// 하위 호환용 별칭. 기존 코드에서 AppTheme.darkTheme을 참조하던 부분이
+  /// 있어도 동작하도록 새 라이트 테마를 그대로 가리킨다.
+  static ThemeData get darkTheme => lightTheme;
 }

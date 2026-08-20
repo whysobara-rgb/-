@@ -9,7 +9,8 @@ import '../../wallet/presentation/point_history_page.dart';
 
 /// 가치가차 - 하단 탭 "마이" 화면.
 ///
-/// 전체 배경은 화이트이며, 상단 프로필 카드만 darkSurface로 대비를 준다.
+/// "Vivid Pastel Pop" 컨셉트로, 전체 배경은 크림 화이트이며
+/// 카드는 화이트 엸리베이션 + 섬세한 그림자로 구분된다.
 /// 활동 요약(보관상품수/배송완료수)은 백엔드 GET /inventory에서 실시간으로 가져온다.
 class ProfilePage extends StatefulWidget {
   /// "충전" 탭으로 이동하기 위한 콜백. [MainNavigation]에서 전달된다.
@@ -143,7 +144,7 @@ class _ProfilePageState extends State<ProfilePage> {
         child: ListView(
           padding: EdgeInsets.zero,
           children: [
-            // ── 상단 프로필 카드 (darkSurface, 마진 20) ──
+            // ── 상단 프로필 카드 (화이트 엸리베이션, 마진 20) ──
             Container(
               margin: const EdgeInsets.all(20),
               padding: const EdgeInsets.all(20),
@@ -151,6 +152,13 @@ class _ProfilePageState extends State<ProfilePage> {
                 color: AppColors.surfaceElevated,
                 borderRadius: BorderRadius.circular(20),
                 border: Border.all(color: AppColors.surfaceBorder),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.accentViolet.withValues(alpha: 0.10),
+                    blurRadius: 16,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
               ),
               child: Column(
                 children: [
@@ -186,7 +194,7 @@ class _ProfilePageState extends State<ProfilePage> {
                             Text(
                               user?.maskedEmail ?? '',
                               style: const TextStyle(
-                                color: AppColors.textOnDarkSecondary,
+                                color: AppColors.textSecondary,
                                 fontSize: 12,
                               ),
                             ),
@@ -204,7 +212,7 @@ class _ProfilePageState extends State<ProfilePage> {
                       const Text(
                         '보유 GP',
                         style: TextStyle(
-                          color: AppColors.textOnDarkSecondary,
+                          color: AppColors.textSecondary,
                           fontSize: 13,
                         ),
                       ),
@@ -257,6 +265,13 @@ class _ProfilePageState extends State<ProfilePage> {
                       color: AppColors.surfaceElevated,
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(color: AppColors.surfaceBorder),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.04),
+                          blurRadius: 10,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
                     ),
                     child: Row(
                       children: [
@@ -441,6 +456,13 @@ class _MenuSection extends StatelessWidget {
             color: AppColors.surfaceElevated,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(color: AppColors.surfaceBorder),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 10,
+                offset: const Offset(0, 3),
+              ),
+            ],
           ),
           child: Column(
             children: [

@@ -162,21 +162,20 @@ class _WalletPageState extends State<WalletPage> {
           child: ListView(
             padding: EdgeInsets.zero,
             children: [
-              // ── 상단 GP 카드 (darkSurface 그라데이션, 마진 20) ──
+              // ── 상단 GP 카드 (비비드 코랄→바이올렛 히어로 그라데이션) ──
               Container(
                 margin: const EdgeInsets.all(20),
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      AppColors.surfaceElevated,
-                      AppColors.surfaceElevated2,
-                    ],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppColors.surfaceBorder),
+                  gradient: AppColors.heroGradient,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.accentViolet.withValues(alpha: 0.28),
+                      blurRadius: 20,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -184,7 +183,7 @@ class _WalletPageState extends State<WalletPage> {
                     Text(
                       '$nickname님의 보유 포인트',
                       style: const TextStyle(
-                        color: AppColors.textSecondary,
+                        color: AppColors.textOnDarkSecondary,
                         fontSize: 14,
                       ),
                     ),
@@ -192,7 +191,7 @@ class _WalletPageState extends State<WalletPage> {
                     Text(
                       '${gp.formattedBalance} GP',
                       style: const TextStyle(
-                        color: AppColors.goldPrimary,
+                        color: AppColors.textOnDark,
                         fontSize: 32,
                         fontWeight: FontWeight.w900,
                       ),
@@ -204,7 +203,7 @@ class _WalletPageState extends State<WalletPage> {
                       height: 48,
                       child: DecoratedBox(
                         decoration: BoxDecoration(
-                          gradient: AppColors.goldGradient,
+                          color: Colors.white,
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Material(
@@ -219,13 +218,13 @@ class _WalletPageState extends State<WalletPage> {
                                       height: 20,
                                       child: CircularProgressIndicator(
                                         strokeWidth: 2.2,
-                                        color: Color(0xFF16161A),
+                                        color: AppColors.primary,
                                       ),
                                     )
                                   : const Text(
                                       '포인트 충전하기',
                                       style: TextStyle(
-                                        color: Color(0xFF16161A),
+                                        color: AppColors.primary,
                                         fontSize: 15,
                                         fontWeight: FontWeight.w800,
                                       ),
@@ -248,7 +247,7 @@ class _WalletPageState extends State<WalletPage> {
                         child: const Text(
                           '랜덤박스 구매하러 가기 →',
                           style: TextStyle(
-                            color: AppColors.goldPrimary,
+                            color: AppColors.textOnDark,
                             fontSize: 13,
                             fontWeight: FontWeight.w700,
                           ),
@@ -297,7 +296,7 @@ class _WalletPageState extends State<WalletPage> {
                         border: Border.all(color: AppColors.surfaceBorder),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.2),
+                            color: Colors.black.withValues(alpha: 0.06),
                             blurRadius: 10,
                             offset: const Offset(0, 3),
                           ),
