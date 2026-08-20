@@ -27,6 +27,9 @@ class CapsuleBox {
   /// 카드 상단 썸네일 그라데이션에 사용되는 포인트 컬러.
   final Color accentColor;
 
+  /// 실제 상품 사진 URL. null이면 카드/배너는 [icon] 기반 폴백을 사용한다.
+  final String? imageUrl;
+
   const CapsuleBox({
     required this.id,
     this.tagline,
@@ -35,6 +38,7 @@ class CapsuleBox {
     required this.icon,
     this.badgeLabel,
     required this.accentColor,
+    this.imageUrl,
   });
 
   /// 백엔드 `GET /gachas` 응답 아이템 1개를 [CapsuleBox]로 변환한다.
@@ -47,6 +51,7 @@ class CapsuleBox {
       icon: IconMapper.resolve(json['iconName'] as String?),
       badgeLabel: json['badgeLabel'] as String?,
       accentColor: colorFromHex(json['accentColorHex'] as String?),
+      imageUrl: json['imageUrl'] as String?,
     );
   }
 

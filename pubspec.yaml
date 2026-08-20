@@ -42,6 +42,9 @@ dependencies:
   http: 1.5.0
   shared_preferences: 2.5.3
 
+  # Real product photo rendering (network image caching, web-compatible)
+  cached_network_image: 3.4.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
