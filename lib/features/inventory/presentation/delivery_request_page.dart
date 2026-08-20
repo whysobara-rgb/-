@@ -542,13 +542,13 @@ class _DeliveryRequestPageState extends State<DeliveryRequestPage> {
                       ),
                     )
                   : const Text(
-                '배송 신청하기',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textPrimary,
-                ),
-              ),
+                      '배송 신청하기',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
             ),
           ),
         ),

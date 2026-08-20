@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../../core/network/api_client.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../shared/providers/gp_provider.dart';
 import '../domain/point_history.dart';
@@ -48,14 +49,43 @@ extension on _HistoryFilter {
 
 class _PointHistoryPageState extends State<PointHistoryPage> {
   final _repository = const PointHistoryRepository();
-  late final List<PointHistoryEntry> _allHistory;
+  List<PointHistoryEntry> _allHistory = [];
+  bool _isLoading = true;
+  String? _error;
 
   _HistoryFilter _selectedFilter = _HistoryFilter.all;
 
   @override
   void initState() {
     super.initState();
-    _allHistory = _repository.getDummyHistory();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadHistory());
+  }
+
+  Future<void> _loadHistory() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+    try {
+      final history = await _repository.getAll();
+      if (!mounted) return;
+      setState(() {
+        _allHistory = history;
+        _isLoading = false;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.message;
+        _isLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _error = '포인트 내역을 불러오지 못했습니다';
+        _isLoading = false;
+      });
+    }
   }
 
   List<PointHistoryEntry> get _filteredHistory {
@@ -138,29 +168,64 @@ class _PointHistoryPageState extends State<PointHistoryPage> {
             ),
             const SizedBox(height: 12),
 
-            // ── 더미 리스트 ──
+            // ── 내역 리스트 ──
             Expanded(
-              child: filtered.isEmpty
+              child: _isLoading
                   ? const Center(
-                      child: Text(
-                        '내역이 없습니다',
-                        style: TextStyle(
-                          color: AppColors.textSecondary,
-                          fontSize: 13,
-                        ),
+                      child: CircularProgressIndicator(
+                        color: AppColors.goldPrimary,
                       ),
                     )
-                  : ListView.separated(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                      itemCount: filtered.length,
-                      separatorBuilder: (context, index) => const Divider(
-                        height: 1,
-                        color: AppColors.surfaceBorder,
+                  : _error != null
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            _error!,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          TextButton(
+                            onPressed: _loadHistory,
+                            child: const Text('다시 시도'),
+                          ),
+                        ],
                       ),
-                      itemBuilder: (context, index) {
-                        final entry = filtered[index];
-                        return _HistoryTile(entry: entry);
-                      },
+                    )
+                  : RefreshIndicator(
+                      onRefresh: _loadHistory,
+                      child: filtered.isEmpty
+                          ? ListView(
+                              children: const [
+                                SizedBox(height: 100),
+                                Center(
+                                  child: Text(
+                                    '내역이 없습니다',
+                                    style: TextStyle(
+                                      color: AppColors.textSecondary,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            )
+                          : ListView.separated(
+                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                              itemCount: filtered.length,
+                              separatorBuilder: (context, index) =>
+                                  const Divider(
+                                    height: 1,
+                                    color: AppColors.surfaceBorder,
+                                  ),
+                              itemBuilder: (context, index) {
+                                final entry = filtered[index];
+                                return _HistoryTile(entry: entry);
+                              },
+                            ),
                     ),
             ),
           ],

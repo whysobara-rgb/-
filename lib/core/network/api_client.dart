@@ -73,12 +73,19 @@ class ApiClient {
     final errors = (errorsRaw is List)
         ? errorsRaw.map((e) => e.toString()).toList()
         : <String>[];
-    throw ApiException(statusCode: statusCode, message: message, errors: errors);
+    throw ApiException(
+      statusCode: statusCode,
+      message: message,
+      errors: errors,
+    );
   }
 
   Future<dynamic> get(String path, {bool withAuth = true}) async {
     final uri = Uri.parse('$baseUrl$path');
-    final response = await http.get(uri, headers: await _headers(withAuth: withAuth));
+    final response = await http.get(
+      uri,
+      headers: await _headers(withAuth: withAuth),
+    );
     return _unwrap(response);
   }
 

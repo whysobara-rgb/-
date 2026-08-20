@@ -85,7 +85,10 @@ class _SignupPageState extends State<SignupPage> {
         elevation: 0,
         title: const Text(
           '회원가입',
-          style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700),
+          style: TextStyle(
+            color: AppColors.textPrimary,
+            fontWeight: FontWeight.w700,
+          ),
         ),
         iconTheme: const IconThemeData(color: AppColors.textPrimary),
       ),
@@ -99,7 +102,10 @@ class _SignupPageState extends State<SignupPage> {
               children: [
                 const Text(
                   '가치가차에서 특별한 순간을 만들어보세요',
-                  style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: AppColors.textSecondary,
+                  ),
                 ),
                 const SizedBox(height: 28),
                 _buildTextField(
@@ -202,13 +208,23 @@ class _SignupPageState extends State<SignupPage> {
         style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
         decoration: InputDecoration(
           hintText: hintText,
-          hintStyle: const TextStyle(color: AppColors.textSecondary, fontSize: 14),
-          prefixIcon: Icon(prefixIcon, color: AppColors.textSecondary, size: 20),
+          hintStyle: const TextStyle(
+            color: AppColors.textSecondary,
+            fontSize: 14,
+          ),
+          prefixIcon: Icon(
+            prefixIcon,
+            color: AppColors.textSecondary,
+            size: 20,
+          ),
           suffixIcon: suffixIcon,
           border: InputBorder.none,
           errorBorder: InputBorder.none,
           focusedErrorBorder: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 14,
+          ),
         ),
       ),
     );

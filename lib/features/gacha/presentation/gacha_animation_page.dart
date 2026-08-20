@@ -96,8 +96,9 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
           ? (_apiError as ApiException).message
           : '뽑기 중 오류가 발생했습니다';
       Navigator.of(context).pop();
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
       return;
     }
 

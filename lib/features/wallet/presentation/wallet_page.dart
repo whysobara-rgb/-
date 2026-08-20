@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../../core/network/api_client.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../shared/providers/auth_provider.dart';
 import '../../../shared/providers/gp_provider.dart';
 import '../domain/point_history.dart';
 import 'point_history_page.dart';
@@ -10,12 +12,46 @@ import 'point_history_page.dart';
 /// ※ 기획 정책상 유료 포인트 충전 기능은 제공하지 않는다.
 /// 이 화면은 실제 결제/충전이 아니라 "GP 현황 확인 + 이용 내역 확인 +
 /// 랜덤박스 구매 유도" 역할을 한다.
-class WalletPage extends StatelessWidget {
+/// 최근 포인트 내역은 백엔드 GET /wallet/point-history에서 실시간으로 가져온다.
+class WalletPage extends StatefulWidget {
   /// "랜덤박스 구매하러 가기" 탭 시 하단 네비게이션을 홈(0번) 탭으로
   /// 전환하기 위한 콜백. [MainNavigation]에서 전달된다.
   final VoidCallback onGoToHome;
 
   const WalletPage({super.key, required this.onGoToHome});
+
+  @override
+  State<WalletPage> createState() => _WalletPageState();
+}
+
+class _WalletPageState extends State<WalletPage> {
+  final _repository = const PointHistoryRepository();
+  List<PointHistoryEntry> _recentHistory = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadRecentHistory());
+  }
+
+  Future<void> _loadRecentHistory() async {
+    setState(() => _isLoading = true);
+    try {
+      final history = await _repository.getAll(limit: 5);
+      if (!mounted) return;
+      setState(() {
+        _recentHistory = history;
+        _isLoading = false;
+      });
+    } on ApiException catch (_) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+    }
+  }
 
   void _openHistory(BuildContext context) {
     Navigator.of(
@@ -26,8 +62,8 @@ class WalletPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gp = context.watch<GpProvider>();
-    final repository = const PointHistoryRepository();
-    final recentHistory = repository.getDummyHistory().take(5).toList();
+    final nickname = context.watch<AuthProvider>().currentUser?.nickname ?? '';
+    final recentHistory = _recentHistory;
 
     return Scaffold(
       backgroundColor: AppColors.scaffoldBg,
@@ -45,133 +81,158 @@ class WalletPage extends StatelessWidget {
         ),
       ),
       body: SafeArea(
-        child: ListView(
-          padding: EdgeInsets.zero,
-          children: [
-            // ── 상단 GP 카드 (darkSurface 그라데이션, 마진 20) ──
-            Container(
-              margin: const EdgeInsets.all(20),
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    AppColors.darkSurface,
-                    AppColors.darkSurface.withValues(alpha: 0.85),
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
+        child: RefreshIndicator(
+          onRefresh: _loadRecentHistory,
+          child: ListView(
+            padding: EdgeInsets.zero,
+            children: [
+              // ── 상단 GP 카드 (darkSurface 그라데이션, 마진 20) ──
+              Container(
+                margin: const EdgeInsets.all(20),
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      AppColors.darkSurface,
+                      AppColors.darkSurface.withValues(alpha: 0.85),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(16),
                 ),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    '손귀성님의 보유 포인트',
-                    style: TextStyle(color: Colors.white, fontSize: 14),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '${gp.formattedBalance} GP',
-                    style: const TextStyle(
-                      color: AppColors.goldPrimary,
-                      fontSize: 32,
-                      fontWeight: FontWeight.w900,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '$nickname님의 보유 포인트',
+                      style: const TextStyle(color: Colors.white, fontSize: 14),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton(
-                      onPressed: onGoToHome,
-                      style: TextButton.styleFrom(
-                        padding: EdgeInsets.zero,
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                      child: const Text(
-                        '랜덤박스 구매하러 가기 →',
-                        style: TextStyle(
-                          color: AppColors.goldPrimary,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                        ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '${gp.formattedBalance} GP',
+                      style: const TextStyle(
+                        color: AppColors.goldPrimary,
+                        fontSize: 32,
+                        fontWeight: FontWeight.w900,
                       ),
                     ),
-                  ),
-                ],
-              ),
-            ),
-
-            // ── 최근 포인트 내역 (화이트) ──
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        '최근 포인트 내역',
-                        style: TextStyle(
-                          color: AppColors.textPrimary,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
+                    const SizedBox(height: 16),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: widget.onGoToHome,
+                        style: TextButton.styleFrom(
+                          padding: EdgeInsets.zero,
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         ),
-                      ),
-                      GestureDetector(
-                        onTap: () => _openHistory(context),
                         child: const Text(
-                          '전체보기 >',
+                          '랜덤박스 구매하러 가기 →',
                           style: TextStyle(
-                            color: AppColors.textSecondary,
+                            color: AppColors.goldPrimary,
                             fontSize: 13,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
+                    ),
+                  ],
+                ),
+              ),
 
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.05),
-                          blurRadius: 10,
-                          offset: const Offset(0, 3),
+              // ── 최근 포인트 내역 (화이트) ──
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          '최근 포인트 내역',
+                          style: TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        GestureDetector(
+                          onTap: () => _openHistory(context),
+                          child: const Text(
+                            '전체보기 >',
+                            style: TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 13,
+                            ),
+                          ),
                         ),
                       ],
                     ),
-                    child: ListView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      padding: EdgeInsets.zero,
-                      itemCount: recentHistory.length,
-                      itemBuilder: (context, index) {
-                        final entry = recentHistory[index];
-                        return Column(
-                          children: [
-                            _HistoryPreviewTile(entry: entry),
-                            if (index != recentHistory.length - 1)
-                              const Divider(
-                                height: 1,
-                                indent: 16,
-                                endIndent: 16,
-                                color: AppColors.surfaceBorder,
+                    const SizedBox(height: 12),
+
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.05),
+                            blurRadius: 10,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
+                      ),
+                      child: _isLoading
+                          ? const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 32),
+                              child: Center(
+                                child: CircularProgressIndicator(
+                                  color: AppColors.goldPrimary,
+                                ),
                               ),
-                          ],
-                        );
-                      },
+                            )
+                          : recentHistory.isEmpty
+                          ? const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 32),
+                              child: Center(
+                                child: Text(
+                                  '내역이 없습니다',
+                                  style: TextStyle(
+                                    color: AppColors.textSecondary,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                            )
+                          : ListView.builder(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              padding: EdgeInsets.zero,
+                              itemCount: recentHistory.length,
+                              itemBuilder: (context, index) {
+                                final entry = recentHistory[index];
+                                return Column(
+                                  children: [
+                                    _HistoryPreviewTile(entry: entry),
+                                    if (index != recentHistory.length - 1)
+                                      const Divider(
+                                        height: 1,
+                                        indent: 16,
+                                        endIndent: 16,
+                                        color: AppColors.surfaceBorder,
+                                      ),
+                                  ],
+                                );
+                              },
+                            ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

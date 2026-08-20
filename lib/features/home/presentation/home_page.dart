@@ -75,11 +75,13 @@ class _HomePageState extends State<HomePage> {
 
   void _openDetail(CapsuleBox box) {
     Navigator.of(context)
-        .push(MaterialPageRoute(builder: (context) => GachaDetailPage(box: box)))
+        .push(
+          MaterialPageRoute(builder: (context) => GachaDetailPage(box: box)),
+        )
         .then((_) {
-      // 뽑기 후 돌아오면 잔액이 바뀌었을 수 있으므로 프로필을 새로고침한다.
-      if (mounted) context.read<AuthProvider>().refreshProfile();
-    });
+          // 뽑기 후 돌아오면 잔액이 바뀌었을 수 있으므로 프로필을 새로고침한다.
+          if (mounted) context.read<AuthProvider>().refreshProfile();
+        });
   }
 
   @override
@@ -238,7 +240,9 @@ class _HomePageState extends State<HomePage> {
                         Text(
                           _error!,
                           textAlign: TextAlign.center,
-                          style: const TextStyle(color: AppColors.textSecondary),
+                          style: const TextStyle(
+                            color: AppColors.textSecondary,
+                          ),
                         ),
                         const SizedBox(height: 12),
                         TextButton(
@@ -267,11 +271,11 @@ class _HomePageState extends State<HomePage> {
                   sliver: SliverGrid(
                     gridDelegate:
                         const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
-                      mainAxisSpacing: 12,
-                      crossAxisSpacing: 12,
-                      mainAxisExtent: 220,
-                    ),
+                          crossAxisCount: 2,
+                          mainAxisSpacing: 12,
+                          crossAxisSpacing: 12,
+                          mainAxisExtent: 220,
+                        ),
                     delegate: SliverChildBuilderDelegate((context, index) {
                       final box = _boxes[index];
                       return CapsuleBoxCard(

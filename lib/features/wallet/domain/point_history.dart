@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import '../../../core/network/api_client.dart';
 import '../../../core/theme/app_colors.dart';
 
 /// 가치가차 - 포인트(GP) 내역 유형.
 ///
 /// 충전(WalletPage) 미리보기와 마이페이지의 포인트내역 전체 페이지
 /// ([PointHistoryPage])가 공통으로 사용하는 모델.
+/// 백엔드 `WalletTransactionType` enum(EARN/USE/EXPIRE)과 1:1 대응된다.
 enum PointHistoryType {
   /// 지급 (뽑기 환급, 이벤트 보상 등으로 GP를 얻음)
   earn,
@@ -52,6 +54,19 @@ extension PointHistoryTypeLabel on PointHistoryType {
   }
 }
 
+/// 백엔드 type 문자열("EARN"/"USE"/"EXPIRE") -> Flutter [PointHistoryType] 변환.
+PointHistoryType _typeFromBackend(String? backendType) {
+  switch (backendType) {
+    case 'USE':
+      return PointHistoryType.use;
+    case 'EXPIRE':
+      return PointHistoryType.expire;
+    case 'EARN':
+    default:
+      return PointHistoryType.earn;
+  }
+}
+
 /// 포인트(GP) 내역 1건.
 class PointHistoryEntry {
   final String id;
@@ -69,6 +84,23 @@ class PointHistoryEntry {
     required this.amount,
     required this.date,
   });
+
+  /// 백엔드 `GET /wallet/point-history` 응답의 items[] 항목 1개를 변환한다.
+  /// 백엔드 amount는 부호가 있는 값(EARN=양수, USE/EXPIRE=음수)이므로
+  /// 절대값으로 변환해 저장한다 (부호 표시는 [PointHistoryType.sign] 사용).
+  factory PointHistoryEntry.fromJson(Map<String, dynamic> json) {
+    final createdAtRaw = json['createdAt'] as String?;
+    final rawAmount = (json['amount'] as num?)?.toInt() ?? 0;
+    return PointHistoryEntry(
+      id: (json['id'] as num).toString(),
+      description: json['description'] as String? ?? '',
+      type: _typeFromBackend(json['type'] as String?),
+      amount: rawAmount.abs(),
+      date: createdAtRaw != null
+          ? (DateTime.tryParse(createdAtRaw) ?? DateTime.now())
+          : DateTime.now(),
+    );
+  }
 
   /// 화면 표시용 금액 포맷 (예: "+500GP", "-1,000GP")
   String get formattedAmount {
@@ -90,86 +122,36 @@ class PointHistoryEntry {
   }
 }
 
-/// 포인트 내역 더미 데이터 저장소.
-///
-/// 추후 실제 API 연동 시 이 클래스의 구현만 교체하면 되도록
-/// 인터페이스를 단순하게 유지한다.
+/// 포인트 내역 저장소. 백엔드 `GET /wallet/point-history`와 통신한다.
 class PointHistoryRepository {
-  const PointHistoryRepository();
+  final ApiClient _apiClient;
 
-  List<PointHistoryEntry> getDummyHistory() {
-    final now = DateTime.now();
-    return [
-      PointHistoryEntry(
-        id: 'ph_001',
-        description: '뽑기 결과 환급',
-        type: PointHistoryType.earn,
-        amount: 500,
-        date: now.subtract(const Duration(hours: 1)),
-      ),
-      PointHistoryEntry(
-        id: 'ph_002',
-        description: '랜덤박스 구매',
-        type: PointHistoryType.use,
-        amount: 1000,
-        date: now.subtract(const Duration(hours: 3)),
-      ),
-      PointHistoryEntry(
-        id: 'ph_003',
-        description: '이벤트 보상',
-        type: PointHistoryType.earn,
-        amount: 200,
-        date: now.subtract(const Duration(hours: 5)),
-      ),
-      PointHistoryEntry(
-        id: 'ph_004',
-        description: '랜덤박스 구매',
-        type: PointHistoryType.use,
-        amount: 2000,
-        date: now.subtract(const Duration(days: 1)),
-      ),
-      PointHistoryEntry(
-        id: 'ph_005',
-        description: '출석 체크 보상',
-        type: PointHistoryType.earn,
-        amount: 100,
-        date: now.subtract(const Duration(days: 1, hours: 6)),
-      ),
-      PointHistoryEntry(
-        id: 'ph_006',
-        description: '포인트 전환 적립',
-        type: PointHistoryType.earn,
-        amount: 650,
-        date: now.subtract(const Duration(days: 2)),
-      ),
-      PointHistoryEntry(
-        id: 'ph_007',
-        description: '랜덤박스 구매',
-        type: PointHistoryType.use,
-        amount: 500,
-        date: now.subtract(const Duration(days: 3)),
-      ),
-      PointHistoryEntry(
-        id: 'ph_008',
-        description: '친구 초대 보상',
-        type: PointHistoryType.earn,
-        amount: 1000,
-        date: now.subtract(const Duration(days: 4)),
-      ),
-      PointHistoryEntry(
-        id: 'ph_009',
-        description: '기간 만료 소멸',
-        type: PointHistoryType.expire,
-        amount: 300,
-        date: now.subtract(const Duration(days: 5)),
-      ),
-      PointHistoryEntry(
-        id: 'ph_010',
-        description: '신규 가입 축하 GP',
-        type: PointHistoryType.earn,
-        amount: 3000,
-        date: now.subtract(const Duration(days: 7)),
-      ),
-    ];
+  const PointHistoryRepository({ApiClient apiClient = const ApiClient()})
+    : _apiClient = apiClient;
+
+  /// 포인트 내역 목록을 조회한다.
+  /// [type]을 지정하면 해당 유형(지급/사용/소멸)만 필터링한다.
+  /// [limit]으로 조회 개수를 제한할 수 있다 (미리보기용, 기본 100).
+  Future<List<PointHistoryEntry>> getAll({
+    PointHistoryType? type,
+    int limit = 100,
+  }) async {
+    final query = <String>['page=1', 'limit=$limit'];
+    if (type != null) {
+      final backendType = switch (type) {
+        PointHistoryType.earn => 'EARN',
+        PointHistoryType.use => 'USE',
+        PointHistoryType.expire => 'EXPIRE',
+      };
+      query.add('type=$backendType');
+    }
+    final data = await _apiClient.get(
+      '/wallet/point-history?${query.join('&')}',
+    );
+    final map = data as Map<String, dynamic>;
+    final items = map['items'] as List<dynamic>? ?? [];
+    return items
+        .map((e) => PointHistoryEntry.fromJson(e as Map<String, dynamic>))
+        .toList();
   }
 }
