@@ -37,7 +37,7 @@ class _MainNavigationState extends State<MainNavigation> {
   // WalletPage/ProfilePage에 탭 전환 콜백을 전달해야 하므로 static const
   // 대신 build() 내부(또는 getter)에서 매번 구성한다.
   List<Widget> get _screens => [
-    const HomePage(),
+    HomePage(onGoToWallet: _goToWallet),
     const RankingScreen(),
     const InventoryPage(),
     WalletPage(onGoToHome: _goToHome),

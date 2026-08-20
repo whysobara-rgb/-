@@ -82,6 +82,49 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  /// 소셜 로그인(카카오/구글/네이버/Apple). 성공 시 true, 실패 시 false를 반환하며
+  /// [errorMessage]에 백엔드가 내려준 메시지를 저장한다.
+  ///
+  /// [provider]는 백엔드 `AuthProvider` enum 값과 동일한 문자열
+  /// ('KAKAO'/'GOOGLE'/'NAVER'/'APPLE')을 전달해야 한다.
+  /// [providerId]는 제공자가 발급한 사용자 고유 ID, [email]/[nickname]은
+  /// 제공자 프로필에서 얻은 값(최초 가입 시에만 사용됨)이다.
+  Future<bool> socialLogin({
+    required String provider,
+    required String providerId,
+    required String email,
+    String? nickname,
+  }) async {
+    _setLoading(true);
+    _errorMessage = null;
+    try {
+      final data = await _apiClient.post(
+        '/auth/social-login',
+        body: {
+          'provider': provider,
+          'providerId': providerId,
+          'email': email,
+          if (nickname != null && nickname.isNotEmpty) 'nickname': nickname,
+        },
+        withAuth: false,
+      );
+      final map = data as Map<String, dynamic>;
+      final accessToken = map['accessToken'] as String;
+      await _tokenStorage.saveToken(accessToken);
+
+      await _fetchProfile();
+      return true;
+    } on ApiException catch (e) {
+      _errorMessage = e.message;
+      return false;
+    } catch (e) {
+      _errorMessage = '소셜 로그인 중 오류가 발생했습니다';
+      return false;
+    } finally {
+      _setLoading(false);
+    }
+  }
+
   /// 회원가입 후 자동 로그인까지 수행. 성공 시 true.
   Future<bool> signup({
     required String email,

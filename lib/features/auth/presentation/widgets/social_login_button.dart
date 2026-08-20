@@ -11,6 +11,8 @@ class SocialLoginButton extends StatelessWidget {
   final Widget icon;
   final Border? border;
   final VoidCallback onTap;
+  final bool isLoading;
+  final bool disabled;
 
   const SocialLoginButton({
     super.key,
@@ -20,15 +22,20 @@ class SocialLoginButton extends StatelessWidget {
     required this.icon,
     required this.onTap,
     this.border,
+    this.isLoading = false,
+    this.disabled = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final effectiveBg = disabled && !isLoading
+        ? backgroundColor.withValues(alpha: 0.5)
+        : backgroundColor;
     return Material(
-      color: backgroundColor,
+      color: effectiveBg,
       borderRadius: BorderRadius.circular(12),
       child: InkWell(
-        onTap: onTap,
+        onTap: disabled ? null : onTap,
         borderRadius: BorderRadius.circular(12),
         child: Container(
           width: double.infinity,
@@ -37,21 +44,32 @@ class SocialLoginButton extends StatelessWidget {
             borderRadius: BorderRadius.circular(12),
             border: border,
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              icon,
-              const SizedBox(width: 12),
-              Text(
-                label,
-                style: TextStyle(
-                  color: foregroundColor,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
+          child: isLoading
+              ? Center(
+                  child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.2,
+                      color: foregroundColor,
+                    ),
+                  ),
+                )
+              : Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    icon,
+                    const SizedBox(width: 12),
+                    Text(
+                      label,
+                      style: TextStyle(
+                        color: foregroundColor,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-            ],
-          ),
         ),
       ),
     );

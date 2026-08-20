@@ -20,7 +20,11 @@ import 'widgets/winner_ticker.dart';
 /// 실시간 당첨 티커/메인 배너/랜덤박스 카드 등 프로모션 요소만 다크로
 /// 구성된다. 랜덤박스 목록은 백엔드 GET /gachas에서 실시간으로 가져온다.
 class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+  /// "충전" 탭으로 이동하기 위한 콜백. [MainNavigation]에서 전달되며,
+  /// [GachaDetailPage]에서 잔액 부족 시 충전 탭으로 넘어갈 때 사용된다.
+  final VoidCallback onGoToWallet;
+
+  const HomePage({super.key, required this.onGoToWallet});
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -76,7 +80,12 @@ class _HomePageState extends State<HomePage> {
   void _openDetail(CapsuleBox box) {
     Navigator.of(context)
         .push(
-          MaterialPageRoute(builder: (context) => GachaDetailPage(box: box)),
+          MaterialPageRoute(
+            builder: (context) => GachaDetailPage(
+              box: box,
+              onGoToWallet: widget.onGoToWallet,
+            ),
+          ),
         )
         .then((_) {
           // 뽑기 후 돌아오면 잔액이 바뀌었을 수 있으므로 프로필을 새로고침한다.

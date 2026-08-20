@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../shared/providers/gp_provider.dart';
 import '../../home/domain/capsule_box.dart';
 import 'gacha_animation_page.dart';
 
@@ -11,7 +13,15 @@ import 'gacha_animation_page.dart';
 class GachaDetailPage extends StatefulWidget {
   final CapsuleBox box;
 
-  const GachaDetailPage({super.key, required this.box});
+  /// "충전" 탭으로 이동하기 위한 콜백. 잔액 부족 시 충전 유도 다이얼로그에서
+  /// "충전하러 가기"를 누르면 이 화면을 닫고 충전 탭으로 전환한다.
+  final VoidCallback onGoToWallet;
+
+  const GachaDetailPage({
+    super.key,
+    required this.box,
+    required this.onGoToWallet,
+  });
 
   @override
   State<GachaDetailPage> createState() => _GachaDetailPageState();
@@ -73,6 +83,116 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
   void _reset() => _setQuantity(1);
 
   int get _totalPrice => widget.box.priceWon * _quantity;
+
+  /// 구매 버튼 클릭 시 흐름:
+  /// 1) 잔액 부족 → "충전하러 가시겠습니까?" 다이얼로그 → 확인 시 이 화면을 닫고
+  ///    충전 탭으로 이동.
+  /// 2) 잔액 충분 → 구매 확인 다이얼로그 → 확인 시에만 뽑기 애니메이션 화면으로 이동.
+  Future<void> _onPurchasePressed(CapsuleBox box) async {
+    final gp = context.read<GpProvider>();
+    final balance = gp.balance;
+
+    if (balance < _totalPrice) {
+      final shortfall = _totalPrice - balance;
+      final goToWallet = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Text(
+            '포인트가 부족합니다',
+            style: TextStyle(fontWeight: FontWeight.w700),
+          ),
+          content: Text(
+            '현재 보유 GP: ${gp.formattedBalance} GP\n'
+            '필요 GP: $_formattedTotalPrice\n'
+            '부족한 GP: ${_formatAmount(shortfall)} GP\n\n'
+            '포인트를 충전하러 가시겠습니까?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text(
+                '취소',
+                style: TextStyle(color: AppColors.textSecondary),
+              ),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text(
+                '충전하러 가기',
+                style: TextStyle(
+                  color: AppColors.goldPrimary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+
+      if (goToWallet == true && mounted) {
+        Navigator.of(context).pop(); // 상세 화면 닫고
+        widget.onGoToWallet(); // 충전 탭으로 전환
+      }
+      return;
+    }
+
+    // 잔액 충분 → 구매 확인 다이얼로그.
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          '랜덤박스 구매',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
+        content: Text(
+          '${box.name} $_quantity개를 $_formattedTotalPrice에 구매하시겠습니까?\n'
+          '(구매 후 즉시 개봉됩니다)',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text(
+              '취소',
+              style: TextStyle(color: AppColors.textSecondary),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text(
+              '구매하기',
+              style: TextStyle(
+                color: AppColors.goldPrimary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => GachaAnimationPage(box: box, count: _quantity),
+        ),
+      );
+    }
+  }
+
+  String _formatAmount(int amount) {
+    final str = amount.toString();
+    final buffer = StringBuffer();
+    for (int i = 0; i < str.length; i++) {
+      final posFromEnd = str.length - i;
+      buffer.write(str[i]);
+      if (posFromEnd > 1 && posFromEnd % 3 == 1) buffer.write(',');
+    }
+    return buffer.toString();
+  }
 
   String get _formattedTotalPrice {
     final str = _totalPrice.toString();
@@ -211,14 +331,7 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
               onAdd100: () => _incrementBy(100),
               onMax: () => _setQuantity(_maxQuantity),
               onReset: _reset,
-              onPurchase: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) =>
-                        GachaAnimationPage(box: box, count: _quantity),
-                  ),
-                );
-              },
+              onPurchase: () => _onPurchasePressed(box),
             ),
           ],
         ),
