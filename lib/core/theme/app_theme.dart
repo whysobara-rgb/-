@@ -14,7 +14,7 @@ class AppTheme {
     final base = ThemeData(
       brightness: Brightness.light,
       useMaterial3: true,
-      fontFamily: 'Roboto',
+      fontFamily: 'Pretendard',
     );
 
     final colorScheme = base.colorScheme.copyWith(

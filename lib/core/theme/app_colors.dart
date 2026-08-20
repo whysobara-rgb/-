@@ -133,4 +133,90 @@ class AppColors {
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
   );
+
+  // ===== Claymorphism & Pastel 3D 전용 토큰 =====
+
+  /// 로고 워드마크 (오렌지 → 바이올렛)
+  static const LinearGradient logoGradient = LinearGradient(
+    colors: [Color(0xFFFF7A45), Color(0xFF8B5CF6)],
+    begin: Alignment.centerLeft,
+    end: Alignment.centerRight,
+  );
+
+  /// 메인 럭키 PICK 배너용 오가닉 멀티스톱 그라데이션
+  /// (코랄 오렌지 → 바이올렛 → 스카이블루)
+  static const LinearGradient luckyBannerGradient = LinearGradient(
+    colors: [
+      Color(0xFFFF7A59),
+      Color(0xFFB05CE0),
+      Color(0xFF8B5CF6),
+      Color(0xFF4FA8FF),
+    ],
+    stops: [0.0, 0.4, 0.7, 1.0],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
+
+  /// GP 포인트 뱃지 (노란 오벌 3D 코인칩) 그라데이션
+  static const LinearGradient coinGradient = LinearGradient(
+    colors: [Color(0xFFFFE08A), accentYellow],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
+
+  /// 퀵메뉴 클레이 원형 배경 - 무료뽑기(주황)
+  static const LinearGradient clayOrange = LinearGradient(
+    colors: [Color(0xFFFFA26B), Color(0xFFFF6B3D)],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
+
+  /// 퀵메뉴 클레이 원형 배경 - 컬렉션(민트)
+  static const LinearGradient clayMint = LinearGradient(
+    colors: [Color(0xFF6EE7C8), Color(0xFF17B894)],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
+
+  /// 퀵메뉴 클레이 원형 배경 - 가게(보라)
+  static const LinearGradient clayViolet = LinearGradient(
+    colors: [Color(0xFFB08CF9), accentViolet],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
+
+  /// 퀵메뉴 클레이 원형 배경 - 혜택(노랑)
+  static const LinearGradient clayYellow = LinearGradient(
+    colors: [Color(0xFFFFDD7A), accentYellow],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
+
+  /// 퀵메뉴 클레이 원형 배경 - 커뮤니티(하늘)
+  static const LinearGradient claySky = LinearGradient(
+    colors: [Color(0xFF8BCBFF), accentSky],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
+
+  /// 상품 카드 HOT 리본 (주황)
+  static const LinearGradient ribbonHot = LinearGradient(
+    colors: [Color(0xFFFF9457), Color(0xFFFF6B3D)],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
+
+  /// 상품 카드 NEW 리본 (민트)
+  static const LinearGradient ribbonNew = LinearGradient(
+    colors: [Color(0xFF6EE7C8), Color(0xFF12A37E)],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
+
+  /// 하단 네비게이션 선택 아이템 소프트 원형 배경 그라데이션
+  static const LinearGradient navActiveGradient = LinearGradient(
+    colors: [Color(0xFFFF8A65), accentViolet],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
 }

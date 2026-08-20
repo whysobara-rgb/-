@@ -8,6 +8,8 @@ import '../domain/ranking_models.dart';
 
 /// 가치가차 - 랭킹 탭 메인 화면.
 ///
+/// Claymorphism & Pastel 3D 컨셉 - 크림 화이트 배경 위에 화이트 라운드
+/// 카드(border-radius 14~16px)와 소프트 섀도우로 랭킹 항목을 표시한다.
 /// 3개 탭(유저 랭킹 / 인기 박스 / 실시간 당첨)으로 구성되며, 각각
 /// 백엔드 `GET /rankings/users`, `/rankings/gachas`, `/rankings/wins`를
 /// 실시간으로 조회해 표시한다.
@@ -235,7 +237,7 @@ class _UserRankRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
         color: AppColors.surfaceElevated,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(
           color: isTop3
               ? rankColor.withValues(alpha: 0.4)
@@ -352,7 +354,7 @@ class _GachaRankRow extends StatelessWidget {
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: AppColors.surfaceElevated,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(
           color: isTop3
               ? rankColor.withValues(alpha: 0.4)
@@ -503,7 +505,7 @@ class _WinFeedRow extends StatelessWidget {
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: AppColors.surfaceElevated,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: AppColors.surfaceBorder),
         boxShadow: [
           BoxShadow(

@@ -150,7 +150,7 @@ class _ProfilePageState extends State<ProfilePage> {
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
                 color: AppColors.surfaceElevated,
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: BorderRadius.circular(26),
                 border: Border.all(color: AppColors.surfaceBorder),
                 boxShadow: [
                   BoxShadow(
@@ -263,7 +263,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     decoration: BoxDecoration(
                       color: AppColors.surfaceElevated,
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(20),
                       border: Border.all(color: AppColors.surfaceBorder),
                       boxShadow: [
                         BoxShadow(
@@ -454,7 +454,7 @@ class _MenuSection extends StatelessWidget {
         Container(
           decoration: BoxDecoration(
             color: AppColors.surfaceElevated,
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(20),
             border: Border.all(color: AppColors.surfaceBorder),
             boxShadow: [
               BoxShadow(

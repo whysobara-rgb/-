@@ -3,22 +3,20 @@ import 'package:provider/provider.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../shared/providers/auth_provider.dart';
-import '../../../shared/providers/gp_provider.dart';
+import '../../../shared/widgets/gp_badge.dart';
 import '../../gacha/presentation/gacha_detail_page.dart';
 import '../data/capsule_box_repository.dart';
 import '../domain/capsule_box.dart';
 import '../domain/capsule_category.dart';
 import 'widgets/capsule_box_card.dart';
-import 'widgets/category_filter_bar.dart';
 import 'widgets/home_banner_carousel.dart';
 import 'widgets/quick_menu_row.dart';
-import 'widgets/winner_ticker.dart';
 
 /// 가치가차 - 홈 탭 메인 화면.
 ///
-/// "Vivid Pastel Pop" 컨셉으로, 전체 배경은 크림 화이트이며
-/// 실시간 당첨 티커/메인 배너/랜덤박스 카드 등 프로모션 요소는
-/// 코랄·바이올렛·민트·옐로우 등 비비드 그라디언트로 구성된다.
+/// "Claymorphism & Pastel 3D" 컨셉 - 크림 화이트 배경 위에 부드러운
+/// 클레이 3D 그래픽과 소프트 드롭 섀도우를 사용해 아기자기하고 친근한
+/// 캐주얼 가챠 앱의 아이덴티티를 구성한다.
 /// 랜덤박스 목록은 백엔드 GET /gachas에서 실시간으로 가져온다.
 class HomePage extends StatefulWidget {
   /// "충전" 탭으로 이동하기 위한 콜백. [MainNavigation]에서 전달되며,
@@ -34,7 +32,7 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   final _repository = const CapsuleBoxRepository();
 
-  CapsuleCategory _selectedCategory = CapsuleCategory.recommend;
+  final CapsuleCategory _selectedCategory = CapsuleCategory.recommend;
 
   List<CapsuleBox> _boxes = [];
   bool _isLoading = true;
@@ -73,11 +71,6 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  void _onCategorySelected(CapsuleCategory category) {
-    setState(() => _selectedCategory = category);
-    _loadBoxes();
-  }
-
   void _openDetail(CapsuleBox box) {
     Navigator.of(context)
         .push(
@@ -96,40 +89,22 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    final gp = context.watch<GpProvider>();
-    final nickname = context.watch<AuthProvider>().currentUser?.nickname ?? '';
+    // AuthProvider는 다른 화면에서 갱신 시 GpBadge 등에 반영되도록 watch.
+    context.watch<AuthProvider>();
 
     return Scaffold(
       backgroundColor: AppColors.scaffoldBg,
       appBar: AppBar(
         automaticallyImplyLeading: false,
         titleSpacing: 16,
-        title: ShaderMask(
-          shaderCallback: (bounds) => AppColors.goldGradient.createShader(
-            Rect.fromLTWH(0, 0, bounds.width, bounds.height),
-          ),
-          child: const Text(
-            'GACHIGACHA',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 24,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 0.5,
-            ),
-          ),
-        ),
+        title: const _ClayLogo(),
         actions: [
+          const GpBadge(),
+          _NotificationIconButton(onTap: () {}),
           IconButton(
             onPressed: () {},
             icon: const Icon(
               Icons.search_rounded,
-              color: AppColors.textPrimary,
-            ),
-          ),
-          IconButton(
-            onPressed: () {},
-            icon: const Icon(
-              Icons.notifications_rounded,
               color: AppColors.textPrimary,
             ),
           ),
@@ -141,102 +116,29 @@ class _HomePageState extends State<HomePage> {
           onRefresh: _loadBoxes,
           child: CustomScrollView(
             slivers: [
-              // ── 유저 인사 + 포인트 (화이트 배경) ──
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '안녕하세요, $nickname님!',
-                        style: const TextStyle(
-                          color: AppColors.textPrimary,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '보유 포인트: ${gp.formattedBalance} GP',
-                        style: const TextStyle(
-                          color: AppColors.goldPrimary,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+              const SliverToBoxAdapter(child: SizedBox(height: 4)),
 
-              // ── 실시간 당첨 티커 (다크 배너) ──
-              const SliverToBoxAdapter(child: WinnerTicker()),
-
-              const SliverToBoxAdapter(child: SizedBox(height: 16)),
-
-              // ── 카테고리 필터 탭 (화이트 배경) ──
-              SliverToBoxAdapter(
-                child: CategoryFilterBar(
-                  selected: _selectedCategory,
-                  onSelected: _onCategorySelected,
-                ),
-              ),
-              const SliverToBoxAdapter(child: SizedBox(height: 16)),
-
-              // ── 메인 배너 (다크 프로모션 카드) ──
+              // ── 메인 럭키 PICK 배너 (오가닉 멀티그라데이션 + 3D 캐릭터) ──
               const SliverToBoxAdapter(child: HomeBannerCarousel()),
-              const SliverToBoxAdapter(child: SizedBox(height: 20)),
+              const SliverToBoxAdapter(child: SizedBox(height: 22)),
 
-              // ── 퀵메뉴 (원형 아이콘 5개) ──
+              // ── 퀵메뉴 (클레이 3D 원형 아이콘 5개) ──
               const SliverToBoxAdapter(
                 child: Padding(
                   padding: EdgeInsets.symmetric(horizontal: 16),
                   child: QuickMenuRow(),
                 ),
               ),
-              const SliverToBoxAdapter(child: SizedBox(height: 24)),
+              const SliverToBoxAdapter(child: SizedBox(height: 26)),
 
-              // ── "인기 랜덤박스" 섹션 타이틀 ──
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        '인기 랜덤박스',
-                        style: TextStyle(
-                          color: AppColors.textPrimary,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      GestureDetector(
-                        onTap: () {},
-                        child: const Text(
-                          '더보기 >',
-                          style: TextStyle(
-                            color: AppColors.goldPrimary,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SliverToBoxAdapter(child: SizedBox(height: 12)),
-
-              // ── 캡슐(랜덤박스) 카드 그리드 (다크 카드) ──
+              // ── 캡슐(랜덤박스) 카드 그리드 (화이트 라운드 카드 + 리본뱃지) ──
               if (_isLoading)
                 const SliverToBoxAdapter(
                   child: Padding(
                     padding: EdgeInsets.symmetric(vertical: 60),
                     child: Center(
                       child: CircularProgressIndicator(
-                        color: AppColors.goldPrimary,
+                        color: AppColors.primary,
                       ),
                     ),
                   ),
@@ -285,9 +187,9 @@ class _HomePageState extends State<HomePage> {
                     gridDelegate:
                         const SliverGridDelegateWithFixedCrossAxisCount(
                           crossAxisCount: 2,
-                          mainAxisSpacing: 12,
-                          crossAxisSpacing: 12,
-                          mainAxisExtent: 220,
+                          mainAxisSpacing: 14,
+                          crossAxisSpacing: 14,
+                          mainAxisExtent: 232,
                         ),
                     delegate: SliverChildBuilderDelegate((context, index) {
                       final box = _boxes[index];
@@ -302,6 +204,85 @@ class _HomePageState extends State<HomePage> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// 클레이모피즘 스타일 GACHIGACHA 로고.
+/// 오렌지→바이올렛 그라데이션 워드마크 + 우측 상단 반짝이는 스파클 효과.
+class _ClayLogo extends StatelessWidget {
+  const _ClayLogo();
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        ShaderMask(
+          shaderCallback: (bounds) => AppColors.logoGradient.createShader(
+            Rect.fromLTWH(0, 0, bounds.width, bounds.height),
+          ),
+          child: const Text(
+            'GACHIGACHA',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 22,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0.2,
+            ),
+          ),
+        ),
+        Positioned(
+          top: -4,
+          right: -14,
+          child: ShaderMask(
+            shaderCallback: (bounds) => AppColors.logoGradient.createShader(
+              Rect.fromLTWH(0, 0, bounds.width, bounds.height),
+            ),
+            child: const Icon(
+              Icons.auto_awesome_rounded,
+              color: Colors.white,
+              size: 16,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 알림(종) 아이콘 + 우측 상단 빨간 뱃지 닷.
+class _NotificationIconButton extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const _NotificationIconButton({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      onPressed: onTap,
+      icon: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          const Icon(
+            Icons.notifications_none_rounded,
+            color: AppColors.textPrimary,
+          ),
+          Positioned(
+            top: -1,
+            right: -1,
+            child: Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                color: AppColors.error,
+                shape: BoxShape.circle,
+                border: Border.all(color: AppColors.scaffoldBg, width: 1.5),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

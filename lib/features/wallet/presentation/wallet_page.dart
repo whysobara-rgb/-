@@ -168,7 +168,7 @@ class _WalletPageState extends State<WalletPage> {
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
                   gradient: AppColors.heroGradient,
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: BorderRadius.circular(26),
                   boxShadow: [
                     BoxShadow(
                       color: AppColors.accentViolet.withValues(alpha: 0.28),
@@ -292,7 +292,7 @@ class _WalletPageState extends State<WalletPage> {
                     Container(
                       decoration: BoxDecoration(
                         color: AppColors.surfaceElevated,
-                        borderRadius: BorderRadius.circular(16),
+                        borderRadius: BorderRadius.circular(20),
                         border: Border.all(color: AppColors.surfaceBorder),
                         boxShadow: [
                           BoxShadow(

@@ -365,7 +365,7 @@ class _InventoryPageState extends State<InventoryPage> {
                         padding: const EdgeInsets.all(18),
                         decoration: BoxDecoration(
                           color: AppColors.surfaceElevated,
-                          borderRadius: BorderRadius.circular(16),
+                          borderRadius: BorderRadius.circular(22),
                           border: Border.all(color: AppColors.surfaceBorder),
                           boxShadow: [
                             BoxShadow(
@@ -676,7 +676,7 @@ class _InventoryItemCard extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: AppColors.surfaceElevated,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: AppColors.surfaceBorder),
         boxShadow: [
           BoxShadow(
