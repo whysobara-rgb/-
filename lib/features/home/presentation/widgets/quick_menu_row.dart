@@ -4,7 +4,7 @@ import '../../../../core/theme/app_colors.dart';
 /// 가치가차 - 홈 화면 퀵메뉴 5종 (클레이모피즘 스타일).
 ///
 /// 각 아이템은 부드러운 클레이 3D 원형 배경(그라데이션 + 딥 소프트
-/// 섀도우 + 하이라이트) 위에 두툼한 화이트 라운드 아이콘을 얹은
+/// 섀도우 + 하이라이트) 위에 실제 3D 렌더링 이미지 에셋을 얹은
 /// 형태로 구성된다.
 class QuickMenuRow extends StatelessWidget {
   const QuickMenuRow({super.key});
@@ -12,31 +12,31 @@ class QuickMenuRow extends StatelessWidget {
   static const List<_QuickMenuItem> _items = [
     _QuickMenuItem(
       label: '무료뽑기',
-      icon: Icons.card_giftcard_rounded,
+      imagePath: 'assets/images/quick_free_draw.png',
       gradient: AppColors.clayOrange,
       shadowColor: Color(0xFFFF6B3D),
     ),
     _QuickMenuItem(
       label: '컬렉션',
-      icon: Icons.star_rounded,
+      imagePath: 'assets/images/quick_collection.png',
       gradient: AppColors.clayMint,
       shadowColor: Color(0xFF17B894),
     ),
     _QuickMenuItem(
       label: '가게',
-      icon: Icons.storefront_rounded,
+      imagePath: 'assets/images/quick_shop.png',
       gradient: AppColors.clayViolet,
       shadowColor: AppColors.accentViolet,
     ),
     _QuickMenuItem(
       label: '혜택',
-      icon: Icons.confirmation_number_rounded,
+      imagePath: 'assets/images/quick_benefit.png',
       gradient: AppColors.clayYellow,
       shadowColor: Color(0xFFE8A317),
     ),
     _QuickMenuItem(
       label: '커뮤니티',
-      icon: Icons.forum_rounded,
+      imagePath: 'assets/images/quick_community.png',
       gradient: AppColors.claySky,
       shadowColor: AppColors.accentSky,
     ),
@@ -79,17 +79,12 @@ class QuickMenuRow extends StatelessWidget {
                     ),
                   ],
                 ),
-                child: Icon(
-                  item.icon,
-                  color: Colors.white,
-                  size: 26,
-                  shadows: [
-                    Shadow(
-                      color: item.shadowColor.withValues(alpha: 0.5),
-                      offset: const Offset(0, 1.5),
-                      blurRadius: 2,
-                    ),
-                  ],
+                padding: const EdgeInsets.all(9),
+                child: Image.asset(
+                  item.imagePath,
+                  fit: BoxFit.contain,
+                  errorBuilder: (context, error, stackTrace) =>
+                      const SizedBox.shrink(),
                 ),
               ),
               const SizedBox(height: 8),
@@ -112,13 +107,13 @@ class QuickMenuRow extends StatelessWidget {
 
 class _QuickMenuItem {
   final String label;
-  final IconData icon;
+  final String imagePath;
   final Gradient gradient;
   final Color shadowColor;
 
   const _QuickMenuItem({
     required this.label,
-    required this.icon,
+    required this.imagePath,
     required this.gradient,
     required this.shadowColor,
   });

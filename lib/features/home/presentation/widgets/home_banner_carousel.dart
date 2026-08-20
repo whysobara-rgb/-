@@ -1,4 +1,3 @@
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../../../../core/theme/app_colors.dart';
 
@@ -6,8 +5,8 @@ import '../../../../core/theme/app_colors.dart';
 ///
 /// Claymorphism & Pastel 3D 컨셉 - 코랄 오렌지 → 바이올렛 → 스카이블루로
 /// 이어지는 오가닉 멀티스톱 그라데이션 배경 위에, 두껍고 귀여운 3D 스타일
-/// 화이트 볼드 타이포와 별/반짝이 이펙트, 그리고 리본 달린 선물 상자
-/// 캐릭터(아이콘 레이어드 방식)와 컨페티 그래픽을 배치한다.
+/// 화이트 볼드 타이포와 별/반짝이 이펙트, 그리고 날개 달린 3D 렌더링
+/// 선물상자 캐릭터 이미지와 컨페티 그래픽을 배치한다.
 /// 페이지 인디케이터는 디자인 몰입감을 위해 제거되었다.
 class HomeBannerCarousel extends StatelessWidget {
   const HomeBannerCarousel({super.key});
@@ -89,8 +88,19 @@ class HomeBannerCarousel extends StatelessWidget {
               ),
             ),
 
-            // ── 3D 럭키 선물상자 캐릭터 (레이어드 아이콘 구성) ──
-            const Positioned(right: 18, bottom: 12, child: _GiftBoxCharacter()),
+            // ── 3D 럭키 선물상자 캐릭터 (실사 3D 렌더링 이미지) ──
+            Positioned(
+              right: 12,
+              bottom: 4,
+              child: Image.asset(
+                'assets/images/banner_gift_character.png',
+                width: 116,
+                height: 116,
+                fit: BoxFit.contain,
+                errorBuilder: (context, error, stackTrace) =>
+                    const SizedBox.shrink(),
+              ),
+            ),
           ],
         ),
       ),
@@ -132,120 +142,6 @@ class _ConfettiLayer extends StatelessWidget {
           }),
         );
       },
-    );
-  }
-}
-
-/// 날개 달린 귀여운 3D 럭키 선물상자 캐릭터를 레이어드 아이콘으로 표현.
-/// (실제 3D 렌더링 이미지 에셋으로 교체 가능한 자리표시자 역할)
-class _GiftBoxCharacter extends StatelessWidget {
-  const _GiftBoxCharacter();
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 100,
-      height: 100,
-      child: Stack(
-        alignment: Alignment.center,
-        clipBehavior: Clip.none,
-        children: [
-          // 날개 (좌우)
-          Positioned(
-            left: -6,
-            top: 24,
-            child: Transform.rotate(
-              angle: -0.35,
-              child: Icon(
-                Icons.flutter_dash_rounded,
-                color: Colors.white.withValues(alpha: 0.9),
-                size: 34,
-              ),
-            ),
-          ),
-          Positioned(
-            right: -6,
-            top: 24,
-            child: Transform.rotate(
-              angle: 0.35 + math.pi,
-              child: Icon(
-                Icons.flutter_dash_rounded,
-                color: Colors.white.withValues(alpha: 0.9),
-                size: 34,
-              ),
-            ),
-          ),
-          // 선물상자 본체
-          Container(
-            width: 68,
-            height: 60,
-            margin: const EdgeInsets.only(top: 18),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Colors.white, Color(0xFFFFE8E0)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(14),
-              boxShadow: const [
-                BoxShadow(
-                  color: Color(0x33000000),
-                  blurRadius: 10,
-                  offset: Offset(0, 6),
-                ),
-              ],
-            ),
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                // 리본 세로줄
-                Container(width: 12, color: AppColors.primary.withValues(alpha: 0.85)),
-                // 리본 가로줄
-                Positioned(
-                  top: 8,
-                  child: Container(
-                    width: 68,
-                    height: 12,
-                    color: AppColors.primary.withValues(alpha: 0.85),
-                  ),
-                ),
-                // 표정 (웃는 눈+입)
-                Positioned(
-                  bottom: 10,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _eye(),
-                      const SizedBox(width: 10),
-                      _eye(),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // 리본 매듭 (상단)
-          Positioned(
-            top: 4,
-            child: Icon(
-              Icons.card_giftcard_rounded,
-              color: AppColors.primaryDark,
-              size: 18,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _eye() {
-    return Container(
-      width: 5,
-      height: 5,
-      decoration: const BoxDecoration(
-        color: Color(0xFF2B2430),
-        shape: BoxShape.circle,
-      ),
     );
   }
 }
