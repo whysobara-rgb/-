@@ -235,7 +235,7 @@ class _InventoryPageState extends State<InventoryPage> {
   void _openSortSheet() {
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: Colors.white,
+      backgroundColor: AppColors.surfaceElevated,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -364,15 +364,9 @@ class _InventoryPageState extends State<InventoryPage> {
                         width: double.infinity,
                         padding: const EdgeInsets.all(18),
                         decoration: BoxDecoration(
-                          color: Colors.white,
+                          color: AppColors.surfaceElevated,
                           borderRadius: BorderRadius.circular(16),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.06),
-                              blurRadius: 12,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
+                          border: Border.all(color: AppColors.surfaceBorder),
                         ),
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -505,7 +499,7 @@ class _InventoryPageState extends State<InventoryPage> {
                                   onPressed: _onRequestShipping,
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: AppColors.goldPrimary,
-                                    foregroundColor: Colors.white,
+                                    foregroundColor: const Color(0xFF16161A),
                                     elevation: 0,
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(10),
@@ -626,7 +620,7 @@ class _FilterPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: selected ? AppColors.goldPrimary : Colors.white,
+      color: selected ? AppColors.goldPrimary : AppColors.surfaceElevated,
       borderRadius: BorderRadius.circular(20),
       child: InkWell(
         borderRadius: BorderRadius.circular(20),
@@ -643,7 +637,7 @@ class _FilterPill extends StatelessWidget {
           child: Text(
             label,
             style: TextStyle(
-              color: selected ? Colors.white : AppColors.textSecondary,
+              color: selected ? const Color(0xFF16161A) : AppColors.textSecondary,
               fontSize: 13,
               fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
             ),
@@ -674,15 +668,9 @@ class _InventoryItemCard extends StatelessWidget {
 
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppColors.surfaceElevated,
         borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
-          ),
-        ],
+        border: Border.all(color: AppColors.surfaceBorder),
       ),
       clipBehavior: Clip.antiAlias,
       child: Row(
@@ -719,7 +707,7 @@ class _InventoryItemCard extends StatelessWidget {
                         child: Text(
                           item.grade,
                           style: const TextStyle(
-                            color: Colors.white,
+                            color: Color(0xFF16161A),
                             fontSize: 10,
                             fontWeight: FontWeight.w800,
                           ),

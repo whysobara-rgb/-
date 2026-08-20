@@ -216,15 +216,9 @@ class _DeliveryRequestPageState extends State<DeliveryRequestPage> {
       width: double.infinity,
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppColors.surfaceElevated,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        border: Border.all(color: AppColors.surfaceBorder),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -374,7 +368,7 @@ class _DeliveryRequestPageState extends State<DeliveryRequestPage> {
       ),
       child: Container(
         decoration: BoxDecoration(
-          color: const Color(0xFFF5F5F5),
+          color: AppColors.surfaceElevated2,
           borderRadius: BorderRadius.circular(12),
         ),
         child: TextField(
@@ -398,15 +392,9 @@ class _DeliveryRequestPageState extends State<DeliveryRequestPage> {
       width: double.infinity,
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppColors.surfaceElevated,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        border: Border.all(color: AppColors.surfaceBorder),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -480,7 +468,7 @@ class _DeliveryRequestPageState extends State<DeliveryRequestPage> {
   }) {
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFFF5F5F5),
+        color: AppColors.surfaceElevated2,
         borderRadius: BorderRadius.circular(12),
       ),
       child: TextField(
@@ -508,15 +496,11 @@ class _DeliveryRequestPageState extends State<DeliveryRequestPage> {
   Widget _buildBottomButton() {
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 12,
-            offset: const Offset(0, -4),
-          ),
-        ],
+      decoration: const BoxDecoration(
+        color: AppColors.surfaceShell,
+        border: Border(
+          top: BorderSide(color: AppColors.surfaceBorder, width: 1),
+        ),
       ),
       child: Container(
         width: double.infinity,
@@ -538,7 +522,7 @@ class _DeliveryRequestPageState extends State<DeliveryRequestPage> {
                       height: 24,
                       child: CircularProgressIndicator(
                         strokeWidth: 2.5,
-                        color: AppColors.textPrimary,
+                        color: Color(0xFF16161A),
                       ),
                     )
                   : const Text(
@@ -546,7 +530,7 @@ class _DeliveryRequestPageState extends State<DeliveryRequestPage> {
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w700,
-                        color: AppColors.textPrimary,
+                        color: Color(0xFF16161A),
                       ),
                     ),
             ),
@@ -586,7 +570,7 @@ class _PreviewChip extends StatelessWidget {
             child: Text(
               item.grade,
               style: const TextStyle(
-                color: Colors.white,
+                color: Color(0xFF16161A),
                 fontSize: 9,
                 fontWeight: FontWeight.w800,
               ),

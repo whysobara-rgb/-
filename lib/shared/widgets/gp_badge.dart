@@ -41,7 +41,7 @@ class GpBadge extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.w900,
-                    color: Colors.white,
+                    color: Color(0xFF16161A),
                   ),
                 ),
               ),

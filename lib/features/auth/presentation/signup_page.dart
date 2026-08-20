@@ -198,7 +198,7 @@ class _SignupPageState extends State<SignupPage> {
   }) {
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFFF5F5F5),
+        color: AppColors.surfaceElevated2,
         borderRadius: BorderRadius.circular(12),
       ),
       child: TextFormField(

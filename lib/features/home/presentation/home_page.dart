@@ -120,13 +120,16 @@ class _HomePageState extends State<HomePage> {
         actions: [
           IconButton(
             onPressed: () {},
-            icon: const Icon(Icons.search_rounded, color: Color(0xFF1A1A1A)),
+            icon: const Icon(
+              Icons.search_rounded,
+              color: AppColors.textPrimary,
+            ),
           ),
           IconButton(
             onPressed: () {},
             icon: const Icon(
               Icons.notifications_rounded,
-              color: Color(0xFF1A1A1A),
+              color: AppColors.textPrimary,
             ),
           ),
           const SizedBox(width: 4),

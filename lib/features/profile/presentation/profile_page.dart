@@ -148,8 +148,9 @@ class _ProfilePageState extends State<ProfilePage> {
               margin: const EdgeInsets.all(20),
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: AppColors.darkSurface,
+                color: AppColors.surfaceElevated,
                 borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: AppColors.surfaceBorder),
               ),
               child: Column(
                 children: [
@@ -165,7 +166,7 @@ class _ProfilePageState extends State<ProfilePage> {
                         child: const Icon(
                           Icons.person_rounded,
                           size: 30,
-                          color: Colors.white,
+                          color: Color(0xFF16161A),
                         ),
                       ),
                       const SizedBox(width: 14),
@@ -176,7 +177,7 @@ class _ProfilePageState extends State<ProfilePage> {
                             Text(
                               user?.nickname ?? '',
                               style: const TextStyle(
-                                color: Colors.white,
+                                color: AppColors.textPrimary,
                                 fontSize: 17,
                                 fontWeight: FontWeight.w700,
                               ),
@@ -195,10 +196,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     ],
                   ),
                   const SizedBox(height: 16),
-                  Container(
-                    height: 1,
-                    color: Colors.white.withValues(alpha: 0.1),
-                  ),
+                  Container(height: 1, color: AppColors.surfaceBorder),
                   const SizedBox(height: 16),
                   // ── GP 잔액 Row ──
                   Row(
@@ -234,7 +232,7 @@ class _ProfilePageState extends State<ProfilePage> {
                             child: Text(
                               '충전 탭 가기',
                               style: TextStyle(
-                                color: Colors.white,
+                                color: Color(0xFF16161A),
                                 fontSize: 12,
                                 fontWeight: FontWeight.w700,
                               ),
@@ -256,15 +254,9 @@ class _ProfilePageState extends State<ProfilePage> {
                   Container(
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: AppColors.surfaceElevated,
                       borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.05),
-                          blurRadius: 10,
-                          offset: const Offset(0, 3),
-                        ),
-                      ],
+                      border: Border.all(color: AppColors.surfaceBorder),
                     ),
                     child: Row(
                       children: [
@@ -446,15 +438,9 @@ class _MenuSection extends StatelessWidget {
         ),
         Container(
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: AppColors.surfaceElevated,
             borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.05),
-                blurRadius: 10,
-                offset: const Offset(0, 3),
-              ),
-            ],
+            border: Border.all(color: AppColors.surfaceBorder),
           ),
           child: Column(
             children: [

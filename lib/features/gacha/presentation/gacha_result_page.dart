@@ -192,7 +192,7 @@ class _GachaResultPageState extends State<GachaResultPage>
                             vertical: 14,
                           ),
                           decoration: BoxDecoration(
-                            color: Colors.white,
+                            color: AppColors.surfaceElevated,
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(color: AppColors.surfaceBorder),
                           ),
@@ -268,9 +268,12 @@ class _GachaResultPageState extends State<GachaResultPage>
                           child: ElevatedButton(
                             onPressed: _saveToInventory,
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.darkSurface,
-                              foregroundColor: Colors.white,
+                              backgroundColor: AppColors.surfaceElevated2,
+                              foregroundColor: AppColors.textPrimary,
                               elevation: 0,
+                              side: const BorderSide(
+                                color: AppColors.surfaceBorder,
+                              ),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(14),
                               ),
@@ -347,8 +350,9 @@ class _HighlightCard extends StatelessWidget {
       height: 200,
       padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
       decoration: BoxDecoration(
-        color: AppColors.darkSurface,
+        color: AppColors.surfaceElevated,
         borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.surfaceBorder),
         boxShadow: [
           BoxShadow(
             color: color.withValues(alpha: 0.55),
@@ -369,7 +373,7 @@ class _HighlightCard extends StatelessWidget {
             child: Text(
               '${result.grade} 등급',
               style: const TextStyle(
-                color: Colors.white,
+                color: Color(0xFF16161A),
                 fontSize: 13,
                 fontWeight: FontWeight.w800,
               ),
@@ -382,7 +386,7 @@ class _HighlightCard extends StatelessWidget {
             result.name,
             textAlign: TextAlign.center,
             style: const TextStyle(
-              color: Colors.white,
+              color: AppColors.textPrimary,
               fontSize: 18,
               fontWeight: FontWeight.w800,
             ),
@@ -414,11 +418,12 @@ class _ResultGridCard extends StatelessWidget {
 
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppColors.surfaceElevated,
         borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.surfaceBorder),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
+            color: Colors.black.withValues(alpha: 0.2),
             blurRadius: 8,
             offset: const Offset(0, 3),
           ),

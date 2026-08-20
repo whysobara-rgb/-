@@ -63,7 +63,7 @@ class _LoginPageState extends State<LoginPage> {
     final profile = await showModalBottomSheet<_SocialProfileInput>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.white,
+      backgroundColor: AppColors.surfaceElevated,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -326,7 +326,7 @@ class _LoginPageState extends State<LoginPage> {
   }) {
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFFF5F5F5),
+        color: AppColors.surfaceElevated2,
         borderRadius: BorderRadius.circular(12),
       ),
       child: TextField(
@@ -594,10 +594,10 @@ class _SocialConsentSheetState extends State<_SocialConsentSheet> {
           const SizedBox(height: 6),
           TextField(
             controller: _emailController,
-            style: const TextStyle(fontSize: 14),
+            style: const TextStyle(fontSize: 14, color: AppColors.textPrimary),
             decoration: InputDecoration(
               filled: true,
-              fillColor: const Color(0xFFF5F5F5),
+              fillColor: AppColors.surfaceElevated2,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10),
                 borderSide: BorderSide.none,
@@ -620,10 +620,10 @@ class _SocialConsentSheetState extends State<_SocialConsentSheet> {
           const SizedBox(height: 6),
           TextField(
             controller: _nicknameController,
-            style: const TextStyle(fontSize: 14),
+            style: const TextStyle(fontSize: 14, color: AppColors.textPrimary),
             decoration: InputDecoration(
               filled: true,
-              fillColor: const Color(0xFFF5F5F5),
+              fillColor: AppColors.surfaceElevated2,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10),
                 borderSide: BorderSide.none,
@@ -659,7 +659,7 @@ class _SocialConsentSheetState extends State<_SocialConsentSheet> {
                   onPressed: _confirm,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.goldPrimary,
-                    foregroundColor: Colors.white,
+                    foregroundColor: const Color(0xFF16161A),
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),

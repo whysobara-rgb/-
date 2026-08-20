@@ -68,7 +68,7 @@ class _WalletPageState extends State<WalletPage> {
     final amount = await showModalBottomSheet<int>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.white,
+      backgroundColor: AppColors.surfaceElevated,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -169,20 +169,24 @@ class _WalletPageState extends State<WalletPage> {
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [
-                      AppColors.darkSurface,
-                      AppColors.darkSurface.withValues(alpha: 0.85),
+                      AppColors.surfaceElevated,
+                      AppColors.surfaceElevated2,
                     ],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
                   borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppColors.surfaceBorder),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       '$nickname님의 보유 포인트',
-                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 14,
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Text(
@@ -215,13 +219,13 @@ class _WalletPageState extends State<WalletPage> {
                                       height: 20,
                                       child: CircularProgressIndicator(
                                         strokeWidth: 2.2,
-                                        color: Colors.white,
+                                        color: Color(0xFF16161A),
                                       ),
                                     )
                                   : const Text(
                                       '포인트 충전하기',
                                       style: TextStyle(
-                                        color: Colors.white,
+                                        color: Color(0xFF16161A),
                                         fontSize: 15,
                                         fontWeight: FontWeight.w800,
                                       ),
@@ -288,11 +292,12 @@ class _WalletPageState extends State<WalletPage> {
 
                     Container(
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: AppColors.surfaceElevated,
                         borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: AppColors.surfaceBorder),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.05),
+                            color: Colors.black.withValues(alpha: 0.2),
                             blurRadius: 10,
                             offset: const Offset(0, 3),
                           ),
@@ -524,7 +529,7 @@ class _TopupAmountSheetState extends State<_TopupAmountSheet> {
                   decoration: BoxDecoration(
                     color: isSelected
                         ? AppColors.goldPrimary.withValues(alpha: 0.12)
-                        : const Color(0xFFF5F5F5),
+                        : AppColors.surfaceElevated2,
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
                       color: isSelected
@@ -561,12 +566,13 @@ class _TopupAmountSheetState extends State<_TopupAmountSheet> {
           TextField(
             controller: _customController,
             keyboardType: TextInputType.number,
-            style: const TextStyle(fontSize: 14),
+            style: const TextStyle(fontSize: 14, color: AppColors.textPrimary),
             onChanged: (_) => setState(() {}),
             decoration: InputDecoration(
               hintText: '충전할 GP 금액 입력',
+              hintStyle: const TextStyle(color: AppColors.textSecondary),
               filled: true,
-              fillColor: const Color(0xFFF5F5F5),
+              fillColor: AppColors.surfaceElevated2,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10),
                 borderSide: BorderSide.none,
@@ -595,7 +601,7 @@ class _TopupAmountSheetState extends State<_TopupAmountSheet> {
                     child: Text(
                       '충전하기',
                       style: TextStyle(
-                        color: Colors.white,
+                        color: Color(0xFF16161A),
                         fontSize: 15,
                         fontWeight: FontWeight.w800,
                       ),

@@ -22,7 +22,7 @@ class QuickMenuRow extends StatelessWidget {
     _QuickMenuItem(
       label: '컬렉션',
       icon: Icons.grid_view,
-      backgroundColor: Colors.black,
+      backgroundColor: AppColors.surfaceElevated2,
     ),
     _QuickMenuItem(
       label: '코인샵',
@@ -60,7 +60,13 @@ class QuickMenuRow extends StatelessWidget {
                       color: item.backgroundColor,
                       shape: BoxShape.circle,
                     ),
-                    child: Icon(item.icon, color: Colors.white, size: 24),
+                    child: Icon(
+                      item.icon,
+                      color: item.backgroundColor == AppColors.goldPrimary
+                          ? const Color(0xFF16161A)
+                          : Colors.white,
+                      size: 24,
+                    ),
                   ),
                   const SizedBox(height: 6),
                   Text(

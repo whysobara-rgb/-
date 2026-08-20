@@ -1,20 +1,25 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../../core/network/api_client.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../shared/providers/gp_provider.dart';
+import '../../home/data/capsule_box_repository.dart';
 import '../../home/domain/capsule_box.dart';
+import '../../home/domain/gacha_detail.dart';
 import 'gacha_animation_page.dart';
 
 /// 가치가차 - 캡슐(랜덤박스) 상세 화면.
 ///
-/// "화이트 앱 셸 + 다크 프로모션 요소" 컨셉으로, 전체 배경은 화이트이며
-/// 상단 비주얼 배너와 LUCKY LINEUP 카드만 다크로 구성된다.
+/// "다크 차콜 + 네온 라임그린" 단일 톤 디자인. 백엔드 `GET /gachas/:id`를
+/// 통해 실시간 재고와 실제 럭키 라인업 구성을 가져와 표시한다.
 /// 홈 화면 카드 탭 시 push되는 화면.
 class GachaDetailPage extends StatefulWidget {
   final CapsuleBox box;
 
-  /// "충전" 탭으로 이동하기 위한 콜백. 잔액 부족 시 충전 유도 다이얼로그에서
-  /// "충전하러 가기"를 누르면 이 화면을 닫고 충전 탭으로 전환한다.
+  /// "충전" 탭으로 이동하기 위한 콜백. [MainNavigation]에서 전달되며,
+  /// 잔액 부족 시 충전 유도 다이얼로그에서 "충전하러 가기"를 누르면
+  /// 이 화면을 닫고 충전 탭으로 전환한다.
   final VoidCallback onGoToWallet;
 
   const GachaDetailPage({
@@ -27,50 +32,48 @@ class GachaDetailPage extends StatefulWidget {
   State<GachaDetailPage> createState() => _GachaDetailPageState();
 }
 
-/// LUCKY LINEUP에 노출되는 더미 상품 라인업 아이템.
-///
-/// ※ 실제 브랜드명(에르메스/롤렉스/샤넬 등)은 라이선스 확인 전까지
-/// 사용하지 않고, 일반명사로만 표기한다.
-class _LineupItem {
-  final IconData icon;
-  final String name;
-  final String description;
-
-  const _LineupItem({
-    required this.icon,
-    required this.name,
-    required this.description,
-  });
-}
-
 class _GachaDetailPageState extends State<GachaDetailPage> {
-  // 더미 재고/판매 현황 (추후 실제 API 연동 시 교체).
-  static const int _totalStock = 10000;
-  static const int _soldStock = 550;
+  final _repository = const CapsuleBoxRepository();
 
-  static const List<_LineupItem> _lineup = [
-    _LineupItem(
-      icon: Icons.phone_iphone,
-      name: '프리미엄 스마트폰',
-      description: '최신 모델',
-    ),
-    _LineupItem(
-      icon: Icons.shopping_bag,
-      name: '럭셔리 핸드백',
-      description: '명품 브랜드',
-    ),
-    _LineupItem(
-      icon: Icons.watch_rounded,
-      name: '명품 시계',
-      description: '스위스 브랜드',
-    ),
-    _LineupItem(icon: Icons.diamond, name: '프리미엄 액세서리', description: '한정판'),
-  ];
+  GachaDetail? _detail;
+  bool _isLoading = true;
+  String? _error;
 
   int _quantity = 1;
   static const int _maxQuantity = 100;
 
-  double get _soldRatio => _soldStock / _totalStock;
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadDetail());
+  }
+
+  Future<void> _loadDetail() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+    try {
+      final detail = await _repository.getById(widget.box.id);
+      if (!mounted) return;
+      setState(() {
+        _detail = detail;
+        _isLoading = false;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.message;
+        _isLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _error = '박스 정보를 불러오지 못했습니다';
+        _isLoading = false;
+      });
+    }
+  }
 
   void _setQuantity(int value) {
     setState(() {
@@ -82,13 +85,14 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
 
   void _reset() => _setQuantity(1);
 
-  int get _totalPrice => widget.box.priceWon * _quantity;
+  int get _unitPrice => _detail?.price ?? widget.box.priceWon;
+  int get _totalPrice => _unitPrice * _quantity;
 
   /// 구매 버튼 클릭 시 흐름:
   /// 1) 잔액 부족 → "충전하러 가시겠습니까?" 다이얼로그 → 확인 시 이 화면을 닫고
   ///    충전 탭으로 이동.
   /// 2) 잔액 충분 → 구매 확인 다이얼로그 → 확인 시에만 뽑기 애니메이션 화면으로 이동.
-  Future<void> _onPurchasePressed(CapsuleBox box) async {
+  Future<void> _onPurchasePressed() async {
     final gp = context.read<GpProvider>();
     final balance = gp.balance;
 
@@ -97,18 +101,23 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
       final goToWallet = await showDialog<bool>(
         context: context,
         builder: (dialogContext) => AlertDialog(
+          backgroundColor: AppColors.surfaceElevated,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
           title: const Text(
             '포인트가 부족합니다',
-            style: TextStyle(fontWeight: FontWeight.w700),
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              color: AppColors.textPrimary,
+            ),
           ),
           content: Text(
             '현재 보유 GP: ${gp.formattedBalance} GP\n'
             '필요 GP: $_formattedTotalPrice\n'
             '부족한 GP: ${_formatAmount(shortfall)} GP\n\n'
             '포인트를 충전하러 가시겠습니까?',
+            style: const TextStyle(color: AppColors.textSecondary),
           ),
           actions: [
             TextButton(
@@ -123,7 +132,7 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
               child: const Text(
                 '충전하러 가기',
                 style: TextStyle(
-                  color: AppColors.goldPrimary,
+                  color: AppColors.neonPrimary,
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -143,14 +152,19 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.surfaceElevated,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text(
           '랜덤박스 구매',
-          style: TextStyle(fontWeight: FontWeight.w700),
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            color: AppColors.textPrimary,
+          ),
         ),
         content: Text(
-          '${box.name} $_quantity개를 $_formattedTotalPrice에 구매하시겠습니까?\n'
+          '${widget.box.name} $_quantity개를 $_formattedTotalPrice에 구매하시겠습니까?\n'
           '(구매 후 즉시 개봉됩니다)',
+          style: const TextStyle(color: AppColors.textSecondary),
         ),
         actions: [
           TextButton(
@@ -165,7 +179,7 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
             child: const Text(
               '구매하기',
               style: TextStyle(
-                color: AppColors.goldPrimary,
+                color: AppColors.neonPrimary,
                 fontWeight: FontWeight.w700,
               ),
             ),
@@ -177,7 +191,8 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
     if (confirmed == true && mounted) {
       Navigator.of(context).push(
         MaterialPageRoute(
-          builder: (context) => GachaAnimationPage(box: box, count: _quantity),
+          builder: (context) =>
+              GachaAnimationPage(box: widget.box, count: _quantity),
         ),
       );
     }
@@ -194,16 +209,7 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
     return buffer.toString();
   }
 
-  String get _formattedTotalPrice {
-    final str = _totalPrice.toString();
-    final buffer = StringBuffer();
-    for (int i = 0; i < str.length; i++) {
-      final posFromEnd = str.length - i;
-      buffer.write(str[i]);
-      if (posFromEnd > 1 && posFromEnd % 3 == 1) buffer.write(',');
-    }
-    return '₩${buffer.toString()}';
-  }
+  String get _formattedTotalPrice => '${_formatAmount(_totalPrice)} GP';
 
   @override
   Widget build(BuildContext context) {
@@ -213,6 +219,7 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
       backgroundColor: AppColors.scaffoldBg,
       appBar: AppBar(
         backgroundColor: AppColors.scaffoldBg,
+        elevation: 0,
         leading: IconButton(
           onPressed: () => Navigator.of(context).pop(),
           icon: const Icon(
@@ -222,18 +229,14 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
           ),
         ),
         centerTitle: true,
-        title: ShaderMask(
-          shaderCallback: (bounds) => AppColors.goldGradient.createShader(
-            Rect.fromLTWH(0, 0, bounds.width, bounds.height),
-          ),
-          child: const Text(
-            'GACHIGACHA',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 18,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 0.5,
-            ),
+        title: Text(
+          box.name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            color: AppColors.textPrimary,
+            fontSize: 17,
+            fontWeight: FontWeight.w700,
           ),
         ),
         actions: [
@@ -244,94 +247,163 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
         ],
       ),
       body: SafeArea(
-        child: Column(
-          children: [
-            Expanded(
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // ── [2] 상단 비주얼 배너 (다크) ──
-                    _VisualBanner(box: box),
+        child: _isLoading
+            ? const Center(
+                child: CircularProgressIndicator(color: AppColors.neonPrimary),
+              )
+            : _error != null
+            ? _ErrorState(message: _error!, onRetry: _loadDetail)
+            : _buildContent(box, _detail!),
+      ),
+    );
+  }
 
-                    // ── [3] 가격 (화이트, 중앙 정렬) ──
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 20),
-                      child: Center(
-                        child: Text(
-                          box.formattedPrice,
-                          style: const TextStyle(
-                            color: AppColors.textPrimary,
-                            fontSize: 34,
-                            fontWeight: FontWeight.w900,
-                          ),
+  Widget _buildContent(CapsuleBox box, GachaDetail detail) {
+    return Column(
+      children: [
+        Expanded(
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // ── [1] 상단 비주얼 배너 (실제 이미지 + 그라데이션) ──
+                _VisualBanner(box: box, detail: detail),
+
+                // ── [2] 가격 (중앙 정렬) ──
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 20),
+                  child: Center(
+                    child: Text(
+                      detail.formattedPrice,
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 32,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ),
+
+                if (detail.description.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: Text(
+                      detail.description,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 13,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+
+                const SizedBox(height: 18),
+
+                // ── [3] 실시간 재고 카드 ──
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: _StockCard(
+                    totalStock: detail.totalStock,
+                    soldStock: detail.soldStock,
+                    ratio: detail.soldRatio,
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                // ── [4] 안내 문구 ──
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '※ 개봉 후 환불 불가',
+                        style: TextStyle(
+                          color: AppColors.badgeSpecial,
+                          fontSize: 12,
                         ),
                       ),
-                    ),
-
-                    // ── [4] 총 개수 카드 (화이트 카드) ──
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: _StockCard(
-                        totalStock: _totalStock,
-                        soldStock: _soldStock,
-                        ratio: _soldRatio,
+                      const SizedBox(height: 4),
+                      Text(
+                        '※ 재고 소진 시 조기 종료 가능',
+                        style: TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 12,
+                        ),
                       ),
-                    ),
+                    ],
+                  ),
+                ),
 
-                    const SizedBox(height: 16),
+                const SizedBox(height: 24),
 
-                    // ── [5] 안내 문구 ──
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '※ 개봉 후 환불 불가',
-                            style: TextStyle(
-                              color: AppColors.badgeSpecial,
-                              fontSize: 12,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            '※ 재고 소진 시 조기 종료 가능',
-                            style: TextStyle(
-                              color: AppColors.textSecondary,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                // ── [5] LUCKY LINEUP (실제 라인업) ──
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: _LuckyLineupCard(items: detail.lineup),
+                ),
 
-                    const SizedBox(height: 24),
+                const SizedBox(height: 16),
+              ],
+            ),
+          ),
+        ),
 
-                    // ── [6] LUCKY LINEUP (다크 카드) ──
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: _LuckyLineupCard(items: _lineup),
-                    ),
+        // ── [6] 하단 고정 수량선택 + 구매 버튼 ──
+        _BottomPurchaseBar(
+          quantity: _quantity,
+          maxQuantity: _maxQuantity,
+          totalPriceLabel: _formattedTotalPrice,
+          onDecrement: () => _setQuantity(_quantity - 1),
+          onIncrement: () => _setQuantity(_quantity + 1),
+          onAdd10: () => _incrementBy(10),
+          onAdd100: () => _incrementBy(100),
+          onMax: () => _setQuantity(_maxQuantity),
+          onReset: _reset,
+          onPurchase: _onPurchasePressed,
+        ),
+      ],
+    );
+  }
+}
 
-                    const SizedBox(height: 16),
-                  ],
+class _ErrorState extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+
+  const _ErrorState({required this.message, required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.error_outline_rounded,
+              size: 42,
+              color: AppColors.textSecondary,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 16),
+            TextButton(
+              onPressed: onRetry,
+              child: const Text(
+                '다시 시도',
+                style: TextStyle(
+                  color: AppColors.neonPrimary,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
-            ),
-
-            // ── [7] 하단 고정 수량선택 + 구매 버튼 ──
-            _BottomPurchaseBar(
-              quantity: _quantity,
-              maxQuantity: _maxQuantity,
-              totalPriceLabel: _formattedTotalPrice,
-              onDecrement: () => _setQuantity(_quantity - 1),
-              onIncrement: () => _setQuantity(_quantity + 1),
-              onAdd10: () => _incrementBy(10),
-              onAdd100: () => _incrementBy(100),
-              onMax: () => _setQuantity(_maxQuantity),
-              onReset: _reset,
-              onPurchase: () => _onPurchasePressed(box),
             ),
           ],
         ),
@@ -340,32 +412,48 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
   }
 }
 
-/// [2] 상단 비주얼 배너 (다크 배경 + 큰 상품 아이콘 + 뱃지).
+/// [1] 상단 비주얼 배너: 실제 상품 이미지 + 다크 그라데이션 오버레이 + 뱃지.
 class _VisualBanner extends StatelessWidget {
   final CapsuleBox box;
+  final GachaDetail detail;
 
-  const _VisualBanner({required this.box});
+  const _VisualBanner({required this.box, required this.detail});
 
   @override
   Widget build(BuildContext context) {
+    final imageUrl = detail.imageUrl ?? box.imageUrl;
+
     return Container(
-      height: 220,
+      height: 260,
       width: double.infinity,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            box.accentColor.withValues(alpha: 0.55),
-            AppColors.darkSurface,
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-      ),
+      color: AppColors.surfaceShell,
       child: Stack(
+        fit: StackFit.expand,
         children: [
-          Positioned.fill(
-            child: Center(
-              child: Icon(box.icon, size: 100, color: Colors.white),
+          if (imageUrl != null && imageUrl.isNotEmpty)
+            CachedNetworkImage(
+              imageUrl: imageUrl,
+              fit: BoxFit.cover,
+              placeholder: (context, url) => _iconFallback(),
+              errorWidget: (context, url, error) => _iconFallback(),
+            )
+          else
+            _iconFallback(),
+          // 하단 그라데이션 (텍스트 가독성)
+          const Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.transparent,
+                    Colors.transparent,
+                    Color(0xCC0A0A0C),
+                  ],
+                  stops: [0.0, 0.45, 1.0],
+                ),
+              ),
             ),
           ),
           // 좌하단 "오늘의 럭키 PICK!"
@@ -379,6 +467,7 @@ class _VisualBanner extends StatelessWidget {
                 fontSize: 20,
                 fontWeight: FontWeight.w900,
                 height: 1.3,
+                shadows: [Shadow(color: Colors.black54, blurRadius: 8)],
               ),
             ),
           ),
@@ -412,9 +501,25 @@ class _VisualBanner extends StatelessWidget {
       ),
     );
   }
+
+  Widget _iconFallback() {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            box.accentColor.withValues(alpha: 0.6),
+            AppColors.scaffoldBg,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: Center(child: Icon(box.icon, size: 96, color: Colors.white)),
+    );
+  }
 }
 
-/// [4] 총 개수 카드 (화이트, 진행률 표시).
+/// [3] 실시간 재고 카드 (다크 표면 + 진행률 표시).
 class _StockCard extends StatelessWidget {
   final int totalStock;
   final int soldStock;
@@ -428,20 +533,15 @@ class _StockCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final percentLabel = '${(ratio * 100).toStringAsFixed(1)}%';
+    final clampedRatio = ratio.clamp(0.0, 1.0);
+    final percentLabel = '${(clampedRatio * 100).toStringAsFixed(1)}%';
 
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppColors.surfaceElevated,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        border: Border.all(color: AppColors.surfaceBorder),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -450,7 +550,7 @@ class _StockCard extends StatelessWidget {
             children: [
               const Icon(
                 Icons.inventory_2_rounded,
-                color: AppColors.goldPrimary,
+                color: AppColors.neonPrimary,
                 size: 22,
               ),
               const SizedBox(width: 8),
@@ -469,13 +569,13 @@ class _StockCard extends StatelessWidget {
                   vertical: 4,
                 ),
                 decoration: BoxDecoration(
-                  color: AppColors.goldPrimary.withValues(alpha: 0.15),
+                  color: AppColors.neonPrimary.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
                   percentLabel,
                   style: const TextStyle(
-                    color: AppColors.goldSecondary,
+                    color: AppColors.neonPrimary,
                     fontSize: 13,
                     fontWeight: FontWeight.w800,
                   ),
@@ -487,11 +587,11 @@ class _StockCard extends StatelessWidget {
           ClipRRect(
             borderRadius: BorderRadius.circular(8),
             child: LinearProgressIndicator(
-              value: ratio,
+              value: clampedRatio,
               minHeight: 8,
-              backgroundColor: const Color(0xFFE5E5E5),
+              backgroundColor: AppColors.surfaceElevated2,
               valueColor: const AlwaysStoppedAnimation<Color>(
-                AppColors.goldPrimary,
+                AppColors.neonPrimary,
               ),
             ),
           ),
@@ -501,19 +601,36 @@ class _StockCard extends StatelessWidget {
   }
 }
 
-/// [6] LUCKY LINEUP (다크 카드 + 가로 스크롤 아이템).
+/// [5] LUCKY LINEUP: 실제 등급별 구성 아이템 (이미지 + 등급뱃지 + 확률).
 class _LuckyLineupCard extends StatelessWidget {
-  final List<_LineupItem> items;
+  final List<LineupItem> items;
 
   const _LuckyLineupCard({required this.items});
 
+  Color _rarityColor(String rarity) {
+    switch (rarity) {
+      case 'SSR':
+        return AppColors.raritySSR;
+      case 'SR':
+        return AppColors.raritySR;
+      case 'R':
+        return AppColors.rarityR;
+      case 'N':
+      default:
+        return AppColors.rarityN;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final totalWeight = items.fold<int>(0, (sum, item) => sum + item.weight);
+
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 20),
       decoration: BoxDecoration(
-        color: AppColors.darkSurface,
+        color: AppColors.surfaceElevated,
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.surfaceBorder),
       ),
       child: Column(
         children: [
@@ -521,64 +638,128 @@ class _LuckyLineupCard extends StatelessWidget {
             '★ LUCKY LINEUP ★',
             textAlign: TextAlign.center,
             style: TextStyle(
-              color: AppColors.goldPrimary,
+              color: AppColors.neonPrimary,
               fontSize: 16,
               fontWeight: FontWeight.w700,
               letterSpacing: 0.3,
             ),
           ),
           const SizedBox(height: 16),
-          SizedBox(
-            height: 120,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              itemCount: items.length,
-              separatorBuilder: (context, index) => const SizedBox(width: 16),
-              itemBuilder: (context, index) {
-                final item = items[index];
-                return SizedBox(
-                  width: 88,
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.start,
-                    children: [
-                      Icon(item.icon, size: 52, color: AppColors.goldPrimary),
-                      const SizedBox(height: 8),
-                      Text(
-                        item.name,
-                        textAlign: TextAlign.center,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
+          if (items.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 20),
+              child: Text(
+                '라인업 정보를 불러올 수 없습니다',
+                style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+              ),
+            )
+          else
+            SizedBox(
+              height: 158,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                itemCount: items.length,
+                separatorBuilder: (context, index) => const SizedBox(width: 12),
+                itemBuilder: (context, index) {
+                  final item = items[index];
+                  final color = _rarityColor(item.rarity);
+                  return SizedBox(
+                    width: 104,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // ── 등급 뱃지 ──
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: color.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                              color: color.withValues(alpha: 0.6),
+                            ),
+                          ),
+                          child: Text(
+                            item.rarity,
+                            style: TextStyle(
+                              color: color,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        item.description,
-                        textAlign: TextAlign.center,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: AppColors.textOnDarkSecondary,
-                          fontSize: 10,
+                        const SizedBox(height: 6),
+                        // ── 실제 상품 이미지 ──
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: SizedBox(
+                            width: 72,
+                            height: 72,
+                            child: item.imageUrl != null
+                                ? CachedNetworkImage(
+                                    imageUrl: item.imageUrl!,
+                                    fit: BoxFit.cover,
+                                    placeholder: (context, url) => Container(
+                                      color: AppColors.surfaceElevated2,
+                                    ),
+                                    errorWidget: (context, url, error) =>
+                                        Container(
+                                          color: AppColors.surfaceElevated2,
+                                          child: Icon(
+                                            Icons.card_giftcard_rounded,
+                                            color: color,
+                                            size: 28,
+                                          ),
+                                        ),
+                                  )
+                                : Container(
+                                    color: AppColors.surfaceElevated2,
+                                    child: Icon(
+                                      Icons.card_giftcard_rounded,
+                                      color: color,
+                                      size: 28,
+                                    ),
+                                  ),
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                );
-              },
+                        const SizedBox(height: 6),
+                        Text(
+                          item.name,
+                          textAlign: TextAlign.center,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            height: 1.2,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          item.probabilityLabel(totalWeight),
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 10,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
             ),
-          ),
         ],
       ),
     );
   }
 }
 
-/// [7] 하단 고정 영역: 컴팩트 수량선택 Row + 구매 버튼.
+/// [6] 하단 고정 영역: 컴팩트 수량선택 Row + 구매 버튼.
 class _BottomPurchaseBar extends StatelessWidget {
   final int quantity;
   final int maxQuantity;
@@ -608,8 +789,8 @@ class _BottomPurchaseBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
+      decoration: const BoxDecoration(
+        color: AppColors.surfaceShell,
         border: Border(
           top: BorderSide(color: AppColors.surfaceBorder, width: 1),
         ),
@@ -674,7 +855,7 @@ class _BottomPurchaseBar extends StatelessWidget {
                     child: Text(
                       '랜덤박스 구매하기 $totalPriceLabel →',
                       style: const TextStyle(
-                        color: Colors.white,
+                        color: Color(0xFF16161A),
                         fontSize: 16,
                         fontWeight: FontWeight.w800,
                       ),
@@ -739,7 +920,7 @@ class _QtyChip extends StatelessWidget {
           child: Text(
             label,
             style: const TextStyle(
-              color: AppColors.goldSecondary,
+              color: AppColors.neonPrimary,
               fontSize: 11,
               fontWeight: FontWeight.w700,
             ),

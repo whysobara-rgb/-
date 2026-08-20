@@ -124,8 +124,9 @@ class _PointHistoryPageState extends State<PointHistoryPage> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: AppColors.darkSurface,
+                  color: AppColors.surfaceElevated,
                   borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppColors.surfaceBorder),
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -250,7 +251,7 @@ class _FilterPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: selected ? AppColors.goldPrimary : Colors.white,
+      color: selected ? AppColors.goldPrimary : AppColors.surfaceElevated,
       borderRadius: BorderRadius.circular(20),
       child: InkWell(
         borderRadius: BorderRadius.circular(20),
@@ -266,7 +267,9 @@ class _FilterPill extends StatelessWidget {
           child: Text(
             label,
             style: TextStyle(
-              color: selected ? Colors.white : AppColors.textSecondary,
+              color: selected
+                  ? const Color(0xFF16161A)
+                  : AppColors.textSecondary,
               fontSize: 13,
               fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
             ),
