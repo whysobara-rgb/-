@@ -1,58 +1,46 @@
 import 'package:flutter/material.dart';
+import '../../features/gacha/domain/gacha_grade.dart';
 
 /// 가치가차 - 등급별 컬러 상수
 ///
-/// 프리미엄 가챠 등급 컬러 시스템. 문자열 등급 코드("S"/"A"/"B"/"C")를
-/// 기준으로 컬러를 조회한다. S(최고 등급, 골드) > A(퍼플) > B(블루) > C(그레이) 순서.
-/// 가챠(뽑기) 화면과 보관함(인벤토리) 화면 등 여러 기능에서 공통으로 사용된다.
+/// CLOVE 오리파 스타일 4등급 체계. 문자열 등급 코드("B"/"A"/"S"/"SSS")를
+/// 기준으로 컬러를 조회한다. SSS(최고 등급, 잭팟) > S(대박) > A(선방) > B(기본)
+/// 순서. 가챠(뽑기) 화면과 보관함(인벤토리) 화면 등 여러 기능에서 공통으로
+/// 사용된다. 실제 컬러 정의는 [GachaGrade]에 위임한다.
 class RankColors {
   RankColors._();
 
-  /// S등급 - 골드 (최고 등급, 레전더리)
-  static const Color s = Color(0xFFFFC94A);
-  static const Color sDark = Color(0xFFB8860B);
+  /// SSS등급 - 레인보우/마젠타 (최고 등급, 잭팟)
+  static Color get sss => GachaGrade.sss.primaryColor;
+  static Color get sssDark => const Color(0xFFB8258A);
 
-  /// A등급 - 퍼플 (레어)
-  static const Color a = Color(0xFFA36BFF);
-  static const Color aDark = Color(0xFF6A3FBF);
+  /// S등급 - 골드 (대박, 상위 1%)
+  static Color get s => GachaGrade.s.primaryColor;
+  static Color get sDark => const Color(0xFFB8860B);
 
-  /// B등급 - 블루 (언커먼)
-  static const Color b = Color(0xFF4FC3F7);
-  static const Color bDark = Color(0xFF2A7DAF);
+  /// A등급 - 퍼플 (선방)
+  static Color get a => GachaGrade.a.primaryColor;
+  static Color get aDark => const Color(0xFF6A3FBF);
 
-  /// C등급 - 그레이 (커먼)
-  static const Color c = Color(0xFF9AA0A6);
-  static const Color cDark = Color(0xFF6B7075);
+  /// B등급 - 실버/화이트 (기본)
+  static Color get b => GachaGrade.b.primaryColor;
+  static Color get bDark => const Color(0xFF6B7075);
 
-  /// 등급 코드("S"/"A"/"B"/"C")에 해당하는 메인 컬러 반환.
-  static Color of(String grade) {
-    switch (grade) {
-      case 'S':
-        return s;
-      case 'A':
-        return a;
-      case 'B':
-        return b;
-      case 'C':
-        return c;
-      default:
-        return c;
-    }
-  }
+  /// 등급 코드("B"/"A"/"S"/"SSS")에 해당하는 메인 컬러 반환.
+  /// 레거시 등급 코드("C")가 들어와도 B로 폴백한다.
+  static Color of(String grade) => GachaGrade.fromCode(grade).primaryColor;
 
   /// 등급 코드에 해당하는 다크 톤 컬러 반환 (그라디언트/그림자용).
   static Color darkOf(String grade) {
-    switch (grade) {
-      case 'S':
+    switch (GachaGrade.fromCode(grade)) {
+      case GachaGrade.sss:
+        return sssDark;
+      case GachaGrade.s:
         return sDark;
-      case 'A':
+      case GachaGrade.a:
         return aDark;
-      case 'B':
+      case GachaGrade.b:
         return bDark;
-      case 'C':
-        return cDark;
-      default:
-        return cDark;
     }
   }
 }

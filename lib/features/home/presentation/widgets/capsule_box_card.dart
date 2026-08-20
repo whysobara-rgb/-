@@ -7,7 +7,8 @@ import '../../domain/capsule_box.dart';
 /// 가치가차 - 홈 상품 그리드에 사용되는 캡슐(랜덤박스) 카드.
 ///
 /// Claymorphism & Pastel 3D 스타일 - 순백색 라운드 카드
-/// (border-radius 20px) + 연한 파스텔 소프트 섀도우 위에 3D
+/// (border-radius 24px, box-shadow 0 12px 24px rgba(0,0,0,0.06))
+/// + 연한 파스텔 소프트 섀도우 위에 3D
 /// 클레이 렌더링 상품 이미지를 얹고, 우측 상단 모서리에 걸쳐지는
 /// 로제트(원형+리본 꼬리) 뱃지(HOT=주황, NEW=민트)를 배치한다.
 /// 상품명은 블랙 볼드, 가격은 바이올렛 포인트 컬러로 강조한다.
@@ -22,12 +23,12 @@ class CapsuleBoxCard extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 24,
+            offset: const Offset(0, 12),
           ),
         ],
       ),
@@ -36,7 +37,7 @@ class CapsuleBoxCard extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(24),
           child: LayoutBuilder(
             builder: (context, constraints) {
               final cardHeight = constraints.maxHeight;
