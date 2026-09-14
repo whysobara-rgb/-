@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/network/api_client.dart';
+import '../../core/theme/app_colors.dart';
 import '../../shared/providers/auth_provider.dart';
 import 'order_models.dart';
 import 'order_repository.dart';
@@ -155,6 +156,41 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
     });
   }
 
+  Widget _summary(IconData icon, String title, String description) => Container(
+    margin: const EdgeInsets.only(bottom: 20),
+    padding: const EdgeInsets.all(24),
+    decoration: BoxDecoration(
+      color: AppColors.textPrimary,
+      borderRadius: BorderRadius.circular(24),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, color: Colors.white, size: 40),
+        const SizedBox(height: 20),
+        Text(title, style: const TextStyle(color: Colors.white,
+            fontSize: 26, fontWeight: FontWeight.w800)),
+        const SizedBox(height: 10),
+        Text(description, style: const TextStyle(
+            color: Color(0xFFDEDEE4), height: 1.6)),
+      ],
+    ),
+  );
+
+  Widget _detail(String label, String value) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 10),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(child: Text(label,
+            style: const TextStyle(color: AppColors.textSecondary))),
+        const SizedBox(width: 16),
+        Flexible(child: Text(value, textAlign: TextAlign.end,
+            style: const TextStyle(fontWeight: FontWeight.w700))),
+      ],
+    ),
+  );
+
   Widget _button(
     String text,
     VoidCallback? action, {
@@ -179,7 +215,7 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
             child: SizedBox(
               width: 64,
               height: 64,
-              child: prize.imageUrl == null
+              child: prize.imageUrl == null || prize.imageUrl!.isEmpty
                   ? const Icon(Icons.card_giftcard, size: 36)
                   : Image.network(
                       prize.imageUrl!,
@@ -218,13 +254,11 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
   List<Widget> _content() {
     if (_opening != null) {
       return [
-        const Icon(Icons.check_circle_outline, size: 64, color: Colors.green),
-        const Text(
-          '상품이 보관함에 도착했어요',
-          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-        ),
+        _summary(Icons.auto_awesome, '상품이 보관함에 도착했어요',
+            '새로운 컬렉션을 만나보세요. 아래 상품이 내 보관함에 저장되었습니다.'),
         _prize(_opening!.prize),
-        const Text('확인된 개봉 결과입니다. 다시 확인해도 같은 상품이 표시됩니다.'),
+        const Padding(padding: EdgeInsets.symmetric(vertical: 16),
+            child: Text('내 보관함에 저장했어요. 이 화면을 다시 열어도 같은 결과를 확인할 수 있습니다.')),
         _button('미개봉 보관함으로', _inventory),
         _button('확인하고 돌아가기', () async {
           await _run(() async {
@@ -236,14 +270,11 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
     }
     if (_receipt != null) {
       return [
-        const Icon(Icons.inventory_2_outlined, size: 64),
-        const Text(
-          '구매가 완료됐어요',
-          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-        ),
-        Text(
-          '${_receipt!.title}\n${_receipt!.quantity}개 · ${_receipt!.total} GP',
-        ),
+        _summary(Icons.check_circle_outline, '구매가 완료됐어요',
+            '열어볼 설렘을 보관했어요. 원하는 순간에 캡슐을 열어보세요.'),
+        _detail('구매 상품', _receipt!.title),
+        _detail('캡슐 수량', '${_receipt!.quantity}개'),
+        _detail('사용 GP', '${_receipt!.total} GP'),
         const Text('캡슐은 미개봉 상태로 보관됩니다. 원하는 때에 하나씩 열어보세요.'),
         _button('미개봉 보관함 보기', _inventory),
       ];
@@ -254,17 +285,17 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
           '개봉 결과 확인',
           style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
         ),
-        const Text('결과를 확인하기 전에는 다른 캡슐을 열지 않습니다.'),
+        const Text('개봉 결과를 불러오고 있어요. 연결이 끊겼다면 아래 버튼으로 이어서 확인해주세요.'),
         _button('저장된 결과 다시 확인', () => _recoverOpening(_openingId!)),
         if (_canRetryOpen) _button('이 캡슐 개봉 다시 요청', () => _open(_openingId!)),
       ];
     }
     if (_focused != null) {
       return [
-        Text(
-          _focusedOrder!.title,
-          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-        ),
+        _summary(Icons.inventory_2_outlined, '어떤 상품을 만나게 될까요?',
+            _focusedOrder!.title),
+        _detail('개봉 수량', '캡슐 1개'),
+        _detail('추가 결제', '0 GP'),
         const Text(
           '이 캡슐을 개봉하시겠어요?\n추가 GP 차감 없이 구매 당시 확률로 상품을 지급합니다. 개봉 후에는 미개봉 상태로 되돌릴 수 없습니다.',
         ),
@@ -299,10 +330,8 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
     }
     if (_showInventory) {
       widgets.add(
-        const Text(
-          '미개봉 캡슐',
-          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-        ),
+        _summary(Icons.inventory_2_outlined, '미개봉 캡슐',
+            '아직 열지 않은 설렘 $_total개. 캡슐을 선택해 상품을 확인하세요.'),
       );
       widgets.add(Text('총 $_total개 · $_page페이지'));
       if (_capsules.isEmpty && !_busy) {
@@ -318,6 +347,7 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
           (c) => Card(
             child: ListTile(
               leading: const Icon(Icons.inventory_2_outlined),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
               title: Text('미개봉 캡슐 · ${c.sequence}번'),
               subtitle: const Text('상품 정보를 확인하고 개봉하세요'),
               trailing: const Icon(Icons.chevron_right),
@@ -362,10 +392,12 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
       widgets.add(_button('새로고침', () => _run(_load), primary: false));
     } else if (_pending == null && _odds != null) {
       widgets.addAll([
-        Text(
-          widget.title,
-          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-        ),
+        _summary(Icons.shopping_bag_outlined, '구매 전 마지막 확인', widget.title),
+        _detail('캡슐 1개', '${_odds!.price} GP'),
+        const SizedBox(height: 16),
+        const Text('어떤 상품이 들어 있나요?', style: TextStyle(
+            fontSize: 20, fontWeight: FontWeight.w800)),
+        const SizedBox(height: 8),
         const Text('구매 전 확률과 전환 GP를 확인해주세요.\n구매한 캡슐은 미개봉 보관함에 저장됩니다.'),
         ..._odds!.prizes.map((p) => _prize(p, odds: true)),
         Row(
