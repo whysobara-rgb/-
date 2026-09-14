@@ -35,11 +35,10 @@ const detail = GachaDetail(id: 901, title: '취향을 채우는 컬렉션 박스
 
 void main() {
   setUpAll(() async {
-    // One complete Korean font face lets the test renderer synthesize weights
-    // consistently; registering two unweighted faces made some glyph runs blank.
-    final font = FontLoader('Pretendard')
-      ..addFont(rootBundle.load('assets/fonts/Pretendard-Regular.otf'));
-    await font.load();
+    final fonts = FontLoader('Pretendard')
+      ..addFont(rootBundle.load('assets/fonts/Pretendard-Regular.otf'))
+      ..addFont(rootBundle.load('assets/fonts/Pretendard-Bold.otf'));
+    await fonts.load();
   });
   Future<void> mount(WidgetTester tester, Widget screen, {double width = 390, double scale = 1}) async {
     tester.view.physicalSize = Size(width, 900);
