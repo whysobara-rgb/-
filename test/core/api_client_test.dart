@@ -132,6 +132,8 @@ void main() {
       '//other.example/users',
       'https://other.example/users',
       '/../users',
+      '/a/%2e%2e/users',
+      '/a/..%2fusers',
     ]) {
       await expectLater(api(transport).get(path), throwsA(isA<ApiException>()));
     }

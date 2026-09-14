@@ -49,10 +49,25 @@ class ApiClient {
        _baseUrl = apiBaseUrl,
        _timeout = timeout;
 
+  bool _hasUnsafePath(String path) {
+    try {
+      return path.split('?').first.split('/').any((raw) {
+        final segment = Uri.decodeComponent(raw);
+        return segment == '.' ||
+            segment == '..' ||
+            segment.contains('/') ||
+            segment.contains('\\');
+      });
+    } on FormatException {
+      return true;
+    }
+  }
+
   Uri _uri(String path) {
     final base = Uri.tryParse(_baseUrl);
     final relative = Uri.tryParse(path);
-    if (base == null ||
+    if (_hasUnsafePath(path) ||
+        base == null ||
         base.scheme != 'https' ||
         base.host.isEmpty ||
         base.userInfo.isNotEmpty ||
