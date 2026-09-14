@@ -1,9 +1,23 @@
 import 'package:flutter/material.dart';
 import '../domain/inventory_item.dart';
 
-class CollectionDetailPage extends StatelessWidget {
+class CollectionDetailPage extends StatefulWidget {
   final InventoryItem item;
   const CollectionDetailPage({super.key, required this.item});
+
+  @override
+  State<CollectionDetailPage> createState() => _CollectionDetailPageState();
+}
+
+class _CollectionDetailPageState extends State<CollectionDetailPage> {
+  final _transform = TransformationController();
+  InventoryItem get item => widget.item;
+
+  @override
+  void dispose() {
+    _transform.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -18,6 +32,7 @@ class CollectionDetailPage extends StatelessWidget {
             gradient: const LinearGradient(
               colors: [Color(0xFF29203E), Color(0xFF101018)])),
           child: InteractiveViewer(
+            transformationController: _transform,
             minScale: 1, maxScale: 3,
             child: Center(child: item.imageUrl == null || item.imageUrl!.isEmpty
               ? Icon(item.icon, size: 120, color: const Color(0xFFB9A4FF))
@@ -26,7 +41,15 @@ class CollectionDetailPage extends StatelessWidget {
                     item.icon, size: 120, color: const Color(0xFFB9A4FF))))),
         ),
         const SizedBox(height: 12),
-        const Text('두 손가락으로 확대해서 감상하세요',
+        Wrap(alignment: WrapAlignment.center, spacing: 8, children: [
+          OutlinedButton.icon(
+            onPressed: () => _transform.value = Matrix4.diagonal3Values(2, 2, 1),
+            icon: const Icon(Icons.zoom_in), label: const Text('2배 확대')),
+          TextButton.icon(
+            onPressed: () => _transform.value = Matrix4.identity(),
+            icon: const Icon(Icons.restart_alt), label: const Text('원래 크기')),
+        ]),
+        const Text('두 손가락으로 확대하거나 이미지를 움직일 수 있어요',
           textAlign: TextAlign.center),
         const SizedBox(height: 24),
         Text(item.name, style: const TextStyle(
