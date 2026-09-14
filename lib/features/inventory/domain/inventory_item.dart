@@ -220,15 +220,38 @@ class InventoryRepository {
 
   /// 보관함 전체 목록을 조회한다. [status]를 지정하면 해당 상태만 필터링한다.
   Future<List<InventoryItem>> getAll({InventoryStatus? status}) async {
-    final query = <String>['page=1', 'limit=100'];
-    if (status != null) {
-      query.add('status=${_statusToBackend(status)}');
+    final result = <InventoryItem>[];
+    final ids = <String>{};
+    var page = 1;
+    while (true) {
+      final query = <String>['page=$page', 'limit=100'];
+      if (status != null) query.add('status=${_statusToBackend(status)}');
+      final data = await _apiClient.get('/inventory?${query.join('&')}');
+      if (data is! Map<String, dynamic> ||
+          data['items'] is! List ||
+          data['totalCount'] is! int ||
+          (data['totalCount'] as int) < 0 ||
+          data['page'] != page ||
+          data['limit'] is! int ||
+          (data['limit'] as int) <= 0) {
+        throw ApiException(statusCode: 0, message: '보관함 응답을 확인하지 못했습니다');
+      }
+      final rows = data['items'] as List;
+      final limit = data['limit'] as int;
+      for (final row in rows) {
+        final item = InventoryItem.fromJson(row as Map<String, dynamic>);
+        if (!ids.add(item.id)) {
+          throw ApiException(statusCode: 0,
+              message: '보관함 목록이 변경되었습니다. 새로고침해주세요');
+        }
+        result.add(item);
+      }
+      if (page * limit >= (data['totalCount'] as int)) return result;
+      if (rows.length != limit) {
+        throw ApiException(statusCode: 0,
+            message: '보관함 목록 일부를 확인하지 못했습니다. 새로고침해주세요');
+      }
+      page++;
     }
-    final data = await _apiClient.get('/inventory?${query.join('&')}');
-    final map = data as Map<String, dynamic>;
-    final items = map['items'] as List<dynamic>? ?? [];
-    return items
-        .map((e) => InventoryItem.fromJson(e as Map<String, dynamic>))
-        .toList();
   }
 }
