@@ -26,7 +26,7 @@ def marker(expected):
 if os.environ.get('GITHUB_ACTIONS') != 'true':
     raise SystemExit('This script requires the isolated GitHub Actions emulator')
 try:
-    adb('install', '-r', 'build/deliverables/gachigacha-startup-debug.apk')
+    adb('install', '-r', 'build/deliverables/gachigacha-test-debug.apk')
     adb('shell', 'am', 'start', '-W', '-n', ACTIVITY)
     deadline = time.monotonic() + 60
     login_visible = False
