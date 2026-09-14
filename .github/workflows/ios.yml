@@ -16,6 +16,8 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get --enforce-lockfile
+      - name: Prepare iPhone simulator
+        run: python3 tool/ios/simulator_smoke.py prepare
       - name: Build iOS simulator application
         run: |
           flutter build ios --simulator --debug --no-codesign --dart-define=API_BASE_URL=https://gacha-vault-backend.onrender.com --dart-define=ENABLE_GP_ORDER_PREVIEW=true

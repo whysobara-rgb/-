@@ -11,7 +11,15 @@ EVIDENCE.mkdir(parents=True, exist_ok=True)
 
 
 def run(*args, timeout=60):
-    return subprocess.check_output(args, text=True, timeout=timeout)
+    with (EVIDENCE / 'commands.log').open('a') as log:
+        log.write(' '.join(args) + '\n')
+        try:
+            result = subprocess.check_output(args, text=True, timeout=timeout, stderr=subprocess.STDOUT)
+            log.write(result + '\n')
+            return result
+        except subprocess.CalledProcessError as error:
+            log.write(error.output or '')
+            raise
 
 
 def device():
@@ -24,6 +32,7 @@ def device():
     if phone['state'] != 'Booted':
         run('xcrun', 'simctl', 'boot', phone['udid'])
     run('xcrun', 'simctl', 'bootstatus', phone['udid'], '-b', timeout=180)
+    (EVIDENCE / 'selected-device.json').write_text(json.dumps(phone, indent=2))
     return phone['udid']
 
 
@@ -58,10 +67,13 @@ def launch_and_expect(udid, bundle, marker, name):
 
 mode = sys.argv[1]
 udid = device()
+if mode == 'prepare':
+    print('Simulator ready for build and install')
+    sys.exit(0)
 app = pathlib.Path('build/ios-deliverables/Runner.app' if mode == 'app' else 'build/ios/iphonesimulator/Runner.app')
 with (app / 'Info.plist').open('rb') as stream:
     bundle = plistlib.load(stream)['CFBundleIdentifier']
-run('xcrun', 'simctl', 'install', udid, str(app))
+run('xcrun', 'simctl', 'install', udid, str(app), timeout=240)
 if mode == 'app':
     launch_and_expect(udid, bundle, 'GACHA_APP_FRAME_READY', 'app-launch')
 elif mode == 'storage':

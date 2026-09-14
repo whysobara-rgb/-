@@ -110,6 +110,7 @@ void main() {
     Widget screen, {
     double width = 390,
     double scale = 1,
+    bool settle = true,
   }) async {
     tester.view.physicalSize = Size(width, 900);
     tester.view.devicePixelRatio = 1;
@@ -128,7 +129,7 @@ void main() {
         home: RepaintBoundary(key: const ValueKey('capture'), child: screen),
       ),
     );
-    await tester.pumpAndSettle();
+    if (settle) await tester.pumpAndSettle();
   }
 
   CatalogScreen catalog() => CatalogScreen(
@@ -221,6 +222,27 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
+  testWidgets(
+    'confirmed capsule opening stages render without choosing new prizes',
+    (tester) async {
+      await mount(
+        tester,
+        Scaffold(
+          body: SingleChildScrollView(
+            child: PrizeReveal(prize: odds.prizes.last),
+          ),
+        ),
+        settle: false,
+      );
+      await tester.pump(const Duration(milliseconds: 150));
+      await capture(tester, 'capsule-opening');
+      await tester.pump(const Duration(milliseconds: 600));
+      await capture(tester, 'capsule-opening-mid');
+      await tester.pumpAndSettle();
+      expect(find.text(odds.prizes.last.name), findsOneWidget);
+      expect(find.text('내 보관함에 저장 완료'), findsOneWidget);
+    },
+  );
   testWidgets(
     'confirmed reveal and collection screens render with Korean fonts',
     (tester) async {

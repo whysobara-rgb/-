@@ -127,7 +127,7 @@ class _InventoryPageState extends State<InventoryPage> {
 
   int get _totalValue => _items.fold(0, (sum, item) => sum + item.price);
 
-  String _formatGp(int value) {
+  String _formatWon(int value) {
     final str = value.toString();
     final buffer = StringBuffer();
     for (int i = 0; i < str.length; i++) {
@@ -135,7 +135,7 @@ class _InventoryPageState extends State<InventoryPage> {
       buffer.write(str[i]);
       if (posFromEnd > 1 && posFromEnd % 3 == 1) buffer.write(',');
     }
-    return '${buffer.toString()} GP';
+    return '${buffer.toString()}원';
   }
 
   void _onFilterSelected(_StatusFilter filter) {
@@ -322,105 +322,186 @@ class _InventoryPageState extends State<InventoryPage> {
   Widget build(BuildContext context) {
     final items = _filteredItems;
     return Scaffold(
-      appBar: AppBar(title: const Text('내 컬렉션'), actions: [
-        if (AppConfig.orderPreviewEnabled)
-          TextButton(onPressed: () async {
-            final user = context.read<AuthProvider>().currentUser;
-            if (user == null) return;
-            await Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => OrderFlowPage(userId: user.id)));
-            if (mounted) await _loadItems();
-          }, child: const Text('미개봉 캡슐')),
-        IconButton(tooltip: '상품 정렬', onPressed: _openSortSheet,
-          icon: const Icon(Icons.sort_rounded)),
-      ]),
-      bottomNavigationBar: _hasSelection ? SafeArea(
-        child: Padding(padding: const EdgeInsets.all(16),
-          child: FilledButton.icon(
-            onPressed: AppConfig.legacyTransactionsEnabled && !_isLoading
-                ? _onRequestShipping : null,
-            icon: const Icon(Icons.local_shipping_outlined),
-            label: Text(AppConfig.legacyTransactionsEnabled
-                ? '${_selectedIds.length}개 배송 요청' : '배송 서비스 준비 중'),
-          )),
-      ) : null,
-      body: _isLoading ? const Center(child: CircularProgressIndicator())
-        : _error != null ? Center(child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Text(_error!, textAlign: TextAlign.center),
-            TextButton(onPressed: _loadItems, child: const Text('다시 시도')),
-          ])))
-        : RefreshIndicator(
-          onRefresh: _loadItems,
-          child: LayoutBuilder(builder: (context, constraints) {
-            final columns = constraints.maxWidth >= 600 ? 3
-                : constraints.maxWidth >= 360 &&
-                    MediaQuery.textScalerOf(context).scale(14) <= 20 ? 2 : 1;
-            final width = (constraints.maxWidth - 32 - (columns - 1) * 12) / columns;
-            return ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(16),
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(24),
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF29203E), Color(0xFF101018)])),
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('MY COLLECTION', style: TextStyle(
-                        color: Color(0xFFB9A4FF), letterSpacing: 2)),
-                      const SizedBox(height: 12),
-                      Text('나의 수집 기록 ${_items.length}개',
-                        style: const TextStyle(color: Colors.white,
-                          fontSize: 24, fontWeight: FontWeight.w800)),
-                      const SizedBox(height: 8),
-                      Text('조회된 상품의 추정 가치 ${_formatGp(_totalValue)}',
-                        style: const TextStyle(color: Color(0xFFD8D3E3))),
-                    ]),
+      appBar: AppBar(
+        title: const Text('내 컬렉션'),
+        actions: [
+          if (AppConfig.orderPreviewEnabled)
+            TextButton(
+              onPressed: () async {
+                final user = context.read<AuthProvider>().currentUser;
+                if (user == null) return;
+                await Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => OrderFlowPage(userId: user.id),
+                  ),
+                );
+                if (mounted) await _loadItems();
+              },
+              child: const Text('미개봉 캡슐'),
+            ),
+          IconButton(
+            tooltip: '상품 정렬',
+            onPressed: _openSortSheet,
+            icon: const Icon(Icons.sort_rounded),
+          ),
+        ],
+      ),
+      bottomNavigationBar: _hasSelection
+          ? SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: FilledButton.icon(
+                  onPressed: AppConfig.legacyTransactionsEnabled && !_isLoading
+                      ? _onRequestShipping
+                      : null,
+                  icon: const Icon(Icons.local_shipping_outlined),
+                  label: Text(
+                    AppConfig.legacyTransactionsEnabled
+                        ? '${_selectedIds.length}개 배송 요청'
+                        : '배송 서비스 준비 중',
+                  ),
                 ),
-                const SizedBox(height: 20),
-                Wrap(spacing: 8, runSpacing: 8, children: [
-                  for (final filter in _StatusFilter.values)
-                    ChoiceChip(label: Text(filter.label),
-                      selected: filter == _selectedFilter,
-                      onSelected: (_) => _onFilterSelected(filter)),
-                ]),
-                const SizedBox(height: 12),
-                Text(_sortOption.label, style: const TextStyle(
-                  color: AppColors.textSecondary)),
-                CheckboxListTile(
-                  contentPadding: EdgeInsets.zero,
-                  controlAffinity: ListTileControlAffinity.leading,
-                  title: Text('보관중 상품 전체선택 · ${_selectedIds.length}개 선택'),
-                  value: _selectAll,
-                  onChanged: items.any((item) => item.canShip)
-                      ? _toggleSelectAll : null),
-                if (items.isEmpty)
-                  const Padding(padding: EdgeInsets.symmetric(vertical: 48),
-                    child: Column(children: [
-                      Icon(Icons.collections_bookmark_outlined, size: 56),
-                      SizedBox(height: 16),
-                      Text('이 상태에 해당하는 상품이 없어요'),
-                      SizedBox(height: 8),
-                      Text('다른 상태를 선택하거나 캡슐을 개봉해보세요.',
-                        textAlign: TextAlign.center),
-                    ]))
-                else Wrap(spacing: 12, runSpacing: 12, children: [
-                  for (final item in items)
-                    SizedBox(width: width, child: CollectionCard(
-                      item: item,
-                      selected: _selectedIds.contains(item.id),
-                      onSelect: () => _toggleItemSelected(item.id),
-                      onLock: () => _toggleLock(item.id),
-                    )),
-                ]),
-              ],
-            );
-          }),
-        ),
+              ),
+            )
+          : null,
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(_error!, textAlign: TextAlign.center),
+                    TextButton(
+                      onPressed: _loadItems,
+                      child: const Text('다시 시도'),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          : RefreshIndicator(
+              onRefresh: _loadItems,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final columns = constraints.maxWidth >= 600
+                      ? 3
+                      : constraints.maxWidth >= 360 &&
+                            MediaQuery.textScalerOf(context).scale(14) <= 20
+                      ? 2
+                      : 1;
+                  final width =
+                      (constraints.maxWidth - 32 - (columns - 1) * 12) /
+                      columns;
+                  return ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.all(16),
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(24),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(24),
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF29203E), Color(0xFF101018)],
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'MY COLLECTION',
+                              style: TextStyle(
+                                color: Color(0xFFB9A4FF),
+                                letterSpacing: 2,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              '나의 수집 기록 ${_items.length}개',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 24,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              '조회된 상품의 추정 가치 ${_formatWon(_totalValue)}',
+                              style: const TextStyle(color: Color(0xFFD8D3E3)),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final filter in _StatusFilter.values)
+                            ChoiceChip(
+                              label: Text(filter.label),
+                              selected: filter == _selectedFilter,
+                              onSelected: (_) => _onFilterSelected(filter),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        _sortOption.label,
+                        style: const TextStyle(color: AppColors.textSecondary),
+                      ),
+                      CheckboxListTile(
+                        contentPadding: EdgeInsets.zero,
+                        controlAffinity: ListTileControlAffinity.leading,
+                        title: Text('보관중 상품 전체선택 · ${_selectedIds.length}개 선택'),
+                        value: _selectAll,
+                        onChanged: items.any((item) => item.canShip)
+                            ? _toggleSelectAll
+                            : null,
+                      ),
+                      if (items.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 48),
+                          child: Column(
+                            children: [
+                              Icon(
+                                Icons.collections_bookmark_outlined,
+                                size: 56,
+                              ),
+                              SizedBox(height: 16),
+                              Text('이 상태에 해당하는 상품이 없어요'),
+                              SizedBox(height: 8),
+                              Text(
+                                '다른 상태를 선택하거나 캡슐을 개봉해보세요.',
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
+                        )
+                      else
+                        Wrap(
+                          spacing: 12,
+                          runSpacing: 12,
+                          children: [
+                            for (final item in items)
+                              SizedBox(
+                                width: width,
+                                child: CollectionCard(
+                                  item: item,
+                                  selected: _selectedIds.contains(item.id),
+                                  onSelect: () => _toggleItemSelected(item.id),
+                                  onLock: () => _toggleLock(item.id),
+                                ),
+                              ),
+                          ],
+                        ),
+                    ],
+                  );
+                },
+              ),
+            ),
     );
   }
 }

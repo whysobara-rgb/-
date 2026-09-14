@@ -100,8 +100,10 @@ class InventoryItem {
   /// 등급 코드 ("S"/"A"/"B"/"C"). 백엔드 rarity(N/R/SR/SSR)를 [GradeMapper]로 변환한 값.
   final String grade;
 
-  /// 상품 추정 가치 (GP).
+  /// 상품 추정 가치 (원). 전환 GP와 별도로 표시한다.
   final int price;
+  final int? conversionGP;
+  final bool? isPremium;
 
   final IconData icon;
   final String? imageUrl;
@@ -124,6 +126,8 @@ class InventoryItem {
     required this.acquiredAt,
     this.isLocked = false,
     this.imageUrl,
+    this.conversionGP,
+    this.isPremium,
   });
 
   bool get canShip => status == InventoryStatus.stored;
@@ -149,6 +153,11 @@ class InventoryItem {
       price: (json['estimatedValue'] as num?)?.toInt() ?? 0,
       icon: _iconForRarity(rarity),
       imageUrl: json['imageUrl'] as String?,
+      conversionGP:
+          json['conversionGP'] is int && (json['conversionGP'] as int) >= 0
+          ? json['conversionGP'] as int
+          : null,
+      isPremium: json['isPremium'] is bool ? json['isPremium'] as bool : null,
       status: _statusFromBackend(json['status'] as String?),
       acquiredAt: acquiredAtRaw != null
           ? (DateTime.tryParse(acquiredAtRaw) ?? DateTime.now())
@@ -157,7 +166,7 @@ class InventoryItem {
     );
   }
 
-  /// 화면 표시용 가격 포맷 (예: "1,200,000 GP")
+  /// 화면 표시용 상품 가치 (예: "1,200,000원")
   String get formattedPrice {
     final str = price.toString();
     final buffer = StringBuffer();
@@ -166,7 +175,7 @@ class InventoryItem {
       buffer.write(str[i]);
       if (posFromEnd > 1 && posFromEnd % 3 == 1) buffer.write(',');
     }
-    return '${buffer.toString()} GP';
+    return '${buffer.toString()}원';
   }
 }
 
@@ -241,15 +250,19 @@ class InventoryRepository {
       for (final row in rows) {
         final item = InventoryItem.fromJson(row as Map<String, dynamic>);
         if (!ids.add(item.id)) {
-          throw ApiException(statusCode: 0,
-              message: '보관함 목록이 변경되었습니다. 새로고침해주세요');
+          throw ApiException(
+            statusCode: 0,
+            message: '보관함 목록이 변경되었습니다. 새로고침해주세요',
+          );
         }
         result.add(item);
       }
       if (page * limit >= (data['totalCount'] as int)) return result;
       if (rows.length != limit) {
-        throw ApiException(statusCode: 0,
-            message: '보관함 목록 일부를 확인하지 못했습니다. 새로고침해주세요');
+        throw ApiException(
+          statusCode: 0,
+          message: '보관함 목록 일부를 확인하지 못했습니다. 새로고침해주세요',
+        );
       }
       page++;
     }
