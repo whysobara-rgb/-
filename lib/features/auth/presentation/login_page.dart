@@ -73,6 +73,18 @@ class _LoginPageState extends State<LoginPage> {
                   const SizedBox(height: 12),
                   _buildPasswordField(),
                   const SizedBox(height: 20),
+                  if (context.watch<AuthProvider>().errorMessage
+                      case final String message)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Semantics(
+                        liveRegion: true,
+                        child: Text(
+                          message,
+                          style: const TextStyle(color: AppColors.error),
+                        ),
+                      ),
+                    ),
                   _buildLoginButton(),
                   const SizedBox(height: 16),
                   _buildSignUpLink(),

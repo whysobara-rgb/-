@@ -388,6 +388,39 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+  testWidgets('failed quote refresh invalidates previous purchase consent', (
+    tester,
+  ) async {
+    var fail = false;
+    var mutations = 0;
+    final repo = repository(MemoryStore(), (r) async {
+      if (r.method == 'POST') {
+        mutations++;
+        return ok(receiptData());
+      }
+      if (fail) throw http.ClientException('offline');
+      return ok(oddsData());
+    });
+    await tester.pumpWidget(
+      ChangeNotifierProvider<AuthProvider>(
+        create: (_) => TestAuth(),
+        child: MaterialApp(
+          home: OrderFlowPage(userId: 10, gachaId: 1, repository: repo),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.byType(CheckboxListTile), 200);
+    await tester.tap(find.byType(CheckboxListTile));
+    await tester.pump();
+    fail = true;
+    await tester.scrollUntilVisible(find.text('최신 조건 다시 확인'), 100);
+    await tester.tap(find.text('최신 조건 다시 확인'));
+    await tester.pumpAndSettle();
+    expect(find.text('GP로 구매하고 보관하기'), findsNothing);
+    expect(find.text('다시 불러오기'), findsOneWidget);
+    expect(mutations, 0);
+  });
   testWidgets('narrow screen with large text can render the odds flow', (
     tester,
   ) async {

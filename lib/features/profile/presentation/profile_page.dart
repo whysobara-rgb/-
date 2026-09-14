@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../shared/providers/auth_provider.dart';
 import '../../../shared/providers/gp_provider.dart';
+import '../../../shared/widgets/balance_notice.dart';
+import '../../shipping/presentation/shipping_history_page.dart';
 import '../../inventory/presentation/inventory_page.dart';
 import '../../wallet/presentation/point_history_page.dart';
 
@@ -54,65 +56,124 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-
   @override
   Widget build(BuildContext context) {
     final user = context.watch<AuthProvider>().currentUser;
     final gp = context.watch<GpProvider>();
     return Scaffold(
       appBar: AppBar(title: const Text('마이')),
-      body: ListView(padding: const EdgeInsets.all(20), children: [
-        Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(28),
-            gradient: const LinearGradient(
-              colors: [Color(0xFF29203E), Color(0xFF101018)])),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Icon(Icons.person_outline_rounded,
-                color: Color(0xFFB9A4FF), size: 44),
-              const SizedBox(height: 20),
-              Text(user?.nickname ?? '내 계정', style: const TextStyle(
-                color: Colors.white, fontSize: 26, fontWeight: FontWeight.w800)),
-              const SizedBox(height: 8),
-              Text(user?.maskedEmail ?? '',
-                style: const TextStyle(color: Color(0xFFD8D3E3))),
-            ]),
-        ),
-        const SizedBox(height: 20),
-        Card(child: Padding(padding: const EdgeInsets.all(20),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('보유 GP'),
-            const SizedBox(height: 8),
-            Text('${gp.formattedBalance} GP',
-              style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800)),
-            const SizedBox(height: 12),
-            FilledButton(onPressed: widget.onGoToWallet,
-              child: const Text('GP 지갑 보기')),
-          ]))),
-        const SizedBox(height: 20),
-        const Text('내 활동', style: TextStyle(
-          fontSize: 20, fontWeight: FontWeight.w800)),
-        const SizedBox(height: 12),
-        Card(child: Column(children: [
-          ListTile(leading: const Icon(Icons.collections_bookmark_outlined),
-            title: const Text('내 컬렉션'),
-            subtitle: const Text('획득한 상품과 배송 상태 확인'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => const InventoryPage()))),
-          const Divider(height: 1),
-          ListTile(leading: const Icon(Icons.receipt_long_outlined),
-            title: const Text('포인트 내역'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => const PointHistoryPage()))),
-        ])),
-        const SizedBox(height: 24),
-        OutlinedButton.icon(onPressed: () => _confirmLogout(context),
-          icon: const Icon(Icons.logout), label: const Text('로그아웃')),
-      ]),
+      body: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(28),
+              gradient: const LinearGradient(
+                colors: [Color(0xFF29203E), Color(0xFF101018)],
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(
+                  Icons.person_outline_rounded,
+                  color: Color(0xFFB9A4FF),
+                  size: 44,
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  user?.nickname ?? '내 계정',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 26,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  user?.maskedEmail ?? '',
+                  style: const TextStyle(color: Color(0xFFD8D3E3)),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('보유 GP'),
+                  const SizedBox(height: 8),
+                  Text(
+                    '${gp.formattedBalance} GP',
+                    style: const TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton(
+                    onPressed: widget.onGoToWallet,
+                    child: const Text('GP 지갑 보기'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const BalanceNotice(),
+          const SizedBox(height: 20),
+          const Text(
+            '내 활동',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.collections_bookmark_outlined),
+                  title: const Text('내 컬렉션'),
+                  subtitle: const Text('획득한 상품과 배송 상태 확인'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const InventoryPage()),
+                  ),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.local_shipping_outlined),
+                  title: const Text('배송 내역'),
+                  subtitle: const Text('신청 상품과 진행 상태 확인'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const ShippingHistoryPage(),
+                    ),
+                  ),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.receipt_long_outlined),
+                  title: const Text('포인트 내역'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const PointHistoryPage()),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          OutlinedButton.icon(
+            onPressed: () => _confirmLogout(context),
+            icon: const Icon(Icons.logout),
+            label: const Text('로그아웃'),
+          ),
+        ],
+      ),
     );
   }
 }

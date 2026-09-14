@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../shared/providers/auth_provider.dart';
 import '../../../shared/providers/gp_provider.dart';
+import '../../../shared/widgets/balance_notice.dart';
 import '../domain/point_history.dart';
 import 'point_history_page.dart';
 
@@ -25,6 +26,7 @@ class _WalletPageState extends State<WalletPage> {
   List<PointHistoryEntry> _history = [];
   bool _loading = true;
   String? _error;
+  int _request = 0;
 
   @override
   void initState() {
@@ -34,28 +36,33 @@ class _WalletPageState extends State<WalletPage> {
 
   Future<void> _load() async {
     if (!mounted) return;
+    final request = ++_request;
     setState(() {
       _loading = true;
       _error = null;
     });
     final auth = context.read<AuthProvider>();
+    // Balance and activity failures are independent.
+    final refresh = auth.refreshProfile();
     try {
       final history = await widget.repository.getAll(limit: 5);
-      await auth.refreshProfile();
-      if (!mounted) return;
+      if (!mounted || request != _request) return;
       setState(() => _history = history);
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || request != _request) return;
       setState(() => _error = 'GP 내역을 불러오지 못했습니다');
     } finally {
-      if (mounted) setState(() => _loading = false);
+      await refresh;
+      if (mounted && request == _request) setState(() => _loading = false);
     }
   }
 
   void _openHistory() {
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute<void>(builder: (_) => const PointHistoryPage()));
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PointHistoryPage(repository: widget.repository),
+      ),
+    );
   }
 
   @override
@@ -99,6 +106,7 @@ class _WalletPageState extends State<WalletPage> {
                 ],
               ),
             ),
+            const BalanceNotice(),
             const SizedBox(height: 20),
             const Text(
               'GP 이용 안내',
@@ -133,17 +141,7 @@ class _WalletPageState extends State<WalletPage> {
                 child: Text('아직 GP 내역이 없어요'),
               )
             else
-              ..._history.map(
-                (entry) => ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(entry.description),
-                  subtitle: Text(entry.formattedDate),
-                  trailing: Text(
-                    entry.formattedAmount,
-                    style: TextStyle(color: entry.type.amountColor),
-                  ),
-                ),
-              ),
+              ..._history.map((entry) => PointHistoryTile(entry: entry)),
             const SizedBox(height: 24),
             OutlinedButton(
               onPressed: widget.onGoToHome,
