@@ -208,6 +208,7 @@ void main() {
               'errors': tagged ? ['ORDER_REJECTED'] : [],
             }),
             409,
+            headers: {'content-type': 'application/json; charset=utf-8'},
           ),
         );
         await expectLater(
