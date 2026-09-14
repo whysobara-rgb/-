@@ -4,6 +4,7 @@ import '../../core/network/api_client.dart';
 import '../../core/theme/app_colors.dart';
 import '../../shared/providers/auth_provider.dart';
 import 'order_models.dart';
+import 'prize_reveal.dart';
 import 'order_repository.dart';
 
 class OrderFlowPage extends StatefulWidget {
@@ -254,9 +255,7 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
   List<Widget> _content() {
     if (_opening != null) {
       return [
-        _summary(Icons.auto_awesome, '상품이 보관함에 도착했어요',
-            '새로운 컬렉션을 만나보세요. 아래 상품이 내 보관함에 저장되었습니다.'),
-        _prize(_opening!.prize),
+        PrizeReveal(key: ValueKey(_opening!.capsuleId), prize: _opening!.prize),
         const Padding(padding: EdgeInsets.symmetric(vertical: 16),
             child: Text('내 보관함에 저장했어요. 이 화면을 다시 열어도 같은 결과를 확인할 수 있습니다.')),
         _button('미개봉 보관함으로', _inventory),
