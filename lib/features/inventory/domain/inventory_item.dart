@@ -104,6 +104,7 @@ class InventoryItem {
   final int price;
 
   final IconData icon;
+  final String? imageUrl;
 
   final InventoryStatus status;
 
@@ -122,6 +123,7 @@ class InventoryItem {
     required this.status,
     required this.acquiredAt,
     this.isLocked = false,
+    this.imageUrl,
   });
 
   bool get canShip => status == InventoryStatus.stored;
@@ -146,6 +148,7 @@ class InventoryItem {
       grade: GradeMapper.toUiGrade(rarity),
       price: (json['estimatedValue'] as num?)?.toInt() ?? 0,
       icon: _iconForRarity(rarity),
+      imageUrl: json['imageUrl'] as String?,
       status: _statusFromBackend(json['status'] as String?),
       acquiredAt: acquiredAtRaw != null
           ? (DateTime.tryParse(acquiredAtRaw) ?? DateTime.now())
