@@ -37,11 +37,12 @@ class _HomePageState extends State<HomePage> {
       final boxes =
           await (widget.loadCatalog?.call() ??
               const CapsuleBoxRepository().getAll());
-      if (mounted)
+      if (mounted) {
         setState(() {
           _boxes = boxes;
           _loading = false;
         });
+      }
     } catch (error) {
       if (mounted) {
         setState(() {
@@ -124,10 +125,12 @@ class _CatalogScreenState extends State<CatalogScreen> {
     final result = widget.boxes
         .where((b) => b.name.toLowerCase().contains(query))
         .toList();
-    if (_sort == '낮은 가격순')
+    if (_sort == '낮은 가격순') {
       result.sort((a, b) => a.priceWon.compareTo(b.priceWon));
-    if (_sort == '높은 가격순')
+    }
+    if (_sort == '높은 가격순') {
       result.sort((a, b) => b.priceWon.compareTo(a.priceWon));
+    }
     return result;
   }
 

@@ -2,6 +2,9 @@ name: iOS execution
 on:
   pull_request:
   workflow_dispatch:
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
