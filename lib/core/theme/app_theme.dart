@@ -2,11 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'app_colors.dart';
 
-/// 가치가차 - 앱 전역 테마.
-///
-/// "비비드 파스텔 팝(Vivid Pastel Pop)" 라이트 테마. 크림 화이트 배경 위에
-/// 코랄·바이올렛·민트·옐로우 등 여러 비비드 포인트 컬러를 함께 사용해
-/// 밝고 경쾌하면서도 프리미엄한 Gen Z 감성의 UI를 구성한다.
+/// Shared typography and controls for the product catalog.
 class AppTheme {
   AppTheme._();
 
@@ -66,9 +62,23 @@ class AppTheme {
         ),
       ),
 
+      filledButtonTheme: FilledButtonThemeData(style: FilledButton.styleFrom(
+        backgroundColor: AppColors.primary, foregroundColor: Colors.white,
+        minimumSize: const Size(48, 52),
+        textStyle: const TextStyle(fontFamily: 'Pretendard', fontSize: 15, fontWeight: FontWeight.w800),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      )),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true, fillColor: Colors.white,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        hintStyle: const TextStyle(color: AppColors.textSecondary, fontSize: 14),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: AppColors.surfaceBorder)),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: AppColors.surfaceBorder)),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: AppColors.primary, width: 1.5)),
+      ),
       cardTheme: CardThemeData(
         color: AppColors.surfaceElevated,
-        elevation: 2,
+        elevation: 0,
         shadowColor: Colors.black.withValues(alpha: 0.08),
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
@@ -132,7 +142,9 @@ class AppTheme {
       ),
 
       chipTheme: ChipThemeData(
-        backgroundColor: AppColors.surfaceElevated2,
+        backgroundColor: Colors.white,
+        selectedColor: const Color(0xFFFFE8E1),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         labelStyle: const TextStyle(color: AppColors.textPrimary),
         side: const BorderSide(color: AppColors.surfaceBorder),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),

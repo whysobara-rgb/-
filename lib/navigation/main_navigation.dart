@@ -6,11 +6,7 @@ import '../features/profile/presentation/profile_page.dart';
 import '../features/ranking/presentation/ranking_screen.dart';
 import '../features/wallet/presentation/wallet_page.dart';
 
-/// 가치가차 - 앱 하단 탭 네비게이션 컨테이너.
-///
-/// [IndexedStack]으로 5개 탭(홈/랭킹/보관함/GP/마이)의 상태를 유지하며,
-/// 하단 네비게이션은 Claymorphism & Pastel 3D 스타일의 플로팅
-/// 라운드 바(아이콘 전용, 선택 시 그라데이션 소프트 원형 배경)로 구성된다.
+/// Main tabs preserve their state; inventory refreshes when selected.
 class MainNavigation extends StatefulWidget {
   const MainNavigation({super.key});
 
@@ -54,129 +50,26 @@ class _MainNavigationState extends State<MainNavigation> {
   }
 }
 
-/// 플로팅 라운드 코너 하단 네비게이션 바.
-///
-/// 5개의 미니멀 라인 아이콘(홈/카테고리/장바구니/선물상자/프로필)으로
-/// 구성되며, 선택된 아이템은 코랄→바이올렛 그라데이션 소프트 원형
-/// 배경으로 강조된다. 탭 이름과 접근성 라벨을 함께 표시한다.
+
 class _FloatingNavBar extends StatelessWidget {
   final int currentIndex;
   final ValueChanged<int> onTap;
-
   const _FloatingNavBar({required this.currentIndex, required this.onTap});
-
-  static const List<IconData> _icons = [
-    Icons.home_rounded,
-    Icons.leaderboard_rounded,
-    Icons.inventory_2_rounded,
-    Icons.account_balance_wallet_rounded,
-    Icons.person_rounded,
-  ];
-
-  static const _labels = ['홈', '랭킹', '보관함', 'GP', '마이'];
-
   @override
-  Widget build(BuildContext context) {
-    // 홈 인디케이터/시스템 제스처 바 위에 여유 있는 마진을 두어
-    // 플로팅 네비게이션 바가 화면 하단 UI와 겹치지 않도록 한다.
-    final bottomInset = MediaQuery.of(context).padding.bottom;
-    final bottomMargin = bottomInset > 0 ? bottomInset + 10 : 18.0;
-
-    return SafeArea(
-      top: false,
-      minimum: EdgeInsets.fromLTRB(20, 0, 20, bottomMargin),
-      child: Container(
-        height: 66,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(33),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.10),
-              blurRadius: 20,
-              offset: const Offset(0, 8),
-            ),
-          ],
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: List.generate(_icons.length, (index) {
-            final isSelected = index == currentIndex;
-            return _NavItem(
-              icon: _icons[index],
-              label: _labels[index],
-              isSelected: isSelected,
-              onTap: () => onTap(index),
-            );
-          }),
-        ),
-      ),
-    );
-  }
-}
-
-class _NavItem extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  const _NavItem({
-    required this.icon,
-    required this.label,
-    required this.isSelected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      label: label,
-      button: true,
-      selected: isSelected,
-      child: Tooltip(
-        message: label,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(24),
-          onTap: onTap,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              gradient: isSelected ? AppColors.navActiveGradient : null,
-              shape: BoxShape.circle,
-              boxShadow: isSelected
-                  ? [
-                      BoxShadow(
-                        color: AppColors.accentViolet.withValues(alpha: 0.35),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      ),
-                    ]
-                  : null,
-            ),
-            alignment: Alignment.center,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  icon,
-                  size: 21,
-                  color: isSelected ? Colors.white : AppColors.textSecondary,
-                ),
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: isSelected ? Colors.white : AppColors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: const BoxDecoration(border: Border(top: BorderSide(color: AppColors.surfaceBorder))),
+    child: NavigationBar(
+      backgroundColor: Colors.white, surfaceTintColor: Colors.transparent,
+      indicatorColor: const Color(0xFFFFE8E1), elevation: 0,
+      selectedIndex: currentIndex, onDestinationSelected: onTap,
+      labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+      destinations: const [
+        NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home_rounded), label: '홈'),
+        NavigationDestination(icon: Icon(Icons.leaderboard_outlined), selectedIcon: Icon(Icons.leaderboard_rounded), label: '랭킹'),
+        NavigationDestination(icon: Icon(Icons.inventory_2_outlined), selectedIcon: Icon(Icons.inventory_2_rounded), label: '보관함'),
+        NavigationDestination(icon: Icon(Icons.account_balance_wallet_outlined), selectedIcon: Icon(Icons.account_balance_wallet_rounded), label: 'GP'),
+        NavigationDestination(icon: Icon(Icons.person_outline_rounded), selectedIcon: Icon(Icons.person_rounded), label: '마이'),
+      ],
+    ),
+  );
 }
