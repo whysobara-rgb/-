@@ -7,7 +7,7 @@ class PagedInventoryApi extends ApiClient {
   final paths = <String>[];
   PagedInventoryApi(this.pages);
   @override
-  Future<dynamic> get(String path) async {
+  Future<dynamic> get(String path, {bool withAuth = true}) async {
     paths.add(path);
     return pages[paths.length - 1];
   }
