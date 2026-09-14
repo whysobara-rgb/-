@@ -38,6 +38,15 @@ class GpBadge extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (gp.isStale)
+                const Tooltip(
+                  message: '마지막 확인 잔액입니다. GP 지갑에서 다시 확인해주세요.',
+                  child: Icon(
+                    Icons.sync_problem_rounded,
+                    size: 18,
+                    color: Color(0xFF9D4300),
+                  ),
+                ),
               // ── 3D 코인 아이콘 ──
               Container(
                 width: 22,

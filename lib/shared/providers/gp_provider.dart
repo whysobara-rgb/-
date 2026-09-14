@@ -12,6 +12,8 @@ import '../models/app_user.dart';
 /// 호출되도록 해야 한다. 앱에서 잔액을 임의 가감하는 메서드는 제공하지 않는다.
 class GpProvider extends ChangeNotifier {
   int _balance;
+  bool _isStale = false;
+  bool get isStale => _isStale;
 
   GpProvider({int initialBalance = 0}) : _balance = initialBalance;
 
@@ -33,9 +35,11 @@ class GpProvider extends ChangeNotifier {
 
   /// [AuthProvider]의 currentUser 변경에 맞춰 잔액을 동기화한다.
   /// 로그아웃(user == null) 시 0으로 초기화된다.
-  void syncFromUser(AppUser? user) {
+  void syncFromUser(AppUser? user, {bool stale = false}) {
     final newBalance = user?.coinBalance ?? 0;
-    if (newBalance != _balance) {
+    final newStale = user != null && stale;
+    if (newBalance != _balance || newStale != _isStale) {
+      _isStale = newStale;
       _balance = newBalance;
       notifyListeners();
     }

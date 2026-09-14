@@ -51,7 +51,7 @@ class GachaVaultApp extends StatelessWidget {
           create: (_) => GpProvider(),
           update: (_, auth, gp) {
             final provider = gp ?? GpProvider();
-            provider.syncFromUser(auth.currentUser);
+            provider.syncFromUser(auth.currentUser, stale: auth.isBalanceStale);
             return provider;
           },
         ),

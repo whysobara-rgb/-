@@ -1,3 +1,5 @@
+> 현재 완료/미완료 판정은 [출시 체크리스트](RELEASE_REMAINING.ko.md)를 확인하세요. 아래는 초기 설계·검증 이력입니다.
+
 # 1차 변경 및 검증 기록
 
 > 최신 확인: GitHub CI의 `9cb7b6c`에서 Flutter analyze와 18개 테스트가 통과했다. CI에서 생성된 pubspec.lock을 반영하고 `--enforce-lockfile`을 적용했다. 실제 AAB 빌드·실기기·운영 DB/PG 검증은 남아 있다. 잠금 API에 대응하는 백엔드는 로컬 빌드와 21개 테스트가 통과했지만 별도 저장소 업로드는 승인 대기다.
