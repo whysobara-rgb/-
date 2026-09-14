@@ -1,4 +1,11 @@
 import 'dart:io';
+import 'package:provider/provider.dart';
+import 'package:gacha_vault/shared/providers/auth_provider.dart';
+import 'package:gacha_vault/shared/providers/gp_provider.dart';
+import 'package:gacha_vault/shared/models/app_user.dart';
+import 'package:gacha_vault/features/profile/presentation/profile_page.dart';
+import 'package:gacha_vault/features/wallet/presentation/wallet_page.dart';
+import 'package:gacha_vault/features/wallet/domain/point_history.dart';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -171,4 +178,57 @@ void main() {
     expect(viewer.transformationController!.value.getMaxScaleOnAxis(), 1);
     expect(tester.takeException(), isNull);
   });
+  testWidgets('profile and wallet show sample account and recover history errors', (tester) async {
+    final auth = PreviewAuth();
+    final gp = GpProvider(initialBalance: 9900);
+    addTearDown(auth.dispose);
+    addTearDown(gp.dispose);
+    Widget account(Widget child) => MultiProvider(providers: [
+      ChangeNotifierProvider<AuthProvider>.value(value: auth),
+      ChangeNotifierProvider<GpProvider>.value(value: gp),
+    ], child: child);
+    var walletVisits = 0;
+    await mount(tester, account(ProfilePage(onGoToWallet: () => walletVisits++)));
+    await capture(tester, 'profile');
+    await tester.tap(find.text('GP 지갑 보기'));
+    expect(walletVisits, 1);
+    final history = PreviewHistory();
+    await mount(tester, account(WalletPage(
+      onGoToHome: () {}, repository: history)));
+    await capture(tester, 'wallet');
+    expect(find.text('-100GP'), findsOneWidget);
+    history.fail = true;
+    await mount(tester, account(WalletPage(key: const ValueKey('failed'),
+      onGoToHome: () {}, repository: history)));
+    expect(find.text('GP 내역을 불러오지 못했습니다'), findsOneWidget);
+    history.fail = false;
+    await tester.ensureVisible(find.text('다시 시도'));
+    await tester.tap(find.text('다시 시도'));
+    await tester.pumpAndSettle();
+    expect(find.text('-100GP'), findsOneWidget);
+    await mount(tester, account(ProfilePage(onGoToWallet: () {})),
+      width: 320, scale: 1.6);
+    expect(tester.takeException(), isNull);
+  });
+}
+
+class PreviewAuth extends AuthProvider {
+  @override
+  AppUser get currentUser => const AppUser(id: 901,
+    email: 'preview@example.invalid', nickname: '컬렉션 미리보기',
+    coinBalance: 9900);
+  @override
+  Future<void> refreshProfile() async {}
+}
+
+class PreviewHistory extends PointHistoryRepository {
+  bool fail = false;
+  @override
+  Future<List<PointHistoryEntry>> getAll({
+    PointHistoryType? type, int limit = 100,
+  }) async {
+    if (fail) throw StateError('Synthetic history failure');
+    return [PointHistoryEntry(id: '901', description: '테스트 캡슐 구매',
+      type: PointHistoryType.use, amount: 100, date: DateTime(2026, 9, 14))];
+  }
 }
