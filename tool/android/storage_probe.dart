@@ -170,7 +170,7 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(
     const MaterialApp(
-      home: Scaffold(body: Center(child: Text('Android storage verification'))),
+      home: Scaffold(body: Center(child: Text('Native storage verification'))),
     ),
   );
   try {

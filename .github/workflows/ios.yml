@@ -1,0 +1,42 @@
+name: iOS execution
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.4'
+          channel: stable
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - name: Build iOS simulator application
+        run: |
+          flutter build ios --simulator --debug --no-codesign --dart-define=API_BASE_URL=https://gacha-vault-backend.onrender.com --dart-define=ENABLE_GP_ORDER_PREVIEW=true
+          mkdir -p build/ios-deliverables
+          ditto build/ios/iphonesimulator/Runner.app build/ios-deliverables/Runner.app
+          ditto -c -k --sequesterRsrc --keepParent build/ios-deliverables/Runner.app build/ios-deliverables/gachigacha-simulator.zip
+      - name: Boot, install and launch actual application
+        run: python3 tool/ios/simulator_smoke.py app
+      - name: Build and verify native keychain recovery
+        run: |
+          flutter build ios --simulator --debug --no-codesign --target=tool/android/storage_probe.dart
+          python3 tool/ios/simulator_smoke.py storage
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-execution-evidence
+          path: build/ios-evidence
+          if-no-files-found: ignore
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-app
+          path: build/ios-deliverables/gachigacha-simulator.zip
+          retention-days: 14

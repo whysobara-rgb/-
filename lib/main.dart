@@ -29,6 +29,12 @@ void main() {
   );
 
   runApp(const GachaVaultApp());
+  assert(() {
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => debugPrint('GACHA_APP_FRAME_READY'),
+    );
+    return true;
+  }());
 }
 
 class GachaVaultApp extends StatelessWidget {
