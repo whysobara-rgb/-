@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/network/api_client.dart';
+import '../../../core/config/app_config.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/product_image_mapper.dart';
 import '../../../shared/providers/gp_provider.dart';
@@ -19,7 +20,7 @@ class GachaDetailPage extends StatefulWidget {
   final CapsuleBox box;
 
   /// "충전" 탭으로 이동하기 위한 콜백. [MainNavigation]에서 전달되며,
-  /// 잔액 부족 시 충전 유도 다이얼로그에서 "충전하러 가기"를 누르면
+  /// 잔액 부족 시 충전 유도 다이얼로그에서 "GP 내역 보기"를 누르면
   /// 이 화면을 닫고 충전 탭으로 전환한다.
   final VoidCallback onGoToWallet;
 
@@ -41,7 +42,11 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
   String? _error;
 
   int _quantity = 1;
-  static const int _maxQuantity = 100;
+  bool _purchaseInProgress = false;
+  int get _maxQuantity {
+    final remaining = (_detail?.totalStock ?? 0) - (_detail?.soldStock ?? 0);
+    return remaining > 0 ? remaining : 1;
+  }
 
   @override
   void initState() {
@@ -59,6 +64,7 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
       if (!mounted) return;
       setState(() {
         _detail = detail;
+        _quantity = _quantity.clamp(1, _maxQuantity);
         _isLoading = false;
       });
     } on ApiException catch (e) {
@@ -94,6 +100,28 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
   ///    충전 탭으로 이동.
   /// 2) 잔액 충분 → 구매 확인 다이얼로그 → 확인 시에만 뽑기 애니메이션 화면으로 이동.
   Future<void> _onPurchasePressed() async {
+    if (_purchaseInProgress) return;
+    if (!AppConfig.legacyTransactionsEnabled) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('현재 캡슐 구매 서비스를 준비하고 있습니다')));
+      return;
+    }
+    if (_detail == null || _detail!.totalStock <= _detail!.soldStock) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('구매 가능한 캡슐이 없습니다')));
+      return;
+    }
+    _purchaseInProgress = true;
+    try {
+      await _confirmPurchase();
+    } finally {
+      _purchaseInProgress = false;
+    }
+  }
+
+  Future<void> _confirmPurchase() async {
     final gp = context.read<GpProvider>();
     final balance = gp.balance;
 
@@ -117,7 +145,7 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
             '현재 보유 GP: ${gp.formattedBalance} GP\n'
             '필요 GP: $_formattedTotalPrice\n'
             '부족한 GP: ${_formatAmount(shortfall)} GP\n\n'
-            '포인트를 충전하러 가시겠습니까?',
+            'GP는 별도 충전할 수 없습니다. GP 내역을 확인하시겠습니까?',
             style: const TextStyle(color: AppColors.textSecondary),
           ),
           actions: [
@@ -131,7 +159,7 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(true),
               child: const Text(
-                '충전하러 가기',
+                'GP 내역 보기',
                 style: TextStyle(
                   color: AppColors.neonPrimary,
                   fontWeight: FontWeight.w700,
@@ -190,12 +218,13 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
     );
 
     if (confirmed == true && mounted) {
-      Navigator.of(context).push(
+      await Navigator.of(context).push(
         MaterialPageRoute(
           builder: (context) =>
               GachaAnimationPage(box: widget.box, count: _quantity),
         ),
       );
+      if (mounted) await _loadDetail();
     }
   }
 

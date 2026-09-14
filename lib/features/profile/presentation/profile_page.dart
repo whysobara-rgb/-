@@ -13,7 +13,7 @@ import '../../wallet/presentation/point_history_page.dart';
 /// 카드는 화이트 엸리베이션 + 섬세한 그림자로 구분된다.
 /// 활동 요약(보관상품수/배송완료수)은 백엔드 GET /inventory에서 실시간으로 가져온다.
 class ProfilePage extends StatefulWidget {
-  /// "충전" 탭으로 이동하기 위한 콜백. [MainNavigation]에서 전달된다.
+  /// "GP" 탭으로 이동하기 위한 콜백. [MainNavigation]에서 전달된다.
   final VoidCallback onGoToWallet;
 
   const ProfilePage({super.key, required this.onGoToWallet});
@@ -238,7 +238,7 @@ class _ProfilePageState extends State<ProfilePage> {
                               vertical: 6,
                             ),
                             child: Text(
-                              '충전 탭 가기',
+                              'GP 내역 보기',
                               style: TextStyle(
                                 color: Color(0xFF16161A),
                                 fontSize: 12,

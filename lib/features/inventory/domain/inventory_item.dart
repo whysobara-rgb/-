@@ -18,6 +18,9 @@ enum InventoryStatus {
 
   /// 배송완료
   delivered,
+
+  /// Unknown states must never permit shipping or conversion.
+  unavailable,
 }
 
 extension InventoryStatusLabel on InventoryStatus {
@@ -31,6 +34,8 @@ extension InventoryStatusLabel on InventoryStatus {
         return '배송중';
       case InventoryStatus.delivered:
         return '배송완료';
+      case InventoryStatus.unavailable:
+        return '처리 상태 확인 필요';
     }
   }
 }
@@ -45,8 +50,9 @@ InventoryStatus _statusFromBackend(String? backendStatus) {
     case 'DELIVERED':
       return InventoryStatus.delivered;
     case 'STORED':
-    default:
       return InventoryStatus.stored;
+    default:
+      return InventoryStatus.unavailable;
   }
 }
 
@@ -61,6 +67,8 @@ String _statusToBackend(InventoryStatus status) {
       return 'SHIPPING';
     case InventoryStatus.delivered:
       return 'DELIVERED';
+    case InventoryStatus.unavailable:
+      return 'UNAVAILABLE';
   }
 }
 
@@ -99,7 +107,7 @@ class InventoryItem {
 
   final InventoryStatus status;
 
-  /// 잠금 여부. 잠금된 상품은 배송/포인트 전환이 불가하다.
+  /// 잠금은 포인트 전환만 제한한다. 배송은 보관 상태이면 가능하다.
   final bool isLocked;
 
   /// 획득 시각 (최근 획득순 정렬에 사용).
@@ -116,8 +124,17 @@ class InventoryItem {
     this.isLocked = false,
   });
 
+  bool get canShip => status == InventoryStatus.stored;
+  bool get canConvert => canShip && !isLocked;
+
   /// 배송 신청(`POST /shipping-requests`) 시 백엔드에 전달할 숫자 PK.
-  int get numericId => int.tryParse(id) ?? 0;
+  int get numericId {
+    final value = int.tryParse(id);
+    if (value == null || value <= 0) {
+      throw const FormatException('유효하지 않은 보관함 상품 ID');
+    }
+    return value;
+  }
 
   /// 백엔드 `GET /inventory` 응답의 items[] 항목 1개를 [InventoryItem]으로 변환한다.
   factory InventoryItem.fromJson(Map<String, dynamic> json) {

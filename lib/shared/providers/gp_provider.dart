@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import '../models/app_user.dart';
 
-/// GP(게임 포인트) 잔액을 관리하는 Provider.
+/// GP(GACHA POINT) 잔액을 관리하는 Provider.
 ///
 /// 실제 잔액은 백엔드(User.coinBalance)에서 관리되며, 이 Provider는
 /// [syncFromUser]를 통해 [AuthProvider]의 currentUser가 바뀔 때마다
@@ -9,8 +9,7 @@ import '../models/app_user.dart';
 ///
 /// 뽑기/충전/배송 등으로 서버 잔액이 바뀐 뒤에는 반드시 서버 재조회
 /// (AuthProvider.refreshProfile() 등)를 통해 [syncFromUser]가 다시
-/// 호출되도록 해야 한다. [spend]/[add]는 응답 대기 중 UI를 낙관적으로
-/// 갱신하기 위한 보조 메서드로, 이후 서버 값으로 덮어써진다.
+/// 호출되도록 해야 한다. 앱에서 잔액을 임의 가감하는 메서드는 제공하지 않는다.
 class GpProvider extends ChangeNotifier {
   int _balance;
 
@@ -40,22 +39,5 @@ class GpProvider extends ChangeNotifier {
       _balance = newBalance;
       notifyListeners();
     }
-  }
-
-  /// 서버 응답을 받기 전까지의 낙관적(optimistic) 잔액 증가.
-  void add(int amount) {
-    if (amount <= 0) return;
-    _balance += amount;
-    notifyListeners();
-  }
-
-  /// 서버 응답을 받기 전까지의 낙관적(optimistic) 잔액 차감.
-  /// 잔액 부족 시 false를 반환하고 차감하지 않음.
-  bool spend(int amount) {
-    if (amount <= 0) return false;
-    if (_balance < amount) return false;
-    _balance -= amount;
-    notifyListeners();
-    return true;
   }
 }

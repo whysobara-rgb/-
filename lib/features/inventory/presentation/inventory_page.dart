@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/network/api_client.dart';
+import '../../../core/config/app_config.dart';
 import '../../../core/constants/rank_colors.dart';
 import '../../../core/theme/app_colors.dart';
 import '../domain/inventory_item.dart';
@@ -147,7 +148,9 @@ class _InventoryPageState extends State<InventoryPage> {
       if (_selectAll) {
         _selectedIds
           ..clear()
-          ..addAll(_filteredItems.map((item) => item.id));
+          ..addAll(
+            _filteredItems.where((item) => item.canShip).map((item) => item.id),
+          );
       } else {
         _selectedIds.clear();
       }
@@ -155,6 +158,7 @@ class _InventoryPageState extends State<InventoryPage> {
   }
 
   void _toggleItemSelected(String id) {
+    if (!_items.any((item) => item.id == id && item.canShip)) return;
     setState(() {
       if (_selectedIds.contains(id)) {
         _selectedIds.remove(id);
@@ -162,16 +166,18 @@ class _InventoryPageState extends State<InventoryPage> {
         _selectedIds.add(id);
       }
       _selectAll =
-          _filteredItems.isNotEmpty &&
-          _filteredItems.every((item) => _selectedIds.contains(item.id));
+          _filteredItems.any((item) => item.canShip) &&
+          _filteredItems
+              .where((item) => item.canShip)
+              .every((item) => _selectedIds.contains(item.id));
     });
   }
 
   // 잠금(lock) 토글은 현재 백엔드에 대응 API가 없어 출시 후 지원 예정으로 안내한다.
   void _toggleLock(String id) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('잠금 기능은 출시 후 지원 예정입니다')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('잠금 기능은 출시 후 지원 예정입니다')));
   }
 
   List<InventoryItem> get _selectedItems =>
@@ -188,6 +194,12 @@ class _InventoryPageState extends State<InventoryPage> {
 
   // ── 액션 1: 배송요청 ──────────────────────────────────────────────
   Future<void> _onRequestShipping() async {
+    if (!AppConfig.legacyTransactionsEnabled) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('현재 배송 서비스를 준비하고 있습니다')));
+      return;
+    }
     if (!_hasSelection) {
       ScaffoldMessenger.of(
         context,
@@ -196,11 +208,11 @@ class _InventoryPageState extends State<InventoryPage> {
     }
 
     final selected = _selectedItems;
-    final hasLocked = selected.any((item) => item.isLocked);
-    if (hasLocked) {
+    final hasUnavailable = selected.any((item) => !item.canShip);
+    if (hasUnavailable) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('잠금된 상품은 배송 신청이 불가합니다')));
+      ).showSnackBar(const SnackBar(content: Text('보관중인 상품만 배송 신청할 수 있습니다')));
       return;
     }
 
@@ -220,16 +232,16 @@ class _InventoryPageState extends State<InventoryPage> {
 
   // ── 액션 2: 포인트전환 (백엔드 미지원 - 출시 후 지원 예정 안내) ────────────
   void _onConvertToPoints() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('포인트 전환 기능은 출시 후 지원 예정입니다')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('포인트 전환 기능은 출시 후 지원 예정입니다')));
   }
 
   // ── 액션 3: 장바구니 (백엔드 미지원 - 출시 후 지원 예정 안내) ──
   void _onAddToCart() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('장바구니 기능은 출시 후 지원 예정입니다')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('장바구니 기능은 출시 후 지원 예정입니다')));
   }
 
   void _openSortSheet() {
@@ -644,7 +656,9 @@ class _FilterPill extends StatelessWidget {
           child: Text(
             label,
             style: TextStyle(
-              color: selected ? const Color(0xFF16161A) : AppColors.textSecondary,
+              color: selected
+                  ? const Color(0xFF16161A)
+                  : AppColors.textSecondary,
               fontSize: 13,
               fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
             ),

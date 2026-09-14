@@ -73,11 +73,20 @@ class _DeliveryRequestPageState extends State<DeliveryRequestPage> {
 
   Future<void> _submit() async {
     if (_isSubmitting) return;
+    if (widget.items.isEmpty ||
+        widget.items.any((item) => !item.canShip) ||
+        widget.items.map((item) => item.id).toSet().length !=
+            widget.items.length) {
+      _showWarning('배송 가능한 상품을 다시 선택해주세요');
+      return;
+    }
     if (_recipientController.text.trim().isEmpty) {
       _showWarning('받는 사람을 입력해주세요');
       return;
     }
-    if (_phoneController.text.trim().isEmpty) {
+    if (!RegExp(
+      r'^0[0-9]{8,10}$',
+    ).hasMatch(_phoneController.text.replaceAll(RegExp(r'[\s-]'), ''))) {
       _showWarning('연락처를 입력해주세요');
       return;
     }
@@ -88,6 +97,8 @@ class _DeliveryRequestPageState extends State<DeliveryRequestPage> {
 
     // 우편번호/상세주소는 백엔드 DTO에 별도 필드가 없으므로 기본 주소에 합쳐 전송한다.
     final fullAddress = [
+      if (_postalCodeController.text.trim().isNotEmpty)
+        '[${_postalCodeController.text.trim()}]',
       _addressController.text.trim(),
       _detailAddressController.text.trim(),
     ].where((s) => s.isNotEmpty).join(' ');

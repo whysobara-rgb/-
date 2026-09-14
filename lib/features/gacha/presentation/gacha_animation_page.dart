@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -59,9 +58,6 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
   // 애니메이션 최종 완료 여부
   bool _animationDone = false;
 
-  // 디버그 프리뷰 모드 (kDebugMode에서만 노출되는 등급 테스트 버튼용)
-  bool _isPreview = false;
-
   // 스테이지별 haptic 중복 방지 플래그
   double _lastCrackHapticT = -1;
   bool _burstHapticFired = false;
@@ -99,21 +95,18 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
     try {
       final results = await drawGacha(widget.box.id, widget.count);
       if (!mounted) return;
-      if (_isPreview) return; // 프리뷰 모드로 전환된 경우 실제 API 결과는 무시.
       _apiResults = results;
-      final sorted = [...results]
-        ..sort((a, b) => b.gradeEnum.rank.compareTo(a.gradeEnum.rank));
+      final sorted = [...results]..sort(DrawResult.compareForReveal);
       _highlight = sorted.isNotEmpty ? sorted.first : null;
       _grade = _highlight?.gradeEnum ?? GachaGrade.b;
     } catch (e) {
       if (!mounted) return;
       _apiError = e;
+      _animationDone = true;
     } finally {
-      if (!_isPreview) {
-        _apiDone = true;
-        _tryStartSequence();
-        _tryNavigate();
-      }
+      _apiDone = true;
+      _tryStartSequence();
+      _tryNavigate();
     }
   }
 
@@ -122,7 +115,7 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
     if (_sequenceController != null) return; // 이미 시작됨
     if (!mounted) return;
     if (_grade == null) return; // 등급 미확정
-    if (!_isPreview && !_orbSummonController.isCompleted) return;
+    if (!_orbSummonController.isCompleted) return;
 
     if (_skipRequested) {
       // SKIP: 시퀀스를 아예 재생하지 않고 즉시 결과로 이동.
@@ -166,7 +159,11 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
     final grade = _grade;
     final controller = _sequenceController;
     if (grade == null || controller == null) {
-      return _StageInfo(stage: _Stage.orb, localT: 1.0, grade: grade ?? GachaGrade.b);
+      return _StageInfo(
+        stage: _Stage.orb,
+        localT: 1.0,
+        grade: grade ?? GachaGrade.b,
+      );
     }
     final durations = grade.stageDurationsMs;
     final crackMs = durations[1].toDouble();
@@ -176,14 +173,26 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
     final elapsed = controller.value * totalMs;
 
     if (elapsed < crackMs) {
-      return _StageInfo(stage: _Stage.crack, localT: (elapsed / crackMs).clamp(0.0, 1.0), grade: grade);
+      return _StageInfo(
+        stage: _Stage.crack,
+        localT: (elapsed / crackMs).clamp(0.0, 1.0),
+        grade: grade,
+      );
     }
     final afterCrack = elapsed - crackMs;
     if (cutinMs > 0 && afterCrack < cutinMs) {
-      return _StageInfo(stage: _Stage.cutin, localT: (afterCrack / cutinMs).clamp(0.0, 1.0), grade: grade);
+      return _StageInfo(
+        stage: _Stage.cutin,
+        localT: (afterCrack / cutinMs).clamp(0.0, 1.0),
+        grade: grade,
+      );
     }
     final afterCutin = afterCrack - cutinMs;
-    return _StageInfo(stage: _Stage.burst, localT: (afterCutin / burstMs).clamp(0.0, 1.0), grade: grade);
+    return _StageInfo(
+      stage: _Stage.burst,
+      localT: (afterCutin / burstMs).clamp(0.0, 1.0),
+      grade: grade,
+    );
   }
 
   void _maybeFireHaptics() {
@@ -223,7 +232,6 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
   void _tryNavigate() {
     if (_navigated || !mounted) return;
     if (!_animationDone || !_apiDone) return;
-    if (_isPreview) return; // 프리뷰 모드는 페이지 이동하지 않음(그 자리에서 반복 테스트).
     _navigated = true;
 
     if (_apiError != null) {
@@ -231,7 +239,9 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
           ? (_apiError as ApiException).message
           : '뽑기 중 오류가 발생했습니다';
       Navigator.of(context).pop();
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
       return;
     }
 
@@ -248,48 +258,6 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
     );
   }
 
-  /// 디버그 전용: 강제로 특정 등급을 즉시 재생해보는 프리뷰 모드 진입.
-  void _debugPreview(GachaGrade grade) {
-    setState(() {
-      _isPreview = true;
-      _navigated = true; // 실제 페이지 이동은 막는다.
-      _apiDone = true;
-      _apiError = null;
-      _animationDone = false;
-      _skipRequested = false;
-      _lastCrackHapticT = -1;
-      _burstHapticFired = false;
-      _grade = grade;
-      _highlight = DrawResult(
-        id: 'preview_${grade.code}',
-        name: '${grade.label} 프리뷰 아이템',
-        grade: grade.code,
-        price: 50000 * (grade.rank + 1),
-      );
-      _apiResults = [_highlight!];
-
-      _sequenceController?.dispose();
-      _sequenceController = null;
-      _orbSummonController.reset();
-    });
-    _orbSummonController.forward();
-  }
-
-  void _closePreview() {
-    setState(() {
-      _isPreview = false;
-      _navigated = false;
-      _animationDone = false;
-      _apiDone = false;
-      _grade = null;
-      _sequenceController?.dispose();
-      _sequenceController = null;
-      _orbSummonController.reset();
-    });
-    _orbSummonController.forward();
-    _startDraw();
-  }
-
   @override
   void dispose() {
     _rotationController.dispose();
@@ -302,9 +270,7 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
   Widget build(BuildContext context) {
     final info = _computeStage();
     final grade = _grade;
-    final color = grade == null
-        ? Colors.white
-        : _colorForStage(grade, info);
+    final color = grade == null ? Colors.white : _colorForStage(grade, info);
     final rainbowActive = grade != null && _isRainbowActive(grade, info);
 
     return Scaffold(
@@ -338,7 +304,12 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
                       if (_sequenceController != null) _sequenceController!,
                     ]),
                     builder: (context, _) {
-                      return _buildStageVisual(info, grade, color, rainbowActive);
+                      return _buildStageVisual(
+                        info,
+                        grade,
+                        color,
+                        rainbowActive,
+                      );
                     },
                   ),
                 ),
@@ -392,7 +363,9 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: LinearProgressIndicator(
-                    value: _sequenceController?.value ?? _orbSummonController.value * 0.15,
+                    value:
+                        _sequenceController?.value ??
+                        _orbSummonController.value * 0.15,
                     minHeight: 5,
                     backgroundColor: Colors.white.withValues(alpha: 0.16),
                     valueColor: AlwaysStoppedAnimation<Color>(
@@ -408,7 +381,11 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
                 top: 8,
                 child: TextButton.icon(
                   onPressed: _skip,
-                  icon: const Icon(Icons.fast_forward_rounded, color: Colors.white70, size: 18),
+                  icon: const Icon(
+                    Icons.fast_forward_rounded,
+                    color: Colors.white70,
+                    size: 18,
+                  ),
                   label: Text(
                     'SKIP',
                     style: TextStyle(
@@ -422,16 +399,6 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
               ),
 
               // ── 디버그 전용: 등급 테스트 컨트롤러 패널 ──
-              if (kDebugMode)
-                Positioned(
-                  left: 12,
-                  top: 8,
-                  child: _DebugGradePanel(
-                    onSelect: _debugPreview,
-                    isPreview: _isPreview,
-                    onClose: _closePreview,
-                  ),
-                ),
             ],
           ),
         ),
@@ -461,7 +428,8 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
     final scaled = info.localT * segCount;
     final segIndex = scaled.floor().clamp(0, segCount - 1);
     final segT = (scaled - segIndex).clamp(0.0, 1.0);
-    return Color.lerp(colors[segIndex], colors[segIndex + 1], segT) ?? colors.first;
+    return Color.lerp(colors[segIndex], colors[segIndex + 1], segT) ??
+        colors.first;
   }
 
   String _statusLabel(_StageInfo info) {
@@ -477,7 +445,12 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
     }
   }
 
-  Widget _buildStageVisual(_StageInfo info, GachaGrade? grade, Color color, bool rainbow) {
+  Widget _buildStageVisual(
+    _StageInfo info,
+    GachaGrade? grade,
+    Color color,
+    bool rainbow,
+  ) {
     final rotationAngle = _rotationController.value * 2 * math.pi * 3;
     final orbGrowth = _orbSummonController.value;
     final magicAppear = _orbSummonController.value;
@@ -505,15 +478,20 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
       pulseScale = (1.3 * (1 - (burstProgress / 0.25).clamp(0.0, 1.0)));
     } else {
       // idle/orb 소환 단계: 은은한 숨쉬기 펄스
-      pulseScale = 1.0 + 0.03 * math.sin(_rotationController.value * 2 * math.pi);
+      pulseScale =
+          1.0 + 0.03 * math.sin(_rotationController.value * 2 * math.pi);
     }
 
     final showOrb = info.stage != _Stage.burst || burstProgress < 0.45;
     final showCard = info.stage == _Stage.burst && burstProgress > 0.15;
 
-    final shardSeeds = _shardSeeds ??=
-        BurstShardsPainter.generate(22, grade?.primaryColor ?? Colors.white);
-    final confettiSeeds = _confettiSeeds ??= RainbowConfettiPainter.generate(48);
+    final shardSeeds = _shardSeeds ??= BurstShardsPainter.generate(
+      22,
+      grade?.primaryColor ?? Colors.white,
+    );
+    final confettiSeeds = _confettiSeeds ??= RainbowConfettiPainter.generate(
+      48,
+    );
 
     return Stack(
       alignment: Alignment.center,
@@ -536,7 +514,10 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
             painter: AbsorbParticlesPainter(
               progress: orbGrowth,
               color: color,
-              particles: _absorbSeeds ??= AbsorbParticlesPainter.generate(28, color),
+              particles: _absorbSeeds ??= AbsorbParticlesPainter.generate(
+                28,
+                color,
+              ),
             ),
           ),
 
@@ -576,8 +557,7 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
           ),
 
         // ── 카드 3D 회전 등장 ──
-        if (showCard)
-          _buildEnteringCard(grade, burstProgress),
+        if (showCard) _buildEnteringCard(grade, burstProgress),
       ],
     );
   }
@@ -626,7 +606,11 @@ class _StageInfo {
   final _Stage stage;
   final double localT;
   final GachaGrade grade;
-  const _StageInfo({required this.stage, required this.localT, required this.grade});
+  const _StageInfo({
+    required this.stage,
+    required this.localT,
+    required this.grade,
+  });
 }
 
 /// Stage2 컷인 오버레이: 대각선 번개 섬광 + 등급 엠블럼 슬라이드 + 심장박동 줌.
@@ -644,10 +628,17 @@ class _CutinOverlay extends StatelessWidget {
 
     return Stack(
       children: [
-        Container(color: Colors.black.withValues(alpha: 0.55 * (1 - (localT - 0.7).clamp(0.0, 0.3) / 0.3))),
+        Container(
+          color: Colors.black.withValues(
+            alpha: 0.55 * (1 - (localT - 0.7).clamp(0.0, 0.3) / 0.3),
+          ),
+        ),
         CustomPaint(
           size: Size.infinite,
-          painter: LightningCutinPainter(progress: localT, color: grade.primaryColor),
+          painter: LightningCutinPainter(
+            progress: localT,
+            color: grade.primaryColor,
+          ),
         ),
         Center(
           child: Transform.scale(
@@ -655,12 +646,19 @@ class _CutinOverlay extends StatelessWidget {
             child: Transform.translate(
               offset: Offset(slideX, 0),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 28,
+                  vertical: 14,
+                ),
                 decoration: BoxDecoration(
                   gradient: grade.gradient,
                   borderRadius: BorderRadius.circular(20),
                   boxShadow: [
-                    BoxShadow(color: grade.glowColor.withValues(alpha: 0.6), blurRadius: 24, spreadRadius: 2),
+                    BoxShadow(
+                      color: grade.glowColor.withValues(alpha: 0.6),
+                      blurRadius: 24,
+                      spreadRadius: 2,
+                    ),
                   ],
                 ),
                 child: Text(
@@ -680,76 +678,3 @@ class _CutinOverlay extends StatelessWidget {
     );
   }
 }
-
-/// 디버그 전용 등급 테스트 컨트롤러 패널 (kDebugMode에서만 렌더링됨).
-class _DebugGradePanel extends StatelessWidget {
-  final ValueChanged<GachaGrade> onSelect;
-  final bool isPreview;
-  final VoidCallback onClose;
-
-  const _DebugGradePanel({
-    required this.onSelect,
-    required this.isPreview,
-    required this.onClose,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(6),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.45),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: GachaGrade.values.map((g) {
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 2),
-                child: InkWell(
-                  onTap: () => onSelect(g),
-                  borderRadius: BorderRadius.circular(8),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                    decoration: BoxDecoration(
-                      gradient: g.gradient,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      g.code,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
-          if (isPreview)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: TextButton(
-                onPressed: onClose,
-                style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  minimumSize: const Size(0, 24),
-                ),
-                child: const Text(
-                  '프리뷰 종료',
-                  style: TextStyle(color: Colors.white70, fontSize: 10),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
