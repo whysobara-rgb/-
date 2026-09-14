@@ -31,10 +31,12 @@ class _HomePageState extends State<HomePage> {
       final boxes = await (widget.loadCatalog?.call() ?? const CapsuleBoxRepository().getAll());
       if (mounted) setState(() { _boxes = boxes; _loading = false; });
     } catch (error) {
-      if (mounted) setState(() {
-        _loading = false;
-        _error = error is ApiException ? error.message : '박스를 불러오지 못했어요. 잠시 후 다시 시도해주세요.';
-      });
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = error is ApiException ? error.message : '박스를 불러오지 못했어요. 잠시 후 다시 시도해주세요.';
+        });
+      }
     }
   }
   Future<void> _open(CapsuleBox box) async {

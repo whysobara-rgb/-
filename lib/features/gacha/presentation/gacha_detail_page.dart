@@ -107,7 +107,9 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
   /// 2) 잔액 충분 → 구매 확인 다이얼로그 → 확인 시에만 뽑기 애니메이션 화면으로 이동.
   Future<void> _onPurchasePressed() async {
     if (_purchaseInProgress || _isLoading || _detail == null ||
-        _detail!.soldStock >= _detail!.totalStock) return;
+        _detail!.soldStock >= _detail!.totalStock) {
+      return;
+    }
     if (AppConfig.orderPreviewEnabled) {
       final user = context.read<AuthProvider>().currentUser;
       if (user == null) return;
