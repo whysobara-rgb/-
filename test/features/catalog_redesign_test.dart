@@ -12,6 +12,11 @@ import 'package:gacha_vault/features/home/presentation/widgets/capsule_box_card.
 import 'package:gacha_vault/features/gacha/presentation/gacha_detail_page.dart';
 import 'package:gacha_vault/features/orders/order_models.dart';
 
+import 'package:gacha_vault/features/orders/prize_reveal.dart';
+import 'package:gacha_vault/features/inventory/domain/inventory_item.dart';
+import 'package:gacha_vault/features/inventory/presentation/collection_detail_page.dart';
+import 'package:gacha_vault/features/inventory/presentation/collection_card.dart';
+
 // Synthetic visual fixtures only. Never sent to the API or mixed into live catalogs.
 const boxes = [
   CapsuleBox(id: 901, name: '취향을 채우는 컬렉션 박스', priceWon: 1000,
@@ -98,6 +103,28 @@ void main() {
     await mount(tester, catalog(), width: 320, scale: 1.6);
     expect(tester.takeException(), isNull);
     await tester.drag(find.byType(CustomScrollView), const Offset(0, -700));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets('confirmed reveal and collection screens render with Korean fonts', (tester) async {
+    await mount(tester, Scaffold(appBar: AppBar(title: const Text('개봉 결과')),
+      body: SingleChildScrollView(padding: const EdgeInsets.all(20),
+        child: PrizeReveal(prize: odds.prizes.last))));
+    expect(find.text('내 보관함에 저장 완료'), findsOneWidget);
+    await capture(tester, 'reveal');
+    final item = InventoryItem(id: '901', name: '프리미엄 컬렉션 카드',
+      grade: 'S', price: 1000, icon: Icons.style_rounded,
+      status: InventoryStatus.stored, acquiredAt: DateTime(2026, 9, 14),
+      isLocked: true);
+    await mount(tester, Scaffold(appBar: AppBar(title: const Text('내 컬렉션')),
+      body: SingleChildScrollView(padding: const EdgeInsets.all(20),
+        child: CollectionCard(item: item, selected: false,
+          onSelect: () {}, onLock: () {}))));
+    await capture(tester, 'collection-card');
+    await mount(tester, CollectionDetailPage(item: item));
+    await capture(tester, 'collection-detail');
+    await mount(tester, CollectionDetailPage(item: item), width: 320, scale: 1.6);
+    await tester.drag(find.byType(ListView), const Offset(0, -500));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
