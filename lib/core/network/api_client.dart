@@ -145,6 +145,7 @@ class ApiClient {
     String path, {
     Map<String, dynamic>? body,
     bool withAuth = true,
+    String? idempotencyKey,
   }) async {
     if (path.split('?').first == '/wallet/topup') {
       throw ApiException(statusCode: 0, message: 'GP는 별도로 충전할 수 없습니다');
@@ -153,7 +154,13 @@ class ApiClient {
         {'/draws', '/shipping-requests'}.contains(path.split('?').first)) {
       throw ApiException(statusCode: 0, message: '현재 서비스를 준비하고 있습니다');
     }
-    return _request('POST', path, body: body, withAuth: withAuth);
+    return _request(
+      'POST',
+      path,
+      body: body,
+      withAuth: withAuth,
+      idempotencyKey: idempotencyKey,
+    );
   }
 
   Future<dynamic> put(String path, {required Map<String, dynamic> body}) {
@@ -165,11 +172,18 @@ class ApiClient {
     String path, {
     Map<String, dynamic>? body,
     required bool withAuth,
+    String? idempotencyKey,
   }) async {
     final uri = _uri(path);
     final client = _client ?? http.Client();
     try {
       final headers = await _headers(withAuth: withAuth);
+      if (idempotencyKey != null) {
+        if (!RegExp(r'^[a-f0-9-]{36}$').hasMatch(idempotencyKey)) {
+          throw ApiException(statusCode: 0, message: '구매 요청을 확인해주세요');
+        }
+        headers['Idempotency-Key'] = idempotencyKey;
+      }
       // Mutations are never automatically retried: a lost response does not
       // prove the server rejected the operation.
       final response =

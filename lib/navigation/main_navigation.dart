@@ -20,9 +20,13 @@ class MainNavigation extends StatefulWidget {
 
 class _MainNavigationState extends State<MainNavigation> {
   int _currentIndex = 0;
+  int _inventoryRevision = 0;
 
   void _onTap(int index) {
-    setState(() => _currentIndex = index);
+    setState(() {
+      _currentIndex = index;
+      if (index == 2) _inventoryRevision++;
+    });
   }
 
   void _goToHome() => setState(() => _currentIndex = 0);
@@ -32,7 +36,7 @@ class _MainNavigationState extends State<MainNavigation> {
   List<Widget> get _screens => [
     HomePage(onGoToWallet: _goToWallet),
     const RankingScreen(),
-    const InventoryPage(),
+    InventoryPage(key: ValueKey(_inventoryRevision)),
     WalletPage(onGoToHome: _goToHome),
     ProfilePage(onGoToWallet: _goToWallet),
   ];

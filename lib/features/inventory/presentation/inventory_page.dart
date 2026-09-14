@@ -1,3 +1,6 @@
+import 'package:provider/provider.dart';
+import '../../../shared/providers/auth_provider.dart';
+import '../../orders/order_flow_page.dart';
 import 'package:flutter/material.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/config/app_config.dart';
@@ -348,6 +351,21 @@ class _InventoryPageState extends State<InventoryPage> {
           ),
         ),
         actions: [
+          if (AppConfig.orderPreviewEnabled)
+            TextButton(
+              onPressed: () async {
+                final user = context.read<AuthProvider>().currentUser;
+                if (user == null) return;
+                await Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => OrderFlowPage(userId: user.id),
+                  ),
+                );
+                if (mounted) await _loadItems();
+              },
+              child: const Text('미개봉 캡슐'),
+            ),
+
           IconButton(
             onPressed: _openSortSheet,
             icon: const Icon(

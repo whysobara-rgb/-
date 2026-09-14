@@ -1,3 +1,5 @@
+import '../../orders/order_flow_page.dart';
+import '../../../shared/providers/auth_provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -101,6 +103,27 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
   /// 2) 잔액 충분 → 구매 확인 다이얼로그 → 확인 시에만 뽑기 애니메이션 화면으로 이동.
   Future<void> _onPurchasePressed() async {
     if (_purchaseInProgress) return;
+    if (AppConfig.orderPreviewEnabled) {
+      final user = context.read<AuthProvider>().currentUser;
+      if (user == null) return;
+      _purchaseInProgress = true;
+      try {
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => OrderFlowPage(
+              userId: user.id,
+              gachaId: widget.box.id,
+              title: widget.box.name,
+              initialQuantity: _quantity.clamp(1, 100),
+            ),
+          ),
+        );
+        if (mounted) await _loadDetail();
+      } finally {
+        _purchaseInProgress = false;
+      }
+      return;
+    }
     if (!AppConfig.legacyTransactionsEnabled) {
       ScaffoldMessenger.of(
         context,
@@ -657,8 +680,6 @@ class _LuckyLineupCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final totalWeight = items.fold<int>(0, (sum, item) => sum + item.weight);
-
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 20),
       decoration: BoxDecoration(
@@ -781,7 +802,7 @@ class _LuckyLineupCard extends StatelessWidget {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          item.probabilityLabel(totalWeight),
+                          '확률은 구매 전 확인',
                           textAlign: TextAlign.center,
                           style: const TextStyle(
                             color: AppColors.textSecondary,
