@@ -63,8 +63,9 @@ class Odds {
         prizes.isEmpty ||
         prizes.length > 1000 ||
         prizes.map((p) => p.itemId).toSet().length != prizes.length ||
-        prizes.fold<int>(0, (s, p) => s + p.ppm) != 1000000)
+        prizes.fold<int>(0, (s, p) => s + p.ppm) != 1000000) {
       invalidResponse();
+    }
   }
 }
 
@@ -77,8 +78,9 @@ class Capsule {
       orderId = uuid(j['orderId']),
       status = label(j['status']),
       sequence = positive(j['sequence']) {
-    if (!{'UNOPENED', 'OPENED'}.contains(status) || sequence > 100)
+    if (!{'UNOPENED', 'OPENED'}.contains(status) || sequence > 100) {
       invalidResponse();
+    }
   }
 }
 
@@ -104,8 +106,9 @@ class Receipt {
         quantity * unitPrice != total ||
         capsules.length != quantity ||
         capsules.any((c) => c.orderId != id) ||
-        capsules.map((c) => c.id).toSet().length != quantity)
+        capsules.map((c) => c.id).toSet().length != quantity) {
       invalidResponse();
+    }
   }
 }
 

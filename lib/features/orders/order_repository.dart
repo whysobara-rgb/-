@@ -49,8 +49,9 @@ class OrderRepository {
   }) : scope = 'capsule_v1_${Uri.encodeComponent(server)}_$userId';
   static Future<OrderRepository> forUser(int userId) async {
     final token = await const TokenStorage().readToken();
-    if (token == null || token.isEmpty)
+    if (token == null || token.isEmpty) {
       throw ApiException(statusCode: 401, message: '다시 로그인해주세요');
+    }
     return OrderRepository(
       api: ApiClient(tokenStorage: _SessionToken(token)),
       store: SecureOrderStore(),
@@ -72,18 +73,21 @@ class OrderRepository {
   }
 
   Future<void> _owner() async {
-    if (object(await api.get('/users/me'))['id'] != userId)
+    if (object(await api.get('/users/me'))['id'] != userId) {
       throw ApiException(statusCode: 401, message: '구매한 계정으로 다시 로그인해주세요');
+    }
   }
 
   void _gate() {
-    if (kReleaseMode || !enabled)
+    if (kReleaseMode || !enabled) {
       throw ApiException(statusCode: 0, message: '현재 서비스를 준비하고 있습니다');
+    }
   }
 
   Future<T> _exclusive<T>(Future<T> Function() work) async {
-    if (!_running.add(scope))
+    if (!_running.add(scope)) {
       throw ApiException(statusCode: 0, message: '이전 요청을 확인하고 있습니다');
+    }
     try {
       return await work();
     } finally {
@@ -113,8 +117,9 @@ class OrderRepository {
   ) => _exclusive(() async {
     _gate();
     await _owner();
-    if (await pendingPurchase() != null)
+    if (await pendingPurchase() != null) {
       throw ApiException(statusCode: 0, message: '이전 구매 결과를 먼저 확인해주세요');
+    }
     final pending = PendingPurchase(_newKey(), title, {
       'gachaId': odds.gachaId,
       'quantity': quantity,
@@ -145,16 +150,18 @@ class OrderRepository {
       // Transport/5xx/401/503 and malformed success remain recoverable with the same key.
       if ({400, 404, 409}.contains(e.httpStatusCode) &&
           ({10001, 10004, 10006}.contains(e.statusCode) ||
-              (e.statusCode == 10005 && e.errors.contains('ORDER_REJECTED'))))
+              (e.statusCode == 10005 && e.errors.contains('ORDER_REJECTED')))) {
         await store.remove(_purchaseKey);
+      }
       rethrow;
     }
     final receipt = Receipt(data);
     if (receipt.gachaId != pending.body['gachaId'] ||
         receipt.quantity != pending.body['quantity'] ||
         receipt.unitPrice != pending.body['expectedUnitPrice'] ||
-        receipt.version != pending.body['expectedProbabilityVersion'])
+        receipt.version != pending.body['expectedProbabilityVersion']) {
       invalidResponse();
+    }
     await store.remove(_purchaseKey);
     return receipt;
   }
@@ -173,8 +180,9 @@ class OrderRepository {
     if (items.length > 20 ||
         items.any((c) => c.status != 'UNOPENED') ||
         data['page'] != page ||
-        data['limit'] != 20)
+        data['limit'] != 20) {
       invalidResponse();
+    }
     return (items, positive(data['totalCount'], zero: true));
   }
 
@@ -183,8 +191,9 @@ class OrderRepository {
     uuid(id);
     await _owner();
     final pending = await pendingOpening();
-    if (pending != null && pending != id)
+    if (pending != null && pending != id) {
       throw ApiException(statusCode: 0, message: '이전 개봉 결과를 먼저 확인해주세요');
+    }
     await store.write(_openingKey, id);
     final result = Opening(await api.post('/capsules/$id/open'));
     if (result.capsuleId != id) invalidResponse();

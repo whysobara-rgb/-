@@ -30,8 +30,9 @@ class AppUser {
         : value is String && RegExp(r'^\d+$').hasMatch(value)
         ? int.tryParse(value)
         : null;
-    if (parsed == null || parsed < 0 || parsed > 9007199254740991)
+    if (parsed == null || parsed < 0 || parsed > 9007199254740991) {
       throw const FormatException('Invalid GP balance');
+    }
     return parsed;
   }
 

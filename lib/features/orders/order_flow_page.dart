@@ -60,12 +60,13 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
     try {
       await action();
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         setState(
           () => _error = e is ApiException
               ? e.message
               : '정보를 확인하지 못했습니다. 다시 시도해주세요',
         );
+      }
     } finally {
       _active = false;
       if (mounted) setState(() => _busy = false);
@@ -97,8 +98,9 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
       } finally {
         _pending = await _repo!.pendingPurchase();
       }
-      if (mounted && _sameUser)
+      if (mounted && _sameUser) {
         await context.read<AuthProvider>().refreshProfile();
+      }
     });
   }
 
@@ -109,8 +111,9 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
       try {
         _opening = await _repo!.result(id);
       } on ApiException catch (e) {
-        if (e.httpStatusCode == 409 && e.statusCode == 10005)
+        if (e.httpStatusCode == 409 && e.statusCode == 10005) {
           _canRetryOpen = true;
+        }
         rethrow;
       }
     });
@@ -138,8 +141,9 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
 
   Future<void> _inventory() async {
     await _run(() async {
-      if (_opening != null)
+      if (_opening != null) {
         await _repo!.acknowledgeOpening(_opening!.capsuleId);
+      }
       _opening = null;
       _receipt = null;
       _focused = null;
@@ -212,7 +216,7 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
     ),
   );
   List<Widget> _content() {
-    if (_opening != null)
+    if (_opening != null) {
       return [
         const Icon(Icons.check_circle_outline, size: 64, color: Colors.green),
         const Text(
@@ -229,7 +233,8 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
           });
         }, primary: false),
       ];
-    if (_receipt != null)
+    }
+    if (_receipt != null) {
       return [
         const Icon(Icons.inventory_2_outlined, size: 64),
         const Text(
@@ -242,7 +247,8 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
         const Text('캡슐은 미개봉 상태로 보관됩니다. 원하는 때에 하나씩 열어보세요.'),
         _button('미개봉 보관함 보기', _inventory),
       ];
-    if (_openingId != null)
+    }
+    if (_openingId != null) {
       return [
         const Text(
           '개봉 결과 확인',
@@ -252,7 +258,8 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
         _button('저장된 결과 다시 확인', () => _recoverOpening(_openingId!)),
         if (_canRetryOpen) _button('이 캡슐 개봉 다시 요청', () => _open(_openingId!)),
       ];
-    if (_focused != null)
+    }
+    if (_focused != null) {
       return [
         Text(
           _focusedOrder!.title,
@@ -264,8 +271,9 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
         _button('캡슐 1개 개봉하기', () => _open(_focused!.id)),
         _button('보관함으로 돌아가기', _inventory, primary: false),
       ];
+    }
     final widgets = <Widget>[];
-    if (_pending != null)
+    if (_pending != null) {
       widgets.addAll([
         Card(
           child: Padding(
@@ -285,8 +293,10 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
           ),
         ),
       ]);
-    if (_pendingOpen != null)
+    }
+    if (_pendingOpen != null) {
       widgets.add(_button('이전 개봉 결과 확인', () => _recoverOpening(_pendingOpen!)));
+    }
     if (_showInventory) {
       widgets.add(
         const Text(
@@ -295,13 +305,14 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
         ),
       );
       widgets.add(Text('총 $_total개 · $_page페이지'));
-      if (_capsules.isEmpty && !_busy)
+      if (_capsules.isEmpty && !_busy) {
         widgets.add(
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 36),
             child: Text('보관 중인 미개봉 캡슐이 없습니다.'),
           ),
         );
+      }
       widgets.addAll(
         _capsules.map(
           (c) => Card(
