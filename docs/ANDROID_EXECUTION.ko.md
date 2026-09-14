@@ -4,7 +4,7 @@
 
 `Android execution` 워크플로가 Flutter 3.35.4와 Java 17로 앱의 실제 `lib/main.dart`를 debug APK로 빌드한다. 테스트 패키지 ID는 `com.gachavault.gacha.debug`, 표시 이름은 `가치가차 테스트`이며 운영 패키지와 분리된다.
 
-CI의 `android-debug-app` 아티팩트에 APK, SHA-256, 빌드 범위 설명이 포함된다. 기본 API 주소는 비어 있으므로 별도 주소를 설정하지 않은 APK는 설치·로그인 화면 기동 확인용이다. 이 APK로 서비스 로그인·구매가 가능하다고 안내하지 않는다. 운영 서명 AAB를 만들거나 스토어에 배포하지 않는다.
+CI의 `android-debug-app` 아티팩트에 APK, SHA-256, 빌드 범위 설명이 포함된다. 기본 테스트 API는 `https://gacha-vault-backend.onrender.com`이다. 워크플로 입력 또는 저장소 변수로 덮어쓸 수 있다. API 주소 연결은 실제 구매 성공을 의미하지 않으며 테스트 상품·확률·GP 준비와 별도 거래 인수 검증이 필요하다. 무료 서버가 유휴 상태이면 첫 요청은 앱의 20초 제한을 넘길 수 있으므로 `/health`에서 기동을 확인하고 앱에서 다시 시도한다. 구매 요청을 자동으로 재시도하지 않는다. 운영 서명 AAB를 만들거나 스토어에 배포하지 않는다.
 
 ## 에뮬레이터 검사
 
