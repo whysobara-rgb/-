@@ -89,14 +89,19 @@ class _LoginPageState extends State<LoginPage> {
   Widget _buildLogo() {
     return ShaderMask(
       shaderCallback: (bounds) => AppColors.goldGradient.createShader(bounds),
-      child: const Text(
-        'GACHIGACHA',
-        textAlign: TextAlign.center,
-        style: TextStyle(
-          fontSize: 38,
-          fontWeight: FontWeight.w900,
-          color: Colors.white,
-          letterSpacing: 0.5,
+      child: const FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Text(
+          'GACHIGACHA',
+          softWrap: false,
+          maxLines: 1,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 38,
+            fontWeight: FontWeight.w900,
+            color: Colors.white,
+            letterSpacing: 0.5,
+          ),
         ),
       ),
     );
