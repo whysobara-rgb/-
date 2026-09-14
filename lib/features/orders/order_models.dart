@@ -1,4 +1,5 @@
 import '../../core/network/api_client.dart';
+import '../../core/utils/grade_mapper.dart';
 
 Never invalidResponse() => throw ApiException(
   statusCode: 0,
@@ -40,6 +41,7 @@ class Prize {
       imageUrl = j['imageUrl'] as String? {
     if (ppm > 1000000) invalidResponse();
   }
+  String get displayGrade => GradeMapper.toUiGrade(rarity);
   String get probability =>
       '${(ppm / 10000).toStringAsFixed(4).replaceFirst(RegExp(r'\.?0+$'), '')}%';
 }

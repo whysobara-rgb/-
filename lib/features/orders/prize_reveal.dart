@@ -107,7 +107,7 @@ class _PrizeRevealState extends State<PrizeReveal>
                   style: const TextStyle(color: Colors.white, fontSize: 24,
                     height: 1.3, fontWeight: FontWeight.w800))),
               const SizedBox(height: 12),
-              Text(prize.rarity, style: TextStyle(
+              Text(prize.displayGrade, style: TextStyle(
                 color: accent, fontSize: 16, fontWeight: FontWeight.w700)),
               const SizedBox(height: 8),
               Text('전환 시 ${prize.conversionGP} GP',

@@ -238,7 +238,7 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                Text('${prize.premium ? '프리미엄' : '일반'} · ${prize.rarity}'),
+                Text('${prize.premium ? '프리미엄' : '일반'} · ${prize.displayGrade}'),
                 Text('전환 시 ${prize.conversionGP} GP'),
                 if (odds)
                   Text(

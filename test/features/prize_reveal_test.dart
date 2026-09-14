@@ -36,4 +36,16 @@ void main() {
     expect(find.text('테스트 컬렉션'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+  testWidgets('failed product image preserves confirmed result and fallback', (tester) async {
+    final prize = Prize({'itemId': 1, 'name': '이미지 실패 상품', 'rarity': 'SSR',
+      'conversionGP': 100, 'probabilityPpm': 1000000, 'isPremium': true,
+      'imageUrl': 'https://example.invalid/product.png'});
+    await tester.pumpWidget(MaterialApp(home: Scaffold(
+      body: SingleChildScrollView(child: PrizeReveal(prize: prize)))));
+    await tester.pumpAndSettle();
+    expect(find.text('이미지 실패 상품'), findsOneWidget);
+    expect(find.text('SSS'), findsOneWidget);
+    expect(find.byIcon(Icons.card_giftcard_rounded), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }

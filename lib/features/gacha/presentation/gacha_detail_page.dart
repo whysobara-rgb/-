@@ -382,7 +382,7 @@ class ProductDetailView extends StatelessWidget {
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text(prize.name, style: const TextStyle(fontWeight: FontWeight.w700, height: 1.4)),
                 const SizedBox(height: 4),
-                Text('${prize.rarity} · ${prize.premium ? '프리미엄' : '일반'}',
+                Text('${prize.displayGrade} · ${prize.premium ? '프리미엄' : '일반'}',
                   style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
                 const SizedBox(height: 6),
                 Text(prize.probability, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),

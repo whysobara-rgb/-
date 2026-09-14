@@ -113,7 +113,7 @@ void main() {
     expect(find.text('내 보관함에 저장 완료'), findsOneWidget);
     await capture(tester, 'reveal');
     final item = InventoryItem(id: '901', name: '프리미엄 컬렉션 카드',
-      grade: 'S', price: 1000, icon: Icons.style_rounded,
+      grade: odds.prizes.last.displayGrade, price: 1000, icon: Icons.style_rounded,
       status: InventoryStatus.stored, acquiredAt: DateTime(2026, 9, 14),
       isLocked: true);
     await mount(tester, Scaffold(appBar: AppBar(title: const Text('내 컬렉션')),
