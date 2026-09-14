@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/constants/rank_colors.dart';
 import '../domain/inventory_item.dart';
+import 'collection_detail_page.dart';
 
 class CollectionCard extends StatelessWidget {
   final InventoryItem item;
@@ -43,6 +44,11 @@ class CollectionCard extends StatelessWidget {
               onChanged: item.canShip ? (_) => onSelect() : null)),
           ]),
         ),
+        TextButton.icon(
+          onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => CollectionDetailPage(item: item))),
+          icon: const Icon(Icons.zoom_in_rounded),
+          label: const Text('크게 보기')),
         Padding(padding: const EdgeInsets.all(14),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(item.name, style: const TextStyle(
