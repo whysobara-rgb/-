@@ -23,7 +23,8 @@ jobs:
         run: python3 tool/ios/simulator_smoke.py prepare
       - name: Build iOS simulator application
         run: |
-          flutter build ios --simulator --debug --no-codesign --dart-define=API_BASE_URL=https://gacha-vault-backend.onrender.com --dart-define=ENABLE_GP_ORDER_PREVIEW=true
+          flutter build ios --simulator --debug --dart-define=API_BASE_URL=https://gacha-vault-backend.onrender.com --dart-define=ENABLE_GP_ORDER_PREVIEW=true
+          codesign --verify --verbose build/ios/iphonesimulator/Runner.app
           mkdir -p build/ios-deliverables
           ditto build/ios/iphonesimulator/Runner.app build/ios-deliverables/Runner.app
           ditto -c -k --sequesterRsrc --keepParent build/ios-deliverables/Runner.app build/ios-deliverables/gachigacha-simulator.zip
@@ -31,7 +32,8 @@ jobs:
         run: python3 tool/ios/simulator_smoke.py app
       - name: Build and verify native keychain recovery
         run: |
-          flutter build ios --simulator --debug --no-codesign --target=tool/android/storage_probe.dart
+          flutter build ios --simulator --debug --target=tool/android/storage_probe.dart
+          codesign --verify --verbose build/ios/iphonesimulator/Runner.app
           python3 tool/ios/simulator_smoke.py storage
       - uses: actions/upload-artifact@v4
         if: always()

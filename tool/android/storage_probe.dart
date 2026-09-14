@@ -1,6 +1,7 @@
 // CI-only entrypoint. The distributed app is built from lib/main.dart.
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:gacha_vault/core/network/api_client.dart';
@@ -183,6 +184,11 @@ void main() async {
     );
   } catch (error) {
     debugPrint('GACHA_STORAGE_PROBE_FAILED: ${error.runtimeType}');
+    if (error is PlatformException) {
+      // The isolated fixture contains no customer credentials or transactions.
+      debugPrint('GACHA_STORAGE_ERROR_CODE: ${error.code}');
+      debugPrint('GACHA_STORAGE_ERROR_MESSAGE: ${error.message}');
+    }
     runApp(
       const MaterialApp(
         home: Scaffold(
