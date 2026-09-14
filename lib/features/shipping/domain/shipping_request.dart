@@ -49,8 +49,9 @@ class ShippingRequest {
               : invalidActivity(),
         )
         .toList();
-    if (items.map((e) => e.inventoryId).toSet().length != items.length)
+    if (items.map((e) => e.inventoryId).toSet().length != items.length) {
       invalidActivity();
+    }
     return List.unmodifiable(items);
   }
 
@@ -65,8 +66,9 @@ class ShippingRepository {
     int page = 1,
     int limit = 20,
   }) async {
-    if (page < 1 || limit < 1 || limit > 100)
+    if (page < 1 || limit < 1 || limit > 100) {
       throw ArgumentError('Invalid page');
+    }
     final data = await _api.get('/shipping-requests?page=$page&limit=$limit');
     return ActivityPage.parse(
       data,

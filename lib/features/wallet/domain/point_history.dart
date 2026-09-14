@@ -43,8 +43,9 @@ class PointHistoryEntry {
     final raw = json['amount'];
     if (raw is! int ||
         raw.abs() > 9007199254740991 ||
-        (type == PointHistoryType.earn ? raw < 0 : raw > 0))
+        (type == PointHistoryType.earn ? raw < 0 : raw > 0)) {
       invalidActivity();
+    }
     return PointHistoryEntry(
       id: activityInt(json['id'], min: 1).toString(),
       description: activityText(json['description']),
@@ -68,8 +69,9 @@ class PointHistoryRepository {
     int limit = 20,
     PointHistoryType? type,
   }) async {
-    if (page < 1 || limit < 1 || limit > 100)
+    if (page < 1 || limit < 1 || limit > 100) {
       throw ArgumentError('Invalid page');
+    }
     final data = await _apiClient.get(
       '/wallet/point-history?page=$page&limit=$limit'
       '${type == null ? '' : '&type=${type.backendType}'}',

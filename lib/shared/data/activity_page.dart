@@ -42,8 +42,9 @@ class ActivityPage<T> {
     if (data is! Map<String, dynamic> ||
         data['page'] != page ||
         data['limit'] != limit ||
-        data['items'] is! List)
+        data['items'] is! List) {
       invalidActivity();
+    }
     final total = activityInt(data['totalCount']);
     final raw = data['items'] as List;
     final remaining = (total - (page - 1) * limit).clamp(0, limit);

@@ -75,8 +75,9 @@ class _ActivityFeedState<T> extends State<ActivityFeed<T>> {
         );
       }
     } finally {
-      if (mounted && generation == _generation)
+      if (mounted && generation == _generation) {
         setState(() => _loading = false);
+      }
     }
   }
 

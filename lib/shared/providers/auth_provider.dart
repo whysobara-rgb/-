@@ -177,11 +177,13 @@ class AuthProvider extends ChangeNotifier {
     int? expectedId,
   }) async {
     final data = await _apiClient.get('/users/me');
-    if (!_current(session) || (request != null && request != _profileRequest))
+    if (!_current(session) || (request != null && request != _profileRequest)) {
       return;
+    }
     final user = AppUser.fromJson(data as Map<String, dynamic>);
-    if (expectedId != null && user.id != expectedId)
+    if (expectedId != null && user.id != expectedId) {
       throw const FormatException();
+    }
     _currentUser = user;
     _profileRefreshError = null;
     _notify();
