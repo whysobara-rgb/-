@@ -39,6 +39,9 @@ void main() {
       ..addFont(rootBundle.load('assets/fonts/Pretendard-Regular.otf'))
       ..addFont(rootBundle.load('assets/fonts/Pretendard-Bold.otf'));
     await fonts.load();
+    final icons = FontLoader('MaterialIcons')
+      ..addFont(rootBundle.load('fonts/MaterialIcons-Regular.otf'));
+    await icons.load();
   });
   Future<void> mount(WidgetTester tester, Widget screen, {double width = 390, double scale = 1}) async {
     tester.view.physicalSize = Size(width, 900);

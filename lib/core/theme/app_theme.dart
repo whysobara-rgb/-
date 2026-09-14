@@ -35,7 +35,7 @@ class AppTheme {
         elevation: 0,
         centerTitle: false,
         surfaceTintColor: Colors.transparent,
-        titleTextStyle: TextStyle(
+        titleTextStyle: TextStyle(fontFamily: 'Pretendard', 
           color: AppColors.textPrimary,
           fontSize: 18,
           fontWeight: FontWeight.w800,
@@ -52,11 +52,11 @@ class AppTheme {
         showUnselectedLabels: true,
         type: BottomNavigationBarType.fixed,
         elevation: 8,
-        selectedLabelStyle: TextStyle(
+        selectedLabelStyle: TextStyle(fontFamily: 'Pretendard', 
           fontSize: 11,
           fontWeight: FontWeight.w700,
         ),
-        unselectedLabelStyle: TextStyle(
+        unselectedLabelStyle: TextStyle(fontFamily: 'Pretendard', 
           fontSize: 11,
           fontWeight: FontWeight.w500,
         ),
@@ -71,7 +71,7 @@ class AppTheme {
       inputDecorationTheme: InputDecorationTheme(
         filled: true, fillColor: Colors.white,
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-        hintStyle: const TextStyle(color: AppColors.textSecondary, fontSize: 14),
+        hintStyle: const TextStyle(fontFamily: 'Pretendard', color: AppColors.textSecondary, fontSize: 14),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: AppColors.surfaceBorder)),
         enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: AppColors.surfaceBorder)),
         focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: AppColors.primary, width: 1.5)),
@@ -90,12 +90,12 @@ class AppTheme {
       dialogTheme: DialogThemeData(
         backgroundColor: AppColors.surfaceElevated,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        titleTextStyle: const TextStyle(
+        titleTextStyle: const TextStyle(fontFamily: 'Pretendard', 
           color: AppColors.textPrimary,
           fontSize: 18,
           fontWeight: FontWeight.w700,
         ),
-        contentTextStyle: const TextStyle(
+        contentTextStyle: const TextStyle(fontFamily: 'Pretendard', 
           color: AppColors.textSecondary,
           fontSize: 14,
         ),
@@ -117,7 +117,7 @@ class AppTheme {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),
-          textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+          textStyle: const TextStyle(fontFamily: 'Pretendard', fontSize: 15, fontWeight: FontWeight.w800),
         ),
       ),
 
@@ -145,7 +145,7 @@ class AppTheme {
         backgroundColor: Colors.white,
         selectedColor: const Color(0xFFFFE8E1),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        labelStyle: const TextStyle(color: AppColors.textPrimary),
+        labelStyle: const TextStyle(fontFamily: 'Pretendard', color: AppColors.textPrimary),
         side: const BorderSide(color: AppColors.surfaceBorder),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
@@ -159,7 +159,7 @@ class AppTheme {
 
       snackBarTheme: SnackBarThemeData(
         backgroundColor: AppColors.textPrimary,
-        contentTextStyle: const TextStyle(color: Colors.white),
+        contentTextStyle: const TextStyle(fontFamily: 'Pretendard', color: Colors.white),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
