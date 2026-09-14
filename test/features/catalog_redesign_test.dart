@@ -128,4 +128,47 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
+  testWidgets('product image renders in reveal and detail and survives zoom', (tester) async {
+    const url = 'https://preview.invalid/sample-watch.png';
+    final bytes = await tester.runAsync(() async =>
+      (await rootBundle.load('assets/images/products/product_watch.png'))
+        .buffer.asUint8List());
+    final frame = await tester.runAsync(() async {
+      final codec = await ui.instantiateImageCodec(bytes!);
+      final frame = await codec.getNextFrame();
+      codec.dispose();
+      return frame;
+    });
+    // Seed decoded pixels under the network key: rendering test, not an HTTP test.
+    const provider = NetworkImage(url);
+    PaintingBinding.instance.imageCache.putIfAbsent(provider,
+      () => OneFrameImageStreamCompleter(Future.value(ImageInfo(image: frame!.image))));
+    addTearDown(() => PaintingBinding.instance.imageCache.clear());
+    final prize = Prize({'itemId': 902, 'name': '시계 이미지 표시 테스트',
+      'rarity': 'SSR', 'conversionGP': 0, 'probabilityPpm': 1000000,
+      'isPremium': true, 'imageUrl': url});
+    await mount(tester, Scaffold(appBar: AppBar(title: const Text('샘플 개봉 결과')),
+      body: SingleChildScrollView(padding: const EdgeInsets.all(20),
+        child: PrizeReveal(prize: prize))));
+    expect(tester.widgetList<RawImage>(find.byType(RawImage))
+      .any((image) => image.image != null), isTrue);
+    expect(find.byIcon(Icons.card_giftcard_rounded), findsNothing);
+    await capture(tester, 'reveal-image');
+    final item = InventoryItem(id: '902', name: prize.name,
+      grade: prize.displayGrade, price: 1000, icon: Icons.watch,
+      status: InventoryStatus.stored, acquiredAt: DateTime(2026, 9, 14),
+      imageUrl: url);
+    await mount(tester, CollectionDetailPage(item: item));
+    expect(tester.widgetList<RawImage>(find.byType(RawImage))
+      .any((image) => image.image != null), isTrue);
+    await capture(tester, 'collection-image');
+    await tester.tap(find.text('2배 확대'));
+    await tester.pump();
+    final viewer = tester.widget<InteractiveViewer>(find.byType(InteractiveViewer));
+    expect(viewer.transformationController!.value.getMaxScaleOnAxis(), 2);
+    await tester.tap(find.text('원래 크기'));
+    await tester.pump();
+    expect(viewer.transformationController!.value.getMaxScaleOnAxis(), 1);
+    expect(tester.takeException(), isNull);
+  });
 }
