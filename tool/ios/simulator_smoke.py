@@ -38,13 +38,19 @@ def device():
 
 def launch_and_expect(udid, bundle, marker, name):
     output = EVIDENCE / (name + '.log')
-    with output.open('w') as stream:
+    unified = EVIDENCE / (name + '-unified.log')
+    with output.open('w') as stream, unified.open('w') as device_log:
+        # Flutter's simulator log reader uses unified logging; stdout alone
+        # does not contain Dart debugPrint output on modern iOS.
+        log_process = subprocess.Popen(['xcrun', 'simctl', 'spawn', udid,
+            'log', 'stream', '--style', 'json', '--predicate',
+            'processImagePath ENDSWITH "/Runner"'], stdout=device_log, stderr=subprocess.STDOUT)
         process = subprocess.Popen(['xcrun', 'simctl', 'launch', '--console',
-            '--terminate-running-process', udid, bundle], stdout=stream, stderr=subprocess.STDOUT)
+            '--terminate-running-process', udid, bundle, '--enable-checked-mode', '--verify-entry-points'], stdout=stream, stderr=subprocess.STDOUT)
         try:
-            deadline = time.monotonic() + 60
+            deadline = time.monotonic() + 90
             while time.monotonic() < deadline:
-                logs = output.read_text()
+                logs = output.read_text() + unified.read_text()
                 if 'GACHA_STORAGE_PROBE_FAILED' in logs:
                     raise RuntimeError('Native storage verification failed; inspect evidence')
                 if marker in logs:
@@ -56,6 +62,15 @@ def launch_and_expect(udid, bundle, marker, name):
                 time.sleep(0.25)
             raise RuntimeError('Application verification timed out; inspect evidence')
         finally:
+            # Keep visual evidence even when verification fails.
+            subprocess.run(['xcrun', 'simctl', 'io', udid, 'screenshot',
+                str(EVIDENCE / (name + '-final.png'))], capture_output=True, timeout=30)
+            log_process.terminate()
+            try:
+                log_process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                log_process.kill()
+                log_process.wait()
             subprocess.run(['xcrun', 'simctl', 'terminate', udid, bundle], capture_output=True, timeout=30)
             process.terminate()
             try:
