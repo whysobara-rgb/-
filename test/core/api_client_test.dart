@@ -36,6 +36,27 @@ void main() {
     expect(await client.get('/users/me'), {'name': '가치가차'});
   });
 
+  test(
+    'inventory lock uses authenticated PUT with an explicit boolean',
+    () async {
+      final client = api(
+        MockClient((request) async {
+          expect(request.method, 'PUT');
+          expect(request.url.path, '/inventory/7/lock');
+          expect(request.headers['authorization'], 'Bearer test-token');
+          expect(request.body, '{"locked":false}');
+          return http.Response(
+            '{"statusCode":10000,"data":{"isLocked":false}}',
+            200,
+          );
+        }),
+      );
+      expect(await client.put('/inventory/7/lock', body: {'locked': false}), {
+        'isLocked': false,
+      });
+    },
+  );
+
   test('public login never sends a saved bearer token', () async {
     final client = api(
       MockClient((request) async {

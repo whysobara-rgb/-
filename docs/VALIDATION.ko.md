@@ -1,5 +1,7 @@
 # 1차 변경 및 검증 기록
 
+> 최신 확인: GitHub CI의 `9cb7b6c`에서 Flutter analyze와 18개 테스트가 통과했다. CI에서 생성된 pubspec.lock을 반영하고 `--enforce-lockfile`을 적용했다. 실제 AAB 빌드·실기기·운영 DB/PG 검증은 남아 있다. 잠금 API에 대응하는 백엔드는 로컬 빌드와 21개 테스트가 통과했지만 별도 저장소 업로드는 승인 대기다.
+
 > 후속 진행: GitHub 연결 후 앱 PR #1을 생성했다. 원격 Flutter 의존성 설치 성공, 최초 analyze는 중괄호 스타일 1건으로 실패해 수정했다. 상품 잠금 PUT API와 앱 연결을 추가했다. 아래 로컬 실행·원격 미게시 기록은 최초 작업 시점의 이력이다. 최신 CI 상태는 PR에서 확인한다.
 
 기준 소스: `73d1157` / 작업 브랜치: `codex/launch-foundation`.

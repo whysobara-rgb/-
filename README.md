@@ -11,7 +11,7 @@ Flutter 기반 랜덤박스 앱. **현재 출시 준비 단계이며 운영 결�
 Flutter 3.35.4 / Dart 3.9.2 기준. 운영 비밀키를 앱이나 Git에 넣지 않습니다.
 
 ```sh
-flutter pub get
+flutter pub get --enforce-lockfile
 flutter analyze
 flutter test
 flutter run --dart-define=API_BASE_URL=https://YOUR_STAGING_API
