@@ -51,7 +51,13 @@ android {
     }
 
     buildTypes {
+        debug {
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+            resValue("string", "app_name", "가치가차 테스트")
+        }
         release {
+            resValue("string", "app_name", "가치가차")
             signingConfig = signingConfigs.getByName("release")
         }
     }
