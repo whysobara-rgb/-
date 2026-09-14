@@ -65,6 +65,7 @@ class _InventoryPageState extends State<InventoryPage> {
 
   final Set<String> _selectedIds = {};
   bool _selectAll = false;
+  final Set<String> _pendingLocks = {};
 
   @override
   void initState() {
@@ -173,11 +174,25 @@ class _InventoryPageState extends State<InventoryPage> {
     });
   }
 
-  // 잠금(lock) 토글은 현재 백엔드에 대응 API가 없어 출시 후 지원 예정으로 안내한다.
-  void _toggleLock(String id) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('잠금 기능은 출시 후 지원 예정입니다')));
+  Future<void> _toggleLock(String id) async {
+    if (_isLoading || _pendingLocks.contains(id)) return;
+    final index = _items.indexWhere((item) => item.id == id);
+    if (index < 0 || !_items[index].canShip) return;
+    final item = _items[index];
+    _pendingLocks.add(id);
+    try {
+      await _repository.setLock(item, locked: !item.isLocked);
+      if (!mounted) return;
+      await _loadItems();
+    } catch (error) {
+      if (!mounted) return;
+      final message = error is ApiException ? error.message : '잠금 변경에 실패했습니다';
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+    } finally {
+      _pendingLocks.remove(id);
+    }
   }
 
   List<InventoryItem> get _selectedItems =>

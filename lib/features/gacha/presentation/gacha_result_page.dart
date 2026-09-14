@@ -425,8 +425,9 @@ class _HighlightCardState extends State<_HighlightCard>
               child: AnimatedBuilder(
                 animation: _shimmerController,
                 builder: (context, child) {
-                  if (_shimmerController.value <= 0)
+                  if (_shimmerController.value <= 0) {
                     return const SizedBox.shrink();
+                  }
                   return ShaderMask(
                     blendMode: BlendMode.srcATop,
                     shaderCallback: (rect) {

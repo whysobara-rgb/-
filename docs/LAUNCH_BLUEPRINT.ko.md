@@ -1,5 +1,7 @@
 # 가치가차 출시 설계 및 실행 가이드
 
+> 후속 확인: GitHub 연결 후 [백엔드 저장소](https://github.com/whysobara-rgb/gacha-vault-backend)를 확보했다. 아래 최초 진단의 서버 미확인은 해소됐으며, 실제 서버의 소셜 인증·GP 지급 경로 차단과 상품 잠금 API를 후속 개발 중이다. 주문/결제·미개봉·환불 구현은 여전히 남아 있다.
+
 작성 기준: 2026-09-14 / 저장소 기준 커밋: `73d1157`.
 입력: 첨부 서비스 정책 Markdown, Flutter 소스, `app-release (2).aab`, 티프 Google Play 소개.
 

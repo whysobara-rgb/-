@@ -199,6 +199,22 @@ class InventoryRepository {
   const InventoryRepository({ApiClient apiClient = const ApiClient()})
     : _apiClient = apiClient;
 
+  Future<void> setLock(InventoryItem item, {required bool locked}) async {
+    if (!item.canShip) throw StateError('보관중인 상품만 잠금을 변경할 수 있습니다');
+    final data = await _apiClient.put(
+      '/inventory/${item.numericId}/lock',
+      body: {'locked': locked},
+    );
+    if (data is! Map<String, dynamic> ||
+        data['inventoryItemId'] != item.numericId ||
+        data['isLocked'] != locked) {
+      throw ApiException(
+        statusCode: 0,
+        message: '잠금 상태를 확인하지 못했습니다. 보관함을 새로고침해주세요',
+      );
+    }
+  }
+
   /// 보관함 전체 목록을 조회한다. [status]를 지정하면 해당 상태만 필터링한다.
   Future<List<InventoryItem>> getAll({InventoryStatus? status}) async {
     final query = <String>['page=1', 'limit=100'];

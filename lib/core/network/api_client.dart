@@ -141,6 +141,10 @@ class ApiClient {
     return _request('POST', path, body: body, withAuth: withAuth);
   }
 
+  Future<dynamic> put(String path, {required Map<String, dynamic> body}) {
+    return _request('PUT', path, body: body, withAuth: true);
+  }
+
   Future<dynamic> _request(
     String method,
     String path, {
@@ -156,7 +160,7 @@ class ApiClient {
       final response =
           await (method == 'GET'
                   ? client.get(uri, headers: headers)
-                  : client.post(
+                  : (method == 'PUT' ? client.put : client.post)(
                       uri,
                       headers: headers,
                       body: body == null ? null : jsonEncode(body),
