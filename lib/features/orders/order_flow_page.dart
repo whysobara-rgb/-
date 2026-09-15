@@ -7,6 +7,8 @@ import '../../shared/widgets/balance_notice.dart';
 import 'order_models.dart';
 import 'prize_reveal.dart';
 import 'order_repository.dart';
+import 'batch_opening.dart';
+import 'batch_opening_page.dart';
 
 class OrderFlowPage extends StatefulWidget {
   final int userId;
@@ -35,6 +37,8 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
   Capsule? _focused;
   Opening? _opening;
   List<Capsule> _capsules = [];
+  final Set<String> _selectedCapsules = {};
+  BatchOpening? _batchPending;
   int _page = 1, _total = 0, _quantity = 1;
   bool _active = false;
   bool _busy = true,
@@ -85,6 +89,7 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
     if (!mounted || !_sameUser) return;
     _pending = await _repo!.pendingPurchase();
     _pendingOpen = await _repo!.pendingOpening();
+    _batchPending = await _repo!.pendingBatch();
     if (_showInventory) {
       final (items, total) = await _repo!.capsules(_page);
       _capsules = items;
@@ -150,6 +155,60 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
     await _run(() async {
       _focusedOrder = await _repo!.order(capsule.orderId);
       _focused = capsule;
+    });
+  }
+
+  void _selectCapsule(String id) {
+    if (_busy || _pendingOpen != null || _batchPending != null) return;
+    setState(() {
+      if (_selectedCapsules.contains(id)) {
+        _selectedCapsules.remove(id);
+      } else if (_selectedCapsules.length < 100) {
+        _selectedCapsules.add(id);
+      }
+    });
+  }
+
+  Future<void> _batchPage({bool resume = false}) async {
+    if (_busy || !_sameUser) return;
+    final ids = List<String>.of(_selectedCapsules);
+    if (!resume && ids.isEmpty) return;
+    await _run(() async {
+      if (!resume) {
+        final agreed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text('박스 ${ids.length}개를 개봉할까요?'),
+            content: const Text(
+              '추가 결제는 0 GP입니다. 구매 당시 확률로 상품이 지급됩니다. 개봉한 박스는 미개봉 상태로 되돌릴 수 없어요. 중간에 멈추면 나머지는 미개봉으로 남습니다.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('돌아가기'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: Text('${ids.length}개 개봉'),
+              ),
+            ],
+          ),
+        );
+        if (agreed != true || !mounted || !_sameUser) return;
+      }
+      if (!mounted || !_sameUser) return;
+      await Navigator.push(
+        context,
+        MaterialPageRoute<void>(
+          builder: (_) => BatchOpeningPage(
+            repository: _repo!,
+            initialIds: resume ? null : ids,
+          ),
+        ),
+      );
+      if (!mounted || !_sameUser) return;
+      _selectedCapsules.clear();
+      await _load();
     });
   }
 
@@ -314,7 +373,7 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
         _detail('캡슐 수량', '${_receipt!.quantity}개'),
         _detail('사용 GP', _gp(_receipt!.total)),
         const BalanceNotice(),
-        const Text('캡슐은 미개봉 상태로 보관됩니다. 원하는 때에 하나씩 열어보세요.'),
+        const Text('박스는 미개봉 상태로 보관됩니다. 최대 100개까지 함께 열 수 있어요.'),
         _button('미개봉 보관함 보기', _inventory),
       ];
     }
@@ -367,6 +426,33 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
         ),
       ]);
     }
+    if (_batchPending != null) {
+      widgets.add(
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _batchPending!.complete
+                      ? '이전 일괄 개봉 결과가 있어요'
+                      : '이어서 확인할 일괄 개봉이 있어요',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                  ),
+                ),
+                Text(
+                  '${_batchPending!.results.length} / ${_batchPending!.capsuleIds.length}개 확인',
+                ),
+                _button('일괄 개봉 결과·이어하기', () => _batchPage(resume: true)),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     if (_pendingOpen != null) {
       widgets.add(_button('이전 개봉 결과 확인', () => _recoverOpening(_pendingOpen!)));
     }
@@ -379,6 +465,32 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
         ),
       );
       widgets.add(Text('총 $_total개 · $_page페이지'));
+      widgets.add(const Text('페이지를 넘겨 최대 100개까지 선택할 수 있어요.'));
+      if (_pendingOpen == null && _batchPending == null)
+        widgets.add(
+          Wrap(
+            spacing: 8,
+            children: [
+              TextButton(
+                onPressed: _busy
+                    ? null
+                    : () => setState(() {
+                        for (final c in _capsules) {
+                          if (_selectedCapsules.length >= 100) break;
+                          _selectedCapsules.add(c.id);
+                        }
+                      }),
+                child: const Text('이 페이지 선택'),
+              ),
+              TextButton(
+                onPressed: _busy || _selectedCapsules.isEmpty
+                    ? null
+                    : () => setState(_selectedCapsules.clear),
+                child: const Text('선택 해제'),
+              ),
+            ],
+          ),
+        );
       if (_capsules.isEmpty && !_busy) {
         widgets.add(
           const Padding(
@@ -391,17 +503,30 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
         _capsules.map(
           (c) => Card(
             child: ListTile(
-              leading: const Icon(Icons.inventory_2_outlined),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 20,
-                vertical: 12,
+              leading: Checkbox(
+                value: _selectedCapsules.contains(c.id),
+                onChanged:
+                    _busy || _pendingOpen != null || _batchPending != null
+                    ? null
+                    : (_) => _selectCapsule(c.id),
               ),
-              title: Text('미개봉 캡슐 · ${c.sequence}번'),
-              subtitle: const Text('상품 정보를 확인하고 개봉하세요'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: _busy || _pendingOpen != null
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 10,
+              ),
+              title: Text('미개봉 박스 · ${c.sequence}번'),
+              subtitle: const Text('선택해서 함께 개봉할 수 있어요'),
+              trailing: IconButton(
+                tooltip: '박스 정보 확인',
+                icon: const Icon(Icons.info_outline),
+                onPressed:
+                    _busy || _pendingOpen != null || _batchPending != null
+                    ? null
+                    : () => _viewCapsule(c),
+              ),
+              onTap: _busy || _pendingOpen != null || _batchPending != null
                   ? null
-                  : () => _viewCapsule(c),
+                  : () => _selectCapsule(c.id),
             ),
           ),
         ),
@@ -513,6 +638,21 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
         context.watch<AuthProvider>().currentUser?.id == widget.userId;
     return Scaffold(
       appBar: AppBar(title: Text(_showInventory ? '미개봉 보관함' : '구매 확인')),
+      bottomNavigationBar:
+          sameUser &&
+              _showInventory &&
+              _selectedCapsules.isNotEmpty &&
+              _batchPending == null
+          ? SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: FilledButton(
+                  onPressed: _busy ? null : () => _batchPage(),
+                  child: Text('선택한 ${_selectedCapsules.length}개 개봉 · 0 GP'),
+                ),
+              ),
+            )
+          : null,
       body: SafeArea(
         child: !sameUser
             ? const Center(child: Text('구매한 계정으로 다시 로그인해주세요.'))

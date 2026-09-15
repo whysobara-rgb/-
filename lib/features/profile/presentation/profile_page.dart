@@ -7,6 +7,7 @@ import '../../../shared/widgets/balance_notice.dart';
 import '../../shipping/presentation/shipping_history_page.dart';
 import '../../inventory/presentation/inventory_page.dart';
 import '../../wallet/presentation/point_history_page.dart';
+import '../../conversions/conversion_page.dart';
 
 class ProfilePage extends StatefulWidget {
   final VoidCallback onGoToWallet;
@@ -133,6 +134,20 @@ class _ProfilePageState extends State<ProfilePage> {
           Card(
             child: Column(
               children: [
+                ListTile(
+                  leading: const Icon(Icons.swap_horiz),
+                  title: const Text('GP 전환 · 상품 복구'),
+                  subtitle: const Text('전환 내역과 복구 가능 여부 확인'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: user == null
+                      ? null
+                      : () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => ConversionPage(userId: user.id),
+                          ),
+                        ),
+                ),
+                const Divider(height: 1),
                 ListTile(
                   leading: const Icon(Icons.collections_bookmark_outlined),
                   title: const Text('내 컬렉션'),

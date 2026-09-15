@@ -6,6 +6,7 @@ import '../../core/config/app_config.dart';
 import '../../core/network/api_client.dart';
 import '../../core/network/token_storage.dart';
 import 'order_models.dart';
+import 'batch_opening.dart';
 
 abstract class OrderStore {
   Future<String?> read(String key);
@@ -62,6 +63,7 @@ class OrderRepository {
 
   String get _purchaseKey => '${scope}_purchase';
   String get _openingKey => '${scope}_opening';
+  String get _batchKey => '${scope}_batch';
   Future<PendingPurchase?> pendingPurchase() async {
     final raw = await store.read(_purchaseKey);
     return raw == null ? null : PendingPurchase.fromJson(jsonDecode(raw));
@@ -190,6 +192,9 @@ class OrderRepository {
     _gate();
     uuid(id);
     await _owner();
+    if (await pendingBatch() != null) {
+      throw ApiException(statusCode: 0, message: '진행 중인 일괄 개봉 결과를 먼저 확인해주세요');
+    }
     final pending = await pendingOpening();
     if (pending != null && pending != id) {
       throw ApiException(statusCode: 0, message: '이전 개봉 결과를 먼저 확인해주세요');
@@ -207,5 +212,62 @@ class OrderRepository {
 
   Future<void> acknowledgeOpening(String id) => _exclusive(() async {
     if (await pendingOpening() == id) await store.remove(_openingKey);
+  });
+
+  Future<BatchOpening?> pendingBatch() async {
+    final raw = await store.read(_batchKey);
+    return raw == null ? null : BatchOpening.fromJson(jsonDecode(raw));
+  }
+
+  Future<BatchOpening> startBatch(List<String> capsuleIds) =>
+      _exclusive(() async {
+        _gate();
+        final batch = BatchOpening(id: _newKey(), capsuleIds: capsuleIds);
+        await _owner();
+        if (await pendingOpening() != null || await pendingBatch() != null) {
+          throw ApiException(statusCode: 0, message: '이전 개봉 결과를 먼저 확인해주세요');
+        }
+        await store.write(_batchKey, jsonEncode(batch.toJson()));
+        return batch;
+      });
+
+  /// One item at a time. Persist before POST; persist its result before advancing.
+  /// A restarted or timed-out request is resolved with GET before any retry.
+  Future<BatchOpening> advanceBatch() => _exclusive(() async {
+    _gate();
+    await _owner();
+    var batch = await pendingBatch();
+    if (batch == null) invalidResponse();
+    if (batch.complete) return batch;
+    final id = batch.nextId!;
+    Opening? opened;
+    if (batch.inFlight != null) {
+      try {
+        opened = await result(id);
+      } on ApiException catch (e) {
+        // Only this owned-result endpoint's explicit unopened response permits
+        // retrying the same capsule. Network, auth, malformed and 5xx errors stop.
+        if (e.httpStatusCode != 409 || e.statusCode != 10005) rethrow;
+      }
+    }
+    if (opened == null) {
+      batch = batch.sending(id);
+      await store.write(_batchKey, jsonEncode(batch.toJson()));
+      opened = Opening(await api.post('/capsules/$id/open'));
+      if (opened.capsuleId != id) invalidResponse();
+    }
+    final confirmed = batch.confirmed(opened);
+    await store.write(_batchKey, jsonEncode(confirmed.toJson()));
+    return confirmed;
+  });
+
+  /// Unsent items stay unopened. Never discard an unresolved request.
+  Future<void> acknowledgeBatch(String id) => _exclusive(() async {
+    final batch = await pendingBatch();
+    if (batch == null) return;
+    if (batch.id != id || batch.inFlight != null) {
+      throw ApiException(statusCode: 0, message: '처리 중인 박스의 결과를 먼저 확인해주세요');
+    }
+    await store.remove(_batchKey);
   });
 }

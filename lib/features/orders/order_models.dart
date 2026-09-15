@@ -41,6 +41,15 @@ class Prize {
       imageUrl = j['imageUrl'] as String? {
     if (ppm > 1000000) invalidResponse();
   }
+  Map<String, dynamic> toJson() => {
+    'itemId': itemId,
+    'name': name,
+    'rarity': rarity,
+    'conversionGP': conversionGP,
+    'probabilityPpm': ppm,
+    'isPremium': premium,
+    'imageUrl': imageUrl,
+  };
   String get displayGrade => GradeMapper.toUiGrade(rarity);
   String get probability =>
       '${(ppm / 10000).toStringAsFixed(4).replaceFirst(RegExp(r'\.?0+$'), '')}%';
@@ -123,6 +132,11 @@ class Opening {
     : capsuleId = uuid(j['capsuleId']),
       inventoryId = positive(j['inventoryItemId']),
       prize = Prize(j['prize']);
+  Map<String, dynamic> toJson() => {
+    'capsuleId': capsuleId,
+    'inventoryItemId': inventoryId,
+    'prize': prize.toJson(),
+  };
 }
 
 class PendingPurchase {

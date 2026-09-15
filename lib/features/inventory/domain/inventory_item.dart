@@ -19,6 +19,8 @@ enum InventoryStatus {
   /// 배송완료
   delivered,
 
+  converted,
+
   /// Unknown states must never permit shipping or conversion.
   unavailable,
 }
@@ -34,6 +36,8 @@ extension InventoryStatusLabel on InventoryStatus {
         return '배송중';
       case InventoryStatus.delivered:
         return '배송완료';
+      case InventoryStatus.converted:
+        return 'GP 전환 완료';
       case InventoryStatus.unavailable:
         return '처리 상태 확인 필요';
     }
@@ -43,6 +47,8 @@ extension InventoryStatusLabel on InventoryStatus {
 /// 백엔드 status 문자열("STORED" 등) -> Flutter [InventoryStatus] 변환.
 InventoryStatus _statusFromBackend(String? backendStatus) {
   switch (backendStatus) {
+    case 'CONVERTED':
+      return InventoryStatus.converted;
     case 'SHIPPING_REQUESTED':
       return InventoryStatus.shippingRequested;
     case 'SHIPPING':
@@ -67,6 +73,8 @@ String _statusToBackend(InventoryStatus status) {
       return 'SHIPPING';
     case InventoryStatus.delivered:
       return 'DELIVERED';
+    case InventoryStatus.converted:
+      return 'CONVERTED';
     case InventoryStatus.unavailable:
       return 'UNAVAILABLE';
   }

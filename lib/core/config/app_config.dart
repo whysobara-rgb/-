@@ -2,6 +2,10 @@ import 'package:flutter/foundation.dart';
 
 /// Public build configuration only. Never put PG or OAuth secrets here.
 abstract final class AppConfig {
+  static const conversionPreviewEnabled =
+      !kReleaseMode &&
+      bool.fromEnvironment('ENABLE_GP_CONVERSION_PREVIEW') &&
+      !bool.fromEnvironment('ENABLE_LEGACY_TRANSACTIONS');
   static const orderPreviewEnabled =
       !kReleaseMode &&
       bool.fromEnvironment('ENABLE_GP_ORDER_PREVIEW') &&

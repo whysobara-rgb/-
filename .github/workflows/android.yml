@@ -43,7 +43,7 @@ jobs:
           PY
       - name: Build installable debug app
         run: |
-          flutter build apk --debug --dart-define="API_BASE_URL=$GACHA_TEST_API_URL" --dart-define=ENABLE_GP_ORDER_PREVIEW=true
+          flutter build apk --debug --dart-define="API_BASE_URL=$GACHA_TEST_API_URL" --dart-define=ENABLE_GP_ORDER_PREVIEW=true --dart-define=ENABLE_GP_CONVERSION_PREVIEW=true
           mkdir -p build/deliverables
           cp build/app/outputs/flutter-apk/app-debug.apk build/deliverables/gachigacha-test-debug.apk
           python - <<'PY'

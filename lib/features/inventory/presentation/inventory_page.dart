@@ -8,6 +8,7 @@ import 'collection_card.dart';
 import '../../../core/theme/app_colors.dart';
 import '../domain/inventory_item.dart';
 import 'delivery_request_page.dart';
+import '../../conversions/conversion_page.dart';
 
 /// 가치가차 - 하단 탭 "박스"(보관함) 화면.
 ///
@@ -248,6 +249,33 @@ class _InventoryPageState extends State<InventoryPage> {
     }
   }
 
+  Future<void> _openConversions({bool selected = false}) async {
+    final user = context.read<AuthProvider>().currentUser;
+    if (user == null || _isLoading || _pendingLocks.isNotEmpty) return;
+    final items = _selectedItems;
+    if (selected &&
+        (items.isEmpty ||
+            items.length > 100 ||
+            items.any((i) => !i.canConvert))) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('잠금 해제된 보관 상품을 1~100개 선택해주세요')),
+      );
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ConversionPage(
+          userId: user.id,
+          inventoryIds: selected
+              ? items.map((i) => i.numericId).toList()
+              : null,
+        ),
+      ),
+    );
+    if (mounted && context.read<AuthProvider>().currentUser?.id == user.id)
+      await _loadItems();
+  }
+
   void _openSortSheet() {
     showModalBottomSheet<void>(
       context: context,
@@ -325,6 +353,11 @@ class _InventoryPageState extends State<InventoryPage> {
       appBar: AppBar(
         title: const Text('내 컬렉션'),
         actions: [
+          IconButton(
+            tooltip: 'GP 전환 내역과 상품 복구',
+            onPressed: () => _openConversions(),
+            icon: const Icon(Icons.swap_horiz),
+          ),
           if (AppConfig.orderPreviewEnabled)
             TextButton(
               onPressed: () async {
@@ -350,16 +383,31 @@ class _InventoryPageState extends State<InventoryPage> {
           ? SafeArea(
               child: Padding(
                 padding: const EdgeInsets.all(16),
-                child: FilledButton.icon(
-                  onPressed: AppConfig.legacyTransactionsEnabled && !_isLoading
-                      ? _onRequestShipping
-                      : null,
-                  icon: const Icon(Icons.local_shipping_outlined),
-                  label: Text(
-                    AppConfig.legacyTransactionsEnabled
-                        ? '${_selectedIds.length}개 배송 요청'
-                        : '배송 서비스 준비 중',
-                  ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    FilledButton.icon(
+                      onPressed: _isLoading || _pendingLocks.isNotEmpty
+                          ? null
+                          : () => _openConversions(selected: true),
+                      icon: const Icon(Icons.swap_horiz),
+                      label: Text('${_selectedIds.length}개 GP 전환 확인'),
+                    ),
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      onPressed:
+                          AppConfig.legacyTransactionsEnabled && !_isLoading
+                          ? _onRequestShipping
+                          : null,
+                      icon: const Icon(Icons.local_shipping_outlined),
+                      label: Text(
+                        AppConfig.legacyTransactionsEnabled
+                            ? '${_selectedIds.length}개 배송 요청'
+                            : '배송 서비스 준비 중',
+                      ),
+                    ),
+                  ],
                 ),
               ),
             )
