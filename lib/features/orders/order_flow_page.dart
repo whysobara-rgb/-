@@ -57,11 +57,14 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _run(_load));
   }
 
-  Future<void> _run(Future<void> Function() action) async {
+  Future<void> _run(
+    Future<void> Function() action, {
+    bool showProgress = true,
+  }) async {
     if (!mounted || !_sameUser || _active) return;
     _active = true;
     setState(() {
-      _busy = true;
+      _busy = showProgress;
       _error = null;
     });
     try {
@@ -208,8 +211,9 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
       );
       if (!mounted || !_sameUser) return;
       _selectedCapsules.clear();
+      setState(() => _busy = true);
       await _load();
-    });
+    }, showProgress: false);
   }
 
   Future<void> _inventory() async {
