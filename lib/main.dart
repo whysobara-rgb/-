@@ -29,6 +29,12 @@ void main() {
   );
 
   runApp(const GachaVaultApp());
+  assert(() {
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => debugPrint('GACHA_APP_FRAME_READY'),
+    );
+    return true;
+  }());
 }
 
 class GachaVaultApp extends StatelessWidget {
@@ -38,37 +44,41 @@ class GachaVaultApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => AuthProvider()),
+        ChangeNotifierProvider(create: (_) => AuthProvider()..tryAutoLogin()),
         // GpProvider는 AuthProvider.currentUser(로그인/로그아웃/프로필 갱신)에
         // 맞춰 잔액을 자동 동기화하는 ProxyProvider로 구성한다.
         ChangeNotifierProxyProvider<AuthProvider, GpProvider>(
           create: (_) => GpProvider(),
           update: (_, auth, gp) {
             final provider = gp ?? GpProvider();
-            provider.syncFromUser(auth.currentUser);
+            provider.syncFromUser(auth.currentUser, stale: auth.isBalanceStale);
             return provider;
           },
         ),
       ],
-      child: MaterialApp(
-        title: '가치가차',
-        debugShowCheckedModeBanner: false,
-        theme: AppTheme.lightTheme,
-        themeMode: ThemeMode.light,
-        // 전역 모바일 프레임: 웹/넓은 화면에서도 앱이 모바일 폭(최대 430)으로
-        // 중앙 정렬되고, 남는 좌우 영역은 앱 배경과 동일한 크림톤으로 채워진다.
-        builder: (context, child) {
-          return Container(
-            color: AppColors.scaffoldBg,
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 430),
-                child: child,
+      child: Consumer<AuthProvider>(
+        builder: (context, auth, _) => MaterialApp(
+          // Recreate the navigator on account changes, including pushed pages.
+          key: ValueKey(auth.currentUser?.id),
+          title: '가치가차',
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.lightTheme,
+          themeMode: ThemeMode.light,
+          // 전역 모바일 프레임: 웹/넓은 화면에서도 앱이 모바일 폭(최대 430)으로
+          // 중앙 정렬되고, 남는 좌우 영역은 앱 배경과 동일한 크림톤으로 채워진다.
+          builder: (context, child) {
+            return Container(
+              color: AppColors.scaffoldBg,
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 430),
+                  child: child,
+                ),
               ),
-            ),
-          );
-        },
-        home: const AuthGate(),
+            );
+          },
+          home: const AuthGate(),
+        ),
       ),
     );
   }
@@ -77,21 +87,8 @@ class GachaVaultApp extends StatelessWidget {
 /// 앱 시작 시 저장된 토큰으로 자동 로그인을 시도하고,
 /// 로그인 여부(AuthProvider.isLoggedIn)에 따라
 /// LoginPage 또는 MainNavigation(하단 탭)을 보여주는 게이트 위젯.
-class AuthGate extends StatefulWidget {
+class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
-
-  @override
-  State<AuthGate> createState() => _AuthGateState();
-}
-
-class _AuthGateState extends State<AuthGate> {
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<AuthProvider>().tryAutoLogin();
-    });
-  }
 
   @override
   Widget build(BuildContext context) {

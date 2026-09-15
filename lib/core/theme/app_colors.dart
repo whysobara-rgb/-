@@ -1,17 +1,12 @@
 import 'package:flutter/material.dart';
 
-/// 가치가차 - 앱 전역 컬러 상수.
-///
-/// "비비드 파스텔 팝(Vivid Pastel Pop)" 디자인 시스템.
-/// 따뜻한 크림 화이트를 기본 배경으로 하고, 코랄·바이올렛·민트·옐로우 등
-/// 여러 비비드 포인트 컬러를 함께 사용해 단조롭지 않으면서도 과하게
-/// 어둡지 않은 트렌디한 MZ 감성의 라이트 테마를 구성한다.
+/// Shared palette: neutral surfaces, ink typography and a coral accent.
 class AppColors {
   AppColors._();
 
   // ===== 배경 (크림 화이트 베이스) =====
   /// 전체 앱 배경 (따뜻한 크림톤, 순백색보다 부드러운 느낌)
-  static const Color scaffoldBg = Color(0xFFFFF8EF);
+  static const Color scaffoldBg = Color(0xFFF6F6F8);
 
   /// AppBar / 하단 네비게이션 등 셸 배경 (선명한 화이트)
   static const Color surfaceShell = Color(0xFFFFFFFF);
@@ -20,14 +15,14 @@ class AppColors {
   static const Color surfaceElevated = Color(0xFFFFFFFF);
 
   /// 카드보다 한 단계 톤 다운된 표면 (입력창, 비활성 칩, 구분 섹션 배경 등)
-  static const Color surfaceElevated2 = Color(0xFFF7F1E6);
+  static const Color surfaceElevated2 = Color(0xFFEEEEF2);
 
   /// 크림 배경 위 얇은 구분선/보더 (매우 연한 웜그레이)
-  static const Color surfaceBorder = Color(0xFFF0E7D8);
+  static const Color surfaceBorder = Color(0xFFE5E5EB);
 
   /// 히어로 배너/포인트 카드 등에 쓰이는 비비드 딥 톤 (검정이 아닌 딥 플럼).
   /// 필요한 곳에서만 제한적으로 사용해 "너무 어두운" 느낌을 피한다.
-  static const Color heroDeep = Color(0xFF3A2358);
+  static const Color heroDeep = Color(0xFF24252D);
 
   /// 레거시 alias — 예전 다크 테마의 "다크 배경" 개념을 가리키던 이름들을
   /// 새 라이트 팔레트에 맞게 매핑해 기존 코드가 계속 동작하도록 유지.
@@ -37,8 +32,8 @@ class AppColors {
 
   // ===== 메인 액센트 - 비비드 코랄 =====
   /// 메인 강조 컬러 (가격, CTA 버튼, 선택된 탭/뱃지 등)
-  static const Color primary = Color(0xFFFF6B4A);
-  static const Color primaryDark = Color(0xFFE24E2E);
+  static const Color primary = Color(0xFFD94C35);
+  static const Color primaryDark = Color(0xFFBC3C28);
   static const Color primaryLight = Color(0xFFFF9478);
 
   /// 레거시 alias — 기존 코드가 goldPrimary/neonPrimary 등을 참조하므로
@@ -67,10 +62,10 @@ class AppColors {
 
   // ===== 텍스트 =====
   /// 기본 텍스트 (완전한 검정이 아닌 부드러운 다크 차콜)
-  static const Color textPrimary = Color(0xFF2B2430);
+  static const Color textPrimary = Color(0xFF22232B);
 
   /// 보조 텍스트 (뮤트 웜그레이)
-  static const Color textSecondary = Color(0xFF8D8593);
+  static const Color textSecondary = Color(0xFF666875);
 
   static const Color textDisabled = Color(0xFFD6CFDA);
 
