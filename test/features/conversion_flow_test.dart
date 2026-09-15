@@ -74,8 +74,9 @@ ConversionRepository repo(
   f.repository(
     store,
     (r) async {
-      if (r.url.path == '/inventory-conversions/capabilities')
+      if (r.url.path == '/inventory-conversions/capabilities') {
         return f.ok({'enabled': true, 'contract': 'INVENTORY_CONVERSION_V1'});
+      }
       return handler(r);
     },
     userId: userId,
@@ -295,8 +296,9 @@ void main() {
           if (req.url.path.endsWith('/restore')) restored = true;
           return f.ok(receipt(restored: restored));
         }
-        if (req.url.path.endsWith(conversionId))
+        if (req.url.path.endsWith(conversionId)) {
           return f.ok(receipt(restored: restored));
+        }
         return f.ok({
           'items': [receipt(restored: restored)],
           'page': 1,

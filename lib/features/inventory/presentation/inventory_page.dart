@@ -272,8 +272,9 @@ class _InventoryPageState extends State<InventoryPage> {
         ),
       ),
     );
-    if (mounted && context.read<AuthProvider>().currentUser?.id == user.id)
+    if (mounted && context.read<AuthProvider>().currentUser?.id == user.id) {
       await _loadItems();
+    }
   }
 
   void _openSortSheet() {

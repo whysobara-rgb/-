@@ -234,7 +234,7 @@ void main() {
   ) async {
     var count = 0;
     final repo = fixture.repository(fixture.MemoryStore(), (r) async {
-      if (r.url.path == '/capsules')
+      if (r.url.path == '/capsules') {
         return fixture.ok({
           'items': List.generate(
             2,
@@ -249,6 +249,7 @@ void main() {
           'limit': 20,
           'totalCount': 2,
         });
+      }
       count++;
       return fixture.ok(opened(r.url.path.split('/')[2], count));
     });

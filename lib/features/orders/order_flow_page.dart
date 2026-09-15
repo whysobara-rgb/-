@@ -466,7 +466,7 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
       );
       widgets.add(Text('총 $_total개 · $_page페이지'));
       widgets.add(const Text('페이지를 넘겨 최대 100개까지 선택할 수 있어요.'));
-      if (_pendingOpen == null && _batchPending == null)
+      if (_pendingOpen == null && _batchPending == null) {
         widgets.add(
           Wrap(
             spacing: 8,
@@ -491,6 +491,7 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
             ],
           ),
         );
+      }
       if (_capsules.isEmpty && !_busy) {
         widgets.add(
           const Padding(
