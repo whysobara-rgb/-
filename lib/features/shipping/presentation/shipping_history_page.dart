@@ -1,3 +1,9 @@
+import 'package:provider/provider.dart';
+import '../../../core/config/app_config.dart';
+import '../../../shared/providers/auth_provider.dart';
+import '../../orders/order_repository.dart';
+import '../fulfillment_repository.dart';
+import '../../inventory/presentation/delivery_request_page.dart';
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../shared/widgets/activity_feed.dart';
@@ -11,7 +17,20 @@ class ShippingHistoryPage extends StatelessWidget {
   });
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('배송 내역')),
+    appBar: AppBar(
+      title: const Text('배송 내역'),
+      actions: [
+        IconButton(
+          tooltip: '배송 신청 결과 확인',
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => const DeliveryRequestPage(items: []),
+            ),
+          ),
+          icon: const Icon(Icons.sync),
+        ),
+      ],
+    ),
     body: SafeArea(
       child: ActivityFeed<ShippingRequest>(
         loadPage: (page) => repository.getPage(page: page),
@@ -39,7 +58,10 @@ class ShippingHistoryPage extends StatelessWidget {
           child: InkWell(
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
-                builder: (_) => ShippingDetailPage(request: request),
+                builder: (_) => ShippingDetailPage(
+                  request: request,
+                  repository: repository,
+                ),
               ),
             ),
             child: Padding(
@@ -98,12 +120,102 @@ class _Status extends StatelessWidget {
   );
 }
 
-class ShippingDetailPage extends StatelessWidget {
+class ShippingDetailPage extends StatefulWidget {
   final ShippingRequest request;
-  const ShippingDetailPage({super.key, required this.request});
+  final ShippingRepository repository;
+  const ShippingDetailPage({
+    super.key,
+    required this.request,
+    this.repository = const ShippingRepository(),
+  });
+  @override
+  State<ShippingDetailPage> createState() => _ShippingDetailPageState();
+}
+
+class _ShippingDetailPageState extends State<ShippingDetailPage> {
+  late ShippingRequest request = widget.request;
+  bool loading = false;
+  Future<void> refresh() async {
+    setState(() => loading = true);
+    try {
+      final latest = await widget.repository.getOne(request.id);
+      if (mounted) {
+        setState(() => request = latest);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => loading = false);
+      }
+    }
+  }
+
+  Future<void> cancel() async {
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('배송 신청을 취소할까요?'),
+        content: Text(
+          '상품을 보관함으로 되돌리고 배송비 ${request.feeGP} GP를 돌려받습니다. 택배사 인계 전까지만 가능합니다.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c, false),
+            child: const Text('유지'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('취소 확인'),
+          ),
+        ],
+      ),
+    );
+    if (accepted != true || !mounted) {
+      return;
+    }
+    setState(() => loading = true);
+    try {
+      final id = context.read<AuthProvider>().currentUser?.id;
+      if (id == null) {
+        throw Exception('다시 로그인해주세요');
+      }
+      final r = FulfillmentRepository(await OrderRepository.forUser(id));
+      final result = await r.cancel(request.id);
+      if (!mounted) {
+        return;
+      }
+      setState(() => request = result);
+      await context.read<AuthProvider>().refreshProfile();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$e · 결과가 불명확하면 배송 내역의 요청 결과 확인을 이용하세요.')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => loading = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('배송 신청 상세')),
+    appBar: AppBar(
+      title: const Text('배송 신청 상세'),
+      actions: [
+        IconButton(
+          tooltip: '배송 상태 새로고침',
+          onPressed: loading ? null : refresh,
+          icon: const Icon(Icons.refresh),
+        ),
+      ],
+    ),
     body: SafeArea(
       child: ListView(
         padding: const EdgeInsets.all(20),
@@ -141,7 +253,12 @@ class ShippingDetailPage extends StatelessWidget {
           ),
           const SizedBox(height: 24),
           _section('진행 상태', [
-            for (final status in ShippingStatus.values)
+            for (final status
+                in request.status == ShippingStatus.cancelled
+                    ? [ShippingStatus.cancelled]
+                    : ShippingStatus.values.where(
+                        (s) => s != ShippingStatus.cancelled,
+                      ))
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 10),
                 child: Row(
@@ -166,6 +283,25 @@ class ShippingDetailPage extends StatelessWidget {
               ),
           ]),
           const SizedBox(height: 20),
+          if (AppConfig.shippingPreviewEnabled &&
+              [
+                ShippingStatus.requested,
+                ShippingStatus.preparing,
+              ].contains(request.status))
+            OutlinedButton(
+              onPressed: loading ? null : cancel,
+              child: const Text('배송 신청 취소·배송비 환급'),
+            ),
+          _section('추적 정보', [
+            SelectableText('배송번호 ${request.id}'),
+            Text('배송비 ${request.feeGP} GP'),
+            if (request.trackingNumber != null) ...[
+              Text('택배사 ${request.carrier ?? '미등록'}'),
+              SelectableText('운송장 ${request.trackingNumber}'),
+            ],
+            const Text('운영자가 확인하여 기록한 배송 상태입니다.'),
+          ]),
+          const SizedBox(height: 20),
           _section('받는 정보', [
             Text(
               request.recipient,
@@ -174,6 +310,7 @@ class ShippingDetailPage extends StatelessWidget {
             const SizedBox(height: 8),
             Text(request.phone),
             const SizedBox(height: 8),
+            Text(request.postalCode),
             Text(request.address),
             if (request.notes != null) ...[
               const SizedBox(height: 12),

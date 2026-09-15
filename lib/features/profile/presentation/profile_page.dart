@@ -1,3 +1,4 @@
+import '../../customer_updates/customer_updates_page.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/app_colors.dart';
@@ -166,6 +167,19 @@ class _ProfilePageState extends State<ProfilePage> {
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute(
                       builder: (_) => const ShippingHistoryPage(),
+                    ),
+                  ),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.support_agent),
+                  title: const Text('소식·고객지원'),
+                  subtitle: const Text('이벤트·공지·문의·교환 처리 현황'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          const CustomerUpdatesPage(initial: 'tickets'),
                     ),
                   ),
                 ),

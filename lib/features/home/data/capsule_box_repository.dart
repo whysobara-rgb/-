@@ -1,4 +1,5 @@
 import '../../../core/network/api_client.dart';
+import '../../../shared/data/activity_page.dart';
 import '../domain/capsule_box.dart';
 import '../domain/capsule_category.dart';
 import '../domain/gacha_detail.dart';
@@ -15,20 +16,47 @@ class CapsuleBoxRepository {
 
   /// 전체 캡슐 박스 목록을 서버에서 조회한다.
   Future<List<CapsuleBox>> getAll() async {
-    final data = await _apiClient.get('/gachas?page=1&limit=50');
-    final map = data as Map<String, dynamic>;
-    final items = map['items'] as List<dynamic>;
-    return items
-        .map((e) => CapsuleBox.fromJson(e as Map<String, dynamic>))
-        .toList();
+    final all = <CapsuleBox>[];
+    final ids = <int>{};
+    int? expectedTotal;
+    for (int p = 1; p <= 100; p++) {
+      final data = await _apiClient.get(
+        '/gachas?page=$p&limit=100',
+        withAuth: false,
+      );
+      final result = ActivityPage.parse(
+        data,
+        page: p,
+        limit: 100,
+        parse: CapsuleBox.fromJson,
+        id: (b) => b.id.toString(),
+      );
+      if (expectedTotal != null && result.total != expectedTotal) {
+        invalidActivity();
+      }
+      expectedTotal = result.total;
+      for (final box in result.items) {
+        if (!ids.add(box.id)) {
+          invalidActivity();
+        }
+        all.add(box);
+      }
+      if (!result.hasMore) {
+        return List.unmodifiable(all);
+      }
+    }
+    throw ApiException(statusCode: 0, message: '상품이 많습니다. 목록 조회 범위를 확인해주세요');
   }
 
-  /// 카테고리로 필터링된 캡슐 박스 목록.
-  ///
-  /// 현재 백엔드는 카테고리 필드를 제공하지 않아 항상 전체 목록을
-  /// 반환한다. (추후 백엔드에 category 필드가 추가되면 쿼리 파라미터로
-  /// 필터링하도록 교체)
-  Future<List<CapsuleBox>> getByCategory(CapsuleCategory category) => getAll();
+  Future<List<CapsuleBox>> getByCategory(CapsuleCategory category) async {
+    final all = await getAll();
+    final code = switch (category) {
+      CapsuleCategory.luxury => 'luxury',
+      CapsuleCategory.fashion => 'fashion',
+      _ => null,
+    };
+    return code == null ? all : all.where((b) => b.category == code).toList();
+  }
 
   /// 캡슐 박스 상세 정보 (실시간 재고 + 럭키 라인업 포함)를 조회한다.
   ///

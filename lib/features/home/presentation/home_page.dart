@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/network/api_client.dart';
@@ -9,6 +10,8 @@ import '../../gacha/presentation/gacha_detail_page.dart';
 import '../data/capsule_box_repository.dart';
 import '../domain/capsule_box.dart';
 import 'widgets/capsule_box_card.dart';
+import '../../customer_updates/customer_content.dart';
+import '../../customer_updates/customer_updates_page.dart';
 
 class HomePage extends StatefulWidget {
   final VoidCallback onGoToWallet;
@@ -20,12 +23,34 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   List<CapsuleBox> _boxes = [];
+  List<Campaign> _campaigns = [];
+  String? _contentError;
   bool _loading = true;
   String? _error;
   @override
   void initState() {
     super.initState();
     _load();
+    _loadContent();
+  }
+
+  Future<void> _loadContent() async {
+    try {
+      final rows = await const CustomerContentRepository().campaigns();
+      if (mounted) {
+        setState(() {
+          _campaigns = rows.where((c) => c.homeVisible).take(5).toList();
+          _contentError = null;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _campaigns = [];
+          _contentError = '소식을 불러오지 못했어요. 새로고침 후 확인해주세요.';
+        });
+      }
+    }
   }
 
   Future<void> _load() async {
@@ -64,13 +89,20 @@ class _HomePageState extends State<HomePage> {
     );
     if (mounted) {
       await context.read<AuthProvider>().refreshProfile();
-      if (mounted) await _load();
+      if (mounted) {
+        await _load();
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) => CatalogScreen(
     boxes: _boxes,
+    campaigns: _campaigns,
+    contentError: _contentError,
+    onUpdates: () => Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const CustomerUpdatesPage())),
     loading: _loading,
     error: _error,
     balance: context.watch<GpProvider>().formattedBalance,
@@ -78,6 +110,7 @@ class _HomePageState extends State<HomePage> {
     onRefresh: () async {
       await Future.wait([
         _load(),
+        _loadContent(),
         context.read<AuthProvider>().refreshProfile(),
       ]);
     },
@@ -89,6 +122,9 @@ class _HomePageState extends State<HomePage> {
 /// Presentation shared by the real home and deterministic visual checks.
 class CatalogScreen extends StatefulWidget {
   final List<CapsuleBox> boxes;
+  final List<Campaign> campaigns;
+  final String? contentError;
+  final VoidCallback? onUpdates;
   final bool loading;
   final String? error;
   final String balance;
@@ -99,6 +135,9 @@ class CatalogScreen extends StatefulWidget {
   const CatalogScreen({
     super.key,
     required this.boxes,
+    this.campaigns = const [],
+    this.contentError,
+    this.onUpdates,
     this.loading = false,
     this.error,
     this.balanceNotice,
@@ -114,6 +153,7 @@ class CatalogScreen extends StatefulWidget {
 class _CatalogScreenState extends State<CatalogScreen> {
   final _search = TextEditingController();
   String _sort = '기본순';
+  String _category = 'all';
   @override
   void dispose() {
     _search.dispose();
@@ -123,7 +163,11 @@ class _CatalogScreenState extends State<CatalogScreen> {
   List<CapsuleBox> get _visible {
     final query = _search.text.trim().toLowerCase();
     final result = widget.boxes
-        .where((b) => b.name.toLowerCase().contains(query))
+        .where(
+          (b) =>
+              b.name.toLowerCase().contains(query) &&
+              (_category == 'all' || b.category == _category),
+        )
         .toList();
     if (_sort == '낮은 가격순') {
       result.sort((a, b) => a.priceWon.compareTo(b.priceWon));
@@ -150,6 +194,12 @@ class _CatalogScreenState extends State<CatalogScreen> {
           ),
         ),
         actions: [
+          if (widget.onUpdates != null)
+            IconButton(
+              tooltip: '소식·고객지원',
+              onPressed: widget.onUpdates,
+              icon: const Icon(Icons.notifications_outlined),
+            ),
           IconButton(
             tooltip: 'GP 내역',
             onPressed: widget.onWallet,
@@ -196,7 +246,25 @@ class _CatalogScreenState extends State<CatalogScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   sliver: SliverToBoxAdapter(child: widget.balanceNotice),
                 ),
-              if (!widget.loading &&
+              if (widget.campaigns.isNotEmpty)
+                SliverPadding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  sliver: SliverToBoxAdapter(
+                    child: _CampaignPager(campaigns: widget.campaigns),
+                  ),
+                ),
+              if (widget.contentError != null)
+                SliverPadding(
+                  padding: const EdgeInsets.all(20),
+                  sliver: SliverToBoxAdapter(
+                    child: Text(
+                      widget.contentError!,
+                      style: const TextStyle(color: AppColors.textSecondary),
+                    ),
+                  ),
+                ),
+              if (widget.campaigns.isEmpty &&
+                  !widget.loading &&
                   widget.error == null &&
                   widget.boxes.isNotEmpty)
                 SliverPadding(
@@ -253,6 +321,31 @@ class _CatalogScreenState extends State<CatalogScreen> {
                               ),
                             )
                             .toList(),
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children:
+                            const {
+                                  'all': '전체',
+                                  'tech': '테크',
+                                  'home': '리빙',
+                                  'luxury': '럭셔리',
+                                  'fashion': '패션',
+                                  'food': '푸드',
+                                  'other': '기타',
+                                }.entries
+                                .map(
+                                  (e) => ChoiceChip(
+                                    label: Text(e.value),
+                                    selected: _category == e.key,
+                                    showCheckmark: false,
+                                    onSelected: (_) =>
+                                        setState(() => _category = e.key),
+                                  ),
+                                )
+                                .toList(),
                       ),
                       const SizedBox(height: 22),
                       Text(
@@ -461,5 +554,113 @@ class _CatalogState extends StatelessWidget {
         if (action != null) ...[const SizedBox(height: 12), action!],
       ],
     ),
+  );
+}
+
+class _CampaignPager extends StatefulWidget {
+  final List<Campaign> campaigns;
+  const _CampaignPager({required this.campaigns});
+  @override
+  State<_CampaignPager> createState() => _CampaignPagerState();
+}
+
+class _CampaignPagerState extends State<_CampaignPager>
+    with WidgetsBindingObserver {
+  final controller = PageController();
+  Timer? timer;
+  int index = 0;
+  bool paused = false, foreground = true;
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    schedule();
+  }
+
+  @override
+  void didUpdateWidget(covariant _CampaignPager old) {
+    super.didUpdateWidget(old);
+    if (old.campaigns.map((c) => c.id).join() !=
+        widget.campaigns.map((c) => c.id).join()) {
+      index = 0;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && controller.hasClients) {
+          controller.jumpToPage(0);
+        }
+      });
+    }
+    schedule();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    foreground = state == AppLifecycleState.resumed;
+    schedule();
+  }
+
+  void schedule() {
+    timer?.cancel();
+    if (!mounted ||
+        paused ||
+        !foreground ||
+        widget.campaigns.length < 2 ||
+        !TickerMode.of(context) ||
+        MediaQuery.disableAnimationsOf(context)) {
+      return;
+    }
+    timer = Timer(const Duration(milliseconds: 2500), () {
+      if (mounted && controller.hasClients) {
+        controller.animateToPage(
+          (index + 1) % widget.campaigns.length,
+          duration: const Duration(milliseconds: 350),
+          curve: Curves.easeInOut,
+        );
+      }
+      schedule();
+    });
+  }
+
+  @override
+  void dispose() {
+    timer?.cancel();
+    controller.dispose();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      SizedBox(
+        height: 380 * MediaQuery.textScalerOf(context).scale(14) / 14,
+        child: PageView(
+          controller: controller,
+          onPageChanged: (n) => setState(() => index = n),
+          children: widget.campaigns
+              .map((c) => CampaignCard(campaign: c, compact: true))
+              .toList(),
+        ),
+      ),
+      if (widget.campaigns.length > 1)
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text('${index + 1} / ${widget.campaigns.length}'),
+            IconButton(
+              tooltip: paused ? '배너 자동 재생' : '배너 일시정지',
+              onPressed: () {
+                setState(() => paused = !paused);
+                schedule();
+              },
+              icon: Icon(paused ? Icons.play_arrow : Icons.pause),
+            ),
+          ],
+        ),
+    ],
   );
 }

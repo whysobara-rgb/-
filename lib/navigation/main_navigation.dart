@@ -18,21 +18,23 @@ class _MainNavigationState extends State<MainNavigation> {
   int _currentIndex = 0;
   int _inventoryRevision = 0;
   int _walletRevision = 0;
+  int _homeRevision = 0;
 
   void _onTap(int index) {
     setState(() {
       _currentIndex = index;
+      if (index == 0) _homeRevision++;
       if (index == 2) _inventoryRevision++;
       if (index == 3) _walletRevision++;
     });
   }
 
-  void _goToHome() => setState(() => _currentIndex = 0);
+  void _goToHome() => _onTap(0);
 
   void _goToWallet() => _onTap(3);
 
   List<Widget> get _screens => [
-    HomePage(onGoToWallet: _goToWallet),
+    HomePage(key: ValueKey(_homeRevision), onGoToWallet: _goToWallet),
     const RankingScreen(),
     InventoryPage(key: ValueKey(_inventoryRevision)),
     WalletPage(key: ValueKey(_walletRevision), onGoToHome: _goToHome),
@@ -43,7 +45,17 @@ class _MainNavigationState extends State<MainNavigation> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.scaffoldBg,
-      body: IndexedStack(index: _currentIndex, children: _screens),
+      body: IndexedStack(
+        index: _currentIndex,
+        children: _screens
+            .asMap()
+            .entries
+            .map(
+              (e) =>
+                  TickerMode(enabled: e.key == _currentIndex, child: e.value),
+            )
+            .toList(),
+      ),
       bottomNavigationBar: _FloatingNavBar(
         currentIndex: _currentIndex,
         onTap: _onTap,

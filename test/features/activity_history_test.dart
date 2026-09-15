@@ -81,7 +81,16 @@ void main() {
       final api = HistoryApi()
         ..data = page(1, [
           {
-            'shippingRequestId': 1,
+            'fulfillmentId': '11111111-1111-4111-8111-111111111111',
+            'feeGP': 100,
+            'recipient': {
+              'name': '테스트',
+              'phone': '010-0000-0000',
+              'postalCode': '00000',
+              'address1': '샘플 주소',
+              'address2': '',
+              'notes': '',
+            },
             'recipientName': '테스트',
             'phone': '010-0000-0000',
             'address': '샘플 주소',
@@ -89,14 +98,17 @@ void main() {
             'status': 'SHIPPING',
             'createdAt': '2026-09-14T00:00:00Z',
             'items': [
-              {'inventoryItemId': 9, 'name': '테스트 상품'},
+              {
+                'inventoryItemId': 9,
+                'prize': {'name': '테스트 상품'},
+              },
             ],
           },
         ], 1);
       final result = await ShippingRepository(apiClient: api).getPage();
       expect(result.items.single.status, ShippingStatus.shipping);
       expect(result.items.single.products.single.inventoryId, 9);
-      expect(api.paths.single, '/shipping-requests?page=1&limit=20');
+      expect(api.paths.single, '/fulfillments?page=1&limit=20');
     },
   );
   testWidgets('pagination failures preserve loaded rows and can be retried', (

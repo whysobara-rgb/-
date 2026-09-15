@@ -117,6 +117,8 @@ class InventoryItem {
   final String? imageUrl;
 
   final InventoryStatus status;
+  final bool shippingEnabled;
+  final String fulfillmentType;
 
   /// 잠금은 포인트 전환만 제한한다. 배송은 보관 상태이면 가능하다.
   final bool isLocked;
@@ -133,15 +135,20 @@ class InventoryItem {
     required this.status,
     required this.acquiredAt,
     this.isLocked = false,
+    this.shippingEnabled = false,
+    this.fulfillmentType = 'UNSPECIFIED',
     this.imageUrl,
     this.conversionGP,
     this.isPremium,
   });
 
-  bool get canShip => status == InventoryStatus.stored;
-  bool get canConvert => canShip && !isLocked;
+  bool get canShip =>
+      status == InventoryStatus.stored &&
+      shippingEnabled &&
+      fulfillmentType == 'PHYSICAL';
+  bool get canConvert => status == InventoryStatus.stored && !isLocked;
 
-  /// 배송 신청(`POST /shipping-requests`) 시 백엔드에 전달할 숫자 PK.
+  /// 배송 신청(`POST /fulfillments/quotes`) 시 백엔드에 전달할 숫자 PK.
   int get numericId {
     final value = int.tryParse(id);
     if (value == null || value <= 0) {
@@ -167,6 +174,8 @@ class InventoryItem {
           : null,
       isPremium: json['isPremium'] is bool ? json['isPremium'] as bool : null,
       status: _statusFromBackend(json['status'] as String?),
+      shippingEnabled: json['shippingEnabled'] == true,
+      fulfillmentType: json['fulfillmentType'] as String? ?? 'UNSPECIFIED',
       acquiredAt: acquiredAtRaw != null
           ? (DateTime.tryParse(acquiredAtRaw) ?? DateTime.now())
           : DateTime.now(),
@@ -220,7 +229,8 @@ class InventoryRepository {
     : _apiClient = apiClient;
 
   Future<void> setLock(InventoryItem item, {required bool locked}) async {
-    if (!item.canShip) throw StateError('보관중인 상품만 잠금을 변경할 수 있습니다');
+    if (item.status != InventoryStatus.stored)
+      throw StateError('보관중인 상품만 잠금을 변경할 수 있습니다');
     final data = await _apiClient.put(
       '/inventory/${item.numericId}/lock',
       body: {'locked': locked},

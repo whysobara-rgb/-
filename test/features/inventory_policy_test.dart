@@ -7,6 +7,8 @@ void main() {
         'inventoryItemId': 1,
         'status': status,
         'isLocked': locked,
+        'shippingEnabled': true,
+        'fulfillmentType': 'PHYSICAL',
       });
   test(
     'reference value stays in won and conversion uses only server snapshot',
@@ -34,6 +36,24 @@ void main() {
     expect(item('STORED', locked: true).canShip, isTrue);
     expect(item('STORED', locked: true).canConvert, isFalse);
     expect(item('STORED').canConvert, isTrue);
+  });
+  test('shipping requires an explicit physical product flag', () {
+    expect(
+      InventoryItem.fromJson({
+        'inventoryItemId': 1,
+        'status': 'STORED',
+      }).canShip,
+      isFalse,
+    );
+    expect(
+      InventoryItem.fromJson({
+        'inventoryItemId': 1,
+        'status': 'STORED',
+        'shippingEnabled': true,
+        'fulfillmentType': 'DIGITAL',
+      }).canShip,
+      isFalse,
+    );
   });
   test('unknown and completed states cannot be treated as stored items', () {
     for (final status in [

@@ -547,7 +547,18 @@ class PreviewPagedHistory extends PointHistoryRepository {
 }
 
 ShippingRequest previewShippingRequest() => ShippingRequest.fromJson({
-  'shippingRequestId': 901,
+  'fulfillmentId': '11111111-1111-4111-8111-111111111111',
+  'feeGP': 3000,
+  'carrier': 'CJ',
+  'trackingNumber': 'TEST12345',
+  'recipient': {
+    'name': '미리보기 계정',
+    'phone': '010-0000-0000',
+    'postalCode': '00000',
+    'address1': '샘플 배송지 · 실제 주소가 아닙니다',
+    'address2': '',
+    'notes': '샘플 화면용 요청사항',
+  },
   'recipientName': '미리보기 계정',
   'phone': '010-0000-0000',
   'address': '샘플 배송지 · 실제 주소가 아닙니다',
@@ -555,8 +566,14 @@ ShippingRequest previewShippingRequest() => ShippingRequest.fromJson({
   'status': 'SHIPPING',
   'createdAt': '2026-09-14T00:00:00Z',
   'items': [
-    {'inventoryItemId': 1, 'name': '프리미엄 컬렉션 카드'},
-    {'inventoryItemId': 2, 'name': '데일리 컬렉션 카드'},
+    {
+      'inventoryItemId': 1,
+      'prize': {'name': '프리미엄 컬렉션 카드'},
+    },
+    {
+      'inventoryItemId': 2,
+      'prize': {'name': '데일리 컬렉션 카드'},
+    },
   ],
 });
 

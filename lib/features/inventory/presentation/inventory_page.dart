@@ -213,7 +213,7 @@ class _InventoryPageState extends State<InventoryPage> {
 
   // ── 액션 1: 배송요청 ──────────────────────────────────────────────
   Future<void> _onRequestShipping() async {
-    if (!AppConfig.legacyTransactionsEnabled) {
+    if (!AppConfig.shippingPreviewEnabled) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('현재 배송 서비스를 준비하고 있습니다')));
@@ -397,13 +397,12 @@ class _InventoryPageState extends State<InventoryPage> {
                     ),
                     const SizedBox(height: 8),
                     OutlinedButton.icon(
-                      onPressed:
-                          AppConfig.legacyTransactionsEnabled && !_isLoading
+                      onPressed: AppConfig.shippingPreviewEnabled && !_isLoading
                           ? _onRequestShipping
                           : null,
                       icon: const Icon(Icons.local_shipping_outlined),
                       label: Text(
-                        AppConfig.legacyTransactionsEnabled
+                        AppConfig.shippingPreviewEnabled
                             ? '${_selectedIds.length}개 배송 요청'
                             : '배송 서비스 준비 중',
                       ),

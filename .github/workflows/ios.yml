@@ -23,7 +23,7 @@ jobs:
         run: python3 tool/ios/simulator_smoke.py prepare
       - name: Build iOS simulator application
         run: |
-          flutter build ios --simulator --debug --dart-define=API_BASE_URL=https://gacha-vault-backend.onrender.com --dart-define=ENABLE_GP_ORDER_PREVIEW=true --dart-define=ENABLE_GP_CONVERSION_PREVIEW=true
+          flutter build ios --simulator --debug --dart-define=API_BASE_URL=https://gacha-vault-backend.onrender.com --dart-define=ENABLE_GP_ORDER_PREVIEW=true --dart-define=ENABLE_GP_CONVERSION_PREVIEW=true --dart-define=ENABLE_SHIPPING_PREVIEW=true
           codesign --verify --verbose build/ios/iphonesimulator/Runner.app
           mkdir -p build/ios-deliverables
           ditto build/ios/iphonesimulator/Runner.app build/ios-deliverables/Runner.app
