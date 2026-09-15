@@ -154,7 +154,9 @@ class _InventoryPageState extends State<InventoryPage> {
         _selectedIds
           ..clear()
           ..addAll(
-            _filteredItems.where((item) => item.canShip).map((item) => item.id),
+            _filteredItems
+                .where((item) => item.canSelect)
+                .map((item) => item.id),
           );
       } else {
         _selectedIds.clear();
@@ -163,7 +165,7 @@ class _InventoryPageState extends State<InventoryPage> {
   }
 
   void _toggleItemSelected(String id) {
-    if (!_items.any((item) => item.id == id && item.canShip)) return;
+    if (!_items.any((item) => item.id == id && item.canSelect)) return;
     setState(() {
       if (_selectedIds.contains(id)) {
         _selectedIds.remove(id);
@@ -171,9 +173,9 @@ class _InventoryPageState extends State<InventoryPage> {
         _selectedIds.add(id);
       }
       _selectAll =
-          _filteredItems.any((item) => item.canShip) &&
+          _filteredItems.any((item) => item.canSelect) &&
           _filteredItems
-              .where((item) => item.canShip)
+              .where((item) => item.canSelect)
               .every((item) => _selectedIds.contains(item.id));
     });
   }
@@ -181,7 +183,7 @@ class _InventoryPageState extends State<InventoryPage> {
   Future<void> _toggleLock(String id) async {
     if (_isLoading || _pendingLocks.contains(id)) return;
     final index = _items.indexWhere((item) => item.id == id);
-    if (index < 0 || !_items[index].canShip) return;
+    if (index < 0 || !_items[index].canSelect) return;
     final item = _items[index];
     _pendingLocks.add(id);
     try {
@@ -505,7 +507,7 @@ class _InventoryPageState extends State<InventoryPage> {
                         controlAffinity: ListTileControlAffinity.leading,
                         title: Text('보관중 상품 전체선택 · ${_selectedIds.length}개 선택'),
                         value: _selectAll,
-                        onChanged: items.any((item) => item.canShip)
+                        onChanged: items.any((item) => item.canSelect)
                             ? _toggleSelectAll
                             : null,
                       ),

@@ -25,6 +25,7 @@ class _HomePageState extends State<HomePage> {
   List<CapsuleBox> _boxes = [];
   List<Campaign> _campaigns = [];
   String? _contentError;
+  int _catalogRequest = 0, _contentRequest = 0;
   bool _loading = true;
   String? _error;
   @override
@@ -35,16 +36,17 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _loadContent() async {
+    final request = ++_contentRequest;
     try {
       final rows = await const CustomerContentRepository().campaigns();
-      if (mounted) {
+      if (mounted && request == _contentRequest) {
         setState(() {
           _campaigns = rows.where((c) => c.homeVisible).take(5).toList();
           _contentError = null;
         });
       }
     } catch (e) {
-      if (mounted) {
+      if (mounted && request == _contentRequest) {
         setState(() {
           _campaigns = [];
           _contentError = '소식을 불러오지 못했어요. 새로고침 후 확인해주세요.';
@@ -54,6 +56,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _load() async {
+    final request = ++_catalogRequest;
     setState(() {
       _loading = true;
       _error = null;
@@ -62,14 +65,14 @@ class _HomePageState extends State<HomePage> {
       final boxes =
           await (widget.loadCatalog?.call() ??
               const CapsuleBoxRepository().getAll());
-      if (mounted) {
+      if (mounted && request == _catalogRequest) {
         setState(() {
           _boxes = boxes;
           _loading = false;
         });
       }
     } catch (error) {
-      if (mounted) {
+      if (mounted && request == _catalogRequest) {
         setState(() {
           _loading = false;
           _error = error is ApiException

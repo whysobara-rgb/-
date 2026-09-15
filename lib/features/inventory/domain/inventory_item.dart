@@ -120,7 +120,7 @@ class InventoryItem {
   final bool shippingEnabled;
   final String fulfillmentType;
 
-  /// 잠금은 포인트 전환만 제한한다. 배송은 보관 상태이면 가능하다.
+  /// 잠금은 포인트 전환만 제한한다. 배송은 서버가 허용한 실물 보관 상품만 가능하다.
   final bool isLocked;
 
   /// 획득 시각 (최근 획득순 정렬에 사용).
@@ -142,6 +142,7 @@ class InventoryItem {
     this.isPremium,
   });
 
+  bool get canSelect => status == InventoryStatus.stored;
   bool get canShip =>
       status == InventoryStatus.stored &&
       shippingEnabled &&
@@ -190,7 +191,9 @@ class InventoryItem {
     for (int i = 0; i < str.length; i++) {
       final posFromEnd = str.length - i;
       buffer.write(str[i]);
-      if (posFromEnd > 1 && posFromEnd % 3 == 1) buffer.write(',');
+      if (posFromEnd > 1 && posFromEnd % 3 == 1) {
+        buffer.write(',');
+      }
     }
     return '${buffer.toString()}원';
   }
@@ -229,8 +232,9 @@ class InventoryRepository {
     : _apiClient = apiClient;
 
   Future<void> setLock(InventoryItem item, {required bool locked}) async {
-    if (item.status != InventoryStatus.stored)
+    if (item.status != InventoryStatus.stored) {
       throw StateError('보관중인 상품만 잠금을 변경할 수 있습니다');
+    }
     final data = await _apiClient.put(
       '/inventory/${item.numericId}/lock',
       body: {'locked': locked},
@@ -252,7 +256,9 @@ class InventoryRepository {
     var page = 1;
     while (true) {
       final query = <String>['page=$page', 'limit=100'];
-      if (status != null) query.add('status=${_statusToBackend(status)}');
+      if (status != null) {
+        query.add('status=${_statusToBackend(status)}');
+      }
       final data = await _apiClient.get('/inventory?${query.join('&')}');
       if (data is! Map<String, dynamic> ||
           data['items'] is! List ||
@@ -275,7 +281,9 @@ class InventoryRepository {
         }
         result.add(item);
       }
-      if (page * limit >= (data['totalCount'] as int)) return result;
+      if (page * limit >= (data['totalCount'] as int)) {
+        return result;
+      }
       if (rows.length != limit) {
         throw ApiException(
           statusCode: 0,

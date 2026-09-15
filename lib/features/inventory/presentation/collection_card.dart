@@ -41,7 +41,7 @@ class CollectionCard extends StatelessWidget {
               backgroundColor: accent)),
             Positioned(right: 0, top: 0, child: Checkbox(
               value: selected,
-              onChanged: item.canShip ? (_) => onSelect() : null)),
+              onChanged: item.canSelect ? (_) => onSelect() : null)),
           ]),
         ),
         TextButton.icon(
@@ -61,7 +61,7 @@ class CollectionCard extends StatelessWidget {
               Expanded(child: Text(item.status.label)),
               IconButton(
                 tooltip: item.isLocked ? '전환 잠금 해제' : '전환 잠금',
-                onPressed: item.canShip ? onLock : null,
+                onPressed: item.canSelect ? onLock : null,
                 icon: Icon(item.isLocked ? Icons.lock_rounded
                     : Icons.lock_open_rounded)),
             ]),
