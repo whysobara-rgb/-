@@ -2,6 +2,7 @@ import '../../customer_updates/customer_updates_page.dart';
 import '../../account_security/account_security_page.dart';
 import '../../refunds/order_history_page.dart';
 import '../../recovery/recovery_page.dart';
+import '../../closure/closure_page.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/app_colors.dart';
@@ -106,6 +107,12 @@ class _ProfilePageState extends State<ProfilePage> {
             trailing: const Icon(Icons.chevron_right),
             onTap: user == null ? null : () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const RecoveryPage(verifyEmail: true)))),
+          const Divider(height: 1),
+          ListTile(key: const Key('profile-account-closure'), leading: const Icon(Icons.person_off_outlined),
+            title: const Text('탈퇴 요청·상태'), subtitle: const Text('잔여 거래 확인 · 요청 접수 및 취소'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: user == null ? null : () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const AccountClosurePage()))),
         ])),
         const SizedBox(height: 24),
         OutlinedButton.icon(onPressed: () => _confirmLogout(context), icon: const Icon(Icons.logout), label: const Text('로그아웃')),
