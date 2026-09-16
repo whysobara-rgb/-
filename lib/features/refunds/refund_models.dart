@@ -14,15 +14,15 @@ String stateOf(dynamic value, Set<String> allowed) =>
     allowed.contains(value) ? value as String : invalidResponse();
 
 DateTime refundDate(dynamic value) {
-  if (value is! String) invalidResponse();
+  if (value is! String) { invalidResponse(); }
   final m = RegExp(r'^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$').firstMatch(value);
-  if (m == null) invalidResponse();
+  if (m == null) { invalidResponse(); }
   final y = int.parse(m[1]!), mo = int.parse(m[2]!), d = int.parse(m[3]!);
   final calendar = DateTime.utc(y, mo, d);
   if (calendar.year != y || calendar.month != mo || calendar.day != d ||
-      int.parse(m[4]!) > 23 || int.parse(m[5]!) > 59 || int.parse(m[6]!) > 59) invalidResponse();
+      int.parse(m[4]!) > 23 || int.parse(m[5]!) > 59 || int.parse(m[6]!) > 59) { invalidResponse(); }
   final zone = m[7]!;
-  if (zone != 'Z' && (int.parse(zone.substring(1, 3)) > 23 || int.parse(zone.substring(4)) > 59)) invalidResponse();
+  if (zone != 'Z' && (int.parse(zone.substring(1, 3)) > 23 || int.parse(zone.substring(4)) > 59)) { invalidResponse(); }
   return DateTime.tryParse(value)?.toUtc() ?? invalidResponse();
 }
 
@@ -37,9 +37,9 @@ String canonicalJson(dynamic input) {
   return jsonEncode(sorted(input));
 }
 List<String> refundIds(dynamic value) {
-  if (value is! List || value.isEmpty || value.length > 100) invalidResponse();
+  if (value is! List || value.isEmpty || value.length > 100) { invalidResponse(); }
   final ids = value.map(uuid).toList()..sort();
-  if (ids.toSet().length != ids.length) invalidResponse();
+  if (ids.toSet().length != ids.length) { invalidResponse(); }
   return List.unmodifiable(ids);
 }
 bool sameRefundIds(List<String> a, List<String> b) =>
@@ -67,7 +67,7 @@ class OrderSummary {
         (status == 'PAID' && refundedQuantity != 0) ||
         (status == 'PARTIALLY_REFUNDED' && (refundedQuantity == 0 || refundedQuantity >= quantity)) ||
         (status == 'REFUNDED' && refundedQuantity != quantity) ||
-        (refundEligible && refundUntil == null)) invalidResponse();
+        (refundEligible && refundUntil == null)) { invalidResponse(); }
   }
   int get unitPrice => total ~/ quantity;
 }
@@ -97,7 +97,7 @@ class RefundOrder {
         capsules.any((c) => c.orderId != summary.id || c.sequence > summary.quantity) ||
         capsules.map((c) => c.id).toSet().length != capsules.length ||
         capsules.map((c) => c.sequence).toSet().length != capsules.length ||
-        capsules.where((c) => c.status == 'REFUNDED').length != summary.refundedQuantity) invalidResponse();
+        capsules.where((c) => c.status == 'REFUNDED').length != summary.refundedQuantity) { invalidResponse(); }
   }
 }
 
@@ -106,7 +106,7 @@ class RefundCapabilities {
   RefundCapabilities(dynamic value) : this._(object(value));
   RefundCapabilities._(Map<String, dynamic> j)
       : enabled = flag(j['enabled']), cashEnabled = flag(j['cashEnabled']) {
-    if (j['contract'] != 'ORDER_REFUND_V1' || j['businessDays'] != 7) invalidResponse();
+    if (j['contract'] != 'ORDER_REFUND_V1' || j['businessDays'] != 7) { invalidResponse(); }
   }
 }
 
@@ -130,12 +130,12 @@ class RefundQuote {
         amount != order.summary.unitPrice * ids.length ||
         until != order.summary.refundUntil || policyJson != order.policyJson ||
         !order.summary.refundEligible ||
-        !{'PAID','PARTIALLY_REFUNDED'}.contains(order.summary.status)) invalidResponse();
+        !{'PAID','PARTIALLY_REFUNDED'}.contains(order.summary.status)) { invalidResponse(); }
     for (final row in rows) {
       final c = object(row);
       final matching = order.capsules.where((v) => v.id == c['id']);
       if (matching.length != 1 || matching.single.status != 'UNOPENED' ||
-          c['status'] != 'UNOPENED' || c['sequence'] != matching.single.sequence) invalidResponse();
+          c['status'] != 'UNOPENED' || c['sequence'] != matching.single.sequence) { invalidResponse(); }
     }
   }
 }
@@ -161,7 +161,7 @@ class RefundReceipt {
         (completedAt != null && completedAt!.isBefore(createdAt)) ||
         (currency == 'KRW' && balanceAfter != null) ||
         (currency == 'GP' && succeeded && balanceAfter == null) ||
-        (!succeeded && balanceAfter != null)) invalidResponse();
+        (!succeeded && balanceAfter != null)) { invalidResponse(); }
   }
   bool get succeeded => status == 'SUCCEEDED';
 }
@@ -175,11 +175,11 @@ class PendingRefund {
       : ids = refundIds(ids) {
     uuid(key); uuid(orderId); currencyOf(currency); boundedText(reason);
     boundedInt(amount, min: 1); boundedText(scope, max: 2048);
-    if (reason != reason.trim()) invalidResponse();
+    if (reason != reason.trim()) { invalidResponse(); }
   }
   factory PendingRefund.fromJson(dynamic value, String expectedScope) {
     final j = object(value);
-    if (j['schemaVersion'] != 1 || j['scope'] != expectedScope) invalidResponse();
+    if (j['schemaVersion'] != 1 || j['scope'] != expectedScope) { invalidResponse(); }
     return PendingRefund(key: uuid(j['key']), orderId: uuid(j['orderId']),
         currency: currencyOf(j['currency']), reason: boundedText(j['reason']),
         scope: expectedScope, amount: boundedInt(j['amount'], min: 1), ids: refundIds(j['capsuleIds']));
@@ -190,7 +190,7 @@ class PendingRefund {
       'reason': reason, 'capsuleIds': ids};
   void matches(RefundReceipt r) {
     if (r.orderId != orderId || r.currency != currency || r.amount != amount ||
-        r.reason != reason || !sameRefundIds(r.ids, ids)) invalidResponse();
+        r.reason != reason || !sameRefundIds(r.ids, ids)) { invalidResponse(); }
   }
 }
 

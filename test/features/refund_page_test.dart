@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -20,14 +19,26 @@ Future<AuthProvider> mountRefund(WidgetTester t,RefundFixture f,
   )));
   await t.pumpAndSettle();return auth;
 }
+Future<void> revealRefund(WidgetTester t, String key) async {
+  final finder = find.byKey(Key(key));
+  if (finder.evaluate().isEmpty) {
+    final scroll = find.byType(Scrollable).first;
+    t.state<ScrollableState>(scroll).position.jumpTo(0);
+    await t.pumpAndSettle();
+    await t.scrollUntilVisible(finder, 160, scrollable: scroll, maxScrolls: 40);
+  } else {
+    await t.ensureVisible(finder);
+  }
+  await t.pumpAndSettle();
+}
 Future<void> pressRefund(WidgetTester t,String key) async {
-  await t.ensureVisible(find.byKey(Key(key)));await t.pumpAndSettle();
+  await revealRefund(t, key);
   await t.tap(find.byKey(Key(key)));await t.pumpAndSettle();
 }
 Future<void> consentRefund(WidgetTester t) async {
   await pressRefund(t,'refund-capsule-$firstCapsule');
   await pressRefund(t,'refund-quote');
-  await t.ensureVisible(find.byKey(const Key('refund-reason')));
+  await revealRefund(t, 'refund-reason');
   await t.enterText(find.byKey(const Key('refund-reason')),'시험 환불 사유');
   FocusManager.instance.primaryFocus?.unfocus();await t.pumpAndSettle();
   await pressRefund(t,'refund-consent');
@@ -47,12 +58,14 @@ void main() {
     final f=RefundFixture();final a=await mountRefund(t,f);
     expect(t.widget<CheckboxListTile>(find.byKey(const Key('refund-capsule-$thirdCapsule'))).onChanged,isNull);
     await pressRefund(t,'refund-capsule-$firstCapsule');await pressRefund(t,'refund-quote');
+    await revealRefund(t, 'refund-submit');
     expect(t.widget<FilledButton>(find.byKey(const Key('refund-submit'))).onPressed,isNull);
     expect(f.mutations,isEmpty);await unmountRefund(t,a,f);
   });
   testWidgets('select quote confirm refund and acknowledge form one GP flow', (t)async {
     final f=RefundFixture();final a=await mountRefund(t,f);await consentRefund(t);
     await pressRefund(t,'refund-submit');expect(f.mutations,isEmpty);
+    expect(find.byType(LinearProgressIndicator), findsNothing);
     await pressRefund(t,'refund-confirm');expect(f.mutations.length,1);
     expect(find.text('환불 처리 완료'),findsOneWidget);
     await pressRefund(t,'refund-ack');expect(f.store.values,isEmpty);
@@ -116,7 +129,7 @@ void main() {
     addTearDown(t.view.resetPhysicalSize);addTearDown(t.view.resetDevicePixelRatio);
     final f=RefundFixture();final a=await mountRefund(t,f,scale:2);
     await pressRefund(t,'refund-capsule-$firstCapsule');await pressRefund(t,'refund-quote');
-    await t.ensureVisible(find.byKey(const Key('refund-submit')));await t.pumpAndSettle();
+    await revealRefund(t, 'refund-submit');
     expect(t.takeException(),isNull);await unmountRefund(t,a,f);
   });
   testWidgets('history handles empty records without fabricated samples', (t)async {

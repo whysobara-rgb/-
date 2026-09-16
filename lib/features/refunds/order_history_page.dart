@@ -66,7 +66,7 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
   late final AuthProvider _auth;
   late final int _session;
   RefundRepository? _repo;
-  bool _busy = false, _ended = false, _refunds = false;
+  bool _busy = false, _confirming = false, _ended = false, _refunds = false;
   int _generation = 0, _page = 0, _total = 0;
   String? _message;
   List<OrderSummary> _orders = [];
@@ -118,12 +118,18 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
       if (_current && generation == _generation) setState(() { _busy = false; });
     }
   }
+  Future<bool> _confirmAction(String title, String body) async {
+    if (!_current) return false;
+    setState(() { _confirming = true; });
+    try { return await _confirm(context, title, body); }
+    finally { if (mounted) setState(() { _confirming = false; }); }
+  }
   Future<void> _recover({bool retry = false, bool acknowledge = false}) async {
     if (!_current || _busy || _repo == null) return;
     setState(() { _busy = true; _message = null; _recovery = null; });
     try {
       if (retry) {
-        if (!await _confirm(context, '같은 환불 요청을 재개할까요?', '저장된 요청번호·캡슐·금액을 그대로 사용합니다. 결제사 확인 중인 요청은 다시 취소하지 않습니다.') || !_current) return;
+        if (!await _confirmAction('같은 환불 요청을 재개할까요?', '저장된 요청번호·캡슐·금액을 그대로 사용합니다. 결제사 확인 중인 요청은 다시 취소하지 않습니다.') || !_current) return;
         await _repo!.retry();
       }
       if (acknowledge) {
@@ -159,7 +165,7 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
             onRefresh: () => _recover(), onRetry: () => _recover(retry: true),
             onAcknowledge: () => _recover(acknowledge: true)),
         if (_message != null) Semantics(liveRegion: true, child: Text(_message!)),
-        if (_busy) const LinearProgressIndicator(semanticsLabel: '내역 확인 중'),
+        if (_busy && !_confirming) const LinearProgressIndicator(semanticsLabel: '내역 확인 중'),
         if (!_busy && _message == null && _page > 0 && _total == 0)
           Text(_refunds ? '환불 내역이 없습니다.' : '구매한 주문이 없습니다.'),
         if (!_refunds) for (final o in _orders) Card(child: ListTile(
@@ -191,7 +197,7 @@ class OrderRefundPage extends StatefulWidget {
 class _OrderRefundPageState extends State<OrderRefundPage> {
   late final AuthProvider _auth;
   late final int _session;
-  bool _busy = false, _ended = false, _consent = false;
+  bool _busy = false, _confirming = false, _ended = false, _consent = false;
   int _generation = 0;
   String? _message;
   RefundOrder? _order;
@@ -246,8 +252,8 @@ class _OrderRefundPageState extends State<OrderRefundPage> {
     }
     setState(() { _busy = true; _message = null; });
     try {
-      if (!await _confirm(context, '미개봉 캡슐 환불 신청',
-          '${q.ids.length}개 · ${refundMoney(q.amount, q.currency)}\n${q.currency == 'KRW' ? '원결제 카드 거래를 취소합니다. GP로 지급하지 않습니다.' : '원래 사용한 GP로 환급합니다. 현금 출금이 아닙니다.'}\n처리 중인 캡슐은 개봉할 수 없습니다.') || !_current) return;
+      if (!await _confirmAction('미개봉 캡슐 환불 신청',
+          '${q.ids.length}개 · ${refundMoney(q.amount, q.currency)}\n${q.currency == 'KRW' ? '원결제 카드 거래를 취소합니다. GP로 지급하지 않습니다.' : '원래 사용한 GP로 환급합니다. 현금 출금이 아닙니다.'}\n처리 중인 캡슐은 개봉할 수 없습니다.') || !_current) { return; }
       await widget.repository.submit(q, reason);
       if (!_current) return;
       _reason.clear();
@@ -261,12 +267,18 @@ class _OrderRefundPageState extends State<OrderRefundPage> {
       }
     } finally { if (_current) setState(() { _busy = false; }); }
   }
+  Future<bool> _confirmAction(String title, String body) async {
+    if (!_current) return false;
+    setState(() { _confirming = true; });
+    try { return await _confirm(context, title, body); }
+    finally { if (mounted) setState(() { _confirming = false; }); }
+  }
   Future<void> _recover({bool retry = false, bool acknowledge = false}) async {
     if (!_current || _busy) return;
     setState(() { _busy = true; _message = null; _recovery = null; });
     try {
       if (retry) {
-        if (!await _confirm(context, '같은 환불 요청을 재개할까요?', '저장된 요청번호·금액·대상을 변경하지 않고 확인합니다. 결제사 확인 중인 요청은 취소를 재전송하지 않습니다.') || !_current) return;
+        if (!await _confirmAction('같은 환불 요청을 재개할까요?', '저장된 요청번호·금액·대상을 변경하지 않고 확인합니다. 결제사 확인 중인 요청은 취소를 재전송하지 않습니다.') || !_current) return;
         await widget.repository.retry();
       }
       if (acknowledge) {
@@ -287,7 +299,7 @@ class _OrderRefundPageState extends State<OrderRefundPage> {
       body: ListView(padding: const EdgeInsets.all(20), children: [
         if (_message != null) Semantics(liveRegion: true, child: Text(_message!, key: const Key('refund-message'))),
         if (_ended) const Text('현재 화면의 거래 자료를 지웠습니다.') else ...[
-          if (_busy) const LinearProgressIndicator(semanticsLabel: '주문 처리 확인 중'),
+          if (_busy && !_confirming) const LinearProgressIndicator(semanticsLabel: '주문 처리 확인 중'),
           OutlinedButton(onPressed: _busy ? null : _load, child: const Text('주문 새로고침')),
           if (_pending != null) _RecoveryCard(pending: _pending!, recovery: _recovery,
               busy: _busy, canRequest: widget.repository.canRequest,
