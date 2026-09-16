@@ -26,6 +26,17 @@ class AuthProvider extends ChangeNotifier {
   String? get errorMessage => _errorMessage;
   String? get profileRefreshError => _profileRefreshError;
   bool get isBalanceStale => _profileRefreshError != null;
+  /// Non-secret identity of this login, including relogins to the same account.
+  int get sessionGeneration => _session;
+  bool isSessionCurrent(int generation) =>
+      _current(generation) && _currentUser != null;
+
+  /// A delayed security operation must never log a newer account/session out.
+  Future<bool> logoutIfSession(int generation) async {
+    if (!isSessionCurrent(generation)) return false;
+    await logout();
+    return !_disposed && _session == generation + 1 && _currentUser == null;
+  }
 
   bool _current(int session) => !_disposed && session == _session;
   void _notify() {
@@ -147,8 +158,6 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  /// Refresh errors never turn a confirmed purchase into a failed purchase.
-  /// The UI labels the cached balance until a refresh succeeds.
   Future<void> refreshProfile() async {
     final user = _currentUser;
     if (user == null) return;
