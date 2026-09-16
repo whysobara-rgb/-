@@ -23,6 +23,13 @@ class MemoryToken extends TokenStorage {
   Future<void> clearToken() async { value = null; }
 }
 
+// Production API configuration is deliberately absent from unit tests.
+// A fake HTTPS origin plus MockClient exercises the real URL/security checks.
+ApiClient securityApi(http.Client client, TokenStorage storage) => ApiClient(
+  client: client, tokenStorage: storage,
+  apiBaseUrl: 'https://account-test.example.invalid',
+);
+
 http.Response ok(dynamic data) => http.Response(
     jsonEncode({'statusCode': 10000, 'message': 'success', 'data': data}), 200,
     headers: {'content-type': 'application/json; charset=utf-8'});
@@ -35,18 +42,19 @@ void main() {
     final client = MockClient((r) async {
       expect(r.method, 'GET');
       expect(r.url.path, '/account/capabilities');
+      expect(r.url.host, 'account-test.example.invalid');
       expect(r.headers['Authorization'], storage.value == null ? null : 'Bearer ${storage.value}');
       expect(r.followRedirects, isFalse);
       return ok(caps);
     });
-    final repo = AccountSecurityRepository(api: ApiClient(client: client, tokenStorage: storage));
+    final repo = AccountSecurityRepository(api: securityApi(client, storage));
     expect((await repo.capabilities(() => true)).enabled, isTrue);
     client.close();
   });
   test('does not read credentials or dispatch when the lease is already invalid', () async {
     final storage = MemoryToken(); var calls = 0;
     final client = MockClient((_) async { calls++; return ok(caps); });
-    final api = ApiClient(client: client, tokenStorage: storage);
+    final api = securityApi(client, storage);
     await expectLater(api.getForSession('/account/capabilities', sessionIsCurrent: () => false),
         throwsA(isA<ApiSessionChangedException>()));
     expect(storage.reads, 0); expect(calls, 0); client.close();
@@ -55,7 +63,7 @@ void main() {
     final storage = MemoryToken()..readBarrier = Completer<String?>();
     var current = true; var calls = 0;
     final client = MockClient((_) async { calls++; return ok({'changed': true, 'reauthenticate': true}); });
-    final api = ApiClient(client: client, tokenStorage: storage);
+    final api = securityApi(client, storage);
     final pending = api.postForSession('/account/password', body: {'currentPassword': 'synthetic-old'}, sessionIsCurrent: () => current);
     final expectation = expectLater(pending, throwsA(isA<ApiSessionChangedException>()));
     current = false; storage.readBarrier!.complete('synthetic-token-b');
@@ -64,7 +72,7 @@ void main() {
   test('rejects missing authentication instead of sending an anonymous operation', () async {
     final storage = MemoryToken()..value = null; var calls = 0;
     final client = MockClient((_) async { calls++; return ok(caps); });
-    await expectLater(ApiClient(client: client, tokenStorage: storage)
+    await expectLater(securityApi(client, storage)
         .getForSession('/account/capabilities', sessionIsCurrent: () => true),
         throwsA(isA<ApiSessionChangedException>()));
     expect(calls, 0); client.close();
@@ -72,7 +80,7 @@ void main() {
   test('discards a late response after a session switch', () async {
     final barrier = Completer<http.Response>(); var current = true;
     final client = MockClient((_) => barrier.future);
-    final repo = AccountSecurityRepository(api: ApiClient(client: client, tokenStorage: MemoryToken()));
+    final repo = AccountSecurityRepository(api: securityApi(client, MemoryToken()));
     final pending = repo.capabilities(() => current);
     final expectation = expectLater(pending, throwsA(isA<ApiSessionChangedException>()));
     await pumpEventQueue(); current = false; barrier.complete(ok(caps));
@@ -84,7 +92,7 @@ void main() {
       calls++; expect(r.followRedirects, isFalse);
       return http.Response('', 307, headers: {'location':'https://other.example.invalid/'});
     });
-    final repo = AccountSecurityRepository(api: ApiClient(client: client, tokenStorage: MemoryToken()));
+    final repo = AccountSecurityRepository(api: securityApi(client, MemoryToken()));
     await expectLater(repo.changePassword('oldTest123!', 'nextTest456!', () => true), throwsA(isA<ApiException>()));
     expect(calls, 1); client.close();
   });
@@ -94,7 +102,7 @@ void main() {
       expect(jsonDecode(r.body), {'currentPassword':' oldTest123! ', 'newPassword':' nextTest456! '});
       return ok({'changed':true, 'reauthenticate':true});
     });
-    await AccountSecurityRepository(api: ApiClient(client: client, tokenStorage: MemoryToken()))
+    await AccountSecurityRepository(api: securityApi(client, MemoryToken()))
         .changePassword(' oldTest123! ', ' nextTest456! ', () => true);
     client.close();
   });
@@ -108,7 +116,7 @@ void main() {
   test('refuses invalid passwords and unchanged passwords before dispatch', () async {
     var calls = 0;
     final client = MockClient((_) async { calls++; return ok(null); });
-    final repo = AccountSecurityRepository(api: ApiClient(client: client, tokenStorage: MemoryToken()));
+    final repo = AccountSecurityRepository(api: securityApi(client, MemoryToken()));
     await expectLater(repo.changePassword('oldTest123!', 'bad', () => true), throwsFormatException);
     await expectLater(repo.changePassword('oldTest123!', 'oldTest123!', () => true), throwsFormatException);
     expect(calls, 0); client.close();
@@ -116,7 +124,7 @@ void main() {
   test('only confirms exact security result flags', () async {
     for (final value in [null, {'changed':true}, {'changed':'true','reauthenticate':true}, {'changed':true,'reauthenticate':false}]) {
       final client = MockClient((_) async => ok(value));
-      final repo = AccountSecurityRepository(api: ApiClient(client: client, tokenStorage: MemoryToken()));
+      final repo = AccountSecurityRepository(api: securityApi(client, MemoryToken()));
       await expectLater(repo.changePassword('oldTest123!', 'nextTest456!', () => true), throwsFormatException);
       client.close();
     }
@@ -132,14 +140,14 @@ void main() {
       expect(jsonDecode(r.body), {'currentPassword':'oldTest123!'});
       return ok({'revoked':true,'reauthenticate':true});
     });
-    await AccountSecurityRepository(api: ApiClient(client: client, tokenStorage: MemoryToken()))
+    await AccountSecurityRepository(api: securityApi(client, MemoryToken()))
         .revokeSessions('oldTest123!', () => true);
     client.close();
   });
   test('ambiguous network errors never automatically repeat account mutations', () async {
     var calls = 0;
     final client = MockClient((_) async { calls++; throw http.ClientException('synthetic network failure'); });
-    await expectLater(AccountSecurityRepository(api: ApiClient(client: client, tokenStorage: MemoryToken()))
+    await expectLater(AccountSecurityRepository(api: securityApi(client, MemoryToken()))
         .revokeSessions('oldTest123!', () => true), throwsA(isA<ApiException>()));
     expect(calls, 1); client.close();
   });
@@ -148,9 +156,10 @@ void main() {
     final client = MockClient((r) async => r.url.path == '/auth/login'
         ? ok({'accessToken':'synthetic-${++loginNumber}'})
         : ok({'id':userId,'email':'u@example.invalid','nickname':'synthetic','coinBalance':100}));
-    final api = ApiClient(client: client, tokenStorage: storage);
+    final api = securityApi(client, storage);
     final auth = AuthProvider(apiClient: api, tokenStorage: storage);
-    await auth.tryAutoLogin(); final first = auth.sessionGeneration;
+    await auth.tryAutoLogin(); expect(auth.isLoggedIn, isTrue);
+    final first = auth.sessionGeneration;
     await auth.logout(); userId = 2;
     await auth.login(email:'u@example.invalid', password:'not-real');
     expect(await auth.logoutIfSession(first), isFalse);
