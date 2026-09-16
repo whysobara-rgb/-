@@ -148,4 +148,4 @@ void main() {
     await expectLater(f.repository.recover(),throwsA(isA<ApiException>()));
     expect(f.store.values,isNotEmpty); expect(f.posts,isEmpty);
   });
-});
+}
