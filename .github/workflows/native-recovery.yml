@@ -1,0 +1,48 @@
+name: Native recovery contract
+on:
+  pull_request:
+    paths:
+      - 'lib/**'
+      - 'test/**'
+      - '.github/workflows/native-recovery.yml'
+permissions:
+  contents: read
+concurrency:
+  group: native-recovery-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  recovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.4'
+          channel: stable
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - name: Test public recovery and authenticated verification flows
+        run: |
+          mkdir -p build/recovery-evidence
+          git rev-parse HEAD > build/recovery-evidence/checked-commit.txt
+          printf '%s\n' 'Synthetic HTTP and in-memory credentials only. No real email, tokens, accounts, PG, live DB or device deep-link acceptance.' > build/recovery-evidence/SCOPE.txt
+          flutter test --reporter=json test/features/recovery_repository_test.dart test/features/recovery_page_test.dart > build/recovery-evidence/tests.jsonl
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-recovery-contract-evidence
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            build/recovery-evidence/
+            lib/features/recovery/
+            lib/core/network/api_client.dart
+            lib/features/auth/presentation/login_page.dart
+            lib/features/profile/presentation/profile_page.dart
+            test/features/recovery_repository_test.dart
+            test/features/recovery_page_test.dart
+            test/support/recovery_fixture.dart
+            docs/NATIVE_ACCOUNT_RECOVERY.ko.md

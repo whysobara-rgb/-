@@ -1,0 +1,46 @@
+name: Flutter quality
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+concurrency:
+  group: flutter-quality-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.4'
+          channel: stable
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - uses: actions/upload-artifact@v4
+        with:
+          name: resolved-flutter-lockfile
+          path: pubspec.lock
+          retention-days: 7
+      - run: flutter analyze
+      - run: flutter test
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: catalog-ui-previews
+          path: build/ui-previews/*.png
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Export synthetic screen previews for review
+        if: success()
+        run: |
+          python - <<'PY'
+          import base64, pathlib
+          for path in sorted(pathlib.Path('build/ui-previews').glob('*.png')):
+              data = base64.b64encode(path.read_bytes()).decode()
+              for i in range(0, len(data), 6000):
+                  print('VISUAL:' + path.stem + ':' + data[i:i+6000])
+          PY

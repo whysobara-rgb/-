@@ -12,12 +12,21 @@ Future<List<DrawResult>> drawGacha(
   int count, {
   ApiClient apiClient = const ApiClient(),
 }) async {
+  if (gachaId <= 0 || count <= 0) {
+    throw ArgumentError('캡슐 ID와 수량은 양수여야 합니다');
+  }
   final data = await apiClient.post(
     '/draws',
     body: {'gachaId': gachaId, 'count': count},
   );
   final map = data as Map<String, dynamic>;
   final results = map['results'] as List<dynamic>;
+  if (results.length != count) {
+    throw ApiException(
+      statusCode: 0,
+      message: '뽑기 결과를 확인하지 못했습니다. 보관함 내역을 확인해주세요',
+    );
+  }
   return results
       .map((e) => DrawResult.fromJson(e as Map<String, dynamic>))
       .toList();

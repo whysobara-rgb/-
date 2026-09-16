@@ -1,537 +1,122 @@
+import '../../customer_updates/customer_updates_page.dart';
+import '../../account_security/account_security_page.dart';
+import '../../refunds/order_history_page.dart';
+import '../../recovery/recovery_page.dart';
+import '../../closure/closure_page.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../../core/network/api_client.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../shared/providers/auth_provider.dart';
 import '../../../shared/providers/gp_provider.dart';
-import '../../inventory/domain/inventory_item.dart';
+import '../../../shared/widgets/balance_notice.dart';
+import '../../shipping/presentation/shipping_history_page.dart';
+import '../../inventory/presentation/inventory_page.dart';
 import '../../wallet/presentation/point_history_page.dart';
+import '../../conversions/conversion_page.dart';
 
-/// 가치가차 - 하단 탭 "마이" 화면.
-///
-/// "Vivid Pastel Pop" 컨셉트로, 전체 배경은 크림 화이트이며
-/// 카드는 화이트 엸리베이션 + 섬세한 그림자로 구분된다.
-/// 활동 요약(보관상품수/배송완료수)은 백엔드 GET /inventory에서 실시간으로 가져온다.
 class ProfilePage extends StatefulWidget {
-  /// "충전" 탭으로 이동하기 위한 콜백. [MainNavigation]에서 전달된다.
   final VoidCallback onGoToWallet;
-
   const ProfilePage({super.key, required this.onGoToWallet});
-
   @override
   State<ProfilePage> createState() => _ProfilePageState();
 }
 
 class _ProfilePageState extends State<ProfilePage> {
-  final _inventoryRepository = const InventoryRepository();
-  final _apiClient = const ApiClient();
-
-  int _storedCount = 0;
-  int _deliveredCount = 0;
-  int _totalDrawCount = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadInventoryStats();
-      _loadDrawStats();
-    });
-  }
-
-  Future<void> _loadInventoryStats() async {
-    try {
-      final items = await _inventoryRepository.getAll();
-      if (!mounted) return;
-      setState(() {
-        _storedCount = items.length;
-        _deliveredCount = items
-            .where((item) => item.status == InventoryStatus.delivered)
-            .length;
-      });
-    } catch (_) {
-      // 조용히 무시 (마이 화면 진입 시 실패해도 치명적이지 않음).
-    }
-  }
-
-  /// GET /draws/stats로 누적 뽑기횟수를 조회한다.
-  Future<void> _loadDrawStats() async {
-    try {
-      final data = await _apiClient.get('/draws/stats');
-      if (!mounted) return;
-      final map = data as Map<String, dynamic>;
-      setState(() {
-        _totalDrawCount = (map['totalDrawCount'] as num?)?.toInt() ?? 0;
-      });
-    } catch (_) {
-      // 조용히 무시.
-    }
-  }
-
-  void _openPointHistory(BuildContext context) {
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (context) => const PointHistoryPage()));
-  }
-
-  void _showComingSoon(BuildContext context, String label) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('$label 기능은 아직 준비중입니다')));
-  }
-
   void _confirmLogout(BuildContext context) {
-    showDialog<void>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          title: const Text(
-            '로그아웃',
-            style: TextStyle(fontWeight: FontWeight.w700),
-          ),
-          content: const Text('로그아웃 하시겠습니까?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text(
-                '취소',
-                style: TextStyle(color: AppColors.textSecondary),
-              ),
-            ),
-            TextButton(
-              onPressed: () async {
-                Navigator.of(dialogContext).pop();
-                await context.read<AuthProvider>().logout();
-              },
-              child: const Text(
-                '로그아웃',
-                style: TextStyle(
-                  color: AppColors.error,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-    );
+    showDialog<void>(context: context, builder: (dialogContext) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: const Text('로그아웃', style: TextStyle(fontWeight: FontWeight.w700)),
+      content: const Text('로그아웃 하시겠습니까?'),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(dialogContext).pop(),
+          child: const Text('취소', style: TextStyle(color: AppColors.textSecondary))),
+        TextButton(onPressed: () async {
+          Navigator.of(dialogContext).pop();
+          await context.read<AuthProvider>().logout();
+        }, child: const Text('로그아웃', style: TextStyle(color: AppColors.error,
+          fontWeight: FontWeight.w700))),
+      ],
+    ));
   }
 
   @override
   Widget build(BuildContext context) {
-    final gp = context.watch<GpProvider>();
     final user = context.watch<AuthProvider>().currentUser;
-
-    return Scaffold(
-      backgroundColor: AppColors.scaffoldBg,
-      appBar: AppBar(
-        backgroundColor: AppColors.scaffoldBg,
-        elevation: 0,
-        automaticallyImplyLeading: false,
-        title: const Text(
-          '마이',
-          style: TextStyle(
-            color: AppColors.textPrimary,
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ),
-      body: SafeArea(
-        child: ListView(
-          padding: EdgeInsets.zero,
-          children: [
-            // ── 상단 프로필 카드 (화이트 엸리베이션, 마진 20) ──
-            Container(
-              margin: const EdgeInsets.all(20),
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: AppColors.surfaceElevated,
-                borderRadius: BorderRadius.circular(26),
-                border: Border.all(color: AppColors.surfaceBorder),
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.accentViolet.withValues(alpha: 0.10),
-                    blurRadius: 16,
-                    offset: const Offset(0, 6),
-                  ),
-                ],
-              ),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 56,
-                        height: 56,
-                        decoration: BoxDecoration(
-                          gradient: AppColors.goldGradient,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.person_rounded,
-                          size: 30,
-                          color: Color(0xFF16161A),
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              user?.nickname ?? '',
-                              style: const TextStyle(
-                                color: AppColors.textPrimary,
-                                fontSize: 17,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              user?.maskedEmail ?? '',
-                              style: const TextStyle(
-                                color: AppColors.textSecondary,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Container(height: 1, color: AppColors.surfaceBorder),
-                  const SizedBox(height: 16),
-                  // ── GP 잔액 Row ──
-                  Row(
-                    children: [
-                      const Text(
-                        '보유 GP',
-                        style: TextStyle(
-                          color: AppColors.textSecondary,
-                          fontSize: 13,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        '${gp.formattedBalance} GP',
-                        style: const TextStyle(
-                          color: AppColors.goldPrimary,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const Spacer(),
-                      Material(
-                        color: AppColors.goldPrimary,
-                        borderRadius: BorderRadius.circular(20),
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(20),
-                          onTap: widget.onGoToWallet,
-                          child: const Padding(
-                            padding: EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 6,
-                            ),
-                            child: Text(
-                              '충전 탭 가기',
-                              style: TextStyle(
-                                color: Color(0xFF16161A),
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
-              child: Column(
-                children: [
-                  // ── 활동 요약 Row (3분할) ──
-                  Container(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    decoration: BoxDecoration(
-                      color: AppColors.surfaceElevated,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: AppColors.surfaceBorder),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.04),
-                          blurRadius: 10,
-                          offset: const Offset(0, 3),
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: _StatColumn(
-                            value: '$_totalDrawCount',
-                            label: '총 뽑기횟수',
-                          ),
-                        ),
-                        Container(
-                          width: 1,
-                          height: 32,
-                          color: AppColors.surfaceBorder,
-                        ),
-                        Expanded(
-                          child: _StatColumn(
-                            value: '$_storedCount',
-                            label: '보관 상품수',
-                          ),
-                        ),
-                        Container(
-                          width: 1,
-                          height: 32,
-                          color: AppColors.surfaceBorder,
-                        ),
-                        Expanded(
-                          child: _StatColumn(
-                            value: '$_deliveredCount',
-                            label: '배송완료수',
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(height: 20),
-
-                  // ── 메뉴 리스트 (섹션1: 내 활동) ──
-                  _MenuSection(
-                    title: '내 활동',
-                    items: [
-                      _MenuItemData(
-                        icon: Icons.casino_rounded,
-                        label: '뽑기내역',
-                        onTap: () => _showComingSoon(context, '뽑기내역'),
-                      ),
-                      _MenuItemData(
-                        icon: Icons.receipt_long_rounded,
-                        label: '포인트내역',
-                        onTap: () => _openPointHistory(context),
-                      ),
-                      _MenuItemData(
-                        icon: Icons.local_shipping_rounded,
-                        label: '배송조회',
-                        onTap: () => _showComingSoon(context, '배송조회'),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  // ── 메뉴 리스트 (섹션2: 고객지원) ──
-                  _MenuSection(
-                    title: '고객지원',
-                    items: [
-                      _MenuItemData(
-                        icon: Icons.campaign_rounded,
-                        label: '공지사항',
-                        onTap: () => _showComingSoon(context, '공지사항'),
-                      ),
-                      _MenuItemData(
-                        icon: Icons.help_rounded,
-                        label: 'FAQ',
-                        onTap: () => _showComingSoon(context, 'FAQ'),
-                      ),
-                      _MenuItemData(
-                        icon: Icons.support_agent_rounded,
-                        label: '고객센터 문의',
-                        onTap: () => _showComingSoon(context, '고객센터 문의'),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  // ── 메뉴 리스트 (섹션3: 설정) ──
-                  _MenuSection(
-                    title: '설정',
-                    items: [
-                      _MenuItemData(
-                        icon: Icons.notifications_rounded,
-                        label: '알림설정',
-                        onTap: () => _showComingSoon(context, '알림설정'),
-                      ),
-                      _MenuItemData(
-                        icon: Icons.logout_rounded,
-                        label: '로그아웃',
-                        isDestructive: true,
-                        onTap: () => _confirmLogout(context),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// 활동 요약 Row의 각 칸 (숫자 + 라벨).
-class _StatColumn extends StatelessWidget {
-  final String value;
-  final String label;
-
-  const _StatColumn({required this.value, required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text(
-          value,
-          style: const TextStyle(
-            color: AppColors.textPrimary,
-            fontSize: 18,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: const TextStyle(color: AppColors.textSecondary, fontSize: 11),
-        ),
-      ],
-    );
-  }
-}
-
-/// 메뉴 항목 데이터.
-class _MenuItemData {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  final bool isDestructive;
-
-  const _MenuItemData({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-    this.isDestructive = false,
-  });
-}
-
-/// 메뉴 리스트 섹션 (제목 + 화이트 카드).
-class _MenuSection extends StatelessWidget {
-  final String title;
-  final List<_MenuItemData> items;
-
-  const _MenuSection({required this.title, required this.items});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: 8),
-          child: Text(
-            title,
-            style: const TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-        Container(
-          decoration: BoxDecoration(
-            color: AppColors.surfaceElevated,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: AppColors.surfaceBorder),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.04),
-                blurRadius: 10,
-                offset: const Offset(0, 3),
-              ),
-            ],
-          ),
-          child: Column(
-            children: [
-              for (int i = 0; i < items.length; i++) ...[
-                _MenuTile(data: items[i]),
-                if (i != items.length - 1)
-                  const Divider(
-                    height: 1,
-                    indent: 16,
-                    endIndent: 16,
-                    color: AppColors.surfaceBorder,
-                  ),
-              ],
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// 메뉴 리스트 개별 항목 (골드 아이콘 + 메뉴명 + 화살표).
-class _MenuTile extends StatelessWidget {
-  final _MenuItemData data;
-
-  const _MenuTile({required this.data});
-
-  @override
-  Widget build(BuildContext context) {
-    final labelColor = data.isDestructive
-        ? AppColors.error
-        : AppColors.textPrimary;
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: data.onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          child: Row(
-            children: [
-              Icon(
-                data.icon,
-                size: 20,
-                color: data.isDestructive
-                    ? AppColors.error
-                    : AppColors.goldPrimary,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  data.label,
-                  style: TextStyle(
-                    color: labelColor,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              if (!data.isDestructive)
-                const Icon(
-                  Icons.chevron_right_rounded,
-                  size: 20,
-                  color: AppColors.textSecondary,
-                ),
-            ],
-          ),
-        ),
-      ),
+    final gp = context.watch<GpProvider>();
+    return Scaffold(appBar: AppBar(title: const Text('마이')),
+      body: ListView(padding: const EdgeInsets.all(20), children: [
+        Container(padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(borderRadius: BorderRadius.circular(28),
+            gradient: const LinearGradient(colors: [Color(0xFF29203E), Color(0xFF101018)])),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Icon(Icons.person_outline_rounded, color: Color(0xFFB9A4FF), size: 44),
+            const SizedBox(height: 20),
+            Text(user?.nickname ?? '내 계정', style: const TextStyle(color: Colors.white,
+              fontSize: 26, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 8),
+            Text(user?.maskedEmail ?? '', style: const TextStyle(color: Color(0xFFD8D3E3))),
+          ])),
+        const SizedBox(height: 20),
+        Card(child: Padding(padding: const EdgeInsets.all(20),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('보유 GP'), const SizedBox(height: 8),
+            Text('${gp.formattedBalance} GP', style: const TextStyle(fontSize: 28,
+              fontWeight: FontWeight.w800)),
+            const SizedBox(height: 12),
+            FilledButton(onPressed: widget.onGoToWallet, child: const Text('GP 지갑 보기')),
+          ]))),
+        const BalanceNotice(), const SizedBox(height: 20),
+        const Text('내 활동', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+        const SizedBox(height: 12),
+        Card(child: Column(children: [
+          ListTile(key: const Key('profile-order-history'), leading: const Icon(Icons.receipt_long),
+            title: const Text('주문·환불 내역'), subtitle: const Text('구매 내역 · 미개봉 환불 · 처리 결과 확인'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: user == null ? null : () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const OrderHistoryPage()))),
+          const Divider(height: 1),
+          ListTile(leading: const Icon(Icons.swap_horiz), title: const Text('GP 전환 · 상품 복구'),
+            subtitle: const Text('전환 내역과 복구 가능 여부 확인'), trailing: const Icon(Icons.chevron_right),
+            onTap: user == null ? null : () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => ConversionPage(userId: user.id)))),
+          const Divider(height: 1),
+          ListTile(leading: const Icon(Icons.collections_bookmark_outlined), title: const Text('내 컬렉션'),
+            subtitle: const Text('획득한 상품과 배송 상태 확인'), trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const InventoryPage()))),
+          const Divider(height: 1),
+          ListTile(leading: const Icon(Icons.local_shipping_outlined), title: const Text('배송 내역'),
+            subtitle: const Text('신청 상품과 진행 상태 확인'), trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ShippingHistoryPage()))),
+          const Divider(height: 1),
+          ListTile(leading: const Icon(Icons.support_agent), title: const Text('소식·고객지원'),
+            subtitle: const Text('이벤트·공지·문의·교환 처리 현황'), trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CustomerUpdatesPage(initial: 'tickets')))),
+          const Divider(height: 1),
+          ListTile(leading: const Icon(Icons.receipt_long_outlined), title: const Text('포인트 내역'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const PointHistoryPage()))),
+          const Divider(height: 1),
+          ListTile(key: const Key('profile-account-security'), leading: const Icon(Icons.security),
+            title: const Text('계정 보안'), subtitle: const Text('비밀번호 변경 · 모든 로그인 해제'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: user == null ? null : () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const AccountSecurityPage()))),
+          const Divider(height: 1),
+          ListTile(key: const Key('profile-email-verification'), leading: const Icon(Icons.mark_email_read_outlined),
+            title: const Text('이메일 인증'), subtitle: const Text('인증 메일 요청 · 이메일 소유 확인'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: user == null ? null : () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const RecoveryPage(verifyEmail: true)))),
+          const Divider(height: 1),
+          ListTile(key: const Key('profile-account-closure'), leading: const Icon(Icons.person_off_outlined),
+            title: const Text('탈퇴 요청·상태'), subtitle: const Text('잔여 거래 확인 · 요청 접수 및 취소'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: user == null ? null : () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const AccountClosurePage()))),
+        ])),
+        const SizedBox(height: 24),
+        OutlinedButton.icon(onPressed: () => _confirmLogout(context), icon: const Icon(Icons.logout), label: const Text('로그아웃')),
+      ]),
     );
   }
 }

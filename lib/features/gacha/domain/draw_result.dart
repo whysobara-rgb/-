@@ -18,6 +18,9 @@ class DrawResult {
   /// 프리미엄(고가/한정) 상품 여부. 결과 화면 강조 표시 등에 활용.
   final bool isPremium;
 
+  /// Server snapshot only; absent means a quote is still required.
+  final int? conversionGp;
+
   /// 실제 상품 이미지 URL (있으면 실사진, 없으면 로컬 3D 폴백 사용).
   final String? imageUrl;
 
@@ -30,6 +33,7 @@ class DrawResult {
     required this.grade,
     required this.price,
     this.isPremium = false,
+    this.conversionGp,
     this.imageUrl,
     this.category = '',
   });
@@ -37,8 +41,14 @@ class DrawResult {
   /// CLOVE 등급 enum 표현.
   GachaGrade get gradeEnum => GachaGrade.fromCode(grade);
 
-  /// 즉시 포인트 환원 시 지급되는 GP (정가의 약 87%).
-  int get refundPointGP => (price * 0.87).round();
+  /// Premium results first, then the highest retail value, then grade.
+  static int compareForReveal(DrawResult a, DrawResult b) {
+    if (a.isPremium != b.isPremium) return a.isPremium ? -1 : 1;
+    final priceOrder = b.price.compareTo(a.price);
+    return priceOrder != 0
+        ? priceOrder
+        : b.gradeEnum.rank.compareTo(a.gradeEnum.rank);
+  }
 
   /// 백엔드 `POST /draws` 응답의 results[] 항목 1개를 [DrawResult]로 변환한다.
   factory DrawResult.fromJson(Map<String, dynamic> json) {
@@ -49,7 +59,8 @@ class DrawResult {
       name: json['name'] as String? ?? '',
       grade: grade,
       price: price,
-      isPremium: grade == 'S' || grade == 'SSS',
+      isPremium: json['isPremium'] as bool? ?? false,
+      conversionGp: json['conversionGp'] as int?,
       imageUrl: json['imageUrl'] as String?,
       category: json['category'] as String? ?? '',
     );
@@ -61,8 +72,8 @@ class DrawResult {
   /// 화면 표시용 GP 포맷 (예: "1,200,000 GP")
   String get formattedGP => '${_formatNumber(price)} GP';
 
-  /// 환원 GP 포맷 (예: "1,044,000 GP")
-  String get formattedRefundGP => '${_formatNumber(refundPointGP)} GP';
+  String get formattedConversionGp =>
+      conversionGp == null ? '견적 확인 필요' : '${_formatNumber(conversionGp!)} GP';
 
   static String _formatNumber(int value) {
     final str = value.toString();

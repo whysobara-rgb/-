@@ -10,7 +10,7 @@ import '../domain/ranking_models.dart';
 ///
 /// Claymorphism & Pastel 3D 컨셉 - 크림 화이트 배경 위에 화이트 라운드
 /// 카드(border-radius 14~16px)와 소프트 섀도우로 랭킹 항목을 표시한다.
-/// 3개 탭(유저 랭킹 / 인기 박스 / 실시간 당첨)으로 구성되며, 각각
+/// 3개 탭(유저 랭킹 / 인기 박스 / 최근 개봉)으로 구성되며, 각각
 /// 백엔드 `GET /rankings/users`, `/rankings/gachas`, `/rankings/wins`를
 /// 실시간으로 조회해 표시한다.
 class RankingScreen extends StatefulWidget {
@@ -46,6 +46,8 @@ class _RankingScreenState extends State<RankingScreen> {
           ),
           actions: const [GpBadge()],
           bottom: const TabBar(
+            isScrollable: true,
+            tabAlignment: TabAlignment.start,
             indicatorColor: AppColors.neonPrimary,
             indicatorWeight: 3,
             labelColor: AppColors.neonPrimary,
@@ -58,7 +60,7 @@ class _RankingScreenState extends State<RankingScreen> {
             tabs: [
               Tab(text: '유저 랭킹'),
               Tab(text: '인기 박스'),
-              Tab(text: '실시간 당첨'),
+              Tab(text: '최근 개봉'),
             ],
           ),
         ),
@@ -297,7 +299,7 @@ class _UserRankRow extends StatelessWidget {
           ),
           // ── 누적 획득 가치 ──
           Text(
-            '${_formatNumber(item.totalValue)} GP',
+            '${_formatNumber(item.totalValue)}원',
             style: const TextStyle(
               color: AppColors.neonPrimary,
               fontSize: 14,
@@ -455,7 +457,7 @@ class _GachaRankRow extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 탭 3: 실시간 당첨 피드
+// 탭 3: 최근 개봉 피드
 // ─────────────────────────────────────────────────────────────
 
 class _WinFeedTab extends StatelessWidget {
@@ -531,10 +533,7 @@ class _WinFeedRow extends StatelessWidget {
                           Container(color: AppColors.surfaceElevated2),
                       errorWidget: (context, url, error) => Container(
                         color: AppColors.surfaceElevated2,
-                        child: Icon(
-                          Icons.card_giftcard_rounded,
-                          color: color,
-                        ),
+                        child: Icon(Icons.card_giftcard_rounded, color: color),
                       ),
                     )
                   : Container(
@@ -558,9 +557,7 @@ class _WinFeedRow extends StatelessWidget {
                       decoration: BoxDecoration(
                         color: color.withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(5),
-                        border: Border.all(
-                          color: color.withValues(alpha: 0.6),
-                        ),
+                        border: Border.all(color: color.withValues(alpha: 0.6)),
                       ),
                       child: Text(
                         item.rarity,
@@ -604,7 +601,7 @@ class _WinFeedRow extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                '${_formatNumber(item.estimatedValue)} GP',
+                '${_formatNumber(item.estimatedValue)}원',
                 style: const TextStyle(
                   color: AppColors.neonPrimary,
                   fontSize: 12,

@@ -41,6 +41,7 @@ dependencies:
   # Networking & local storage (for real backend API integration)
   http: 1.5.0
   shared_preferences: 2.5.3
+  flutter_secure_storage: 9.2.4
 
   # Real product photo rendering (network image caching, web-compatible)
   cached_network_image: 3.4.1
