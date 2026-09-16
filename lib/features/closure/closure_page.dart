@@ -226,9 +226,9 @@ class _AccountClosurePageState extends State<AccountClosurePage>
                 Text('요청 사유: ${_check!.active!.reason}'),
                 const Text('요청 접수 상태입니다. 계정 삭제 완료가 아닙니다.'),
                 OutlinedButton(key: const Key('closure-cancel'),
-                  onPressed: _busy || !_enabled ? null : () {
+                  onPressed: _busy || !_enabled ? null : () async {
                     final active = _check!.active!;
-                    return _confirmAction('탈퇴 요청을 취소할까요?', () => _repo.cancel(active));
+                    await _confirmAction('탈퇴 요청을 취소할까요?', () => _repo.cancel(active));
                   }, child: const Text('탈퇴 요청 취소')),
               ] else if (_check != null && _enabled) _inputForm(),
               if (_check != null && !_enabled) const Text('새 요청 기능을 준비하고 있습니다.'),
