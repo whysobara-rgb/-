@@ -16,6 +16,11 @@ abstract final class AppConfig {
       bool.fromEnvironment('ENABLE_SHIPPING_PREVIEW') &&
       !bool.fromEnvironment('ENABLE_LEGACY_TRANSACTIONS');
 
+  static const refundPreviewEnabled =
+      !kReleaseMode &&
+      bool.fromEnvironment('ENABLE_ORDER_REFUND_PREVIEW') &&
+      !bool.fromEnvironment('ENABLE_LEGACY_TRANSACTIONS');
+
   static const apiBaseUrl = String.fromEnvironment('API_BASE_URL');
 
   // The legacy API buys and opens in one step and uses an unconfirmed flat

@@ -169,10 +169,11 @@ class ApiClient {
 
   Future<dynamic> postForSession(String path,
       {required Map<String, dynamic> body,
-      required bool Function() sessionIsCurrent}) async {
+      required bool Function() sessionIsCurrent,
+      String? idempotencyKey}) async {
     _checkPostPath(path);
     return _request('POST', path, body: body, withAuth: true,
-        sessionIsCurrent: sessionIsCurrent);
+        sessionIsCurrent: sessionIsCurrent, idempotencyKey: idempotencyKey);
   }
 
   void _checkSession(bool Function()? current) {

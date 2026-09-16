@@ -1,5 +1,6 @@
 import '../../customer_updates/customer_updates_page.dart';
 import '../../account_security/account_security_page.dart';
+import '../../refunds/order_history_page.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/app_colors.dart';
@@ -95,6 +96,17 @@ class _ProfilePageState extends State<ProfilePage> {
           const Text('내 활동', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
           const SizedBox(height: 12),
           Card(child: Column(children: [
+            ListTile(
+              key: const Key('profile-order-history'),
+              leading: const Icon(Icons.receipt_long),
+              title: const Text('주문·환불 내역'),
+              subtitle: const Text('구매 내역 · 미개봉 환불 · 처리 결과 확인'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: user == null ? null : () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const OrderHistoryPage()),
+              ),
+            ),
+            const Divider(height: 1),
             ListTile(
               leading: const Icon(Icons.swap_horiz),
               title: const Text('GP 전환 · 상품 복구'),
