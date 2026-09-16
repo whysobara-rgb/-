@@ -10,14 +10,8 @@ class ApiException implements Exception {
   final String message;
   final List<String> errors;
   final int? httpStatusCode;
-
-  ApiException({
-    required this.statusCode,
-    required this.message,
-    this.errors = const [],
-    this.httpStatusCode,
-  });
-
+  ApiException({required this.statusCode, required this.message,
+    this.errors = const [], this.httpStatusCode});
   @override
   String toString() => message;
 }
@@ -33,48 +27,29 @@ class ApiClient {
   final http.Client? _client;
   final String _baseUrl;
   final Duration _timeout;
-
-  const ApiClient({
-    TokenStorage tokenStorage = const TokenStorage(),
-    http.Client? client,
-    String apiBaseUrl = baseUrl,
-    Duration timeout = const Duration(seconds: 20),
-  }) : _tokenStorage = tokenStorage,
-       _client = client,
-       _baseUrl = apiBaseUrl,
-       _timeout = timeout;
+  const ApiClient({TokenStorage tokenStorage = const TokenStorage(),
+    http.Client? client, String apiBaseUrl = baseUrl,
+    Duration timeout = const Duration(seconds: 20)})
+    : _tokenStorage = tokenStorage, _client = client,
+      _baseUrl = apiBaseUrl, _timeout = timeout;
 
   bool _hasUnsafePath(String path) {
     try {
       return path.split('?').first.split('/').any((raw) {
         final segment = Uri.decodeComponent(raw);
-        return segment == '.' ||
-            segment == '..' ||
-            segment.contains('/') ||
-            segment.contains('\\');
+        return segment == '.' || segment == '..' ||
+            segment.contains('/') || segment.contains('\\');
       });
-    } on FormatException {
-      return true;
-    }
+    } on FormatException { return true; }
   }
 
   Uri _uri(String path) {
-    final base = Uri.tryParse(_baseUrl);
-    final relative = Uri.tryParse(path);
-    if (_hasUnsafePath(path) ||
-        base == null ||
-        base.scheme != 'https' ||
-        base.host.isEmpty ||
-        base.userInfo.isNotEmpty ||
-        base.hasQuery ||
-        base.hasFragment ||
-        relative == null ||
-        !path.startsWith('/') ||
-        path.startsWith('//') ||
-        relative.hasScheme ||
-        relative.hasAuthority ||
-        relative.hasFragment ||
-        relative.pathSegments.any((segment) => segment == '..')) {
+    final base = Uri.tryParse(_baseUrl), relative = Uri.tryParse(path);
+    if (_hasUnsafePath(path) || base == null || base.scheme != 'https' ||
+        base.host.isEmpty || base.userInfo.isNotEmpty || base.hasQuery ||
+        base.hasFragment || relative == null || !path.startsWith('/') ||
+        path.startsWith('//') || relative.hasScheme || relative.hasAuthority ||
+        relative.hasFragment || relative.pathSegments.any((s) => s == '..')) {
       throw ApiException(statusCode: 0, message: '서비스 연결 설정을 확인해주세요');
     }
     return Uri.parse('${_baseUrl.replaceFirst(RegExp(r'/+$'), '')}$path');
@@ -94,44 +69,27 @@ class ApiClient {
   dynamic _unwrap(http.Response response) {
     if (response.statusCode == 204) return null;
     Map<String, dynamic> body;
-    try {
-      body = jsonDecode(response.body) as Map<String, dynamic>;
-    } catch (_) {
-      throw ApiException(
-        statusCode: response.statusCode,
+    try { body = jsonDecode(response.body) as Map<String, dynamic>; }
+    catch (_) {
+      throw ApiException(statusCode: response.statusCode,
         httpStatusCode: response.statusCode,
-        message: '서버 응답을 처리할 수 없습니다 (HTTP ${response.statusCode})',
-      );
+        message: '서버 응답을 처리할 수 없습니다 (HTTP ${response.statusCode})');
     }
     final statusCode = body['statusCode'] is int
-        ? body['statusCode'] as int
-        : response.statusCode;
-    if (response.statusCode >= 200 &&
-        response.statusCode < 300 &&
-        statusCode == 10000) {
-      return body['data'];
-    }
-    final rawMessage = body['message'];
-    final message = rawMessage is String
-        ? rawMessage
-        : rawMessage is List
-        ? rawMessage.join('\n')
-        : '요청을 처리하지 못했습니다';
+        ? body['statusCode'] as int : response.statusCode;
+    if (response.statusCode >= 200 && response.statusCode < 300 &&
+        statusCode == 10000) { return body['data']; }
+    final raw = body['message'];
+    final message = raw is String ? raw : raw is List
+        ? raw.join('\n') : '요청을 처리하지 못했습니다';
     final errorsRaw = body['errors'];
-    final errors = errorsRaw is List
-        ? errorsRaw.map((e) => e.toString()).toList()
-        : <String>[];
-    throw ApiException(
-      statusCode: statusCode,
-      httpStatusCode: response.statusCode,
-      message: message,
-      errors: errors,
-    );
+    throw ApiException(statusCode: statusCode, httpStatusCode: response.statusCode,
+      message: message, errors: errorsRaw is List
+        ? errorsRaw.map((e) => e.toString()).toList() : <String>[]);
   }
 
-  Future<dynamic> get(String path, {bool withAuth = true}) async {
-    return _request('GET', path, withAuth: withAuth);
-  }
+  Future<dynamic> get(String path, {bool withAuth = true}) async =>
+      _request('GET', path, withAuth: withAuth);
 
   void _checkPostPath(String path) {
     if (path.split('?').first == '/wallet/topup') {
@@ -143,65 +101,49 @@ class ApiClient {
     }
   }
 
-  Future<dynamic> post(
-    String path, {
-    Map<String, dynamic>? body,
-    bool withAuth = true,
-    String? idempotencyKey,
-  }) async {
+  Future<dynamic> post(String path, {Map<String, dynamic>? body,
+    bool withAuth = true, String? idempotencyKey}) async {
     _checkPostPath(path);
     return _request('POST', path, body: body, withAuth: withAuth,
         idempotencyKey: idempotencyKey);
   }
+  Future<dynamic> put(String path, {required Map<String, dynamic> body}) =>
+      _request('PUT', path, body: body, withAuth: true);
 
-  Future<dynamic> put(String path, {required Map<String, dynamic> body}) {
-    return _request('PUT', path, body: body, withAuth: true);
-  }
-
-  /// A lease must identify a login generation, not just a user ID.
-  /// Recheck after async token reads and after responses. Already-dispatched
-  /// requests cannot be undone by a later local logout.
+  /// A lease identifies a login generation, including anonymous recovery.
+  /// Public requests never read or attach saved authentication credentials.
+  /// Already dispatched requests cannot be undone by a later local logout.
   Future<dynamic> getForSession(String path,
-      {required bool Function() sessionIsCurrent}) {
-    return _request('GET', path, withAuth: true,
+      {required bool Function() sessionIsCurrent, bool withAuth = true}) =>
+      _request('GET', path, withAuth: withAuth,
         sessionIsCurrent: sessionIsCurrent);
-  }
 
   Future<dynamic> postForSession(String path,
       {required Map<String, dynamic> body,
-      required bool Function() sessionIsCurrent,
-      String? idempotencyKey}) async {
+      required bool Function() sessionIsCurrent, String? idempotencyKey,
+      bool withAuth = true}) async {
     _checkPostPath(path);
-    return _request('POST', path, body: body, withAuth: true,
+    return _request('POST', path, body: body, withAuth: withAuth,
         sessionIsCurrent: sessionIsCurrent, idempotencyKey: idempotencyKey);
   }
 
   void _checkSession(bool Function()? current) {
     if (current == null) return;
     bool valid;
-    try {
-      valid = current();
-    } catch (_) {
-      valid = false;
-    }
-    if (!valid) throw ApiSessionChangedException();
+    try { valid = current(); } catch (_) { valid = false; }
+    if (!valid) { throw ApiSessionChangedException(); }
   }
 
-  Future<dynamic> _request(
-    String method,
-    String path, {
-    Map<String, dynamic>? body,
-    required bool withAuth,
-    String? idempotencyKey,
-    bool Function()? sessionIsCurrent,
-  }) async {
+  Future<dynamic> _request(String method, String path,
+      {Map<String, dynamic>? body, required bool withAuth,
+      String? idempotencyKey, bool Function()? sessionIsCurrent}) async {
     _checkSession(sessionIsCurrent);
-    final uri = _uri(path);
-    final client = _client ?? http.Client();
+    final uri = _uri(path), client = _client ?? http.Client();
     try {
       final headers = await _headers(withAuth: withAuth);
       _checkSession(sessionIsCurrent);
-      if (sessionIsCurrent != null && !headers.containsKey('Authorization')) {
+      if (withAuth && sessionIsCurrent != null &&
+          !headers.containsKey('Authorization')) {
         throw ApiSessionChangedException();
       }
       if (idempotencyKey != null) {
@@ -212,15 +154,13 @@ class ApiClient {
       }
       http.Response response;
       if (sessionIsCurrent != null) {
-        // Sensitive account requests never follow redirects to another origin.
         final request = http.Request(method, uri)..followRedirects = false;
         request.headers.addAll(headers);
-        if (body != null) request.body = jsonEncode(body);
+        if (body != null) { request.body = jsonEncode(body); }
         response = await client.send(request).then(http.Response.fromStream)
             .timeout(_timeout);
       } else {
-        response = await (method == 'GET'
-            ? client.get(uri, headers: headers)
+        response = await (method == 'GET' ? client.get(uri, headers: headers)
             : (method == 'PUT' ? client.put : client.post)(uri,
                 headers: headers, body: body == null ? null : jsonEncode(body)))
             .timeout(_timeout);
@@ -238,7 +178,7 @@ class ApiClient {
           ? '네트워크 연결을 확인해주세요'
           : '처리 결과를 확인하지 못했습니다. 이용 내역을 확인해주세요');
     } finally {
-      if (_client == null) client.close();
+      if (_client == null) { client.close(); }
     }
   }
 }
