@@ -9,7 +9,7 @@ import 'package:gacha_vault/core/network/api_client.dart';
 import 'package:gacha_vault/features/account_security/account_security_page.dart';
 import 'package:gacha_vault/features/account_security/account_security_repository.dart';
 import 'package:gacha_vault/shared/providers/auth_provider.dart';
-import 'account_security_repository_test.dart' show MemoryToken, ok, caps;
+import 'account_security_repository_test.dart' show MemoryToken, ok, caps, securityApi;
 
 class SecurityFixture {
   final storage = MemoryToken();
@@ -37,7 +37,7 @@ class SecurityFixture {
       return ok({r.url.path.endsWith('/password') ? 'changed' : 'revoked':true,
         'reauthenticate':true});
     });
-    api = ApiClient(client: client, tokenStorage: storage);
+    api = securityApi(client, storage);
     auth = AuthProvider(apiClient: api, tokenStorage: storage);
   }
   Future<void> login() => auth.tryAutoLogin();
@@ -46,6 +46,7 @@ class SecurityFixture {
 
 Future<void> mount(WidgetTester tester, SecurityFixture f, {double scale = 1}) async {
   await f.login();
+  expect(f.auth.isLoggedIn, isTrue, reason: 'Synthetic session must exist before mounting the screen');
   await tester.pumpWidget(ChangeNotifierProvider.value(value: f.auth,
     child: MaterialApp(
       builder: (context, child) => MediaQuery(
