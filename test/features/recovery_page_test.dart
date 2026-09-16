@@ -12,7 +12,7 @@ import '../support/recovery_fixture.dart';
 Future<void> mountRecovery(WidgetTester t, RecoveryFixture f,
     {bool verify = false, double scale = 1}) async {
   await f.initialize(signedIn: verify);
-  await t.pumpWidget(ChangeNotifierProvider.value(value: f.auth,
+  await t.pumpWidget(ChangeNotifierProvider<AuthProvider>.value(value: f.auth,
     child: MaterialApp(builder: (context, child) => MediaQuery(
       data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(scale)), child: child!),
       home: RecoveryPage(verifyEmail: verify, repository: f.repository))));
@@ -160,7 +160,7 @@ void main() {
   });
   testWidgets('login page exposes a real recovery route', (t) async {
     final f = RecoveryFixture(); await f.initialize();
-    await t.pumpWidget(ChangeNotifierProvider.value(value:f.auth,
+    await t.pumpWidget(ChangeNotifierProvider<AuthProvider>.value(value:f.auth,
       child:const MaterialApp(home:LoginPage()))); await t.pumpAndSettle();
     await pressRecovery(t, 'login-recovery');
     expect(find.byType(RecoveryPage), findsOneWidget);
