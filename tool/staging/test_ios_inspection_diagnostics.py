@@ -61,14 +61,14 @@ class IOSInspectionDiagnosticsTests(unittest.TestCase):
                            'keychain-access-groups': [native.TEAM_ID + '.' + native.IOS_ID],
                            'get-task-allow': False, 'synthetic-private-value': SENSITIVE}
             cert = b'synthetic certificate ' + SENSITIVE.encode()
-            devices = ['synthetic-a', 'synthetic-b']
+            devices = ['synthetic-a', 'synthetic-b', 'synthetic-c']
             profile = {'Name': 'wrong' if failure == 'profile_contract_check' else native.PROFILE_NAME,
                        'UUID': native.PROFILE_UUID, 'TeamIdentifier': [native.TEAM_ID],
                        'Entitlements': entitlement, 'ProvisionedDevices': devices,
                        'DeveloperCertificates': [cert if profile_certificate is None else profile_certificate],
                        'ExpirationDate': datetime.datetime(2027, 9, 22)}
             stack.enter_context(patch.object(native, 'CERT_SHA256', hashlib.sha256(cert).hexdigest()))
-            stack.enter_context(patch.object(native, 'DEVICE_DIGEST', hashlib.sha256(b'synthetic-a\nsynthetic-b').hexdigest()))
+            stack.enter_context(patch.object(native, 'DEVICE_DIGEST', hashlib.sha256(b'synthetic-a\nsynthetic-b\nsynthetic-c').hexdigest()))
             stack.enter_context(patch.dict(os.environ, {'API_BASE_URL': native.ORIGIN, 'FLUTTER_ROOT': str(sdk)}))
             commands = []
 
@@ -135,6 +135,7 @@ class IOSInspectionDiagnosticsTests(unittest.TestCase):
         self.assertIsNone(saved)
         self.assertIsNone(error)
         self.assertTrue(result['signature_verified'])
+        self.assertEqual(result['device_count'], 3)
 
     def test_each_failed_stage_is_identified_and_stops_inspection(self):
         for index, (label, category, code) in enumerate(STAGES):

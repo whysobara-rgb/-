@@ -49,17 +49,32 @@ class NativeValidationTests(unittest.TestCase):
                 'Entitlements': {'application-identifier': native.TEAM_ID + '.' + native.IOS_ID,
                                  'com.apple.developer.team-identifier': native.TEAM_ID,
                                  'get-task-allow': False},
-                'ProvisionedDevices': ['synthetic-device-a', 'synthetic-device-b'],
+                'ProvisionedDevices': ['synthetic-device-a', 'synthetic-device-b', 'synthetic-device-c'],
                 'DeveloperCertificates': [b'synthetic-cert'],
                 'ExpirationDate': datetime.datetime(2027, 9, 22, 0, 0)}
 
     def check_synthetic_profile(self, profile):
-        with patch.object(native, 'DEVICE_DIGEST', hashlib.sha256(b'synthetic-device-a\nsynthetic-device-b').hexdigest()), \
+        with patch.object(native, 'DEVICE_DIGEST', hashlib.sha256(b'synthetic-device-a\nsynthetic-device-b\nsynthetic-device-c').hexdigest()), \
              patch.object(native, 'CERT_SHA256', hashlib.sha256(b'synthetic-cert').hexdigest()):
             native.check_profile(profile)
 
     def test_exact_adhoc_profile_contract(self):
         self.check_synthetic_profile(self.profile())
+
+    def test_three_device_set_is_order_independent(self):
+        profile = self.profile()
+        profile['ProvisionedDevices'].reverse()
+        self.check_synthetic_profile(profile)
+
+    def test_legacy_missing_duplicate_extra_or_unapproved_devices_rejected(self):
+        approved = self.profile()['ProvisionedDevices']
+        for devices in [approved[:2], approved[1:], approved + ['unapproved'],
+                        approved[:2] + [approved[0]], approved[:2] + ['unapproved']]:
+            with self.subTest(devices=devices):
+                profile = self.profile()
+                profile['ProvisionedDevices'] = devices
+                with self.assertRaises(ValueError):
+                    self.check_synthetic_profile(profile)
 
     def test_wrong_profile_device_certificate_and_expiry_rejected(self):
         for key, value in [('Name', 'Production'), ('UUID', 'wrong'),

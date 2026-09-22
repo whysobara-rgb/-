@@ -60,7 +60,7 @@ def build():
             installed = destination / (PROFILE_UUID + '.mobileprovision')
             with installed.open('xb') as file:
                 file.write(profile_file.read_bytes())
-            print('PASS: existing P12 imported; exact identity/profile/two devices verified', flush=True)
+            print('PASS: existing P12 imported; exact identity/profile/three devices verified', flush=True)
             # Generates Flutter settings and installs Pods, but does not create an unsigned app.
             subprocess.run(['flutter', 'build', 'ios', '--profile', '--flavor', 'staging',
                             '--config-only', '--no-codesign',

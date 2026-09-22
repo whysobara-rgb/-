@@ -164,11 +164,11 @@ No account credentials are placed in source or artifacts.
 Use only the three existing staging secrets: certificate P12, certificate password
 and Ad Hoc profile. The legacy private-key secret is neither consumed nor changed.
 `build_ios.py` imports them into a temporary keychain, validates the exact existing
-certificate/profile and two approved device identities, then generates Flutter
+certificate/profile and three approved device identities, then generates Flutter
 Profile settings, archives `Profile-staging`, and exports Ad Hoc.
 
 Final archive and IPA checks cover actual code signature, embedded profile, bundle,
-team, isolated Keychain group, certificate fingerprint, two devices, expiry and
+team, isolated Keychain group, certificate fingerprint, three devices, expiry and
 compiled staging origin. The actual Flutter engine UUID must match the SDK's
 Profile engine. Effective Xcode settings and Dart defines must select Profile
 without runtime-mode overrides. This is build evidence, not physical-device runtime

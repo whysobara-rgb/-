@@ -16,8 +16,8 @@ BACKEND_SHA = 'a224c07435f7ba17b65baf0c6d7ab2c5b9e629a7'
 CERT_SHA1 = '27383C642AF5A956690DC3EF17D19CAE2530AD80'
 CERT_SHA256 = 'b9a8fc18bfd1f841eb5c5b5142f7ba53d1580d6a64a27e2bbe3b952be9012357'
 P12_SHA256 = '466da63c230b5eb05d0bdb138fb1d25e55053117e54579cbdd40a24c17b154c3'
-DEVICE_DIGEST = '09aa11538f89e50152c3880d89237035f9643eedc4ba41a7b472c9227887070c'
-PROFILE_UUID = 'bb447feb-6d61-42ba-854c-a1265bbad26f'
+DEVICE_DIGEST = 'f34176180c4b7469eff1bb7b6d83047d85de79f36956d0c26b295dbfa005454d'
+PROFILE_UUID = 'cdf32c73-1c20-4355-855a-c73a043754b6'
 PROFILE_NAME = 'GachiGacha Staging CI Ad Hoc 20260922'
 
 
@@ -67,7 +67,7 @@ def check_profile(profile):
     require(ent.get('get-task-allow') is False and not profile.get('ProvisionsAllDevices', False),
             'Not an Ad Hoc distribution profile')
     devices = profile.get('ProvisionedDevices', [])
-    require(len(devices) == len(set(devices)) == 2, 'Expected two approved devices')
+    require(len(devices) == len(set(devices)) == 3, 'Expected three approved devices')
     require(hashlib.sha256('\n'.join(sorted(devices)).encode()).hexdigest() == DEVICE_DIGEST,
             'Unexpected device set')
     certs = profile.get('DeveloperCertificates', [])
@@ -170,7 +170,7 @@ def check_signed_app(app, temp, *, failure_evidence=None, archive=None):
         def uuids(path):
             return {line.split()[1] for line in check.command(['dwarfdump', '--uuid', str(path)]).decode().splitlines()}
         require(uuids(engine) == uuids(sdk) and bool(uuids(engine)), 'Final app does not contain the Profile engine')
-    return {'bundle_id': IOS_ID, 'profile_uuid': PROFILE_UUID, 'device_count': 2,
+    return {'bundle_id': IOS_ID, 'profile_uuid': PROFILE_UUID, 'device_count': 3,
             'expires': '2027-09-22', 'certificate_sha256': CERT_SHA256,
             'keychain_groups': ent['keychain-access-groups'], 'api_origin': ORIGIN,
             'engine_mode': 'profile', 'signature_verified': True}
