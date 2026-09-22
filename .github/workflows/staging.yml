@@ -1,0 +1,111 @@
+name: Staging build preparation
+
+# Manual build/configuration only. No Firebase upload, signing import or install.
+on:
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: 'Explicit staging HTTPS origin (required; no default or fallback)'
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-preparation-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  API_BASE_URL: ${{ inputs.api_base_url }}
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Reject a missing or unsafe origin before building
+        run: python3 tool/staging/validate.py origin
+      - run: python3 tool/staging/check_configuration.py
+      - run: python3 -m unittest discover -s tool/staging -p 'test_*.py' -v
+
+  android:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      ORG_GRADLE_PROJECT_gachiStaging: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - run: python3 tool/staging/validate.py origin
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.4'
+          channel: stable
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - run: flutter analyze
+      - run: flutter test
+      - name: Build staging debug APK using the existing debug signing mechanism
+        run: flutter build apk --debug --dart-define="API_BASE_URL=$API_BASE_URL"
+      - name: Inspect built package and verify signature
+        run: |
+          BUILD_TOOLS=$(python3 - <<'PY'
+          import os
+          from pathlib import Path
+          sdk = Path(os.environ['ANDROID_HOME'])
+          versions = [p for p in (sdk / 'build-tools').iterdir() if all(s.isdigit() for s in p.name.split('.'))]
+          print(max(versions, key=lambda p: tuple(map(int, p.name.split('.')))))
+          PY
+          )
+          python3 tool/staging/validate.py android-apk build/app/outputs/flutter-apk/app-debug.apk --aapt "$BUILD_TOOLS/aapt" --apksigner "$BUILD_TOOLS/apksigner"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: staging-android-debug-build-only
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          retention-days: 7
+
+  ios:
+    needs: validate
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - run: python3 tool/staging/validate.py origin
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.4'
+          channel: stable
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - name: Validate Xcode project syntax
+        run: |
+          plutil -lint ios/Runner.xcodeproj/project.pbxproj ios/Runner/Staging.entitlements
+          xcodebuild -list -project ios/Runner.xcodeproj
+          python3 tool/staging/check_configuration.py
+      - name: Build staging simulator app only
+        run: flutter build ios --simulator --debug --flavor staging --dart-define="API_BASE_URL=$API_BASE_URL"
+      - name: Inspect actual simulator bundle
+        run: |
+          python3 tool/staging/validate.py ios-app build/ios/iphonesimulator/Runner.app
+          codesign --verify --strict build/ios/iphonesimulator/Runner.app
+          ditto -c -k --sequesterRsrc --keepParent build/ios/iphonesimulator/Runner.app build/ios/staging-simulator.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: staging-ios-simulator-build-only
+          path: build/ios/staging-simulator.zip
+          retention-days: 7
+      - name: Record device signing boundary
+        run: echo 'Profile archive / Ad Hoc IPA / Firebase upload / iPhone install remain BLOCKED pending separate signing and distribution approval.'
