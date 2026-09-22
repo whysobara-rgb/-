@@ -89,7 +89,8 @@ def build():
                 raise ValueError('Profile archive failed')
             print('PASS: Profile archive created', flush=True)
             archived_app = archive / 'Products/Applications/Runner.app'
-            evidence = check_signed_app(archived_app, temp)
+            failure_evidence = Path('build/staging-ios/inspection-failure.json')
+            evidence = check_signed_app(archived_app, temp, failure_evidence=failure_evidence, archive=archive)
             export_options = temp / 'ExportOptions.plist'
             export_options.write_bytes(plistlib.dumps({
                 'method': 'ad-hoc', 'destination': 'export', 'signingStyle': 'manual',
@@ -110,7 +111,8 @@ def build():
                 zipped.extractall(unpacked)
             apps = list((unpacked / 'Payload').glob('*.app'))
             require(len(apps) == 1, 'Expected one IPA app')
-            require(check_signed_app(apps[0], temp) == evidence, 'Export altered app contract')
+            require(check_signed_app(apps[0], temp, failure_evidence=failure_evidence, archive=archive) == evidence,
+                    'Export altered app contract')
             evidence.update({'flutter_sha': os.environ['GITHUB_SHA'], 'backend_sha': os.environ['EXPECTED_BACKEND_SHA'],
                              'ipa_sha256': hashlib.sha256(ipas[0].read_bytes()).hexdigest(),
                              'configuration': 'Profile-staging', 'runtime_mode_override': False,

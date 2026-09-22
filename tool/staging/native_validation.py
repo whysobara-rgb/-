@@ -104,26 +104,73 @@ def check_pods_signing_settings(targets):
                 'Pods must not have manual signing forced on them')
 
 
-def check_signed_app(app, temp):
-    run(['codesign', '--verify', '--deep', '--strict', str(app)])
-    info = plistlib.loads((app / 'Info.plist').read_bytes())
-    ent = plistlib.loads(run(['codesign', '-d', '--entitlements', ':-', str(app)]))
-    validate_ios_identity(info, ent)
-    require(ent.get('get-task-allow') is False, 'App signed for development instead of Ad Hoc')
-    profile = plistlib.loads(run(['security', 'cms', '-D', '-i', str(app / 'embedded.mobileprovision')]))
-    check_profile(profile)
-    prefix = str(temp / 'verified-cert-')
-    run(['codesign', '-d', '--extract-certificates', prefix, str(app)])
-    require(hashlib.sha256(Path(prefix + '0').read_bytes()).hexdigest() == CERT_SHA256,
-            'Final signature does not use the approved Distribution certificate')
-    binary = app / 'Frameworks/App.framework/App'
-    require(exact_origin().encode() in binary.read_bytes(), 'Staging origin missing from compiled Dart AOT')
-    engine = app / 'Frameworks/Flutter.framework/Flutter'
-    sdk = Path(os.environ['FLUTTER_ROOT']) / 'bin/cache/artifacts/engine/ios-profile/Flutter.xcframework/ios-arm64/Flutter.framework/Flutter'
-    require(sdk.is_file(), 'Profile SDK engine missing')
-    def uuids(path):
-        return {line.split()[1] for line in run(['dwarfdump', '--uuid', str(path)]).decode().splitlines()}
-    require(uuids(engine) == uuids(sdk) and bool(uuids(engine)), 'Final app does not contain the Profile engine')
+class InspectionStage:
+    """Fixed labels only; subprocess output and exception details never leave the check."""
+
+    def __init__(self, label, category, failure_evidence, archive):
+        self.label = label
+        self.category = category
+        self.failure_evidence = failure_evidence
+        self.archive = archive
+        # A pure Python/file check (or a command that could not start) has no process exit code.
+        self.return_code = None
+
+    def __enter__(self):
+        return self
+
+    def command(self, args):
+        self.return_code = None
+        result = subprocess.run(args, capture_output=True)
+        self.return_code = result.returncode
+        require(result.returncode == 0, 'Inspection command failed')
+        return result.stdout
+
+    def __exit__(self, error_type, error, traceback):
+        print(json.dumps({'stage': self.label, 'status': 'FAIL' if error_type else 'PASS',
+                          'command_category': self.category, 'return_code': self.return_code}), flush=True)
+        if error_type:
+            if self.failure_evidence is not None:
+                self.failure_evidence.parent.mkdir(parents=True, exist_ok=True)
+                self.failure_evidence.write_text(json.dumps({
+                    'failed_stage': self.label,
+                    'archive_exists': self.archive is not None and self.archive.is_dir(),
+                }) + '\n')
+            raise ValueError('Post-archive inspection failed; see sanitized stage label') from None
+
+
+def check_signed_app(app, temp, *, failure_evidence=None, archive=None):
+    def stage(label, category):
+        return InspectionStage(label, category, failure_evidence, archive)
+
+    with stage('codesign_verify', 'codesign') as check:
+        check.command(['codesign', '--verify', '--deep', '--strict', str(app)])
+    with stage('entitlements_extract', 'codesign') as check:
+        ent = plistlib.loads(check.command(['codesign', '-d', '--entitlements', ':-', str(app)]))
+    with stage('app_identity_check', 'python_contract'):
+        info = plistlib.loads((app / 'Info.plist').read_bytes())
+        validate_ios_identity(info, ent)
+        require(ent.get('get-task-allow') is False, 'App signed for development instead of Ad Hoc')
+    with stage('profile_decode', 'security_cms') as check:
+        profile = plistlib.loads(check.command(['security', 'cms', '-D', '-i', str(app / 'embedded.mobileprovision')]))
+    with stage('profile_contract_check', 'python_contract'):
+        check_profile(profile)
+    with stage('certificate_extract', 'codesign') as check:
+        prefix = str(temp / 'verified-cert-')
+        check.command(['codesign', '-d', '--extract-certificates', prefix, str(app)])
+    with stage('certificate_hash_check', 'python_hash'):
+        require(hashlib.sha256(Path(prefix + '0').read_bytes()).hexdigest() == CERT_SHA256,
+                'Final signature does not use the approved Distribution certificate')
+    with stage('compiled_origin_check', 'python_binary'):
+        binary = app / 'Frameworks/App.framework/App'
+        require(exact_origin().encode() in binary.read_bytes(), 'Staging origin missing from compiled Dart AOT')
+    with stage('profile_engine_binary_exists', 'python_file'):
+        engine = app / 'Frameworks/Flutter.framework/Flutter'
+        sdk = Path(os.environ['FLUTTER_ROOT']) / 'bin/cache/artifacts/engine/ios-profile/Flutter.xcframework/ios-arm64/Flutter.framework/Flutter'
+        require(sdk.is_file(), 'Profile SDK engine missing')
+    with stage('profile_engine_uuid_check', 'dwarfdump') as check:
+        def uuids(path):
+            return {line.split()[1] for line in check.command(['dwarfdump', '--uuid', str(path)]).decode().splitlines()}
+        require(uuids(engine) == uuids(sdk) and bool(uuids(engine)), 'Final app does not contain the Profile engine')
     return {'bundle_id': IOS_ID, 'profile_uuid': PROFILE_UUID, 'device_count': 2,
             'expires': '2027-09-22', 'certificate_sha256': CERT_SHA256,
             'keychain_groups': ent['keychain-access-groups'], 'api_origin': ORIGIN,
