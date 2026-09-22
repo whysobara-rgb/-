@@ -89,38 +89,58 @@ class Capsule {
       orderId = uuid(j['orderId']),
       status = label(j['status']),
       sequence = positive(j['sequence']) {
-    if (!{'UNOPENED', 'OPENED'}.contains(status) || sequence > 100) {
+    if (!{'UNOPENED', 'OPENED', 'REFUNDED'}.contains(status) ||
+        sequence > 100) {
       invalidResponse();
     }
   }
+  bool get canOpen => status == 'UNOPENED';
+  bool get isOpened => status == 'OPENED';
+  bool get isRefunded => status == 'REFUNDED';
 }
 
 class Receipt {
-  final String id, title, version;
-  final int gachaId, quantity, unitPrice, total;
+  final String id, title, version, status;
+  final int gachaId, quantity, unitPrice, total, refundedQuantity;
   final List<Capsule> capsules;
   Receipt(dynamic value) : this._(object(value));
   Receipt._(Map<String, dynamic> j)
     : id = uuid(j['orderId']),
       title = label(j['title']),
       version = versionId(j['probabilityVersion']),
+      status = label(j['status']),
       gachaId = positive(j['gachaId']),
       quantity = positive(j['quantity']),
       unitPrice = positive(j['unitPrice']),
       total = positive(j['total']),
+      // Older PAID receipts have no refund metadata. A refund receipt must
+      // include the server count and agree with the individual capsule states.
+      refundedQuantity = j.containsKey('refundedQuantity')
+          ? positive(j['refundedQuantity'], zero: true)
+          : j['status'] == 'PAID'
+          ? 0
+          : invalidResponse(),
       capsules = (j['capsules'] as List)
           .map(Capsule.new)
           .toList(growable: false) {
-    if (j['status'] != 'PAID' ||
+    if (!{'PAID', 'PARTIALLY_REFUNDED', 'REFUNDED'}.contains(status) ||
         j['currency'] != 'GP' ||
         quantity > 100 ||
         quantity * unitPrice != total ||
         capsules.length != quantity ||
         capsules.any((c) => c.orderId != id) ||
-        capsules.map((c) => c.id).toSet().length != quantity) {
+        capsules.map((c) => c.id).toSet().length != quantity ||
+        capsules.where((c) => c.isRefunded).length != refundedQuantity ||
+        (status == 'PAID' && refundedQuantity != 0) ||
+        (status == 'REFUNDED' && refundedQuantity != quantity) ||
+        (status == 'PARTIALLY_REFUNDED' &&
+            (refundedQuantity == 0 || refundedQuantity >= quantity))) {
       invalidResponse();
     }
   }
+  bool get hasRefund => status != 'PAID';
+  int get unopenedCount => capsules.where((c) => c.canOpen).length;
+  int get openedCount => capsules.where((c) => c.isOpened).length;
 }
 
 class Opening {

@@ -130,14 +130,16 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
   }
 
   Future<void> _recoverOpening(String id) async {
+    if (_knownCapsule(id)?.isRefunded == true) return;
     _openingId = id;
+    _opening = null;
     _canRetryOpen = false;
     await _run(() async {
       try {
         _opening = await _repo!.result(id);
       } on ApiException catch (e) {
         if (e.httpStatusCode == 409 && e.statusCode == 10005) {
-          _canRetryOpen = true;
+          _canRetryOpen = _knownCapsule(id)?.canOpen ?? true;
         }
         rethrow;
       }
@@ -145,7 +147,7 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
   }
 
   Future<void> _open(String id) async {
-    if (_busy) return;
+    if (_busy || _knownCapsule(id)?.canOpen == false) return;
     await _run(() async {
       _openingId = id;
       _canRetryOpen = false;
@@ -159,9 +161,28 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
 
   Future<void> _viewCapsule(Capsule capsule) async {
     await _run(() async {
-      _focusedOrder = await _repo!.order(capsule.orderId);
-      _focused = capsule;
+      final order = await _repo!.order(capsule.orderId);
+      if (!mounted || !_sameUser) return;
+      final current = order.capsules.where((c) => c.id == capsule.id);
+      if (current.length != 1) invalidResponse();
+      _focusedOrder = order;
+      // The list may predate a refund in another session. Use the current
+      // order's capsule state, not the cached unopened-list item.
+      _focused = current.single;
+      for (final c in order.capsules.where((c) => !c.canOpen)) {
+        _selectedCapsules.remove(c.id);
+      }
     });
+  }
+
+  Capsule? _knownCapsule(String id) {
+    for (final order in [_focusedOrder, _receipt]) {
+      if (order == null) continue;
+      for (final capsule in order.capsules) {
+        if (capsule.id == id) return capsule;
+      }
+    }
+    return null;
   }
 
   void _selectCapsule(String id) {
@@ -406,7 +427,8 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
         ),
       ];
     }
-    if (_receipt != null) {
+    if (_receipt != null && _openingId == null) {
+      if (_receipt!.hasRefund) return _refundedReceipt(_receipt!);
       return [
         _summary(
           Icons.check_circle_outline,
@@ -433,6 +455,21 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
       ];
     }
     if (_focused != null) {
+      if (!_focused!.canOpen) {
+        return [
+          _summary(
+            Icons.inventory_2_outlined,
+            _focused!.isRefunded ? '환불이 완료된 박스예요' : '이미 개봉한 박스예요',
+            _focusedOrder!.title,
+          ),
+          _detail('주문 상태', _orderState(_focusedOrder!)),
+          if (_focused!.isRefunded)
+            const Text('환불이 완료되어 다시 개봉할 수 없어요.')
+          else
+            _button('확정된 개봉 결과 보기', () => _recoverOpening(_focused!.id)),
+          _button('보관함으로 돌아가기', _inventory, primary: false),
+        ];
+      }
       return [
         _summary(
           Icons.inventory_2_outlined,
@@ -676,6 +713,35 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
     }
     return widgets;
   }
+
+  String _orderState(Receipt order) => switch (order.status) {
+    'PAID' => '구매 완료',
+    'PARTIALLY_REFUNDED' => '일부 환불 완료',
+    'REFUNDED' => '전체 환불 완료',
+    _ => invalidResponse(),
+  };
+
+  List<Widget> _refundedReceipt(Receipt order) => [
+    _summary(Icons.receipt_long_outlined, _orderState(order), order.title),
+    _detail('구매 수량', '${order.quantity}개'),
+    _detail('개봉 완료', '${order.openedCount}개'),
+    _detail('환불 완료', '${order.refundedQuantity}개'),
+    _detail('아직 미개봉', '${order.unopenedCount}개'),
+    const Text('환불된 박스는 다시 개봉할 수 없어요. 이미 받은 상품은 보관함에 유지됩니다.'),
+    for (final c in order.capsules)
+      if (c.isOpened)
+        _button('${c.sequence}번 박스 개봉 결과 보기', () => _recoverOpening(c.id))
+      else if (c.canOpen)
+        _button('${c.sequence}번 미개봉 박스 확인', () async {
+          await _viewCapsule(c);
+          if (mounted && _sameUser && _focused?.id == c.id) {
+            setState(() => _receipt = null);
+          }
+        })
+      else
+        _detail('${c.sequence}번 박스', '환불 완료'),
+    _button('미개봉 보관함 보기', _inventory, primary: false),
+  ];
 
   Widget _selectionAction() => Padding(
     padding: const EdgeInsets.all(GachiSpace.lg),
