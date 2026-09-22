@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:gacha_vault/core/config/app_config.dart';
 import 'package:gacha_vault/navigation/main_navigation.dart';
+import 'package:gacha_vault/features/home/presentation/home_page.dart';
 import 'package:gacha_vault/features/ranking/presentation/ranking_screen.dart';
 import 'package:gacha_vault/features/wallet/presentation/wallet_page.dart';
 import 'package:gacha_vault/features/orders/order_flow_page.dart';
@@ -49,6 +50,19 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      Finder tab(String label) => find.descendant(
+        of: find.byType(GachiBottomNavigation),
+        matching: find.text(label),
+      );
+      expect(tester.widget<HomePage>(find.byType(HomePage)).refreshRevision, 0);
+      await tester.tap(tab('홈'));
+      await tester.pumpAndSettle();
+      expect(tester.widget<HomePage>(find.byType(HomePage)).refreshRevision, 1);
+      await tester.tap(tab('박스샵'));
+      await tester.pumpAndSettle();
+      await tester.tap(tab('홈'));
+      await tester.pumpAndSettle();
+      expect(tester.widget<HomePage>(find.byType(HomePage)).refreshRevision, 1);
       await tester.ensureVisible(find.text('랭킹'));
       await tester.tap(find.text('랭킹'));
       await tester.pumpAndSettle();

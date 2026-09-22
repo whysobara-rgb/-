@@ -29,8 +29,11 @@ class _MainNavigationState extends State<MainNavigation> {
       return;
     }
     setState(() {
-      // Home <-> shop uses the same result; returning from another section refreshes.
-      if (index <= 1 && _currentIndex > 1) _homeRevision++;
+      // Home <-> shop shares the result. Explicit home reselection and return
+      // from another section retain the original refresh behavior.
+      if (index <= 1 && _currentIndex > 1 || index == 0 && _currentIndex == 0) {
+        _homeRevision++;
+      }
       if (index == 3) _inventoryRevision++;
       _currentIndex = index;
     });
