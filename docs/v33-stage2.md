@@ -29,7 +29,7 @@ No repository/service, DTO/domain, API endpoint/config, release flag, backend or
 
 ## Validation scope
 
-63 new Stage 2 widget/state cases plus 1 release-constant case. Matrix includes six presentations at four widths and two text scales; single/multi opening, repeat Skip, delayed/lost response, pending+unopened, all retained, late response after disposal, lifecycle pause/resume, account switch, reduced motion, failed image, vault loading/error/retry, empty/100-item vault, My callbacks and 200% landscape.
+64 new Stage 2 widget/state cases plus 1 release-constant case. Matrix includes six presentations at four widths and two text scales; single/multi opening, repeat Skip, delayed/lost response, pending+unopened, all retained, late response after disposal, lifecycle pause/resume, account switch, reduced motion, failed image, vault loading/error/retry, empty/100-item vault, My callbacks and 200% landscape.
 
 Final-SHA CI supplies analyze/full tests, explicit gate-on navigation, release constants with every enable define supplied, Android main build/install/launch and storage recovery, iOS simulator main build/install/launch and Keychain recovery. Both platforms capture five Stage 2 screens using labelled synthetic data. This is not live server, physical device, VoiceOver/TalkBack, production payment, or final 3D/audio verification.
 
@@ -41,3 +41,7 @@ Final-SHA CI supplies analyze/full tests, explicit gate-on navigation, release c
 - My: existing menu descriptions remain for discoverability; detailed destinations retain their prior designs. No fabricated counts/status totals.
 - No server/API changes needed for this scope. Capsule list currently lacks a verified box photo/title; generic unopened labels remain. A future enriched capsule display would require an explicitly separate API contract, never invented client data.
 - Stage 3 (commerce/account details) has not started. No deployment or store submission.
+
+## Native capture correction
+
+Android evidence exposed insufficient contrast from inherited light Material onSurfaceVariant on the midnight opening cards. The scoped GachiOpeningTheme now explicitly supplies high-contrast secondary/outline colors; a regression check reads the effective subtitle style and checkbox scheme. Stage 1 theme and transaction methods remain untouched. All final-SHA checks and native captures are run again after this correction.

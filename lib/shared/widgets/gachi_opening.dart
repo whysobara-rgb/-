@@ -25,6 +25,9 @@ class GachiOpeningTheme extends StatelessWidget {
           onPrimary: GachiColors.navy,
           surface: GachiOpeningColors.panel,
           onSurface: GachiColors.ivory,
+          onSurfaceVariant: GachiOpeningColors.secondary,
+          outline: GachiOpeningColors.secondary,
+          outlineVariant: GachiOpeningColors.border,
           error: const Color(0xFFFFB4AB),
         ),
         textTheme: base.textTheme.apply(

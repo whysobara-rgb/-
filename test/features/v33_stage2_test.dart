@@ -624,6 +624,38 @@ void main() {
     },
   );
   testWidgets(
+    'opening selection secondary text and controls contrast against midnight cards',
+    (tester) async {
+      await mount(
+        tester,
+        OrderFlowPage(userId: 10, repository: readOnlyRepository()),
+      );
+      final subtitle = find.text('선택해서 함께 개봉할 수 있어요').first;
+      final style = DefaultTextStyle.of(tester.element(subtitle)).style;
+      double contrast(Color a, Color b) {
+        final luminances = [a.computeLuminance(), b.computeLuminance()]..sort();
+        return (luminances.last + .05) / (luminances.first + .05);
+      }
+
+      expect(
+        contrast(style.color!, GachiOpeningColors.panel),
+        greaterThanOrEqualTo(4.5),
+      );
+      final scheme = Theme.of(
+        tester.element(find.byType(Checkbox).first),
+      ).colorScheme;
+      expect(
+        contrast(scheme.onSurfaceVariant, GachiOpeningColors.panel),
+        greaterThanOrEqualTo(3),
+      );
+      expect(
+        tester.widget<Checkbox>(find.byType(Checkbox).first).onChanged,
+        isNotNull,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+  testWidgets(
     'My retains all commerce account and logout entrypoints with wallet action',
     (tester) async {
       var wallet = 0;
