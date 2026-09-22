@@ -39,7 +39,7 @@ jobs:
           # No checkout, SDK setup, network/API access, app build, or artifact upload.
           EXPECTED_SHA1 = '27383C642AF5A956690DC3EF17D19CAE2530AD80'
           EXPECTED_SHA256 = 'b9a8fc18bfd1f841eb5c5b5142f7ba53d1580d6a64a27e2bbe3b952be9012357'
-          EXPECTED_P12_SHA256 = 'fea16e3502c235a7a12f96bc6f3ab0a036626c9b8f84fe26702be9f39e8a1933'
+          EXPECTED_P12_SHA256 = '466da63c230b5eb05d0bdb138fb1d25e55053117e54579cbdd40a24c17b154c3'
           EXPECTED_DEVICE_DIGEST = '09aa11538f89e50152c3880d89237035f9643eedc4ba41a7b472c9227887070c'
           EXPECTED_UUID = 'bb447feb-6d61-42ba-854c-a1265bbad26f'
           TEAM = '27Y574N7TW'
@@ -88,6 +88,14 @@ jobs:
               p12 = temp / 'staging.p12'
               profile = temp / 'staging.mobileprovision'
               keychain = temp / 'staging.keychain-db'
+              stage = 'temporary keychain creation'
+              keychain_password = secrets.token_urlsafe(48)
+              run(['security', 'create-keychain', '-p', keychain_password, str(keychain)])
+              created_keychain = True
+              run(['security', 'set-keychain-settings', '-lut', '3600', str(keychain)])
+              run(['security', 'unlock-keychain', '-p', keychain_password, str(keychain)])
+              success(stage)
+
               p12.write_bytes(base64.b64decode(values['STAGING_P12'], validate=True))
               profile.write_bytes(base64.b64decode(values['STAGING_PROFILE'], validate=True))
               password = values.pop('STAGING_P12_PASSWORD')
@@ -127,6 +135,22 @@ jobs:
               require(hashlib.sha256(cert_der).hexdigest() == EXPECTED_SHA256, 'certificate changed')
               success(stage + ': existing identity unchanged')
 
+              stage = 'PKCS12 import'
+              run(['security', 'import', str(p12), '-k', str(keychain), '-P', password,
+                   '-T', '/usr/bin/codesign', '-T', '/usr/bin/security'])
+              password = None
+              success(stage)
+              stage = 'private key access configuration'
+              run(['security', 'set-key-partition-list', '-S', 'apple-tool:,apple:,codesign:',
+                   '-s', '-k', keychain_password, str(keychain)])
+              success(stage)
+
+              stage = 'valid signing identity recognition'
+              identities = run(['security', 'find-identity', '-v', '-p', 'codesigning', str(keychain)]).decode()
+              require(EXPECTED_SHA1 in identities, 'expected valid signing identity missing')
+              require('1 valid identities found' in identities, 'expected exactly one valid identity')
+              success(stage)
+
               stage = 'Ad Hoc profile decode and validation'
               decoded = plistlib.loads(run(['security', 'cms', '-D', '-i', str(profile)]))
               entitlements = decoded['Entitlements']
@@ -159,30 +183,6 @@ jobs:
               require(target.read_bytes() == profile.read_bytes(), 'installed profile differs')
               success(stage)
 
-              stage = 'temporary keychain creation'
-              keychain_password = secrets.token_urlsafe(48)
-              run(['security', 'create-keychain', '-p', keychain_password, str(keychain)])
-              created_keychain = True
-              run(['security', 'set-keychain-settings', '-lut', '3600', str(keychain)])
-              run(['security', 'unlock-keychain', '-p', keychain_password, str(keychain)])
-              success(stage)
-
-              stage = 'PKCS12 import'
-              run(['security', 'import', str(p12), '-k', str(keychain), '-P', password,
-                   '-T', '/usr/bin/codesign', '-T', '/usr/bin/security'])
-              password = None
-              success(stage)
-              stage = 'private key access configuration'
-              run(['security', 'set-key-partition-list', '-S', 'apple-tool:,apple:,codesign:',
-                   '-s', '-k', keychain_password, str(keychain)])
-              success(stage)
-
-              stage = 'valid signing identity recognition'
-              identities = run(['security', 'find-identity', '-v', '-p', 'codesigning', str(keychain)]).decode()
-              require(EXPECTED_SHA1 in identities, 'expected valid signing identity missing')
-              require('1 valid identities found' in identities, 'expected exactly one valid identity')
-              success(stage)
-
           except Exception:
               print('FAIL: ' + stage + '; sensitive diagnostic details withheld', flush=True)
               failed = True
@@ -203,6 +203,8 @@ jobs:
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
               summary.write('Signing import validation passed on macOS.\n\n'
                             '- Temporary keychain: created and removed\n'
+                            '- Decoded PKCS12 SHA256: matches verified local bytes\n'
+                            '- Exact GitHub password / OpenSSL MAC / certificate-key pair: passed\n'
                             '- PKCS12 import: passed\n'
                             '- Valid signing identity: exact verified staging certificate\n'
                             '- Ad Hoc profile: exact staging bundle, 2 verified devices, expiry 2027-09-22\n'
