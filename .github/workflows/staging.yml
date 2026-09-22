@@ -96,8 +96,8 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get --enforce-lockfile
-      - name: Build staging debug APK with explicit origin and unchanged gates
-        run: flutter build apk --debug --dart-define="API_BASE_URL=$API_BASE_URL"
+      - name: Build staging debug APK with explicit origin and GP order preview only
+        run: flutter build apk --debug --dart-define="API_BASE_URL=$API_BASE_URL" --dart-define=ENABLE_GP_ORDER_PREVIEW=true
       - name: Inspect final package, signature and compiled origin
         run: |
           BUILD_TOOLS=$(python3 - <<'PY'
