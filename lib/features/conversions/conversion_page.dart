@@ -1,3 +1,4 @@
+import '../../shared/widgets/gachi_flow.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/network/api_client.dart';
@@ -169,20 +170,16 @@ class _ConversionPageState extends State<ConversionPage> {
       ),
     ),
   );
-  List<Widget> _items(List<ConversionEntry> entries) => entries
-      .map(
-        (e) => Card(
-          child: ListTile(
-            leading: const Icon(Icons.inventory_2_outlined),
-            title: Text(e.prize.name),
-            subtitle: Text(
-              '${e.prize.displayGrade} · ${e.prize.premium ? '프리미엄' : '일반'}',
-            ),
-            trailing: Text('${_gp(e.amount)} GP'),
-          ),
-        ),
-      )
-      .toList();
+  List<Widget> _items(List<ConversionEntry> entries) => entries.map((e) =>
+    Padding(padding: const EdgeInsets.symmetric(vertical: GachiSpace.sm),
+      child: GachiInfoCard(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [Text(e.prize.name, style: GachiType.product),
+          const SizedBox(height: GachiSpace.sm),
+          Text('${e.prize.displayGrade} · ${e.prize.premium ? '프리미엄' : '일반'}', style: GachiType.meta),
+          const SizedBox(height: GachiSpace.sm),
+          Text('${_gp(e.amount)} GP', style: GachiType.section),
+        ])),
+    )).toList();
   Widget _consentBox(String title) => CheckboxListTile(
     key: const Key('conversion-consent'),
     value: _consent,
@@ -197,7 +194,7 @@ class _ConversionPageState extends State<ConversionPage> {
       return [
         Text(
           r.restored ? '상품 복구 완료' : 'GP 전환 완료',
-          style: Theme.of(context).textTheme.headlineSmall,
+          style: GachiType.pageTitle,
         ),
         const SizedBox(height: 12),
         Text(
@@ -261,7 +258,7 @@ class _ConversionPageState extends State<ConversionPage> {
       return [
         const Text(
           '이전 요청 결과 확인',
-          style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
+          style: GachiType.pageTitle,
         ),
         const SizedBox(height: 12),
         const Text(
@@ -282,14 +279,11 @@ class _ConversionPageState extends State<ConversionPage> {
       return [
         const Text(
           '상품을 GP로 전환할까요?',
-          style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
+          style: GachiType.pageTitle,
         ),
         const SizedBox(height: 16),
-        Text(
-          '+ ${_gp(q.total)} GP',
-          style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w800),
-        ),
-        Text('현재 잔액 ${_gp(q.balance)} GP · 선택 ${q.entries.length}개'),
+        GachiFlowSummary(title: '서버에서 확인한 전환 금액', value: '+ ${_gp(q.total)} GP',
+          description: '현재 잔액 ${_gp(q.balance)} GP · 선택 ${q.entries.length}개'),
         const SizedBox(height: 16),
         ..._items(q.entries),
         Text(
@@ -308,7 +302,7 @@ class _ConversionPageState extends State<ConversionPage> {
     return [
       const Text(
         '전환 내역',
-        style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
+        style: GachiType.pageTitle,
       ),
       const SizedBox(height: 8),
       const Text('전환한 상품과 복구 가능 여부를 확인하세요.'),
@@ -329,8 +323,9 @@ class _ConversionPageState extends State<ConversionPage> {
           ),
         ),
       ),
-      Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           TextButton(
             onPressed: _busy || _page <= 1
@@ -364,13 +359,13 @@ class _ConversionPageState extends State<ConversionPage> {
   Widget build(BuildContext context) {
     final sameUser =
         context.watch<AuthProvider>().currentUser?.id == widget.userId;
-    return Scaffold(
+    return GachiFlowScaffold(
       appBar: AppBar(title: const Text('GP 전환 · 상품 복구')),
       body: SafeArea(
         child: !sameUser
             ? const Center(child: Text('전환한 계정으로 다시 로그인해주세요.'))
             : ListView(
-                padding: const EdgeInsets.all(20),
+                padding: const EdgeInsets.all(GachiSpace.page),
                 children: [
                   if (_busy) const LinearProgressIndicator(),
                   if (_error != null) _errorNotice(),

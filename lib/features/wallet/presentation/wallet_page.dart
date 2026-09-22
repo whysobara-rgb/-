@@ -1,6 +1,6 @@
+import '../../../shared/widgets/gachi_flow.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../shared/providers/auth_provider.dart';
 import '../../../shared/providers/gp_provider.dart';
 import '../../../shared/widgets/balance_notice.dart';
@@ -68,7 +68,7 @@ class _WalletPageState extends State<WalletPage> {
   @override
   Widget build(BuildContext context) {
     final gp = context.watch<GpProvider>();
-    return Scaffold(
+    return GachiFlowScaffold(
       appBar: AppBar(
         title: const Text('나의 GP'),
         automaticallyImplyLeading: false,
@@ -77,14 +77,11 @@ class _WalletPageState extends State<WalletPage> {
         onRefresh: _load,
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(GachiSpace.page),
           children: [
             Container(
               padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                gradient: AppColors.heroGradient,
-                borderRadius: BorderRadius.circular(26),
-              ),
+              decoration: GachiFlowStyle.hero,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [

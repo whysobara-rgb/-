@@ -1,3 +1,4 @@
+import '../../shared/widgets/gachi_flow.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/network/api_client.dart';
@@ -14,7 +15,7 @@ String _error(Object error) {
 }
 String _date(DateTime d) => d.toLocal().toString().split('.').first;
 Future<bool> _confirm(BuildContext context, String title, String body) async =>
-    await showDialog<bool>(context: context, builder: (c) => AlertDialog(
+    await showDialog<bool>(context: context, builder: (c) => GachiFlowDialog(
       scrollable: true, title: Text(title), content: Text(body), actions: [
         TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('취소')),
         FilledButton(key: const Key('refund-confirm'), onPressed: () => Navigator.pop(c, true), child: const Text('확인 후 실행')),
@@ -36,7 +37,7 @@ class _RecoveryCard extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         const Text('이전 환불 요청 확인', style: TextStyle(fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
-        SelectableText('요청번호: ${pending.key}'),
+        GachiReference('문의용 요청번호: ${pending.key}'),
         Text('${pending.ids.length}개 · ${refundMoney(pending.amount, pending.currency)}'),
         Text(receipt != null ? orderStateLabel(receipt.status)
             : recovery == null ? '아직 처리 결과를 확인하지 못했습니다.'
@@ -147,11 +148,11 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
     if (_current) await _load();
   }
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) => GachiFlowScaffold(
     appBar: AppBar(title: const Text('주문·환불 내역')),
-    body: ListView(padding: const EdgeInsets.all(20), children: [
-      const Text('구매와 환불을 주문번호로 확인하세요.', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-      const SizedBox(height: 16),
+    body: ListView(padding: const EdgeInsets.all(GachiSpace.page), children: [
+      const GachiFlowHeading(label: 'ORDERS & REFUNDS', title: '나의 주문',
+        description: '구매한 상품과 환불 진행 상태를 확인하세요.'),
       if (_ended) Text(_message ?? '다시 로그인해주세요.') else ...[
         Wrap(spacing: 8, runSpacing: 8, children: [
           ChoiceChip(label: const Text('주문 내역'), selected: !_refunds,
@@ -294,9 +295,9 @@ class _OrderRefundPageState extends State<OrderRefundPage> {
   @override
   Widget build(BuildContext context) {
     final order = _order;
-    return PopScope(canPop: !_busy, child: Scaffold(
+    return PopScope(canPop: !_busy, child: GachiFlowScaffold(
       appBar: AppBar(title: const Text('주문 상세·환불')),
-      body: ListView(padding: const EdgeInsets.all(20), children: [
+      body: GachiFlowList(padding: const EdgeInsets.all(GachiSpace.page), children: [
         if (_message != null) Semantics(liveRegion: true, child: Text(_message!, key: const Key('refund-message'))),
         if (_ended) const Text('현재 화면의 거래 자료를 지웠습니다.') else ...[
           if (_busy && !_confirming) const LinearProgressIndicator(semanticsLabel: '주문 처리 확인 중'),
@@ -306,15 +307,18 @@ class _OrderRefundPageState extends State<OrderRefundPage> {
               onRefresh: () => _recover(), onRetry: () => _recover(retry: true),
               onAcknowledge: () => _recover(acknowledge: true)),
           if (order != null) ...[
-            Text(order.summary.title, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-            SelectableText('주문번호: ${order.summary.id}'),
-            Text('${orderStateLabel(order.summary.status)} · ${refundMoney(order.summary.total, order.summary.currency)}'),
+            GachiFlowHeading(label: 'ORDER DETAIL', title: order.summary.title),
+            GachiFlowSummary(title: orderStateLabel(order.summary.status),
+              value: refundMoney(order.summary.total, order.summary.currency),
+              description: '주문 ${_date(order.summary.createdAt)}'),
             Text('구매 ${order.summary.quantity}개 · 미개봉 ${order.summary.unopenedCount}개 · 환불 완료 ${order.summary.refundedQuantity}개'),
+            GachiReference('문의용 주문번호: ${order.summary.id}'),
             if (order.summary.refundUntil != null) Text('주문에 기록된 자동 환불 기한: ${_date(order.summary.refundUntil!)}'),
             if (!order.summary.refundEligible || order.summary.refundUntil == null)
               const Text('앱에서 자동 환불 대상 여부를 확인할 수 없습니다. 이 표시가 모든 환불 권리를 부정하는 것은 아닙니다. 고객지원에서 구매 당시 조건을 확인해주세요.'),
             if (!_requestEnabled) const Text('현재 앱 또는 서버에서 환불 신청을 준비하고 있습니다. 내역 조회는 가능합니다.'),
             const SizedBox(height: 16),
+            const GachiSectionHeader(title: '환불할 미개봉 캡슐'),
             for (final c in order.capsules) CheckboxListTile(
               key: Key('refund-capsule-${c.id}'), contentPadding: EdgeInsets.zero,
               title: Text('캡슐 ${c.sequence} · ${orderStateLabel(c.status)}'),

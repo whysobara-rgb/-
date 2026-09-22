@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/network/api_client.dart';
-import '../../core/theme/app_colors.dart';
+import '../../core/design/gachi_tokens.dart';
 import '../data/activity_page.dart';
 
 /// Shared paginated activity UI. A changed filter must supply a new key.
@@ -97,7 +97,7 @@ class _ActivityFeedState<T> extends State<ActivityFeed<T>> {
             sliver: SliverToBoxAdapter(
               child: Text(
                 '${_items.length} / $_total건',
-                style: const TextStyle(color: AppColors.textSecondary),
+                style: const TextStyle(color: GachiColors.secondary),
               ),
             ),
           ),
@@ -122,7 +122,7 @@ class _ActivityFeedState<T> extends State<ActivityFeed<T>> {
                   const Icon(
                     Icons.cloud_off_rounded,
                     size: 32,
-                    color: AppColors.textSecondary,
+                    color: GachiColors.secondary,
                   ),
                   const SizedBox(height: 12),
                   Text(_error!, textAlign: TextAlign.center),
@@ -141,7 +141,7 @@ class _ActivityFeedState<T> extends State<ActivityFeed<T>> {
                   Icon(
                     widget.emptyIcon,
                     size: 56,
-                    color: AppColors.accentViolet,
+                    color: GachiColors.navy,
                   ),
                   const SizedBox(height: 20),
                   Text(
@@ -157,7 +157,7 @@ class _ActivityFeedState<T> extends State<ActivityFeed<T>> {
                     widget.emptyDescription,
                     textAlign: TextAlign.center,
                     style: const TextStyle(
-                      color: AppColors.textSecondary,
+                      color: GachiColors.secondary,
                       height: 1.6,
                     ),
                   ),
@@ -173,7 +173,7 @@ class _ActivityFeedState<T> extends State<ActivityFeed<T>> {
                 else
                   const Text(
                     '모든 내역을 확인했어요',
-                    style: TextStyle(color: AppColors.textSecondary),
+                    style: TextStyle(color: GachiColors.secondary),
                   ),
               ],
             ),

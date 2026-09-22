@@ -1,6 +1,6 @@
+import '../../../shared/widgets/gachi_flow.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../shared/providers/gp_provider.dart';
 import '../../../shared/widgets/activity_feed.dart';
 import '../../../shared/widgets/balance_notice.dart';
@@ -21,7 +21,7 @@ class _PointHistoryPageState extends State<PointHistoryPage> {
   @override
   Widget build(BuildContext context) {
     final gp = context.watch<GpProvider>();
-    return Scaffold(
+    return GachiFlowScaffold(
       appBar: AppBar(title: const Text('포인트 내역')),
       body: SafeArea(
         child: ActivityFeed<PointHistoryEntry>(
@@ -39,10 +39,7 @@ class _PointHistoryPageState extends State<PointHistoryPage> {
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  gradient: AppColors.heroGradient,
-                  borderRadius: BorderRadius.circular(26),
-                ),
+                decoration: GachiFlowStyle.hero,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -92,7 +89,7 @@ class PointHistoryTile extends StatelessWidget {
       children: [
         Text(
           '${entry.formattedDate} · ${entry.type.label}',
-          style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+          style: const TextStyle(color: GachiColors.secondary, fontSize: 12),
         ),
         const SizedBox(height: 8),
         Text(
@@ -105,7 +102,11 @@ class PointHistoryTile extends StatelessWidget {
           child: Text(
             entry.formattedAmount,
             style: TextStyle(
-              color: entry.type.amountColor,
+              color: switch (entry.type) {
+                PointHistoryType.earn => GachiColors.navy,
+                PointHistoryType.use => GachiColors.error,
+                PointHistoryType.expire => GachiColors.secondary,
+              },
               fontSize: 18,
               fontWeight: FontWeight.w800,
             ),

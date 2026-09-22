@@ -1,3 +1,4 @@
+import '../../../shared/widgets/gachi_flow.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/config/app_config.dart';
@@ -8,7 +9,8 @@ import '../domain/inventory_item.dart';
 
 class DeliveryRequestPage extends StatefulWidget {
   final List<InventoryItem> items;
-  const DeliveryRequestPage({super.key, required this.items});
+  final FulfillmentRepository? repository;
+  const DeliveryRequestPage({super.key, required this.items, this.repository});
   @override
   State<DeliveryRequestPage> createState() => _DeliveryRequestPageState();
 }
@@ -35,7 +37,7 @@ class _DeliveryRequestPageState extends State<DeliveryRequestPage> {
       if (id == null) {
         throw Exception('다시 로그인해주세요');
       }
-      final r = FulfillmentRepository(await OrderRepository.forUser(id));
+      final r = widget.repository ?? FulfillmentRepository(await OrderRepository.forUser(id));
       final p = await r.pending();
       if (mounted) {
         setState(() {
@@ -121,7 +123,7 @@ class _DeliveryRequestPageState extends State<DeliveryRequestPage> {
     }
     await showDialog<void>(
       context: context,
-      builder: (c) => AlertDialog(
+      builder: (c) => GachiFlowDialog(
         title: Text(
           result.status.name == 'cancelled' ? '배송 취소를 확인했어요' : '배송 신청을 확인했어요',
         ),
@@ -147,12 +149,14 @@ class _DeliveryRequestPageState extends State<DeliveryRequestPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) => GachiFlowScaffold(
     appBar: AppBar(title: const Text('배송 신청·결과 확인')),
     body: SafeArea(
       child: ListView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(GachiSpace.page),
         children: [
+          const GachiFlowHeading(label: 'DELIVERY', title: '소중한 상품을 집으로',
+            description: '받는 정보와 서버에서 확인한 배송비를 살펴보세요.'),
           if (busy) const LinearProgressIndicator(),
           if (error != null)
             Padding(
@@ -172,7 +176,7 @@ class _DeliveryRequestPageState extends State<DeliveryRequestPage> {
           else if (quote == null) ...[
             Text(
               '선택 상품 ${widget.items.length}개',
-              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+              style: GachiType.section,
             ),
             for (final item in widget.items) Text(item.name),
             const SizedBox(height: 20),
@@ -211,11 +215,11 @@ class _DeliveryRequestPageState extends State<DeliveryRequestPage> {
           ] else ...[
             const Text(
               '배송 신청 최종 확인',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+              style: GachiType.section,
             ),
             const SizedBox(height: 16),
-            Text('상품 ${quote!.ids.length}개 · 배송비 ${quote!.fee} GP'),
-            Text('현재 잔액 ${quote!.balance} GP'),
+            GachiFlowSummary(title: '상품 ${quote!.ids.length}개 · 배송 견적',
+              value: '${quote!.fee} GP', description: '현재 잔액 ${quote!.balance} GP'),
             const SizedBox(height: 16),
             for (final key in [
               'name',

@@ -1,3 +1,4 @@
+import '../../../shared/widgets/gachi_flow.dart';
 import 'package:provider/provider.dart';
 import '../../../core/config/app_config.dart';
 import '../../../shared/providers/auth_provider.dart';
@@ -5,7 +6,6 @@ import '../../orders/order_repository.dart';
 import '../fulfillment_repository.dart';
 import '../../inventory/presentation/delivery_request_page.dart';
 import 'package:flutter/material.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../shared/widgets/activity_feed.dart';
 import '../domain/shipping_request.dart';
 
@@ -16,7 +16,7 @@ class ShippingHistoryPage extends StatelessWidget {
     this.repository = const ShippingRepository(),
   });
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) => GachiFlowScaffold(
     appBar: AppBar(
       title: const Text('배송 내역'),
       actions: [
@@ -43,12 +43,12 @@ class ShippingHistoryPage extends StatelessWidget {
           children: [
             Text(
               '설렘이 도착하는 중',
-              style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800),
+              style: GachiType.pageTitle,
             ),
             SizedBox(height: 10),
             Text(
               '신청한 상품이 어디까지 왔는지 확인하세요.',
-              style: TextStyle(color: AppColors.textSecondary),
+              style: TextStyle(color: GachiColors.secondary),
             ),
           ],
         ),
@@ -65,7 +65,7 @@ class ShippingHistoryPage extends StatelessWidget {
               ),
             ),
             child: Padding(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.all(GachiSpace.page),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -81,7 +81,7 @@ class ShippingHistoryPage extends StatelessWidget {
                   const SizedBox(height: 6),
                   Text(
                     '총 ${request.products.length}개 상품 · ${request.dateLabel}',
-                    style: const TextStyle(color: AppColors.textSecondary),
+                    style: const TextStyle(color: GachiColors.secondary),
                   ),
                   const SizedBox(height: 14),
                   const Row(
@@ -104,20 +104,7 @@ class _Status extends StatelessWidget {
   final ShippingStatus status;
   const _Status(this.status);
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-    decoration: BoxDecoration(
-      color: const Color(0xFFF0EBFF),
-      borderRadius: BorderRadius.circular(12),
-    ),
-    child: Text(
-      status.label,
-      style: const TextStyle(
-        color: Color(0xFF5F3BBC),
-        fontWeight: FontWeight.w700,
-      ),
-    ),
-  );
+  Widget build(BuildContext context) => GachiBadge(label: status.label);
 }
 
 class ShippingDetailPage extends StatefulWidget {
@@ -158,7 +145,7 @@ class _ShippingDetailPageState extends State<ShippingDetailPage> {
   Future<void> cancel() async {
     final accepted = await showDialog<bool>(
       context: context,
-      builder: (c) => AlertDialog(
+      builder: (c) => GachiFlowDialog(
         title: const Text('배송 신청을 취소할까요?'),
         content: Text(
           '상품을 보관함으로 되돌리고 배송비 ${request.feeGP} GP를 돌려받습니다. 택배사 인계 전까지만 가능합니다.',
@@ -205,7 +192,7 @@ class _ShippingDetailPageState extends State<ShippingDetailPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) => GachiFlowScaffold(
     appBar: AppBar(
       title: const Text('배송 신청 상세'),
       actions: [
@@ -218,14 +205,11 @@ class _ShippingDetailPageState extends State<ShippingDetailPage> {
     ),
     body: SafeArea(
       child: ListView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(GachiSpace.page),
         children: [
           Container(
             padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              gradient: AppColors.heroGradient,
-              borderRadius: BorderRadius.circular(26),
-            ),
+            decoration: GachiFlowStyle.hero,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -268,8 +252,8 @@ class _ShippingDetailPageState extends State<ShippingDetailPage> {
                           ? Icons.check_circle_rounded
                           : Icons.radio_button_unchecked,
                       color: status.index <= request.status.index
-                          ? AppColors.accentViolet
-                          : AppColors.textSecondary,
+                          ? GachiColors.navy
+                          : GachiColors.secondary,
                     ),
                     const SizedBox(width: 12),
                     Expanded(child: Text(status.label)),
@@ -293,7 +277,7 @@ class _ShippingDetailPageState extends State<ShippingDetailPage> {
               child: const Text('배송 신청 취소·배송비 환급'),
             ),
           _section('추적 정보', [
-            SelectableText('배송번호 ${request.id}'),
+            GachiReference('문의용 배송번호 ${request.id}'),
             Text('배송비 ${request.feeGP} GP'),
             if (request.trackingNumber != null) ...[
               Text('택배사 ${request.carrier ?? '미등록'}'),
@@ -327,7 +311,7 @@ class _ShippingDetailPageState extends State<ShippingDetailPage> {
                   children: [
                     const Icon(
                       Icons.card_giftcard_rounded,
-                      color: AppColors.accentViolet,
+                      color: GachiColors.navy,
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -338,14 +322,6 @@ class _ShippingDetailPageState extends State<ShippingDetailPage> {
                             product.name,
                             style: const TextStyle(fontWeight: FontWeight.w600),
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            '보관함 번호 ${product.inventoryId}',
-                            style: const TextStyle(
-                              color: AppColors.textSecondary,
-                              fontSize: 12,
-                            ),
-                          ),
                         ],
                       ),
                     ),
@@ -354,17 +330,13 @@ class _ShippingDetailPageState extends State<ShippingDetailPage> {
               ),
           ]),
           const SizedBox(height: 20),
-          SelectableText(
-            '배송 신청 번호 ${request.id}',
-            style: const TextStyle(color: AppColors.textSecondary),
-          ),
         ],
       ),
     ),
   );
   Widget _section(String title, List<Widget> children) => Card(
     child: Padding(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(GachiSpace.page),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
