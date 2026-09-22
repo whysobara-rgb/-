@@ -14,7 +14,8 @@ import tempfile
 import zipfile
 
 from native_validation import (CERT_SHA1, IOS_ID, P12_SHA256, PROFILE_NAME, PROFILE_UUID,
-                               TEAM_ID, backend_guard, check_profile, check_signed_app, run)
+                               TEAM_ID, backend_guard, check_profile, check_signed_app, run,
+                               check_runner_signing_settings, check_pods_signing_settings)
 from validate import require, validate_ios_prebuild
 
 
@@ -70,8 +71,12 @@ def build():
             settings = json.loads(run(['xcodebuild', *options, '-showBuildSettings', '-json']))
             runner = next(s['buildSettings'] for s in settings if s['target'] == 'Runner')
             validate_ios_prebuild({**runner, 'API_BASE_URL': os.environ['API_BASE_URL']})
-            require(runner['CONFIGURATION'] == 'Profile-staging', 'Profile configuration required')
-            print('PASS: effective Xcode Profile-staging configuration and actual Dart defines', flush=True)
+            check_runner_signing_settings(runner)
+            pods = json.loads(run(['xcodebuild', '-project', 'ios/Pods/Pods.xcodeproj',
+                                  '-alltargets', '-configuration', 'Profile-staging', '-sdk', 'iphoneos',
+                                  '-showBuildSettings', '-json']))
+            check_pods_signing_settings(pods)
+            print('PASS: effective Profile-staging defines and Runner-only signing; no profile/manual signing on Pods', flush=True)
             archive = Path('build/ios/archive/Staging.xcarchive')
             # Capture build output without ever uploading raw signing diagnostics.
             result = subprocess.run(['xcodebuild', *options, '-archivePath', str(archive), 'archive'],

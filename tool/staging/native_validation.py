@@ -78,6 +78,32 @@ def check_profile(profile):
             and expires > datetime.datetime.now(datetime.timezone.utc), 'Profile expiration mismatch')
 
 
+def check_runner_signing_settings(settings):
+    require(settings.get('CONFIGURATION') == 'Profile-staging', 'Profile configuration required')
+    require(settings.get('PROVISIONING_PROFILE_SPECIFIER') == PROFILE_NAME,
+            'Runner must resolve the existing staging Ad Hoc profile')
+    require(settings.get('CODE_SIGN_STYLE') == 'Manual'
+            and settings.get('CODE_SIGN_IDENTITY') == 'Apple Distribution',
+            'Runner must retain target-scoped Apple Distribution signing')
+    require(settings.get('DEVELOPMENT_TEAM') == TEAM_ID
+            and settings.get('PRODUCT_BUNDLE_IDENTIFIER') == IOS_ID
+            and settings.get('CODE_SIGN_ENTITLEMENTS') == 'Runner/Staging.entitlements',
+            'Runner staging team, bundle or entitlement changed')
+
+
+def check_pods_signing_settings(targets):
+    require(bool(targets), 'Pods build settings missing')
+    for target in targets:
+        settings = target.get('buildSettings', {})
+        require(settings.get('CONFIGURATION') == 'Profile-staging',
+                'Pods must be inspected in the archive configuration')
+        require(not settings.get('PROVISIONING_PROFILE_SPECIFIER')
+                and not settings.get('PROVISIONING_PROFILE'),
+                'Pods must not have a provisioning profile forced on them')
+        require(settings.get('CODE_SIGN_STYLE', '').lower() != 'manual',
+                'Pods must not have manual signing forced on them')
+
+
 def check_signed_app(app, temp):
     run(['codesign', '--verify', '--deep', '--strict', str(app)])
     info = plistlib.loads((app / 'Info.plist').read_bytes())

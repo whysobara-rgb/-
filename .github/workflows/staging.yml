@@ -43,8 +43,8 @@ jobs:
         run: python3 tool/staging/validate.py workflow
       - name: Verify protected application baseline
         run: |
-          git merge-base --is-ancestor 39e8fcdde7029947440ad3e157b36aa95bfd890a HEAD
-          git diff --exit-code 39e8fcdde7029947440ad3e157b36aa95bfd890a HEAD -- lib test android ios pubspec.yaml pubspec.lock
+          git merge-base --is-ancestor 524bc6837baa2a8406cd395091b43c31d5cfec9c HEAD
+          git diff --exit-code 524bc6837baa2a8406cd395091b43c31d5cfec9c HEAD -- lib test android ios pubspec.yaml pubspec.lock
           python3 tool/staging/check_configuration.py
           python3 -m unittest discover -s tool/staging -p 'test_*.py' -v
       - name: Verify live staging Backend identity
