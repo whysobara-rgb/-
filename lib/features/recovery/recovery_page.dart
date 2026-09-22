@@ -1,3 +1,4 @@
+import '../../shared/widgets/gachi_flow.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -141,7 +142,7 @@ class _RecoveryPageState extends State<RecoveryPage> with WidgetsBindingObserver
     final life = _life;
     setState(() { _confirming = true; _message = null; });
     try {
-      final confirmed = await showDialog<bool>(context: context, builder: (d) => AlertDialog(
+      final confirmed = await showDialog<bool>(context: context, builder: (d) => GachiFlowDialog(
         scrollable: true,
         title: Text(widget.verifyEmail ? '이메일 링크를 확인할까요?' : '비밀번호를 재설정할까요?'),
         content: Text(widget.verifyEmail
@@ -193,11 +194,12 @@ class _RecoveryPageState extends State<RecoveryPage> with WidgetsBindingObserver
 
   @override
   Widget build(BuildContext context) => PopScope(canPop: !_locked,
-    child: Scaffold(appBar: AppBar(title: Text(widget.verifyEmail ? '이메일 인증' : '비밀번호 찾기')),
-      body: SingleChildScrollView(padding: const EdgeInsets.all(20),
+    child: GachiFlowScaffold(appBar: AppBar(title: Text(widget.verifyEmail ? '이메일 인증' : '비밀번호 찾기')),
+      body: SingleChildScrollView(padding: const EdgeInsets.all(GachiSpace.page),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          const Text('이메일 소유 확인은 본인·연령 인증과 다릅니다.'),
-          const SizedBox(height: 16),
+          GachiFlowHeading(label: widget.verifyEmail ? 'EMAIL VERIFICATION' : 'ACCOUNT RECOVERY',
+            title: widget.verifyEmail ? '이메일 소유 확인' : '계정으로 돌아가기',
+            description: '이메일 소유 확인은 본인·연령 인증과 다릅니다.'),
           if (_message != null) Semantics(liveRegion: true,
             child: Padding(padding: const EdgeInsets.only(bottom: 20),
               child: Text(_message!, key: const Key('recovery-message')))),
@@ -218,8 +220,7 @@ class _RecoveryPageState extends State<RecoveryPage> with WidgetsBindingObserver
             else ...[
               if (!widget.verifyEmail) _field('가입한 이메일', 'recovery-email', _email, secret: false, max: 255),
               FilledButton(key: const Key('recovery-request'),
-                style: FilledButton.styleFrom(minimumSize: const Size(48, 48)),
-                onPressed: _locked || _cooldown > 0 ? null : _requestMail,
+                                onPressed: _locked || _cooldown > 0 ? null : _requestMail,
                 child: Text(_cooldown > 0 ? '다시 요청 가능: $_cooldown초' : '안내 메일 요청')),
               const SizedBox(height: 12),
               const Text('메일 요청을 접수해도 실제 발송·도착을 보장하지 않습니다. 가입 여부와 무관하게 같은 안내가 표시됩니다.'),
@@ -235,8 +236,7 @@ class _RecoveryPageState extends State<RecoveryPage> with WidgetsBindingObserver
                   _field('새 비밀번호 확인', 'recovery-repeat', _repeat),
                 ],
                 OutlinedButton(key: const Key('recovery-complete'),
-                  style: OutlinedButton.styleFrom(minimumSize: const Size(48, 48)),
-                  onPressed: _locked ? null : _complete,
+                                    onPressed: _locked ? null : _complete,
                   child: Text(widget.verifyEmail ? '인증 링크 확인' : '새 비밀번호로 재설정')),
                 if (widget.verifyEmail) TextButton(onPressed: _locked ? null : _load,
                   child: const Text('상태 다시 조회')),

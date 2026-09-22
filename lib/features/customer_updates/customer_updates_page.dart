@@ -1,3 +1,4 @@
+import '../../shared/widgets/gachi_flow.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../shared/providers/auth_provider.dart';
@@ -34,7 +35,7 @@ class _CustomerUpdatesPageState extends State<CustomerUpdatesPage> {
   late String kind = widget.initial;
   int revision = 0;
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) => GachiFlowScaffold(
     appBar: AppBar(
       title: const Text('소식·고객지원'),
       actions: [
@@ -124,7 +125,7 @@ class _CustomerUpdatesPageState extends State<CustomerUpdatesPage> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             if (kind == 'cases')
-                              Text(caseStates[j['status']] ?? j['status']),
+                              Text(caseStates[j['status']] ?? '상태 확인 필요'),
                             Text(
                               j[kind == 'cases'
                                   ? 'summary'
@@ -141,7 +142,7 @@ class _CustomerUpdatesPageState extends State<CustomerUpdatesPage> {
                               Text(j['body']),
                             ],
                             if (kind == 'cases')
-                              SelectableText('주문번호 ${j['orderId']}'),
+                              GachiReference('문의용 주문번호 ${j['orderId']}'),
                             if (kind == 'tickets') ...[
                               Text(
                                 {
@@ -149,7 +150,7 @@ class _CustomerUpdatesPageState extends State<CustomerUpdatesPage> {
                                       'ANSWERED': '답변 도착',
                                       'CLOSED': '문의 종료',
                                     }[j['status']] ??
-                                    j['status'],
+                                    '상태 확인 필요',
                               ),
                               TextButton(
                                 onPressed: () => Navigator.of(context).push(
@@ -164,7 +165,7 @@ class _CustomerUpdatesPageState extends State<CustomerUpdatesPage> {
                               ),
                             ],
                             if (kind == 'inbox') ...[
-                              Text('참조번호 ${j['targetId']}'),
+                              GachiReference('문의용 참조번호 ${j['targetId']}'),
                               if (j['readAt'] == null)
                                 TextButton(
                                   onPressed: () async {
@@ -238,7 +239,7 @@ class _CampaignListState extends State<CampaignList> {
           await future;
         },
         child: ListView(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(GachiSpace.page),
           physics: const AlwaysScrollableScrollPhysics(),
           children: s.data!.isEmpty
               ? [const Text('현재 진행 중인 이벤트가 없어요.')]
@@ -398,11 +399,12 @@ class _SupportThreadPageState extends State<SupportThreadPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) => GachiFlowScaffold(
     appBar: AppBar(
       title: const Text('문의 대화'),
       actions: [
         IconButton(
+          tooltip: '문의 새로고침',
           onPressed: loading ? null : () => load(reset: true),
           icon: const Icon(Icons.refresh),
         ),
@@ -410,15 +412,15 @@ class _SupportThreadPageState extends State<SupportThreadPage> {
     ),
     body: SafeArea(
       child: ListView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(GachiSpace.page),
         children: [
           Text(
             ticket?['subject'] ?? '문의 확인 중',
-            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+            style: GachiType.section,
           ),
-          SelectableText('문의번호 ${widget.id}'),
+          GachiReference('문의번호 ${widget.id}'),
           if (ticket?['orderId'] != null)
-            SelectableText('주문번호 ${ticket!['orderId']}'),
+            GachiReference('문의용 주문번호 ${ticket!['orderId']}'),
           for (final m in messages)
             Card(
               child: Padding(
@@ -465,7 +467,8 @@ class _SupportThreadPageState extends State<SupportThreadPage> {
 
 class SupportComposePage extends StatefulWidget {
   final String? ticketId;
-  const SupportComposePage({super.key, this.ticketId});
+  final SupportRepository? repository;
+  const SupportComposePage({super.key, this.ticketId, this.repository});
   @override
   State<SupportComposePage> createState() => _SupportComposePageState();
 }
@@ -491,7 +494,7 @@ class _SupportComposePageState extends State<SupportComposePage> {
       if (id == null) {
         throw Exception('다시 로그인해주세요');
       }
-      final r = SupportRepository(await OrderRepository.forUser(id));
+      final r = widget.repository ?? SupportRepository(await OrderRepository.forUser(id));
       final p = await r.pending();
       if (mounted) {
         setState(() {
@@ -573,18 +576,22 @@ class _SupportComposePageState extends State<SupportComposePage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) => GachiFlowScaffold(
     appBar: AppBar(title: Text(widget.ticketId == null ? '문의 작성' : '추가 메시지')),
     body: SafeArea(
       child: ListView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(GachiSpace.page),
         children: [
+          const GachiFlowHeading(label: 'CUSTOMER CARE', title: '어떤 도움이 필요하세요?',
+            description: '문의 내용과 처리 결과를 한곳에서 확인하세요.'),
           if (pending != null)
             const Text('이전 전송의 결과를 확인해야 합니다. 같은 요청번호로 조회하며 문의를 중복 접수하지 않습니다.')
           else ...[
             if (widget.ticketId == null) ...[
               DropdownButtonFormField<String>(
                 initialValue: category,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: '문의 유형'),
                 items:
                     const {
                           'OTHER': '기타',
@@ -614,6 +621,7 @@ class _SupportComposePageState extends State<SupportComposePage> {
                 decoration: const InputDecoration(
                   labelText: '주문번호 (선택)',
                   helperText: '구매 내역의 주문번호를 붙여넣으면 주문과 연결됩니다.',
+                  helperMaxLines: 5,
                 ),
               ),
             ],
@@ -625,6 +633,7 @@ class _SupportComposePageState extends State<SupportComposePage> {
               decoration: const InputDecoration(
                 labelText: '문의 내용',
                 helperText: '카드번호·비밀번호 등 결제 인증정보는 쓰지 마세요.',
+                helperMaxLines: 5,
               ),
             ),
           ],

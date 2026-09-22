@@ -1,3 +1,4 @@
+import '../../shared/widgets/gachi_flow.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/network/api_client.dart';
@@ -117,7 +118,7 @@ class _AccountSecurityPageState extends State<AccountSecurityPage>
     try {
       final confirmed = await showDialog<bool>(
         context: context,
-        builder: (dialog) => AlertDialog(
+        builder: (dialog) => GachiFlowDialog(
           scrollable: true,
           title: Text(changePassword ? '비밀번호를 변경할까요?' : '모든 로그인을 해제할까요?'),
           content: Text(changePassword
@@ -197,16 +198,13 @@ class _AccountSecurityPageState extends State<AccountSecurityPage>
   Widget build(BuildContext context) {
     return PopScope(
       canPop: !_busy,
-      child: Scaffold(
+      child: GachiFlowScaffold(
         appBar: AppBar(title: const Text('계정 보안')),
-        body: ListView(
-          padding: const EdgeInsets.all(20),
+        body: GachiFlowList(
+          padding: const EdgeInsets.all(GachiSpace.page),
           children: [
-            const Text('비밀번호 · 로그인 관리',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800)),
-            const SizedBox(height: 12),
-            const Text('앱 계정의 비밀번호를 바꾸거나 다른 기기의 로그인을 해제합니다. 관리자 인증앱 설정과는 별개입니다.'),
-            const SizedBox(height: 20),
+            const GachiFlowHeading(label: 'ACCOUNT SECURITY', title: '비밀번호 · 로그인 관리',
+              description: '앱 계정의 비밀번호를 바꾸거나 다른 기기의 로그인을 해제합니다. 관리자 인증앱 설정과는 별개입니다.'),
             if (_message != null)
               Semantics(liveRegion: true,
                 child: Padding(padding: const EdgeInsets.only(bottom: 20),
@@ -237,15 +235,13 @@ class _AccountSecurityPageState extends State<AccountSecurityPage>
                       _confirmation, (v) => !_validateChange ? null :
                           (v == _newPassword.text ? null : '새 비밀번호가 일치하지 않습니다')),
                   FilledButton(key: const Key('security-change'),
-                      style: FilledButton.styleFrom(minimumSize: const Size(48, 48)),
-                      onPressed: _busy ? null : () => _submit(changePassword: true),
+                                            onPressed: _busy ? null : () => _submit(changePassword: true),
                       child: const Text('비밀번호 변경')),
                   const SizedBox(height: 24),
                   const Text('다른 기기의 접근이 걱정되나요? 현재 비밀번호를 입력한 뒤 모든 로그인을 해제할 수 있습니다.'),
                   const SizedBox(height: 12),
                   OutlinedButton(key: const Key('security-revoke'),
-                      style: OutlinedButton.styleFrom(minimumSize: const Size(48, 48)),
-                      onPressed: _busy ? null : () => _submit(changePassword: false),
+                                            onPressed: _busy ? null : () => _submit(changePassword: false),
                       child: const Text('모든 로그인 해제')),
                   if (_busy) const Padding(padding: EdgeInsets.only(top: 16),
                       child: Text('처리 중에는 중복 요청하지 마세요. 응답을 기다리고 있습니다.')),

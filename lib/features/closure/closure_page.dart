@@ -1,3 +1,4 @@
+import '../../shared/widgets/gachi_flow.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/config/app_config.dart';
@@ -105,7 +106,7 @@ class _AccountClosurePageState extends State<AccountClosurePage>
     String? message;
     bool dispatched = false;
     try {
-      final agreed = await showDialog<bool>(context: context, builder: (dialog) => AlertDialog(
+      final agreed = await showDialog<bool>(context: context, builder: (dialog) => GachiFlowDialog(
         scrollable: true, title: Text(title),
         content: const Text('이 작업은 탈퇴 요청 접수 또는 그 요청의 취소입니다. 계정·개인정보 삭제나 GP·상품 소멸을 실행하지 않습니다.'),
         actions: [
@@ -181,12 +182,10 @@ class _AccountClosurePageState extends State<AccountClosurePage>
 
   @override
   Widget build(BuildContext context) => PopScope(canPop: !_busy,
-    child: Scaffold(appBar: AppBar(title: const Text('탈퇴 요청·상태')),
-      body: SingleChildScrollView(padding: const EdgeInsets.all(20),
+    child: GachiFlowScaffold(appBar: AppBar(title: const Text('탈퇴 요청·상태')),
+      body: SingleChildScrollView(padding: const EdgeInsets.all(GachiSpace.page),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          const Text('계정을 바로 삭제하지 않습니다',
-            style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
-          const SizedBox(height: 12),
+          const GachiFlowHeading(label: 'ACCOUNT CLOSURE', title: '계정을 바로 삭제하지 않습니다'),
           const Text('현재 기능은 탈퇴 요청 접수입니다. 잔액·보관 상품·진행 중 거래를 함께 확인하며, 접수만으로 GP나 상품을 소멸시키지 않습니다. 최종 삭제·보존 범위와 처리 일정은 별도 확인이 필요합니다.'),
           const SizedBox(height: 16),
           if (_message != null) Semantics(liveRegion: true,
@@ -199,18 +198,23 @@ class _AccountClosurePageState extends State<AccountClosurePage>
             if (!_loading && !_working) ...[
               if (_check != null) ...[
                 const SizedBox(height: 16),
-                const Text('현재 계정 현황 · 항목 간 중복 수량 포함',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                const Text('현재 조회 값이며 탈퇴 가능 여부나 자동 삭제 판정이 아닙니다.'),
-                for (final entry in _check!.summary.values.entries)
-                  Padding(padding: const EdgeInsets.symmetric(vertical: 6),
-                    child: Text('${closureSummaryLabels[entry.key]}: ${entry.value}${entry.key == 'balance' ? ' GP' : ''}')),
-                const Divider(),
+                GachiInfoCard(child: ExpansionTile(
+                  tilePadding: EdgeInsets.zero,
+                  title: const Text('현재 계정 현황 · 항목 간 중복 수량 포함', style: GachiType.product),
+                  subtitle: Text('${_check!.summary.values['balance']} GP · 미개봉 ${_check!.summary.values['unopened']}개'),
+                  children: [
+                    const Text('현재 조회 값이며 탈퇴 가능 여부나 자동 삭제 판정이 아닙니다.'),
+                    for (final entry in _check!.summary.values.entries)
+                      Padding(padding: const EdgeInsets.symmetric(vertical: GachiSpace.sm),
+                        child: Text('${closureSummaryLabels[entry.key]}: ${entry.value}${entry.key == 'balance' ? ' GP' : ''}')),
+                  ],
+                )),
+                const SizedBox(height: GachiSpace.lg),
               ],
               if (_resolved) ...[
                 Text(_receipt!.cancelled ? '요청 취소 확인' : '요청 접수 확인',
                   style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                Text('요청번호: ${_receipt!.id}'),
+                GachiReference('문의용 요청번호: ${_receipt!.id}'),
                 const Text('계정은 삭제되지 않았습니다.'),
                 FilledButton(key: const Key('closure-ack'), onPressed: _busy ? null : _acknowledge,
                   child: const Text('결과 확인')),
@@ -222,7 +226,7 @@ class _AccountClosurePageState extends State<AccountClosurePage>
                   child: const Text('같은 취소 요청 재개')),
               ] else if (_check?.active != null) ...[
                 const Text('진행 중인 탈퇴 요청', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                Text('요청번호: ${_check!.active!.id}'),
+                GachiReference('문의용 요청번호: ${_check!.active!.id}'),
                 Text('요청 사유: ${_check!.active!.reason}'),
                 const Text('요청 접수 상태입니다. 계정 삭제 완료가 아닙니다.'),
                 OutlinedButton(key: const Key('closure-cancel'),
