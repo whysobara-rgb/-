@@ -13,6 +13,8 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.35.4'
@@ -35,6 +37,11 @@ jobs:
           flutter build ios --simulator --debug --target=tool/android/storage_probe.dart
           codesign --verify --verbose build/ios/iphonesimulator/Runner.app
           python3 tool/ios/simulator_smoke.py storage
+      - name: Build and capture V33 presentation on simulator
+        run: |
+          flutter build ios --simulator --debug --target=tool/v33/ui_probe.dart
+          codesign --verify --verbose build/ios/iphonesimulator/Runner.app
+          python3 tool/ios/simulator_smoke.py v33
       - uses: actions/upload-artifact@v4
         if: always()
         with:

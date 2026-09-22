@@ -37,6 +37,7 @@ def device():
 
 
 def launch_and_expect(udid, bundle, marker, name):
+    targets = dict(marker) if isinstance(marker, dict) else {marker: name}
     output = EVIDENCE / (name + '.log')
     unified = EVIDENCE / (name + '-unified.log')
     with output.open('w') as stream, unified.open('w') as device_log:
@@ -53,9 +54,14 @@ def launch_and_expect(udid, bundle, marker, name):
                 logs = output.read_text() + unified.read_text()
                 if 'GACHA_STORAGE_PROBE_FAILED' in logs:
                     raise RuntimeError('Native storage verification failed; inspect evidence')
-                if marker in logs:
-                    run('xcrun', 'simctl', 'io', udid, 'screenshot', str(EVIDENCE / (name + '.png')))
-                    print('PASS:', name, marker)
+                if 'V33_UI_PROBE_FAILED' in logs:
+                    raise RuntimeError('Flutter V33 presentation error; inspect evidence')
+                for expected, capture_name in list(targets.items()):
+                    if expected in logs:
+                        run('xcrun', 'simctl', 'io', udid, 'screenshot', str(EVIDENCE / (capture_name + '.png')))
+                        print('PASS:', capture_name, expected)
+                        del targets[expected]
+                if not targets:
                     return
                 if process.poll() is not None:
                     raise RuntimeError('Application terminated before verification marker')
@@ -94,5 +100,15 @@ if mode == 'app':
 elif mode == 'storage':
     launch_and_expect(udid, bundle, 'GACHA_STORAGE_PROBE_WRITTEN', 'keychain-write')
     launch_and_expect(udid, bundle, 'GACHA_STORAGE_PROBE_VERIFIED', 'keychain-restart-recovery')
+elif mode == 'v33':
+    launch_and_expect(udid, bundle, {
+        'V33_HOME_READY': 'v33-home', 'V33_SHOP_READY': 'v33-shop',
+        'V33_DETAIL_READY': 'v33-detail',
+    }, 'v33-ui')
+    (EVIDENCE / 'v33-result.json').write_text(json.dumps({
+        'result': 'PASS', 'screens': ['Home', 'Box Shop', 'Product Detail'],
+        'source_commit': run('git', 'rev-parse', 'HEAD').strip(),
+        'device': udid, 'data': 'synthetic UI fixtures', 'live_transactions': False,
+    }, indent=2))
 else:
     raise ValueError('Unknown verification mode')

@@ -13,6 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.35.4'
@@ -26,6 +28,8 @@ jobs:
           retention-days: 7
       - run: flutter analyze
       - run: flutter test
+      - name: Verify existing unopened entry with its debug gate enabled
+        run: flutter test --dart-define=ENABLE_GP_ORDER_PREVIEW=true test/features/v33_navigation_test.dart
 
       - uses: actions/upload-artifact@v4
         if: always()
