@@ -1,14 +1,13 @@
-name: Staging build preparation
+name: Staging native build and artifact validation
 
-# Explicit tag/manual builds only. No Firebase upload, signing import or install.
+# Explicit tag/manual builds only. Never distributes an app or installs on a physical device.
 on:
   push:
-    tags:
-      - 'staging-build-*'
+    tags: ['staging-build-*']
   workflow_dispatch:
     inputs:
       api_base_url:
-        description: 'Explicit staging HTTPS origin (required; no default or fallback)'
+        description: 'Explicit approved staging HTTPS origin (required; no fallback)'
         type: string
         required: true
 
@@ -16,8 +15,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: staging-preparation-${{ github.ref }}
-  cancel-in-progress: true
+  group: staging-native-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  EXPECTED_BACKEND_SHA: a224c07435f7ba17b65baf0c6d7ab2c5b9e629a7
 
 jobs:
   validate:
@@ -31,21 +33,50 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 0
       - name: Validate trigger and explicit origin before building
         id: guard
         env:
           DISPATCH_API_BASE_URL: ${{ inputs.api_base_url }}
-          # Configure only after the real staging backend exists. No fallback.
           STAGING_API_BASE_URL: ${{ vars.STAGING_API_BASE_URL }}
           STAGING_TAG_DELETED: ${{ github.event.deleted }}
         run: python3 tool/staging/validate.py workflow
-      - run: python3 tool/staging/check_configuration.py
-      - run: python3 -m unittest discover -s tool/staging -p 'test_*.py' -v
+      - name: Verify protected application baseline
+        run: |
+          git merge-base --is-ancestor 39e8fcdde7029947440ad3e157b36aa95bfd890a HEAD
+          git diff --exit-code 39e8fcdde7029947440ad3e157b36aa95bfd890a HEAD -- lib test android ios pubspec.yaml pubspec.lock
+          python3 tool/staging/check_configuration.py
+          python3 -m unittest discover -s tool/staging -p 'test_*.py' -v
+      - name: Verify live staging Backend identity
+        env:
+          API_BASE_URL: ${{ steps.guard.outputs.api_base_url }}
+        run: python3 tool/staging/native_validation.py backend
 
-  android:
+  regression:
     needs: validate
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.4'
+          channel: stable
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - run: flutter analyze
+      - run: flutter test
+      - run: flutter test test/features/orders/refund_contract_compatibility_test.dart
+      - run: flutter test --dart-define=ENABLE_GP_ORDER_PREVIEW=true test/features/v33_navigation_test.dart
+      - run: flutter test --dart-define=ENABLE_SHIPPING_PREVIEW=true test/features/v33_stage3_test.dart --plain-name 'shipping application retains gate'
+      - run: flutter test --dart-define=dart.vm.product=true --dart-define=ENABLE_GP_ORDER_PREVIEW=true --dart-define=ENABLE_GP_CONVERSION_PREVIEW=true --dart-define=ENABLE_SHIPPING_PREVIEW=true --dart-define=ENABLE_ORDER_REFUND_PREVIEW=true --dart-define=ENABLE_LEGACY_TRANSACTIONS=true test/core/v33_release_gate_test.dart
+
+  android:
+    needs: [validate, regression]
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
     env:
       API_BASE_URL: ${{ needs.validate.outputs.api_base_url }}
       ORG_GRADLE_PROJECT_gachiStaging: 'true'
@@ -53,7 +84,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-      - run: python3 tool/staging/validate.py origin
+      - run: python3 tool/staging/native_validation.py backend
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -65,60 +96,75 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get --enforce-lockfile
-      - run: flutter analyze
-      - run: flutter test
-      - name: Build staging debug APK using the existing debug signing mechanism
+      - name: Build staging debug APK with explicit origin and unchanged gates
         run: flutter build apk --debug --dart-define="API_BASE_URL=$API_BASE_URL"
-      - name: Inspect built package and verify signature
+      - name: Inspect final package, signature and compiled origin
         run: |
           BUILD_TOOLS=$(python3 - <<'PY'
           import os
           from pathlib import Path
-          sdk = Path(os.environ['ANDROID_HOME'])
-          versions = [p for p in (sdk / 'build-tools').iterdir() if all(s.isdigit() for s in p.name.split('.'))]
+          versions = [p for p in (Path(os.environ['ANDROID_HOME']) / 'build-tools').iterdir() if all(s.isdigit() for s in p.name.split('.'))]
           print(max(versions, key=lambda p: tuple(map(int, p.name.split('.')))))
           PY
           )
           python3 tool/staging/validate.py android-apk build/app/outputs/flutter-apk/app-debug.apk --aapt "$BUILD_TOOLS/aapt" --apksigner "$BUILD_TOOLS/apksigner"
+          python3 tool/staging/native_validation.py apk build/app/outputs/flutter-apk/app-debug.apk
+          sha256sum build/app/outputs/flutter-apk/app-debug.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: staging-android-debug-build-only
+          name: staging-android-apk-${{ github.sha }}
           path: build/app/outputs/flutter-apk/app-debug.apk
+          retention-days: 7
+      - name: Enable disposable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: python3 tool/staging/android_smoke.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: staging-android-emulator-evidence-${{ github.sha }}
+          path: build/staging-android-evidence
+          if-no-files-found: ignore
           retention-days: 7
 
   ios:
-    needs: validate
+    needs: [validate, regression]
     runs-on: macos-15
-    timeout-minutes: 40
+    environment: staging
+    timeout-minutes: 45
     env:
       API_BASE_URL: ${{ needs.validate.outputs.api_base_url }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-      - run: python3 tool/staging/validate.py origin
+      - run: python3 tool/staging/native_validation.py backend
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.35.4'
           channel: stable
           cache: true
       - run: flutter pub get --enforce-lockfile
-      - name: Validate Xcode project syntax
-        run: |
-          plutil -lint ios/Runner.xcodeproj/project.pbxproj ios/Runner/Staging.entitlements
-          xcodebuild -list -project ios/Runner.xcodeproj
-          python3 tool/staging/check_configuration.py
-      - name: Build staging simulator app only
-        run: flutter build ios --simulator --debug --flavor staging --dart-define="API_BASE_URL=$API_BASE_URL"
-      - name: Inspect actual simulator bundle
-        run: |
-          python3 tool/staging/validate.py ios-app build/ios/iphonesimulator/Runner.app
-          codesign --verify --strict build/ios/iphonesimulator/Runner.app
-          ditto -c -k --sequesterRsrc --keepParent build/ios/iphonesimulator/Runner.app build/ios/staging-simulator.zip
-      - uses: actions/upload-artifact@v4
+      - name: Build Profile archive and export verified Ad Hoc IPA
+        env:
+          STAGING_P12: ${{ secrets.STAGING_IOS_CERTIFICATE_P12_BASE64 }}
+          STAGING_P12_PASSWORD: ${{ secrets.STAGING_IOS_CERTIFICATE_PASSWORD }}
+          STAGING_PROFILE: ${{ secrets.STAGING_IOS_ADHOC_PROFILE_BASE64 }}
+        run: python3 tool/staging/build_ios.py
+      - name: Retain only IPA and sanitized validation evidence
+        uses: actions/upload-artifact@v4
         with:
-          name: staging-ios-simulator-build-only
-          path: build/ios/staging-simulator.zip
+          name: staging-ios-profile-adhoc-${{ github.sha }}
+          path: |
+            build/staging-ios/*.ipa
+            build/staging-ios/validation.json
+          if-no-files-found: error
           retention-days: 7
-      - name: Record device signing boundary
-        run: echo 'Profile archive / Ad Hoc IPA / Firebase upload / iPhone install remain BLOCKED pending separate signing and distribution approval.'

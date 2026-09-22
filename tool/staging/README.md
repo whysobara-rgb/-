@@ -130,3 +130,54 @@ results. The new staging workflow is not dispatched without an approved URL.
 References: [Flutter iOS flavors](https://docs.flutter.dev/deployment/flavors-ios),
 [Apple Ad Hoc profiles](https://developer.apple.com/help/account/provisioning-profiles/create-an-ad-hoc-provisioning-profile/),
 [Firebase CLI distribution](https://firebase.google.com/docs/app-distribution/ios/distribute-cli).
+
+
+---
+
+# Staging native builds (Stage 4C-1)
+
+The application source remains based on `39e8fcdde7029947440ad3e157b36aa95bfd890a`.
+Only `.github/workflows/staging.yml` and `tool/staging/` change for native CI.
+
+## Explicit execution
+
+The `staging` GitHub Environment must provide `STAGING_API_BASE_URL` equal to
+`https://gacha-vault-backend-staging.onrender.com`. A missing value fails closed.
+The existing `staging-build-*` tag trigger and future `workflow_dispatch` remain.
+Ordinary branch pushes do not execute this workflow. Do not merge PR #1 to run it.
+
+Before compilation, the workflow verifies the protected application source,
+configuration guards, health/readiness and exact Backend commit
+`a224c07435f7ba17b65baf0c6d7ab2c5b9e629a7`. Regression tests run on the tagged SHA.
+
+## Android
+
+Build the actual `lib/main.dart` debug APK with `gachiStaging=true` and an explicit
+API define. Validate aapt package metadata, APK signature and compiled Dart origin.
+Install/launch only on the disposable CI emulator and capture the login screen.
+Authenticated Home/Shop/My and app-to-API runtime requests remain unverified unless
+test credentials are separately supplied through an approved secret mechanism.
+No account credentials are placed in source or artifacts.
+
+## iOS
+
+Use only the three existing staging secrets: certificate P12, certificate password
+and Ad Hoc profile. The legacy private-key secret is neither consumed nor changed.
+`build_ios.py` imports them into a temporary keychain, validates the exact existing
+certificate/profile and two approved device identities, then generates Flutter
+Profile settings, archives `Profile-staging`, and exports Ad Hoc.
+
+Final archive and IPA checks cover actual code signature, embedded profile, bundle,
+team, isolated Keychain group, certificate fingerprint, two devices, expiry and
+compiled staging origin. The actual Flutter engine UUID must match the SDK's
+Profile engine. Effective Xcode settings and Dart defines must select Profile
+without runtime-mode overrides. This is build evidence, not physical-device runtime
+verification. Preview feature flags and `!kReleaseMode` are unchanged.
+
+Only APK, IPA, sanitized JSON and emulator screenshot are retained. Raw P12,
+private key, password and standalone mobileprovision are never artifacts. Temporary
+identity/profile files are removed in a finally block; GitHub disposes the runner
+after completion/cancellation. An IPA necessarily contains its signed embedded
+provisioning profile; it is not uploaded separately.
+
+No Firebase upload, physical device install, server deployment or transactions run.
