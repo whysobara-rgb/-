@@ -1,7 +1,10 @@
 name: Staging build preparation
 
-# Manual build/configuration only. No Firebase upload, signing import or install.
+# Explicit tag/manual builds only. No Firebase upload, signing import or install.
 on:
+  push:
+    tags:
+      - 'staging-build-*'
   workflow_dispatch:
     inputs:
       api_base_url:
@@ -16,19 +19,26 @@ concurrency:
   group: staging-preparation-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  API_BASE_URL: ${{ inputs.api_base_url }}
-
 jobs:
   validate:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref_type == 'tag' && !github.event.deleted)
     runs-on: ubuntu-latest
+    environment: staging
     timeout-minutes: 5
+    outputs:
+      api_base_url: ${{ steps.guard.outputs.api_base_url }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-      - name: Reject a missing or unsafe origin before building
-        run: python3 tool/staging/validate.py origin
+      - name: Validate trigger and explicit origin before building
+        id: guard
+        env:
+          DISPATCH_API_BASE_URL: ${{ inputs.api_base_url }}
+          # Configure only after the real staging backend exists. No fallback.
+          STAGING_API_BASE_URL: ${{ vars.STAGING_API_BASE_URL }}
+          STAGING_TAG_DELETED: ${{ github.event.deleted }}
+        run: python3 tool/staging/validate.py workflow
       - run: python3 tool/staging/check_configuration.py
       - run: python3 -m unittest discover -s tool/staging -p 'test_*.py' -v
 
@@ -37,6 +47,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
+      API_BASE_URL: ${{ needs.validate.outputs.api_base_url }}
       ORG_GRADLE_PROJECT_gachiStaging: 'true'
     steps:
       - uses: actions/checkout@v4
@@ -79,6 +90,8 @@ jobs:
     needs: validate
     runs-on: macos-15
     timeout-minutes: 40
+    env:
+      API_BASE_URL: ${{ needs.validate.outputs.api_base_url }}
     steps:
       - uses: actions/checkout@v4
         with:

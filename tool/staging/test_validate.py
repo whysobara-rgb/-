@@ -7,12 +7,13 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import unittest
 
 from check_configuration import check
 from validate import (
     IOS_ID, ROOT, TEAM_ID, validate_android_badging, validate_defines,
-    validate_ios_identity, validate_ios_prebuild, validate_origin,
+    validate_ios_identity, validate_ios_prebuild, validate_origin, validate_workflow,
 )
 
 ORIGIN = "https://staging.example.test"  # Non-routable fixture, never a build default.
@@ -23,6 +24,62 @@ def defines(*items):
 
 
 class StagingValidationTest(unittest.TestCase):
+    def tag_environment(self, **changes):
+        return dict(GITHUB_EVENT_NAME="push", GITHUB_REF_TYPE="tag",
+                    GITHUB_REF="refs/tags/staging-build-approved-sha",
+                    STAGING_TAG_DELETED="false", STAGING_API_BASE_URL=ORIGIN) | changes
+
+    def test_tag_uses_only_explicit_staging_variable(self):
+        self.assertEqual(validate_workflow(self.tag_environment(
+            DISPATCH_API_BASE_URL="ignored", API_BASE_URL="ignored")), ORIGIN)
+
+    def test_dispatch_uses_only_required_input(self):
+        self.assertEqual(validate_workflow(dict(
+            GITHUB_EVENT_NAME="workflow_dispatch", DISPATCH_API_BASE_URL=ORIGIN,
+            STAGING_API_BASE_URL="ignored", API_BASE_URL="ignored")), ORIGIN)
+
+    def test_missing_tag_url_does_not_fall_back_to_dispatch_or_environment(self):
+        with self.assertRaises(ValueError):
+            validate_workflow(self.tag_environment(
+                STAGING_API_BASE_URL="", DISPATCH_API_BASE_URL=ORIGIN, API_BASE_URL=ORIGIN))
+
+    def test_missing_dispatch_input_does_not_fall_back_to_staging_variable(self):
+        with self.assertRaises(ValueError):
+            validate_workflow(dict(GITHUB_EVENT_NAME="workflow_dispatch",
+                                   STAGING_API_BASE_URL=ORIGIN, API_BASE_URL=ORIGIN))
+
+    def test_branch_push_unrelated_nested_empty_and_deleted_tags_are_rejected(self):
+        for change in (
+            {"GITHUB_REF_TYPE": "branch", "GITHUB_REF": "refs/heads/codex/launch-foundation"},
+            {"GITHUB_REF_TYPE": "branch", "GITHUB_REF": "refs/heads/staging-build-approved-sha"},
+            {"GITHUB_REF": "refs/tags/v1"}, {"GITHUB_REF": "refs/tags/staging-build-"},
+            {"GITHUB_REF": "refs/tags/staging-build-nested/tag"},
+            {"GITHUB_REF": "refs/tags/staging-build-line\nbreak"},
+            {"STAGING_TAG_DELETED": "true"},
+        ):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                validate_workflow(self.tag_environment(**change))
+
+    def test_unapproved_events_are_rejected(self):
+        for event in ("", "pull_request", "pull_request_target", "repository_dispatch", "schedule"):
+            with self.subTest(event=event), self.assertRaises(ValueError):
+                validate_workflow(self.tag_environment(GITHUB_EVENT_NAME=event))
+
+    def test_invalid_workflow_origin_produces_no_output_or_credential_log(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "output"
+            for origin in ("", "https://user:DO_NOT_LOG@example.test",
+                           "https://staging.example.test\nINJECTED=value",
+                           "https://gacha-vault-backend.onrender.com"):
+                with self.subTest(origin=origin):
+                    result = subprocess.run(
+                        [sys.executable, str(ROOT / "tool/staging/validate.py"), "workflow"],
+                        env=self.tag_environment(STAGING_API_BASE_URL=origin, GITHUB_OUTPUT=str(output)),
+                        capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 1)
+                    self.assertFalse(output.exists())
+                    self.assertNotIn("DO_NOT_LOG", result.stdout + result.stderr)
+
     def test_valid_explicit_https_origin(self):
         self.assertEqual(validate_origin(ORIGIN), ORIGIN)
 

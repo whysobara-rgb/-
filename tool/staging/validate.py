@@ -66,6 +66,22 @@ def validate_defines(encoded, expected_origin):
             "Do not override Flutter runtime mode defines")
 
 
+def validate_workflow(env):
+    """Select one explicit source; missing dispatch/tag inputs never fall back."""
+    event = env.get("GITHUB_EVENT_NAME")
+    if event == "push":
+        require(env.get("GITHUB_REF_TYPE") == "tag"
+                and re.fullmatch(r"refs/tags/staging-build-[^/\s]+", env.get("GITHUB_REF", ""))
+                and env.get("STAGING_TAG_DELETED") != "true",
+                "Only an existing staging-build-* tag may start a staging push build")
+        origin = env.get("STAGING_API_BASE_URL", "")
+    elif event == "workflow_dispatch":
+        origin = env.get("DISPATCH_API_BASE_URL", "")
+    else:
+        raise ValueError("Unsupported staging workflow event")
+    return validate_origin(origin)
+
+
 def validate_ios_prebuild(env):
     configuration = env.get("CONFIGURATION", "")
     expected_mode = {
@@ -118,6 +134,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("origin")
+    sub.add_parser("workflow")
     sub.add_parser("defines")
     sub.add_parser("ios-prebuild")
     ios = sub.add_parser("ios-app")
@@ -132,6 +149,12 @@ def main():
     try:
         if args.command == "origin":
             validate_origin(os.environ.get("API_BASE_URL", ""))
+        elif args.command == "workflow":
+            origin = validate_workflow(os.environ)
+            require(bool(os.environ.get("GITHUB_OUTPUT")), "GitHub workflow output is required")
+            # validate_origin forbids newlines/credentials before writing a job output.
+            with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
+                output.write(f"api_base_url={origin}\n")
         elif args.command == "defines":
             validate_defines(os.environ.get("DART_DEFINES", ""),
                              os.environ.get("API_BASE_URL", ""))
