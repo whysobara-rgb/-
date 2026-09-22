@@ -5,18 +5,18 @@ import 'package:flutter/material.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/config/app_config.dart';
 import 'collection_card.dart';
-import '../../../core/theme/app_colors.dart';
+import '../../../shared/widgets/gachi_components.dart';
 import '../domain/inventory_item.dart';
 import 'delivery_request_page.dart';
 import '../../conversions/conversion_page.dart';
 
-/// 가치가차 - 하단 탭 "박스"(보관함) 화면.
-///
-/// "Vivid Pastel Pop" 컨셉으로, 전체 배경은 크림 화이트이며
-/// 코랄 액센트가 선택/강조 요소에 사용된다.
-/// 보관함 목록은 백엔드 `GET /inventory`에서 실시간으로 가져온다.
+/// Existing inventory controller, with V33 presentation and optional read adapter.
 class InventoryPage extends StatefulWidget {
-  const InventoryPage({super.key});
+  final InventoryRepository repository;
+  const InventoryPage({
+    super.key,
+    this.repository = const InventoryRepository(),
+  });
 
   @override
   State<InventoryPage> createState() => _InventoryPageState();
@@ -58,7 +58,7 @@ extension on _StatusFilter {
 }
 
 class _InventoryPageState extends State<InventoryPage> {
-  final _repository = const InventoryRepository();
+  InventoryRepository get _repository => widget.repository;
 
   List<InventoryItem> _items = [];
   bool _isLoading = true;
@@ -282,7 +282,7 @@ class _InventoryPageState extends State<InventoryPage> {
   void _openSortSheet() {
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: AppColors.surfaceElevated,
+      backgroundColor: GachiColors.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -296,7 +296,7 @@ class _InventoryPageState extends State<InventoryPage> {
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: AppColors.surfaceBorder,
+                  color: GachiColors.divider,
                   borderRadius: BorderRadius.circular(4),
                 ),
               ),
@@ -308,7 +308,7 @@ class _InventoryPageState extends State<InventoryPage> {
                   child: Text(
                     '정렬',
                     style: TextStyle(
-                      color: AppColors.textPrimary,
+                      color: GachiColors.ink,
                       fontSize: 15,
                       fontWeight: FontWeight.w700,
                     ),
@@ -322,8 +322,8 @@ class _InventoryPageState extends State<InventoryPage> {
                     option.label,
                     style: TextStyle(
                       color: option == _sortOption
-                          ? AppColors.goldSecondary
-                          : AppColors.textPrimary,
+                          ? GachiColors.ink
+                          : GachiColors.ink,
                       fontWeight: option == _sortOption
                           ? FontWeight.w700
                           : FontWeight.w500,
@@ -331,10 +331,7 @@ class _InventoryPageState extends State<InventoryPage> {
                     ),
                   ),
                   trailing: option == _sortOption
-                      ? const Icon(
-                          Icons.check_rounded,
-                          color: AppColors.goldSecondary,
-                        )
+                      ? const Icon(Icons.check_rounded, color: GachiColors.ink)
                       : null,
                   onTap: () {
                     setState(() => _sortOption = option);
@@ -352,206 +349,183 @@ class _InventoryPageState extends State<InventoryPage> {
   @override
   Widget build(BuildContext context) {
     final items = _filteredItems;
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('내 컬렉션'),
-        actions: [
-          IconButton(
-            tooltip: 'GP 전환 내역과 상품 복구',
-            onPressed: () => _openConversions(),
-            icon: const Icon(Icons.swap_horiz),
-          ),
-          if (AppConfig.orderPreviewEnabled)
-            TextButton(
-              onPressed: () async {
-                final user = context.read<AuthProvider>().currentUser;
-                if (user == null) return;
-                await Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => OrderFlowPage(userId: user.id),
-                  ),
-                );
-                if (mounted) await _loadItems();
-              },
-              child: const Text('미개봉 캡슐'),
+    return GachiTheme(
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('보관함'),
+          actions: [
+            IconButton(
+              tooltip: 'GP 전환 내역과 상품 복구',
+              onPressed: () => _openConversions(),
+              icon: const Icon(Icons.swap_horiz),
             ),
-          IconButton(
-            tooltip: '상품 정렬',
-            onPressed: _openSortSheet,
-            icon: const Icon(Icons.sort_rounded),
-          ),
-        ],
-      ),
-      bottomNavigationBar: _hasSelection
-          ? SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    FilledButton.icon(
-                      onPressed: _isLoading || _pendingLocks.isNotEmpty
-                          ? null
-                          : () => _openConversions(selected: true),
-                      icon: const Icon(Icons.swap_horiz),
-                      label: Text('${_selectedIds.length}개 GP 전환 확인'),
-                    ),
-                    const SizedBox(height: 8),
-                    OutlinedButton.icon(
-                      onPressed: AppConfig.shippingPreviewEnabled && !_isLoading
-                          ? _onRequestShipping
-                          : null,
-                      icon: const Icon(Icons.local_shipping_outlined),
-                      label: Text(
-                        AppConfig.shippingPreviewEnabled
-                            ? '${_selectedIds.length}개 배송 요청'
-                            : '배송 서비스 준비 중',
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            )
-          : null,
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(_error!, textAlign: TextAlign.center),
-                    TextButton(
-                      onPressed: _loadItems,
-                      child: const Text('다시 시도'),
-                    ),
-                  ],
-                ),
-              ),
-            )
-          : RefreshIndicator(
-              onRefresh: _loadItems,
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final columns = constraints.maxWidth >= 600
-                      ? 3
-                      : constraints.maxWidth >= 360 &&
-                            MediaQuery.textScalerOf(context).scale(14) <= 20
-                      ? 2
-                      : 1;
-                  final width =
-                      (constraints.maxWidth - 32 - (columns - 1) * 12) /
-                      columns;
-                  return ListView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.all(16),
+            IconButton(
+              tooltip: '상품 정렬',
+              onPressed: _openSortSheet,
+              icon: const Icon(Icons.sort_rounded),
+            ),
+          ],
+        ),
+        bottomNavigationBar: _hasSelection
+            ? SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Container(
-                        padding: const EdgeInsets.all(24),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(24),
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF29203E), Color(0xFF101018)],
-                          ),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'MY COLLECTION',
-                              style: TextStyle(
-                                color: Color(0xFFB9A4FF),
-                                letterSpacing: 2,
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              '나의 수집 기록 ${_items.length}개',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 24,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              '조회된 상품의 추정 가치 ${_formatWon(_totalValue)}',
-                              style: const TextStyle(color: Color(0xFFD8D3E3)),
-                            ),
-                          ],
-                        ),
+                      FilledButton.icon(
+                        onPressed: _isLoading || _pendingLocks.isNotEmpty
+                            ? null
+                            : () => _openConversions(selected: true),
+                        icon: const Icon(Icons.swap_horiz),
+                        label: Text('${_selectedIds.length}개 GP 전환 확인'),
                       ),
-                      const SizedBox(height: 20),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          for (final filter in _StatusFilter.values)
-                            ChoiceChip(
-                              label: Text(filter.label),
-                              selected: filter == _selectedFilter,
-                              onSelected: (_) => _onFilterSelected(filter),
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        _sortOption.label,
-                        style: const TextStyle(color: AppColors.textSecondary),
-                      ),
-                      CheckboxListTile(
-                        contentPadding: EdgeInsets.zero,
-                        controlAffinity: ListTileControlAffinity.leading,
-                        title: Text('보관중 상품 전체선택 · ${_selectedIds.length}개 선택'),
-                        value: _selectAll,
-                        onChanged: items.any((item) => item.canSelect)
-                            ? _toggleSelectAll
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        onPressed:
+                            AppConfig.shippingPreviewEnabled && !_isLoading
+                            ? _onRequestShipping
                             : null,
+                        icon: const Icon(Icons.local_shipping_outlined),
+                        label: Text(
+                          AppConfig.shippingPreviewEnabled
+                              ? '${_selectedIds.length}개 배송 요청'
+                              : '배송 서비스 준비 중',
+                        ),
                       ),
-                      if (items.isEmpty)
-                        const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 48),
-                          child: Column(
+                    ],
+                  ),
+                ),
+              )
+            : null,
+        body: SafeArea(
+          top: false,
+          child: _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : _error != null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(_error!, textAlign: TextAlign.center),
+                        TextButton(
+                          onPressed: _loadItems,
+                          child: const Text('다시 시도'),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              : RefreshIndicator(
+                  onRefresh: _loadItems,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      return ListView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.all(16),
+                        children: [
+                          const GachiSectionHeader(title: '나의 보관함'),
+                          const SizedBox(height: GachiSpace.sm),
+                          Text(
+                            '조회된 상품 ${_items.length}개 · 추정 가치 ${_formatWon(_totalValue)}',
+                            style: GachiType.meta.copyWith(
+                              color: GachiColors.secondary,
+                            ),
+                          ),
+                          if (AppConfig.orderPreviewEnabled)
+                            TextButton(
+                              onPressed: () async {
+                                final user = context
+                                    .read<AuthProvider>()
+                                    .currentUser;
+                                if (user == null) return;
+                                await Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) =>
+                                        OrderFlowPage(userId: user.id),
+                                  ),
+                                );
+                                if (mounted) await _loadItems();
+                              },
+                              child: const Text('미개봉 캡슐'),
+                            ),
+                          const SizedBox(height: GachiSpace.md),
+                          const SizedBox(height: 20),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
                             children: [
-                              Icon(
-                                Icons.collections_bookmark_outlined,
-                                size: 56,
-                              ),
-                              SizedBox(height: 16),
-                              Text('이 상태에 해당하는 상품이 없어요'),
-                              SizedBox(height: 8),
-                              Text(
-                                '다른 상태를 선택하거나 캡슐을 개봉해보세요.',
-                                textAlign: TextAlign.center,
-                              ),
+                              for (final filter in _StatusFilter.values)
+                                ChoiceChip(
+                                  label: Text(
+                                    filter.label,
+                                    style: TextStyle(
+                                      color: filter == _selectedFilter
+                                          ? GachiColors.ivory
+                                          : GachiColors.ink,
+                                    ),
+                                  ),
+                                  selected: filter == _selectedFilter,
+                                  onSelected: (_) => _onFilterSelected(filter),
+                                ),
                             ],
                           ),
-                        )
-                      else
-                        Wrap(
-                          spacing: 12,
-                          runSpacing: 12,
-                          children: [
-                            for (final item in items)
-                              SizedBox(
-                                width: width,
-                                child: CollectionCard(
-                                  item: item,
-                                  selected: _selectedIds.contains(item.id),
-                                  onSelect: () => _toggleItemSelected(item.id),
-                                  onLock: () => _toggleLock(item.id),
-                                ),
+                          const SizedBox(height: 12),
+                          Text(
+                            _sortOption.label,
+                            style: const TextStyle(
+                              color: GachiColors.secondary,
+                            ),
+                          ),
+                          CheckboxListTile(
+                            contentPadding: EdgeInsets.zero,
+                            controlAffinity: ListTileControlAffinity.leading,
+                            title: Text(
+                              '보관중 상품 전체선택 · ${_selectedIds.length}개 선택',
+                            ),
+                            value: _selectAll,
+                            onChanged: items.any((item) => item.canSelect)
+                                ? _toggleSelectAll
+                                : null,
+                          ),
+                          if (items.isEmpty)
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 48),
+                              child: Column(
+                                children: [
+                                  Icon(
+                                    Icons.collections_bookmark_outlined,
+                                    size: 56,
+                                  ),
+                                  SizedBox(height: 16),
+                                  Text('이 상태에 해당하는 상품이 없어요'),
+                                  SizedBox(height: 8),
+                                  Text(
+                                    '다른 상태를 선택하거나 캡슐을 개봉해보세요.',
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ],
                               ),
-                          ],
-                        ),
-                    ],
-                  );
-                },
-              ),
-            ),
+                            )
+                          else
+                            ...items.map(
+                              (item) => CollectionCard(
+                                item: item,
+                                selected: _selectedIds.contains(item.id),
+                                onSelect: () => _toggleItemSelected(item.id),
+                                onLock: () => _toggleLock(item.id),
+                              ),
+                            ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+        ),
+      ),
     );
   }
 }

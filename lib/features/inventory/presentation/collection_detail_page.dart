@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../domain/inventory_item.dart';
+import '../../../shared/widgets/gachi_components.dart';
 
 class CollectionDetailPage extends StatefulWidget {
   final InventoryItem item;
@@ -21,37 +22,22 @@ class _CollectionDetailPageState extends State<CollectionDetailPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('컬렉션 상세')),
+    return GachiScaffold(
+      title: '컬렉션 상세',
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          Container(
-            height: 340,
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(28),
-              gradient: const LinearGradient(
-                colors: [Color(0xFF29203E), Color(0xFF101018)],
-              ),
-            ),
-            child: InteractiveViewer(
-              transformationController: _transform,
-              minScale: 1,
-              maxScale: 3,
-              child: Center(
-                child: item.imageUrl == null || item.imageUrl!.isEmpty
-                    ? Icon(item.icon, size: 120, color: const Color(0xFFB9A4FF))
-                    : Image.network(
-                        item.imageUrl!,
-                        fit: BoxFit.contain,
-                        errorBuilder: (_, error, stack) => Icon(
-                          item.icon,
-                          size: 120,
-                          color: const Color(0xFFB9A4FF),
-                        ),
-                      ),
-              ),
+          InteractiveViewer(
+            transformationController: _transform,
+            minScale: 1,
+            maxScale: 3,
+            child: GachiProductImage(
+              url: item.imageUrl,
+              imageProvider: item.imageUrl == null || item.imageUrl!.isEmpty
+                  ? null
+                  : NetworkImage(item.imageUrl!),
+              label: item.name,
+              aspectRatio: 1.2,
             ),
           ),
           const SizedBox(height: 12),
@@ -77,10 +63,7 @@ class _CollectionDetailPageState extends State<CollectionDetailPage> {
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 24),
-          Text(
-            item.name,
-            style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800),
-          ),
+          Text(item.name, style: GachiType.pageTitle),
           const SizedBox(height: 16),
           Wrap(
             spacing: 8,
