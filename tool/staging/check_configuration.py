@@ -74,6 +74,28 @@ def check_workflow_protection(workflow):
             "Protected native baseline and all protected paths must remain enforced")
 
 
+
+def check_physical_transaction_preview_scope(workflow, ios_builder):
+    android_build = next(
+        (line.strip() for line in workflow.splitlines()
+         if line.strip().startswith('run: flutter build apk --debug ')),
+        None,
+    )
+    require(android_build is not None, "Android staging build command missing")
+    require('--dart-define=ENABLE_GP_ORDER_PREVIEW=true' in android_build,
+            "Android physical staging build must enable GP order preview")
+    for forbidden in ("ENABLE_GP_CONVERSION_PREVIEW", "ENABLE_SHIPPING_PREVIEW",
+                      "ENABLE_ORDER_REFUND_PREVIEW", "ENABLE_LEGACY_TRANSACTIONS"):
+        require(f'--dart-define={forbidden}=true' not in android_build,
+                f"Android physical staging build must not enable {forbidden}")
+
+    require("'--dart-define=ENABLE_GP_ORDER_PREVIEW=true'" in ios_builder,
+            "iOS physical staging build must enable GP order preview")
+    for forbidden in ("ENABLE_GP_CONVERSION_PREVIEW", "ENABLE_SHIPPING_PREVIEW",
+                      "ENABLE_ORDER_REFUND_PREVIEW", "ENABLE_LEGACY_TRANSACTIONS"):
+        require(f"'--dart-define={forbidden}=true'" not in ios_builder,
+                f"iOS physical staging build must not enable {forbidden}")
+
 def check(root=ROOT):
     project = (root / "ios/Runner.xcodeproj/project.pbxproj").read_text()
     configurations = re.findall(
@@ -100,8 +122,11 @@ def check(root=ROOT):
                     "Original iOS identifier changed")
             require("Staging.entitlements" not in block, "Staging entitlements leaked to original target")
     check_runner_profile_scope(project)
-    check_no_global_signing_overrides((root / "tool/staging/build_ios.py").read_text())
-    check_workflow_protection((root / ".github/workflows/staging.yml").read_text())
+    ios_builder = (root / "tool/staging/build_ios.py").read_text()
+    workflow = (root / ".github/workflows/staging.yml").read_text()
+    check_no_global_signing_overrides(ios_builder)
+    check_workflow_protection(workflow)
+    check_physical_transaction_preview_scope(workflow, ios_builder)
 
     scheme = ET.parse(root / "ios/Runner.xcodeproj/xcshareddata/xcschemes/staging.xcscheme").getroot()
     for action, configuration in {
