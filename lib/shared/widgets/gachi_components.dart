@@ -158,12 +158,16 @@ class GachiProductImage extends StatelessWidget {
   final String label;
   final double aspectRatio;
   final bool compact;
+  final ImageProvider? imageProvider;
+  final IconData? placeholderIcon;
   const GachiProductImage({
     super.key,
     required this.url,
     required this.label,
     this.aspectRatio = 1.12,
     this.compact = false,
+    this.imageProvider,
+    this.placeholderIcon,
   });
   Widget _placeholder({bool failed = false}) => ColoredBox(
     color: GachiColors.navy,
@@ -174,7 +178,10 @@ class GachiProductImage extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              failed ? Icons.hide_image_outlined : Icons.inventory_2_outlined,
+              placeholderIcon ??
+                  (failed
+                      ? Icons.hide_image_outlined
+                      : Icons.inventory_2_outlined),
               color: GachiColors.gold,
               size: compact ? 22 : 32,
             ),
@@ -201,6 +208,33 @@ class GachiProductImage extends StatelessWidget {
         aspectRatio: aspectRatio,
         child: url == null || url!.trim().isEmpty
             ? Semantics(label: '등록된 사진 없음', child: _placeholder())
+            : imageProvider != null
+            ? Image(
+                image: imageProvider!,
+                fit: BoxFit.contain,
+                excludeFromSemantics: true,
+                frameBuilder: (context, child, frame, synchronous) =>
+                    frame != null || synchronous
+                    ? ColoredBox(color: GachiColors.surface, child: child)
+                    : const ColoredBox(
+                        color: GachiColors.navy,
+                        child: Center(
+                          child: SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: GachiColors.gold,
+                              semanticsLabel: '사진 불러오는 중',
+                            ),
+                          ),
+                        ),
+                      ),
+                errorBuilder: (_, _, _) => Semantics(
+                  label: '사진 로드 실패',
+                  child: _placeholder(failed: true),
+                ),
+              )
             : CachedNetworkImage(
                 imageUrl: url!,
                 fit: BoxFit.contain,

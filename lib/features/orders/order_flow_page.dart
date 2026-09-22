@@ -4,6 +4,9 @@ import '../../core/network/api_client.dart';
 import '../../core/theme/app_colors.dart';
 import '../../shared/providers/auth_provider.dart';
 import '../../shared/widgets/balance_notice.dart';
+import '../../shared/widgets/gachi_components.dart';
+import '../../shared/widgets/gachi_opening.dart';
+import '../inventory/presentation/inventory_page.dart';
 import 'order_models.dart';
 import 'prize_reveal.dart';
 import 'order_repository.dart';
@@ -232,34 +235,37 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
     });
   }
 
-  Widget _summary(IconData icon, String title, String description) => Container(
-    margin: const EdgeInsets.only(bottom: 20),
-    padding: const EdgeInsets.all(24),
-    decoration: BoxDecoration(
-      color: AppColors.textPrimary,
-      borderRadius: BorderRadius.circular(24),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(icon, color: Colors.white, size: 40),
-        const SizedBox(height: 20),
-        Text(
-          title,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 26,
-            fontWeight: FontWeight.w800,
+  Widget _summary(IconData icon, String title, String description) =>
+      _showInventory
+      ? GachiOpeningHeading(title: title, description: description)
+      : Container(
+          margin: const EdgeInsets.only(bottom: 20),
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: AppColors.textPrimary,
+            borderRadius: BorderRadius.circular(24),
           ),
-        ),
-        const SizedBox(height: 10),
-        Text(
-          description,
-          style: const TextStyle(color: Color(0xFFDEDEE4), height: 1.6),
-        ),
-      ],
-    ),
-  );
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, color: Colors.white, size: 40),
+              const SizedBox(height: 20),
+              Text(
+                title,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 26,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                description,
+                style: const TextStyle(color: Color(0xFFDEDEE4), height: 1.6),
+              ),
+            ],
+          ),
+        );
 
   String _gp(int value) =>
       '${value.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')} GP';
@@ -272,7 +278,11 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
         Expanded(
           child: Text(
             label,
-            style: const TextStyle(color: AppColors.textSecondary),
+            style: TextStyle(
+              color: _showInventory
+                  ? GachiOpeningColors.secondary
+                  : AppColors.textSecondary,
+            ),
           ),
         ),
         const SizedBox(width: 16),
@@ -350,20 +360,50 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
     ),
   );
   List<Widget> _content() {
-    if (_opening != null) {
+    if (_opening != null || (_openingId != null && _busy)) {
       return [
-        PrizeReveal(key: ValueKey(_opening!.capsuleId), prize: _opening!.prize),
-        const Padding(
-          padding: EdgeInsets.symmetric(vertical: 16),
-          child: Text('내 보관함에 저장했어요. 이 화면을 다시 열어도 같은 결과를 확인할 수 있습니다.'),
+        GachiOpeningHeading(
+          title: _opening == null ? '박스를 열고 있어요' : '1개 개봉 완료',
+          description: '추가 결제 0 GP · 확인된 결과만 공개합니다.',
         ),
-        _button('미개봉 보관함으로', _inventory),
-        _button('확인하고 돌아가기', () async {
-          await _run(() async {
-            await _repo!.acknowledgeOpening(_opening!.capsuleId);
-            if (mounted) Navigator.pop(context);
-          });
-        }, primary: false),
+        GachiOpeningExperience(
+          key: ValueKey(_openingId),
+          waiting: _opening == null,
+          result: _opening == null
+              ? const SizedBox.shrink()
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    PrizeReveal(
+                      animate: false,
+                      key: ValueKey(_opening!.capsuleId),
+                      prize: _opening!.prize,
+                    ),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: GachiSpace.lg),
+                      child: Text(
+                        '내 보관함에 저장했어요. 이 화면을 다시 열어도 같은 결과를 확인할 수 있습니다.',
+                      ),
+                    ),
+                    GachiPrimaryButton(
+                      label: '보관함 보기',
+                      gold: true,
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const InventoryPage(),
+                        ),
+                      ),
+                    ),
+                    _button('미개봉 보관함으로', _inventory),
+                    _button('확인하고 돌아가기', () async {
+                      await _run(() async {
+                        await _repo!.acknowledgeOpening(_opening!.capsuleId);
+                        if (mounted) Navigator.pop(context);
+                      });
+                    }, primary: false),
+                  ],
+                ),
+        ),
       ];
     }
     if (_receipt != null) {
@@ -384,7 +424,7 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
     if (_openingId != null) {
       return [
         const Text(
-          '개봉 결과 확인',
+          '처리 결과 확인 중',
           style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
         ),
         const Text('개봉 결과를 불러오고 있어요. 연결이 끊겼다면 아래 버튼으로 이어서 확인해주세요.'),
@@ -637,51 +677,65 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
     return widgets;
   }
 
+  Widget _selectionAction() => Padding(
+    padding: const EdgeInsets.all(GachiSpace.lg),
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text('개봉 후에는 미개봉 상태로 되돌릴 수 없어요.', textAlign: TextAlign.center),
+        const SizedBox(height: GachiSpace.sm),
+        GachiPrimaryButton(
+          label: '선택한 ${_selectedCapsules.length}개 개봉 · 0 GP',
+          gold: true,
+          onPressed: _busy ? null : () => _batchPage(),
+        ),
+      ],
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
     final sameUser =
         context.watch<AuthProvider>().currentUser?.id == widget.userId;
-    return Scaffold(
+    final selection =
+        sameUser &&
+        _showInventory &&
+        _selectedCapsules.isNotEmpty &&
+        _batchPending == null &&
+        _focused == null &&
+        _openingId == null;
+    final inlineAction =
+        MediaQuery.textScalerOf(context).scale(15) > 21 ||
+        MediaQuery.sizeOf(context).height < 600;
+    final scaffold = Scaffold(
       appBar: AppBar(title: Text(_showInventory ? '미개봉 보관함' : '구매 확인')),
-      bottomNavigationBar:
-          sameUser &&
-              _showInventory &&
-              _selectedCapsules.isNotEmpty &&
-              _batchPending == null
-          ? SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: FilledButton(
-                  onPressed: _busy ? null : () => _batchPage(),
-                  child: Text('선택한 ${_selectedCapsules.length}개 개봉 · 0 GP'),
-                ),
-              ),
-            )
+      bottomNavigationBar: selection && !inlineAction
+          ? SafeArea(top: false, child: _selectionAction())
           : null,
       body: SafeArea(
         child: !sameUser
             ? const Center(child: Text('구매한 계정으로 다시 로그인해주세요.'))
             : Column(
                 children: [
-                  if (_busy) const LinearProgressIndicator(),
+                  if (_busy && _openingId == null)
+                    const LinearProgressIndicator(),
                   Expanded(
                     child: ListView(
-                      padding: const EdgeInsets.all(20),
+                      padding: const EdgeInsets.all(GachiSpace.page),
                       children: [
                         if (_error != null)
                           Padding(
-                            padding: const EdgeInsets.only(bottom: 16),
+                            padding: const EdgeInsets.only(
+                              bottom: GachiSpace.lg,
+                            ),
                             child: Semantics(
                               liveRegion: true,
-                              child: Text(
-                                _error!,
-                                style: TextStyle(
-                                  color: Theme.of(context).colorScheme.error,
-                                ),
-                              ),
+                              child: Text(_error!),
                             ),
                           ),
                         ..._content(),
+                        if (selection && inlineAction) _selectionAction(),
                       ],
                     ),
                   ),
@@ -689,5 +743,6 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
               ),
       ),
     );
+    return _showInventory ? GachiOpeningTheme(child: scaffold) : scaffold;
   }
 }
