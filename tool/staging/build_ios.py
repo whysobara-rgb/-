@@ -64,7 +64,8 @@ def build():
             # Generates Flutter settings and installs Pods, but does not create an unsigned app.
             subprocess.run(['flutter', 'build', 'ios', '--profile', '--flavor', 'staging',
                             '--config-only', '--no-codesign',
-                            '--dart-define=API_BASE_URL=' + os.environ['API_BASE_URL']], check=True)
+                            '--dart-define=API_BASE_URL=' + os.environ['API_BASE_URL'],
+                            '--dart-define=ENABLE_GP_ORDER_PREVIEW=true'], check=True)
             options = ['-workspace', 'ios/Runner.xcworkspace', '-scheme', 'staging',
                        '-configuration', 'Profile-staging', '-sdk', 'iphoneos',
                        '-destination', 'generic/platform=iOS']
