@@ -47,6 +47,11 @@ jobs:
           flutter build ios --simulator --debug --target=tool/v33_stage2/ui_probe.dart
           codesign --verify --verbose build/ios/iphonesimulator/Runner.app
           python3 tool/ios/simulator_smoke.py v33-stage2
+      - name: Build and capture V33 Stage 3 on simulator
+        run: |
+          flutter build ios --simulator --debug --target=tool/v33_stage3/ui_probe.dart
+          codesign --verify --verbose build/ios/iphonesimulator/Runner.app
+          python3 tool/ios/simulator_smoke.py v33-stage3
       - uses: actions/upload-artifact@v4
         if: always()
         with:

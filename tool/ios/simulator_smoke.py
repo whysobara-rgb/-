@@ -54,7 +54,7 @@ def launch_and_expect(udid, bundle, marker, name):
                 logs = output.read_text() + unified.read_text()
                 if 'GACHA_STORAGE_PROBE_FAILED' in logs:
                     raise RuntimeError('Native storage verification failed; inspect evidence')
-                if 'V33_UI_PROBE_FAILED' in logs or 'V33_STAGE2_FAILED' in logs:
+                if 'V33_UI_PROBE_FAILED' in logs or 'V33_STAGE2_FAILED' in logs or 'V33_STAGE3_FAILED' in logs:
                     raise RuntimeError('Flutter V33 presentation error; inspect evidence')
                 for expected, capture_name in list(targets.items()):
                     if expected in logs:
@@ -116,6 +116,16 @@ elif mode == 'v33-stage2':
         'V33_STAGE2_' + name + '_READY': 'v33-stage2-' + name.lower() for name in names
     }, 'v33-stage2-ui')
     (EVIDENCE / 'v33-stage2-result.json').write_text(json.dumps({
+        'result': 'PASS', 'screens': names,
+        'source_commit': run('git', 'rev-parse', 'HEAD').strip(),
+        'device': udid, 'data': 'synthetic UI fixtures', 'live_transactions': False,
+    }, indent=2))
+elif mode == 'v33-stage3':
+    names = ['ORDERS', 'REFUND', 'SHIPPING', 'SECURITY', 'CLOSURE', 'CONVERSION']
+    launch_and_expect(udid, bundle, {
+        'V33_STAGE3_' + name + '_READY': 'v33-stage3-' + name.lower() for name in names
+    }, 'v33-stage3-ui')
+    (EVIDENCE / 'v33-stage3-result.json').write_text(json.dumps({
         'result': 'PASS', 'screens': names,
         'source_commit': run('git', 'rev-parse', 'HEAD').strip(),
         'device': udid, 'data': 'synthetic UI fixtures', 'live_transactions': False,

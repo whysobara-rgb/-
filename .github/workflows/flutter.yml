@@ -31,6 +31,9 @@ jobs:
       - name: Verify existing unopened entry with its debug gate enabled
         run: flutter test --dart-define=ENABLE_GP_ORDER_PREVIEW=true test/features/v33_navigation_test.dart
 
+      - name: Verify existing shipping form in isolated debug fixtures
+        run: flutter test --dart-define=ENABLE_SHIPPING_PREVIEW=true test/features/v33_stage3_test.dart --plain-name 'shipping application retains gate'
+
       - name: Verify release constants keep all transaction gates closed
         run: flutter test --dart-define=dart.vm.product=true --dart-define=ENABLE_GP_ORDER_PREVIEW=true --dart-define=ENABLE_GP_CONVERSION_PREVIEW=true --dart-define=ENABLE_SHIPPING_PREVIEW=true --dart-define=ENABLE_ORDER_REFUND_PREVIEW=true --dart-define=ENABLE_LEGACY_TRANSACTIONS=true test/core/v33_release_gate_test.dart
 
