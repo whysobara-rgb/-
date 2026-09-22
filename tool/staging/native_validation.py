@@ -154,12 +154,11 @@ def check_signed_app(app, temp, *, failure_evidence=None, archive=None):
         profile = plistlib.loads(check.command(['security', 'cms', '-D', '-i', str(app / 'embedded.mobileprovision')]))
     with stage('profile_contract_check', 'python_contract'):
         check_profile(profile)
-    with stage('certificate_extract', 'codesign') as check:
-        prefix = str(temp / 'verified-cert-')
-        check.command(['codesign', '-d', '--extract-certificates', prefix, str(app)])
-    with stage('certificate_hash_check', 'python_hash'):
-        require(hashlib.sha256(Path(prefix + '0').read_bytes()).hexdigest() == CERT_SHA256,
-                'Final signature does not use the approved Distribution certificate')
+    with stage('certificate_requirement_check', 'codesign') as check:
+        # '=' supplies inline requirement text. Do not apply this app identifier
+        # to nested frameworks: recursive integrity verification is separate above.
+        requirement = f'=certificate leaf = H"{CERT_SHA1}" and identifier "{IOS_ID}"'
+        check.command(['codesign', '--verify', '--strict', '-R', requirement, str(app)])
     with stage('compiled_origin_check', 'python_binary'):
         binary = app / 'Frameworks/App.framework/App'
         require(exact_origin().encode() in binary.read_bytes(), 'Staging origin missing from compiled Dart AOT')
