@@ -1,22 +1,38 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/network/api_client.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../shared/providers/auth_provider.dart';
 import '../../../shared/providers/gp_provider.dart';
 import '../../../shared/widgets/balance_notice.dart';
 import '../../gacha/presentation/gacha_detail_page.dart';
 import '../data/capsule_box_repository.dart';
 import '../domain/capsule_box.dart';
-import 'widgets/capsule_box_card.dart';
+import 'catalog_views.dart';
+export 'catalog_views.dart' show HomeScreen, BoxShopScreen;
+
 import '../../customer_updates/customer_content.dart';
 import '../../customer_updates/customer_updates_page.dart';
+
+// Compatibility name for existing catalog callers and visual tests.
+typedef CatalogScreen = BoxShopScreen;
 
 class HomePage extends StatefulWidget {
   final VoidCallback onGoToWallet;
   final Future<List<CapsuleBox>> Function()? loadCatalog;
-  const HomePage({super.key, required this.onGoToWallet, this.loadCatalog});
+  final bool showShop;
+  final int refreshRevision;
+  final VoidCallback onShop, onRanking, onOpenUnopened, onCollection;
+  const HomePage({
+    super.key,
+    required this.onGoToWallet,
+    this.loadCatalog,
+    this.showShop = false,
+    this.refreshRevision = 0,
+    required this.onShop,
+    required this.onRanking,
+    required this.onOpenUnopened,
+    required this.onCollection,
+  });
   @override
   State<HomePage> createState() => _HomePageState();
 }
@@ -33,6 +49,15 @@ class _HomePageState extends State<HomePage> {
     super.initState();
     _load();
     _loadContent();
+  }
+
+  @override
+  void didUpdateWidget(covariant HomePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.refreshRevision != widget.refreshRevision) {
+      _load();
+      _loadContent();
+    }
   }
 
   Future<void> _loadContent() async {
@@ -98,572 +123,59 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) => CatalogScreen(
-    boxes: _boxes,
-    campaigns: _campaigns,
-    contentError: _contentError,
-    onUpdates: () => Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => const CustomerUpdatesPage())),
-    loading: _loading,
-    error: _error,
-    balance: context.watch<GpProvider>().formattedBalance,
-    balanceNotice: const BalanceNotice(),
-    onRefresh: () async {
-      await Future.wait([
-        _load(),
-        _loadContent(),
-        context.read<AuthProvider>().refreshProfile(),
-      ]);
-    },
-    onOpen: _open,
-    onWallet: widget.onGoToWallet,
-  );
-}
-
-/// Presentation shared by the real home and deterministic visual checks.
-class CatalogScreen extends StatefulWidget {
-  final List<CapsuleBox> boxes;
-  final List<Campaign> campaigns;
-  final String? contentError;
-  final VoidCallback? onUpdates;
-  final bool loading;
-  final String? error;
-  final String balance;
-  final Widget? balanceNotice;
-  final Future<void> Function() onRefresh;
-  final ValueChanged<CapsuleBox> onOpen;
-  final VoidCallback onWallet;
-  const CatalogScreen({
-    super.key,
-    required this.boxes,
-    this.campaigns = const [],
-    this.contentError,
-    this.onUpdates,
-    this.loading = false,
-    this.error,
-    this.balanceNotice,
-    required this.balance,
-    required this.onRefresh,
-    required this.onOpen,
-    required this.onWallet,
-  });
-  @override
-  State<CatalogScreen> createState() => _CatalogScreenState();
-}
-
-class _CatalogScreenState extends State<CatalogScreen> {
-  final _search = TextEditingController();
-  String _sort = '기본순';
-  String _category = 'all';
-  @override
-  void dispose() {
-    _search.dispose();
-    super.dispose();
+  Future<void> _refresh() async {
+    await Future.wait([
+      _load(),
+      _loadContent(),
+      context.read<AuthProvider>().refreshProfile(),
+    ]);
   }
 
-  List<CapsuleBox> get _visible {
-    final query = _search.text.trim().toLowerCase();
-    final result = widget.boxes
-        .where(
-          (b) =>
-              b.name.toLowerCase().contains(query) &&
-              (_category == 'all' || b.category == _category),
-        )
-        .toList();
-    if (_sort == '낮은 가격순') {
-      result.sort((a, b) => a.priceWon.compareTo(b.priceWon));
-    }
-    if (_sort == '높은 가격순') {
-      result.sort((a, b) => b.priceWon.compareTo(a.priceWon));
-    }
-    return result;
-  }
+  void _updates() => Navigator.of(
+    context,
+  ).push(MaterialPageRoute(builder: (_) => const CustomerUpdatesPage()));
 
   @override
   Widget build(BuildContext context) {
-    final visible = _visible;
-    return Scaffold(
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        titleSpacing: 20,
-        title: const Text(
-          '가치가차',
-          style: TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.w900,
-            letterSpacing: -1,
+    final balance = context.watch<GpProvider>().formattedBalance;
+    return IndexedStack(
+      index: widget.showShop ? 1 : 0,
+      children: [
+        TickerMode(
+          enabled: !widget.showShop,
+          child: HomeScreen(
+            boxes: _boxes,
+            campaigns: _campaigns,
+            contentError: _contentError,
+            onUpdates: _updates,
+            loading: _loading,
+            error: _error,
+            balance: balance,
+            balanceNotice: const BalanceNotice(),
+            onRefresh: _refresh,
+            onOpen: _open,
+            onWallet: widget.onGoToWallet,
+            onShop: widget.onShop,
+            onRanking: widget.onRanking,
+            onOpenUnopened: widget.onOpenUnopened,
+            onCollection: widget.onCollection,
           ),
         ),
-        actions: [
-          if (widget.onUpdates != null)
-            IconButton(
-              tooltip: '소식·고객지원',
-              onPressed: widget.onUpdates,
-              icon: const Icon(Icons.notifications_outlined),
-            ),
-          IconButton(
-            tooltip: 'GP 내역',
-            onPressed: widget.onWallet,
-            icon: const Icon(Icons.account_balance_wallet_outlined),
-          ),
-          const SizedBox(width: 8),
-        ],
-      ),
-      body: SafeArea(
-        top: false,
-        child: RefreshIndicator(
-          onRefresh: widget.onRefresh,
-          child: CustomScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-            slivers: [
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-                sliver: SliverToBoxAdapter(
-                  child: Row(
-                    children: [
-                      const Expanded(
-                        child: Text(
-                          '취향을 발견하는 즐거움',
-                          style: TextStyle(
-                            color: AppColors.textSecondary,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ),
-                      TextButton(
-                        onPressed: widget.onWallet,
-                        child: Text(
-                          '${widget.balance} GP',
-                          style: const TextStyle(fontWeight: FontWeight.w800),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              if (widget.balanceNotice != null)
-                SliverPadding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  sliver: SliverToBoxAdapter(child: widget.balanceNotice),
-                ),
-              if (widget.campaigns.isNotEmpty)
-                SliverPadding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  sliver: SliverToBoxAdapter(
-                    child: _CampaignPager(campaigns: widget.campaigns),
-                  ),
-                ),
-              if (widget.contentError != null)
-                SliverPadding(
-                  padding: const EdgeInsets.all(20),
-                  sliver: SliverToBoxAdapter(
-                    child: Text(
-                      widget.contentError!,
-                      style: const TextStyle(color: AppColors.textSecondary),
-                    ),
-                  ),
-                ),
-              if (widget.campaigns.isEmpty &&
-                  !widget.loading &&
-                  widget.error == null &&
-                  widget.boxes.isNotEmpty)
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-                  sliver: SliverToBoxAdapter(
-                    child: _FeaturedBox(
-                      box: widget.boxes.first,
-                      onTap: () => widget.onOpen(widget.boxes.first),
-                    ),
-                  ),
-                ),
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-                sliver: SliverToBoxAdapter(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        '어떤 발견을 해볼까요?',
-                        style: TextStyle(
-                          fontSize: 23,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: -.8,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      TextField(
-                        controller: _search,
-                        onChanged: (_) => setState(() {}),
-                        decoration: InputDecoration(
-                          hintText: '박스 이름으로 검색',
-                          prefixIcon: const Icon(Icons.search_rounded),
-                          suffixIcon: _search.text.isEmpty
-                              ? null
-                              : IconButton(
-                                  tooltip: '검색어 지우기',
-                                  icon: const Icon(Icons.close_rounded),
-                                  onPressed: () => setState(_search.clear),
-                                ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: ['기본순', '낮은 가격순', '높은 가격순']
-                            .map(
-                              (label) => ChoiceChip(
-                                label: Text(label),
-                                selected: _sort == label,
-                                showCheckmark: false,
-                                onSelected: (_) =>
-                                    setState(() => _sort = label),
-                              ),
-                            )
-                            .toList(),
-                      ),
-                      const SizedBox(height: 12),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children:
-                            const {
-                                  'all': '전체',
-                                  'tech': '테크',
-                                  'home': '리빙',
-                                  'luxury': '럭셔리',
-                                  'fashion': '패션',
-                                  'food': '푸드',
-                                  'other': '기타',
-                                }.entries
-                                .map(
-                                  (e) => ChoiceChip(
-                                    label: Text(e.value),
-                                    selected: _category == e.key,
-                                    showCheckmark: false,
-                                    onSelected: (_) =>
-                                        setState(() => _category = e.key),
-                                  ),
-                                )
-                                .toList(),
-                      ),
-                      const SizedBox(height: 22),
-                      Text(
-                        widget.loading
-                            ? '박스를 불러오고 있어요'
-                            : '박스 ${visible.length}개',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 13,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                    ],
-                  ),
-                ),
-              ),
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
-                sliver: SliverToBoxAdapter(
-                  child: widget.loading
-                      ? const Padding(
-                          padding: EdgeInsets.all(48),
-                          child: Center(child: CircularProgressIndicator()),
-                        )
-                      : widget.error != null
-                      ? _CatalogState(
-                          icon: Icons.wifi_off_rounded,
-                          title: '연결을 확인해주세요',
-                          message: widget.error!,
-                          action: TextButton(
-                            onPressed: widget.onRefresh,
-                            child: const Text('다시 불러오기'),
-                          ),
-                        )
-                      : visible.isEmpty
-                      ? _CatalogState(
-                          icon: Icons.search_off_rounded,
-                          title: _search.text.isEmpty
-                              ? '새로운 박스를 준비하고 있어요'
-                              : '검색 결과가 없어요',
-                          message: _search.text.isEmpty
-                              ? '잠시 후 다시 방문해주세요.'
-                              : '다른 이름으로 검색해보세요.',
-                          action: _search.text.isEmpty
-                              ? null
-                              : TextButton(
-                                  onPressed: () => setState(_search.clear),
-                                  child: const Text('전체 보기'),
-                                ),
-                        )
-                      : LayoutBuilder(
-                          builder: (context, constraints) {
-                            final scale =
-                                MediaQuery.textScalerOf(context).scale(14) / 14;
-                            final columns =
-                                constraints.maxWidth < 320 || scale > 1.4
-                                ? 1
-                                : constraints.maxWidth > 700
-                                ? 3
-                                : 2;
-                            final width =
-                                (constraints.maxWidth - (columns - 1) * 14) /
-                                columns;
-                            return Wrap(
-                              spacing: 14,
-                              runSpacing: 16,
-                              children: visible
-                                  .map(
-                                    (box) => SizedBox(
-                                      width: width,
-                                      child: CapsuleBoxCard(
-                                        box: box,
-                                        onTap: () => widget.onOpen(box),
-                                      ),
-                                    ),
-                                  )
-                                  .toList(),
-                            );
-                          },
-                        ),
-                ),
-              ),
-            ],
+        TickerMode(
+          enabled: widget.showShop,
+          child: BoxShopScreen(
+            boxes: _boxes,
+            onUpdates: _updates,
+            loading: _loading,
+            error: _error,
+            balance: balance,
+            balanceNotice: const BalanceNotice(),
+            onRefresh: _refresh,
+            onOpen: _open,
+            onWallet: widget.onGoToWallet,
           ),
         ),
-      ),
+      ],
     );
   }
-}
-
-class _FeaturedBox extends StatelessWidget {
-  final CapsuleBox box;
-  final VoidCallback onTap;
-  const _FeaturedBox({required this.box, required this.onTap});
-  @override
-  Widget build(BuildContext context) => Material(
-    color: AppColors.heroDeep,
-    borderRadius: BorderRadius.circular(26),
-    clipBehavior: Clip.antiAlias,
-    child: InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.all(22),
-        child: Row(
-          children: [
-            Expanded(
-              flex: 3,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'DISCOVER',
-                    style: TextStyle(
-                      color: Color(0xFFFFB49C),
-                      fontSize: 10,
-                      letterSpacing: 2,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Semantics(
-                    label: box.name,
-                    excludeSemantics: true,
-                    child: Wrap(
-                      spacing: 5,
-                      runSpacing: 2,
-                      children: box.name
-                          .split(RegExp(r'\s+'))
-                          .map(
-                            (word) => Text(
-                              word,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 22,
-                                fontWeight: FontWeight.w800,
-                                height: 1.25,
-                                letterSpacing: -.5,
-                              ),
-                            ),
-                          )
-                          .toList(),
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  Text(
-                    box.formattedPrice,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    '구성 상품 살펴보기 →',
-                    style: TextStyle(color: Color(0xFFDAD8DF), fontSize: 12),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              flex: 2,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(18),
-                child: AspectRatio(
-                  aspectRatio: .83,
-                  child: CatalogArtwork(box: box),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    ),
-  );
-}
-
-class _CatalogState extends StatelessWidget {
-  final IconData icon;
-  final String title, message;
-  final Widget? action;
-  const _CatalogState({
-    required this.icon,
-    required this.title,
-    required this.message,
-    this.action,
-  });
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 38),
-    child: Column(
-      children: [
-        Icon(icon, size: 36, color: AppColors.textSecondary),
-        const SizedBox(height: 16),
-        Text(
-          title,
-          textAlign: TextAlign.center,
-          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 17),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          message,
-          textAlign: TextAlign.center,
-          style: const TextStyle(color: AppColors.textSecondary, height: 1.5),
-        ),
-        if (action != null) ...[const SizedBox(height: 12), action!],
-      ],
-    ),
-  );
-}
-
-class _CampaignPager extends StatefulWidget {
-  final List<Campaign> campaigns;
-  const _CampaignPager({required this.campaigns});
-  @override
-  State<_CampaignPager> createState() => _CampaignPagerState();
-}
-
-class _CampaignPagerState extends State<_CampaignPager>
-    with WidgetsBindingObserver {
-  final controller = PageController();
-  Timer? timer;
-  int index = 0;
-  bool paused = false, foreground = true;
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    schedule();
-  }
-
-  @override
-  void didUpdateWidget(covariant _CampaignPager old) {
-    super.didUpdateWidget(old);
-    if (old.campaigns.map((c) => c.id).join() !=
-        widget.campaigns.map((c) => c.id).join()) {
-      index = 0;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && controller.hasClients) {
-          controller.jumpToPage(0);
-        }
-      });
-    }
-    schedule();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    foreground = state == AppLifecycleState.resumed;
-    schedule();
-  }
-
-  void schedule() {
-    timer?.cancel();
-    if (!mounted ||
-        paused ||
-        !foreground ||
-        widget.campaigns.length < 2 ||
-        !TickerMode.of(context) ||
-        MediaQuery.disableAnimationsOf(context)) {
-      return;
-    }
-    timer = Timer(const Duration(milliseconds: 2500), () {
-      if (mounted && controller.hasClients) {
-        controller.animateToPage(
-          (index + 1) % widget.campaigns.length,
-          duration: const Duration(milliseconds: 350),
-          curve: Curves.easeInOut,
-        );
-      }
-      schedule();
-    });
-  }
-
-  @override
-  void dispose() {
-    timer?.cancel();
-    controller.dispose();
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => Column(
-    children: [
-      SizedBox(
-        height: 380 * MediaQuery.textScalerOf(context).scale(14) / 14,
-        child: PageView(
-          controller: controller,
-          onPageChanged: (n) => setState(() => index = n),
-          children: widget.campaigns
-              .map((c) => CampaignCard(campaign: c, compact: true))
-              .toList(),
-        ),
-      ),
-      if (widget.campaigns.length > 1)
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text('${index + 1} / ${widget.campaigns.length}'),
-            IconButton(
-              tooltip: paused ? '배너 자동 재생' : '배너 일시정지',
-              onPressed: () {
-                setState(() => paused = !paused);
-                schedule();
-              },
-              icon: Icon(paused ? Icons.play_arrow : Icons.pause),
-            ),
-          ],
-        ),
-    ],
-  );
 }

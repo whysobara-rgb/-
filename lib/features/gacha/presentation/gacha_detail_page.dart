@@ -6,7 +6,9 @@ import 'package:provider/provider.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/config/app_config.dart';
 import '../../../core/theme/app_colors.dart';
-import '../../home/presentation/widgets/capsule_box_card.dart';
+import '../../../shared/widgets/gachi_components.dart';
+import 'product_detail_view.dart';
+export 'product_detail_view.dart' show ProductDetailView;
 import '../../orders/order_models.dart';
 import '../../../shared/providers/gp_provider.dart';
 import '../../home/data/capsule_box_repository.dart';
@@ -273,20 +275,12 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
 
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: const Text('박스 상세'),
-      leading: IconButton(tooltip: '뒤로', icon: const Icon(Icons.arrow_back_rounded),
-        onPressed: () => Navigator.of(context).pop()),
-    ),
-    body: _isLoading ? const Center(child: CircularProgressIndicator())
-      : _error != null ? Center(child: Padding(padding: const EdgeInsets.all(24),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            const Icon(Icons.wifi_off_rounded, size: 36, color: AppColors.textSecondary),
-            const SizedBox(height: 16),
-            Text(_error!, textAlign: TextAlign.center),
-            TextButton(onPressed: _loadDetail, child: const Text('다시 불러오기')),
-          ])))
+  Widget build(BuildContext context) => GachiScaffold(
+    title: '박스 상세',
+    body: _isLoading ? const GachiLoadingState()
+      : _error != null ? SingleChildScrollView(
+          padding: const EdgeInsets.all(GachiSpace.page),
+          child: GachiErrorState(message: _error!, onRetry: _loadDetail))
       : ProductDetailView(
           box: widget.box, detail: _detail!, odds: _odds,
           quantity: _quantity, maxQuantity: _maxQuantity,
@@ -295,137 +289,5 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
           onIncrement: () => _setQuantity(_quantity + 1),
           onPurchase: _onPurchasePressed,
         ),
-  );
-}
-
-/// The same presentation is rendered in visual review and the live detail route.
-class ProductDetailView extends StatelessWidget {
-  final CapsuleBox box;
-  final GachaDetail detail;
-  final Odds? odds;
-  final int quantity, maxQuantity;
-  final String totalPriceLabel;
-  final VoidCallback onDecrement, onIncrement, onPurchase;
-  const ProductDetailView({super.key, required this.box, required this.detail,
-    required this.odds, required this.quantity, required this.maxQuantity,
-    required this.totalPriceLabel, required this.onDecrement,
-    required this.onIncrement, required this.onPurchase});
-
-  @override
-  Widget build(BuildContext context) {
-    final remaining = (detail.totalStock - detail.soldStock).clamp(0, detail.totalStock < 0 ? 0 : detail.totalStock);
-    final soldOut = remaining == 0;
-    final artwork = CapsuleBox(id: box.id, name: detail.title, priceWon: detail.price,
-      icon: detail.icon, accentColor: detail.accentColor, imageUrl: detail.imageUrl ?? box.imageUrl,
-      badgeLabel: detail.badgeLabel, iconName: box.iconName);
-    return Column(children: [
-      Expanded(child: ListView(padding: const EdgeInsets.fromLTRB(20, 8, 20, 28), children: [
-        ClipRRect(borderRadius: BorderRadius.circular(26),
-          child: AspectRatio(aspectRatio: 1.35, child: CatalogArtwork(box: artwork))),
-        const SizedBox(height: 24),
-        Wrap(spacing: 8, runSpacing: 8, children: [
-          const _DetailTag(label: 'GP BOX'),
-          if (detail.badgeLabel?.isNotEmpty == true) _DetailTag(label: detail.badgeLabel!),
-          if (soldOut) const _DetailTag(label: '품절'),
-        ]),
-        const SizedBox(height: 12),
-        Text(detail.title, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800, height: 1.25, letterSpacing: -.8)),
-        const SizedBox(height: 14),
-        Wrap(crossAxisAlignment: WrapCrossAlignment.center, spacing: 8, children: [
-          Text(detail.formattedPrice, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900, letterSpacing: -1)),
-          const Text('/ 1회', style: TextStyle(color: AppColors.textSecondary, fontSize: 14)),
-        ]),
-        if (detail.description.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          Text(detail.description, style: const TextStyle(fontSize: 14, height: 1.6, color: AppColors.textSecondary)),
-        ],
-        const SizedBox(height: 24),
-        Container(padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(color: Colors.white, border: Border.all(color: AppColors.surfaceBorder),
-            borderRadius: BorderRadius.circular(18)),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Wrap(spacing: 8, children: [
-              const Text('남은 수량', style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
-              Text('$remaining개', style: const TextStyle(fontWeight: FontWeight.w800)),
-            ]),
-            const SizedBox(height: 12),
-            ClipRRect(borderRadius: BorderRadius.circular(6), child: LinearProgressIndicator(
-              value: detail.totalStock > 0 ? remaining / detail.totalStock : 0,
-              minHeight: 6, color: AppColors.primary, backgroundColor: AppColors.surfaceElevated2)),
-            const SizedBox(height: 8),
-            Text('전체 ${detail.totalStock}개 중 ${detail.soldStock}개 판매',
-              style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
-          ]),
-        ),
-        const SizedBox(height: 30),
-        const Text('어떤 상품을 만날까요?', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, letterSpacing: -.5)),
-        const SizedBox(height: 8),
-        const Text('구성 상품과 공개 확률을 확인하세요.',
-          style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
-        const SizedBox(height: 18),
-        if (odds == null)
-          Container(padding: const EdgeInsets.all(18), decoration: BoxDecoration(
-            color: AppColors.surfaceElevated2, borderRadius: BorderRadius.circular(16)),
-            child: const Text('공개 확률을 불러오지 못했어요. 구매 전 확인 단계에서 다시 확인해주세요.',
-              style: TextStyle(height: 1.5, color: AppColors.textSecondary)))
-        else ...odds!.prizes.map((prize) => Padding(padding: const EdgeInsets.only(bottom: 10),
-          child: Container(padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.surfaceBorder)),
-            child: Row(children: [
-              Container(width: 44, height: 44, alignment: Alignment.center,
-                decoration: BoxDecoration(color: prize.premium ? const Color(0xFFFFEAE3) : AppColors.surfaceElevated2,
-                  borderRadius: BorderRadius.circular(12)),
-                child: Icon(prize.premium ? Icons.auto_awesome_rounded : Icons.style_outlined,
-                  color: prize.premium ? AppColors.primary : AppColors.textSecondary)),
-              const SizedBox(width: 12),
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(prize.name, style: const TextStyle(fontWeight: FontWeight.w700, height: 1.4)),
-                const SizedBox(height: 4),
-                Text('${prize.displayGrade} · ${prize.premium ? '프리미엄' : '일반'}',
-                  style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
-                const SizedBox(height: 6),
-                Text(prize.probability, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
-              ])),
-            ]),
-          ),
-        )),
-        const SizedBox(height: 18),
-        const Text('구매 후 미개봉 캡슐이 보관됩니다. 개봉 시 상품이 결정되며, 개봉에는 GP가 추가로 차감되지 않습니다.',
-          style: TextStyle(fontSize: 12, height: 1.6, color: AppColors.textSecondary)),
-      ])),
-      Container(decoration: const BoxDecoration(color: Colors.white,
-          border: Border(top: BorderSide(color: AppColors.surfaceBorder))),
-        child: SafeArea(top: false, child: Padding(padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Row(children: [
-              const Expanded(child: Text('구매 수량', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600))),
-              IconButton(tooltip: '수량 줄이기', onPressed: quantity > 1 && !soldOut ? onDecrement : null,
-                icon: const Icon(Icons.remove_rounded)),
-              Text('$quantity', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
-              IconButton(tooltip: '수량 늘리기', onPressed: quantity < maxQuantity && !soldOut ? onIncrement : null,
-                icon: const Icon(Icons.add_rounded)),
-            ]),
-            const SizedBox(height: 8),
-            SizedBox(width: double.infinity, child: FilledButton(
-              onPressed: soldOut ? null : onPurchase,
-              child: Padding(padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Text(soldOut ? '품절된 박스예요' : '$totalPriceLabel · 구매 전 확인',
-                  textAlign: TextAlign.center)),
-            )),
-          ]),
-        )),
-      ),
-    ]);
-  }
-}
-class _DetailTag extends StatelessWidget {
-  final String label;
-  const _DetailTag({required this.label});
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-    decoration: BoxDecoration(color: AppColors.surfaceElevated2, borderRadius: BorderRadius.circular(6)),
-    child: Text(label, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: .4)),
   );
 }
