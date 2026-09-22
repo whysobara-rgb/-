@@ -39,6 +39,7 @@ jobs:
           # No checkout, SDK setup, network/API access, app build, or artifact upload.
           EXPECTED_SHA1 = '27383C642AF5A956690DC3EF17D19CAE2530AD80'
           EXPECTED_SHA256 = 'b9a8fc18bfd1f841eb5c5b5142f7ba53d1580d6a64a27e2bbe3b952be9012357'
+          EXPECTED_P12_SHA256 = 'fea16e3502c235a7a12f96bc6f3ab0a036626c9b8f84fe26702be9f39e8a1933'
           EXPECTED_DEVICE_DIGEST = '09aa11538f89e50152c3880d89237035f9643eedc4ba41a7b472c9227887070c'
           EXPECTED_UUID = 'bb447feb-6d61-42ba-854c-a1265bbad26f'
           TEAM = '27Y574N7TW'
@@ -55,8 +56,8 @@ jobs:
               if not condition:
                   raise RuntimeError(message)
 
-          def run(args):
-              result = subprocess.run(args, stdout=subprocess.PIPE,
+          def run(args, input_data=None):
+              result = subprocess.run(args, input=input_data, stdout=subprocess.PIPE,
                                       stderr=subprocess.PIPE, check=False)
               if result.returncode:
                   # Command output/arguments can contain sensitive data.
@@ -91,6 +92,40 @@ jobs:
               profile.write_bytes(base64.b64decode(values['STAGING_PROFILE'], validate=True))
               password = values.pop('STAGING_P12_PASSWORD')
               values.clear()
+
+              stage = 'original versus decoded PKCS12 byte integrity'
+              digest = hashlib.sha256(p12.read_bytes()).hexdigest()
+              print('PKCS12 SHA256 B: ' + digest, flush=True)
+              require(digest == EXPECTED_P12_SHA256, 'PKCS12 bytes changed during secret transport')
+              success(stage + ': A equals B')
+
+              stage = 'exact password input format'
+              require(password == password.strip() and not any(c in password for c in '\r\n\x00'),
+                      'password contains whitespace or a line terminator; no implicit trimming allowed')
+              success(stage + ': no trimming or substitution')
+
+              stage = 'OpenSSL PKCS12 MAC with exact GitHub password secret'
+              candidates = ['/opt/homebrew/opt/openssl@3/bin/openssl',
+                            '/usr/local/opt/openssl@3/bin/openssl', shutil.which('openssl')]
+              openssl = next((p for p in candidates if p and pathlib.Path(p).is_file()), None)
+              require(openssl is not None, 'OpenSSL executable missing')
+              run([openssl, 'pkcs12', '-in', str(p12), '-noout', '-passin', 'stdin'],
+                  input_data=password.encode() + b'\n')
+              success(stage + ': password matches; MAC valid')
+
+              stage = 'PKCS12 certificate and private key pair'
+              private_pem = run([openssl, 'pkcs12', '-in', str(p12), '-nocerts', '-nodes',
+                                 '-passin', 'stdin'], input_data=password.encode() + b'\n')
+              cert_pem = run([openssl, 'pkcs12', '-in', str(p12), '-clcerts', '-nokeys',
+                              '-passin', 'stdin'], input_data=password.encode() + b'\n')
+              private_public = run([openssl, 'pkey', '-pubout', '-outform', 'DER'], input_data=private_pem)
+              private_pem = None
+              cert_der = run([openssl, 'x509', '-outform', 'DER'], input_data=cert_pem)
+              cert_public_pem = run([openssl, 'x509', '-pubkey', '-noout'], input_data=cert_pem)
+              cert_public = run([openssl, 'pkey', '-pubin', '-outform', 'DER'], input_data=cert_public_pem)
+              require(private_public == cert_public, 'private key does not match certificate')
+              require(hashlib.sha256(cert_der).hexdigest() == EXPECTED_SHA256, 'certificate changed')
+              success(stage + ': existing identity unchanged')
 
               stage = 'Ad Hoc profile decode and validation'
               decoded = plistlib.loads(run(['security', 'cms', '-D', '-i', str(profile)]))
