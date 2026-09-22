@@ -1,17 +1,22 @@
+import 'package:provider/provider.dart';
+import '../../../shared/providers/auth_provider.dart';
+import '../../orders/order_flow_page.dart';
 import 'package:flutter/material.dart';
 import '../../../core/network/api_client.dart';
-import '../../../core/constants/rank_colors.dart';
-import '../../../core/theme/app_colors.dart';
+import '../../../core/config/app_config.dart';
+import 'collection_card.dart';
+import '../../../shared/widgets/gachi_components.dart';
 import '../domain/inventory_item.dart';
 import 'delivery_request_page.dart';
+import '../../conversions/conversion_page.dart';
 
-/// 가치가차 - 하단 탭 "박스"(보관함) 화면.
-///
-/// "Vivid Pastel Pop" 컨셉으로, 전체 배경은 크림 화이트이며
-/// 코랄 액센트가 선택/강조 요소에 사용된다.
-/// 보관함 목록은 백엔드 `GET /inventory`에서 실시간으로 가져온다.
+/// Existing inventory controller, with V33 presentation and optional read adapter.
 class InventoryPage extends StatefulWidget {
-  const InventoryPage({super.key});
+  final InventoryRepository repository;
+  const InventoryPage({
+    super.key,
+    this.repository = const InventoryRepository(),
+  });
 
   @override
   State<InventoryPage> createState() => _InventoryPageState();
@@ -53,7 +58,7 @@ extension on _StatusFilter {
 }
 
 class _InventoryPageState extends State<InventoryPage> {
-  final _repository = const InventoryRepository();
+  InventoryRepository get _repository => widget.repository;
 
   List<InventoryItem> _items = [];
   bool _isLoading = true;
@@ -64,6 +69,7 @@ class _InventoryPageState extends State<InventoryPage> {
 
   final Set<String> _selectedIds = {};
   bool _selectAll = false;
+  final Set<String> _pendingLocks = {};
 
   @override
   void initState() {
@@ -122,7 +128,7 @@ class _InventoryPageState extends State<InventoryPage> {
 
   int get _totalValue => _items.fold(0, (sum, item) => sum + item.price);
 
-  String _formatGp(int value) {
+  String _formatWon(int value) {
     final str = value.toString();
     final buffer = StringBuffer();
     for (int i = 0; i < str.length; i++) {
@@ -130,7 +136,7 @@ class _InventoryPageState extends State<InventoryPage> {
       buffer.write(str[i]);
       if (posFromEnd > 1 && posFromEnd % 3 == 1) buffer.write(',');
     }
-    return '${buffer.toString()} GP';
+    return '${buffer.toString()}원';
   }
 
   void _onFilterSelected(_StatusFilter filter) {
@@ -147,7 +153,11 @@ class _InventoryPageState extends State<InventoryPage> {
       if (_selectAll) {
         _selectedIds
           ..clear()
-          ..addAll(_filteredItems.map((item) => item.id));
+          ..addAll(
+            _filteredItems
+                .where((item) => item.canSelect)
+                .map((item) => item.id),
+          );
       } else {
         _selectedIds.clear();
       }
@@ -155,6 +165,7 @@ class _InventoryPageState extends State<InventoryPage> {
   }
 
   void _toggleItemSelected(String id) {
+    if (!_items.any((item) => item.id == id && item.canSelect)) return;
     setState(() {
       if (_selectedIds.contains(id)) {
         _selectedIds.remove(id);
@@ -162,16 +173,32 @@ class _InventoryPageState extends State<InventoryPage> {
         _selectedIds.add(id);
       }
       _selectAll =
-          _filteredItems.isNotEmpty &&
-          _filteredItems.every((item) => _selectedIds.contains(item.id));
+          _filteredItems.any((item) => item.canSelect) &&
+          _filteredItems
+              .where((item) => item.canSelect)
+              .every((item) => _selectedIds.contains(item.id));
     });
   }
 
-  // 잠금(lock) 토글은 현재 백엔드에 대응 API가 없어 출시 후 지원 예정으로 안내한다.
-  void _toggleLock(String id) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('잠금 기능은 출시 후 지원 예정입니다')),
-    );
+  Future<void> _toggleLock(String id) async {
+    if (_isLoading || _pendingLocks.contains(id)) return;
+    final index = _items.indexWhere((item) => item.id == id);
+    if (index < 0 || !_items[index].canSelect) return;
+    final item = _items[index];
+    _pendingLocks.add(id);
+    try {
+      await _repository.setLock(item, locked: !item.isLocked);
+      if (!mounted) return;
+      await _loadItems();
+    } catch (error) {
+      if (!mounted) return;
+      final message = error is ApiException ? error.message : '잠금 변경에 실패했습니다';
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+    } finally {
+      _pendingLocks.remove(id);
+    }
   }
 
   List<InventoryItem> get _selectedItems =>
@@ -188,6 +215,12 @@ class _InventoryPageState extends State<InventoryPage> {
 
   // ── 액션 1: 배송요청 ──────────────────────────────────────────────
   Future<void> _onRequestShipping() async {
+    if (!AppConfig.shippingPreviewEnabled) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('현재 배송 서비스를 준비하고 있습니다')));
+      return;
+    }
     if (!_hasSelection) {
       ScaffoldMessenger.of(
         context,
@@ -196,11 +229,11 @@ class _InventoryPageState extends State<InventoryPage> {
     }
 
     final selected = _selectedItems;
-    final hasLocked = selected.any((item) => item.isLocked);
-    if (hasLocked) {
+    final hasUnavailable = selected.any((item) => !item.canShip);
+    if (hasUnavailable) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('잠금된 상품은 배송 신청이 불가합니다')));
+      ).showSnackBar(const SnackBar(content: Text('보관중인 상품만 배송 신청할 수 있습니다')));
       return;
     }
 
@@ -218,24 +251,38 @@ class _InventoryPageState extends State<InventoryPage> {
     }
   }
 
-  // ── 액션 2: 포인트전환 (백엔드 미지원 - 출시 후 지원 예정 안내) ────────────
-  void _onConvertToPoints() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('포인트 전환 기능은 출시 후 지원 예정입니다')),
+  Future<void> _openConversions({bool selected = false}) async {
+    final user = context.read<AuthProvider>().currentUser;
+    if (user == null || _isLoading || _pendingLocks.isNotEmpty) return;
+    final items = _selectedItems;
+    if (selected &&
+        (items.isEmpty ||
+            items.length > 100 ||
+            items.any((i) => !i.canConvert))) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('잠금 해제된 보관 상품을 1~100개 선택해주세요')),
+      );
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ConversionPage(
+          userId: user.id,
+          inventoryIds: selected
+              ? items.map((i) => i.numericId).toList()
+              : null,
+        ),
+      ),
     );
-  }
-
-  // ── 액션 3: 장바구니 (백엔드 미지원 - 출시 후 지원 예정 안내) ──
-  void _onAddToCart() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('장바구니 기능은 출시 후 지원 예정입니다')),
-    );
+    if (mounted && context.read<AuthProvider>().currentUser?.id == user.id) {
+      await _loadItems();
+    }
   }
 
   void _openSortSheet() {
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: AppColors.surfaceElevated,
+      backgroundColor: GachiColors.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -249,7 +296,7 @@ class _InventoryPageState extends State<InventoryPage> {
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: AppColors.surfaceBorder,
+                  color: GachiColors.divider,
                   borderRadius: BorderRadius.circular(4),
                 ),
               ),
@@ -261,7 +308,7 @@ class _InventoryPageState extends State<InventoryPage> {
                   child: Text(
                     '정렬',
                     style: TextStyle(
-                      color: AppColors.textPrimary,
+                      color: GachiColors.ink,
                       fontSize: 15,
                       fontWeight: FontWeight.w700,
                     ),
@@ -275,8 +322,8 @@ class _InventoryPageState extends State<InventoryPage> {
                     option.label,
                     style: TextStyle(
                       color: option == _sortOption
-                          ? AppColors.goldSecondary
-                          : AppColors.textPrimary,
+                          ? GachiColors.ink
+                          : GachiColors.ink,
                       fontWeight: option == _sortOption
                           ? FontWeight.w700
                           : FontWeight.w500,
@@ -284,10 +331,7 @@ class _InventoryPageState extends State<InventoryPage> {
                     ),
                   ),
                   trailing: option == _sortOption
-                      ? const Icon(
-                          Icons.check_rounded,
-                          color: AppColors.goldSecondary,
-                        )
+                      ? const Icon(Icons.check_rounded, color: GachiColors.ink)
                       : null,
                   onTap: () {
                     setState(() => _sortOption = option);
@@ -304,477 +348,183 @@ class _InventoryPageState extends State<InventoryPage> {
 
   @override
   Widget build(BuildContext context) {
-    final filteredItems = _filteredItems;
-
-    return Scaffold(
-      backgroundColor: AppColors.scaffoldBg,
-      appBar: AppBar(
-        backgroundColor: AppColors.scaffoldBg,
-        elevation: 0,
-        automaticallyImplyLeading: false,
-        title: const Text(
-          '내 박스',
-          style: TextStyle(
-            color: AppColors.textPrimary,
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
-          ),
+    final items = _filteredItems;
+    return GachiTheme(
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('보관함'),
+          actions: [
+            IconButton(
+              tooltip: 'GP 전환 내역과 상품 복구',
+              onPressed: () => _openConversions(),
+              icon: const Icon(Icons.swap_horiz),
+            ),
+            IconButton(
+              tooltip: '상품 정렬',
+              onPressed: _openSortSheet,
+              icon: const Icon(Icons.sort_rounded),
+            ),
+          ],
         ),
-        actions: [
-          IconButton(
-            onPressed: _openSortSheet,
-            icon: const Icon(
-              Icons.filter_list_rounded,
-              color: AppColors.textPrimary,
-            ),
-          ),
-        ],
-      ),
-      body: SafeArea(
-        child: _isLoading
-            ? const Center(
-                child: CircularProgressIndicator(color: AppColors.goldPrimary),
-              )
-            : _error != null
-            ? Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      _error!,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: AppColors.textSecondary),
-                    ),
-                    const SizedBox(height: 12),
-                    TextButton(
-                      onPressed: _loadItems,
-                      child: const Text('다시 시도'),
-                    ),
-                  ],
-                ),
-              )
-            : RefreshIndicator(
-                onRefresh: _loadItems,
-                child: Column(
-                  children: [
-                    // ── 상단 요약 카드 ──
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-                      child: Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(18),
-                        decoration: BoxDecoration(
-                          color: AppColors.surfaceElevated,
-                          borderRadius: BorderRadius.circular(22),
-                          border: Border.all(color: AppColors.surfaceBorder),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.05),
-                              blurRadius: 12,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
-                        ),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    '보관 상품 ${_items.length}개',
-                                    style: const TextStyle(
-                                      color: AppColors.textPrimary,
-                                      fontSize: 20,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    '총 예상 가치 ${_formatGp(_totalValue)}',
-                                    style: const TextStyle(
-                                      color: AppColors.goldPrimary,
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Text(
-                              '정렬: ${_sortOption.label}',
-                              style: const TextStyle(
-                                color: AppColors.textSecondary,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-
-                    // ── 상태 필터 탭 (가로 스크롤) ──
-                    SizedBox(
-                      height: 40,
-                      child: ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        itemCount: _StatusFilter.values.length,
-                        separatorBuilder: (context, index) =>
-                            const SizedBox(width: 8),
-                        itemBuilder: (context, index) {
-                          final filter = _StatusFilter.values[index];
-                          final selected = filter == _selectedFilter;
-                          return _FilterPill(
-                            label: filter.label,
-                            selected: selected,
-                            onTap: () => _onFilterSelected(filter),
-                          );
-                        },
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-
-                    // ── 전체선택 + 액션 버튼 3종 ──
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          GestureDetector(
-                            onTap: () => _toggleSelectAll(!_selectAll),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                SizedBox(
-                                  width: 22,
-                                  height: 22,
-                                  child: Checkbox(
-                                    value: _selectAll,
-                                    onChanged: _toggleSelectAll,
-                                    activeColor: AppColors.goldPrimary,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                                const Text(
-                                  '전체선택',
-                                  style: TextStyle(
-                                    color: AppColors.textPrimary,
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: OutlinedButton(
-                                  onPressed: _onConvertToPoints,
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: AppColors.goldSecondary,
-                                    side: const BorderSide(
-                                      color: AppColors.goldSecondary,
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 6,
-                                    ),
-                                    minimumSize: const Size(0, 34),
-                                  ),
-                                  child: const Text(
-                                    '포인트전환',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              Expanded(
-                                child: ElevatedButton(
-                                  onPressed: _onRequestShipping,
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: AppColors.goldPrimary,
-                                    foregroundColor: const Color(0xFF16161A),
-                                    elevation: 0,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 6,
-                                    ),
-                                    minimumSize: const Size(0, 34),
-                                  ),
-                                  child: const Text(
-                                    '배송요청',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              Expanded(
-                                child: OutlinedButton(
-                                  onPressed: _onAddToCart,
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: AppColors.textSecondary,
-                                    side: const BorderSide(
-                                      color: AppColors.surfaceBorder,
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 6,
-                                    ),
-                                    minimumSize: const Size(0, 34),
-                                  ),
-                                  child: const Text(
-                                    '장바구니',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-
-                    // ── 상품 리스트 ──
-                    Expanded(
-                      child: filteredItems.isEmpty
-                          ? ListView(
-                              children: const [
-                                SizedBox(height: 100),
-                                Center(
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        Icons.inventory_2_outlined,
-                                        size: 48,
-                                        color: AppColors.textSecondary,
-                                      ),
-                                      SizedBox(height: 12),
-                                      Text(
-                                        '보관 중인 상품이 없습니다',
-                                        style: TextStyle(
-                                          color: AppColors.textSecondary,
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            )
-                          : ListView.separated(
-                              padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-                              itemCount: filteredItems.length,
-                              separatorBuilder: (context, index) =>
-                                  const SizedBox(height: 10),
-                              itemBuilder: (context, index) {
-                                final item = filteredItems[index];
-                                return _InventoryItemCard(
-                                  item: item,
-                                  selected: _selectedIds.contains(item.id),
-                                  onSelectToggle: () =>
-                                      _toggleItemSelected(item.id),
-                                  onLockToggle: () => _toggleLock(item.id),
-                                );
-                              },
-                            ),
-                    ),
-                  ],
-                ),
-              ),
-      ),
-    );
-  }
-}
-
-/// 상태 필터 탭에 사용되는 pill 버튼.
-class _FilterPill extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _FilterPill({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: selected ? AppColors.goldPrimary : AppColors.surfaceElevated,
-      borderRadius: BorderRadius.circular(20),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(20),
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: selected ? Colors.transparent : AppColors.surfaceBorder,
-            ),
-          ),
-          alignment: Alignment.center,
-          child: Text(
-            label,
-            style: TextStyle(
-              color: selected ? const Color(0xFF16161A) : AppColors.textSecondary,
-              fontSize: 13,
-              fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 보관함 상품 리스트 카드.
-class _InventoryItemCard extends StatelessWidget {
-  final InventoryItem item;
-  final bool selected;
-  final VoidCallback onSelectToggle;
-  final VoidCallback onLockToggle;
-
-  const _InventoryItemCard({
-    required this.item,
-    required this.selected,
-    required this.onSelectToggle,
-    required this.onLockToggle,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final color = RankColors.of(item.grade);
-
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surfaceElevated,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.surfaceBorder),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          // ── 좌측 체크박스 ──
-          Checkbox(
-            value: selected,
-            onChanged: (_) => onSelectToggle(),
-            activeColor: AppColors.goldPrimary,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(4),
-            ),
-          ),
-          // ── 상품명 / 소비자가 / 상태 ──
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Row(
+        bottomNavigationBar: _hasSelection
+            ? SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 3,
-                        ),
-                        decoration: BoxDecoration(
-                          color: color,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          item.grade,
-                          style: const TextStyle(
-                            color: Color(0xFF16161A),
-                            fontSize: 10,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
+                      FilledButton.icon(
+                        onPressed: _isLoading || _pendingLocks.isNotEmpty
+                            ? null
+                            : () => _openConversions(selected: true),
+                        icon: const Icon(Icons.swap_horiz),
+                        label: Text('${_selectedIds.length}개 GP 전환 확인'),
                       ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          item.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: AppColors.textPrimary,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                          ),
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        onPressed:
+                            AppConfig.shippingPreviewEnabled && !_isLoading
+                            ? _onRequestShipping
+                            : null,
+                        icon: const Icon(Icons.local_shipping_outlined),
+                        label: Text(
+                          AppConfig.shippingPreviewEnabled
+                              ? '${_selectedIds.length}개 배송 요청'
+                              : '배송 서비스 준비 중',
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    '소비자가 ${item.formattedPrice}',
-                    style: const TextStyle(
-                      color: AppColors.goldPrimary,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
+                ),
+              )
+            : null,
+        body: SafeArea(
+          top: false,
+          child: _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : _error != null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(_error!, textAlign: TextAlign.center),
+                        TextButton(
+                          onPressed: _loadItems,
+                          child: const Text('다시 시도'),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    item.status.label,
-                    style: const TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 11,
-                    ),
+                )
+              : RefreshIndicator(
+                  onRefresh: _loadItems,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      return ListView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.all(16),
+                        children: [
+                          const GachiSectionHeader(title: '나의 보관함'),
+                          const SizedBox(height: GachiSpace.sm),
+                          Text(
+                            '조회된 상품 ${_items.length}개 · 추정 가치 ${_formatWon(_totalValue)}',
+                            style: GachiType.meta.copyWith(
+                              color: GachiColors.secondary,
+                            ),
+                          ),
+                          if (AppConfig.orderPreviewEnabled)
+                            TextButton(
+                              onPressed: () async {
+                                final user = context
+                                    .read<AuthProvider>()
+                                    .currentUser;
+                                if (user == null) return;
+                                await Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) =>
+                                        OrderFlowPage(userId: user.id),
+                                  ),
+                                );
+                                if (mounted) await _loadItems();
+                              },
+                              child: const Text('미개봉 캡슐'),
+                            ),
+                          const SizedBox(height: GachiSpace.md),
+                          const SizedBox(height: 20),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              for (final filter in _StatusFilter.values)
+                                ChoiceChip(
+                                  label: Text(
+                                    filter.label,
+                                    style: TextStyle(
+                                      color: filter == _selectedFilter
+                                          ? GachiColors.ivory
+                                          : GachiColors.ink,
+                                    ),
+                                  ),
+                                  selected: filter == _selectedFilter,
+                                  onSelected: (_) => _onFilterSelected(filter),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            _sortOption.label,
+                            style: const TextStyle(
+                              color: GachiColors.secondary,
+                            ),
+                          ),
+                          CheckboxListTile(
+                            contentPadding: EdgeInsets.zero,
+                            controlAffinity: ListTileControlAffinity.leading,
+                            title: Text(
+                              '보관중 상품 전체선택 · ${_selectedIds.length}개 선택',
+                            ),
+                            value: _selectAll,
+                            onChanged: items.any((item) => item.canSelect)
+                                ? _toggleSelectAll
+                                : null,
+                          ),
+                          if (items.isEmpty)
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 48),
+                              child: Column(
+                                children: [
+                                  Icon(
+                                    Icons.collections_bookmark_outlined,
+                                    size: 56,
+                                  ),
+                                  SizedBox(height: 16),
+                                  Text('이 상태에 해당하는 상품이 없어요'),
+                                  SizedBox(height: 8),
+                                  Text(
+                                    '다른 상태를 선택하거나 캡슐을 개봉해보세요.',
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ],
+                              ),
+                            )
+                          else
+                            ...items.map(
+                              (item) => CollectionCard(
+                                item: item,
+                                selected: _selectedIds.contains(item.id),
+                                onSelect: () => _toggleItemSelected(item.id),
+                                onLock: () => _toggleLock(item.id),
+                              ),
+                            ),
+                        ],
+                      );
+                    },
                   ),
-                ],
-              ),
-            ),
-          ),
-          // ── 우측 자물쇠 토글 ──
-          IconButton(
-            onPressed: onLockToggle,
-            icon: Icon(
-              item.isLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
-              color: item.isLocked
-                  ? AppColors.goldPrimary
-                  : AppColors.textSecondary,
-              size: 20,
-            ),
-          ),
-        ],
+                ),
+        ),
       ),
     );
   }

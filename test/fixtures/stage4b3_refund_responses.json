@@ -1,0 +1,469 @@
+{
+  "provenance": {
+    "stage": "4B-3",
+    "backendSha": "a224c07435f7ba17b65baf0c6d7ab2c5b9e629a7",
+    "sourceEvidenceFile": "gachigacha-stage4b3-evidence-20260922.json",
+    "sourceEvidenceSha256": "2215c42e2227bf217f7fa508c766150952b486e3367f79dd86c653dfa4c673ee",
+    "note": "Unmodified synthetic staging order/refund API responses. confirmedOpening is a result-DTO projection of the recorded DB row whose capsule/prize/inventory were reconciled against the API during Stage 4B-3, not a raw HTTP body. No live credentials or customer data."
+  },
+  "refunds": {
+    "full": {
+      "key": "8764886d-f4cf-4a9f-a86e-2eb7aa015bbb",
+      "body": {
+        "capsuleIds": [
+          "889c1031-5b10-491b-a1ec-2cd2e7f5f38a"
+        ],
+        "expectedAmount": 100,
+        "reason": "STAGING synthetic full refund response-discard test"
+      },
+      "quote": {
+        "orderId": "0c7b31d6-878b-42ff-b230-aba41acff8cd",
+        "capsules": [
+          {
+            "id": "889c1031-5b10-491b-a1ec-2cd2e7f5f38a",
+            "sequence": 1,
+            "status": "UNOPENED"
+          }
+        ],
+        "quantity": 1,
+        "amount": 100,
+        "currency": "GP",
+        "balance": 94000,
+        "refundUntil": "2026-10-01T14:59:59.999Z",
+        "refundPolicy": {
+          "version": 1,
+          "saleType": "STANDARD",
+          "timeZone": "Asia/Seoul",
+          "businessDays": 7,
+          "calendarVersion": "a2377bd91bd86d7d2ccf7249630f5db9e69c2e05a965d74f80a4c57884f08b81",
+          "purchaseDayExcluded": true
+        },
+        "cashEnabled": false
+      },
+      "beforePayload": {
+        "orderId": "0c7b31d6-878b-42ff-b230-aba41acff8cd",
+        "gachaId": 1,
+        "title": "[STAGING 전용] Stage 4B 합성 검증 박스",
+        "quantity": 1,
+        "unitPrice": 100,
+        "total": 100,
+        "currency": "GP",
+        "status": "PAID",
+        "refundedQuantity": 0,
+        "refundEligible": true,
+        "refundUntil": "2026-10-01T14:59:59.999Z",
+        "refundPolicy": {
+          "version": 1,
+          "saleType": "STANDARD",
+          "timeZone": "Asia/Seoul",
+          "businessDays": 7,
+          "calendarVersion": "a2377bd91bd86d7d2ccf7249630f5db9e69c2e05a965d74f80a4c57884f08b81",
+          "purchaseDayExcluded": true
+        },
+        "balanceAfter": "93800",
+        "probabilityVersion": "1054bd96ee48661bbfc942827b87f6455db1ad9b6d752a7a72f06edf4c63a596",
+        "probabilitySnapshot": {
+          "mode": "FIXED_PPM",
+          "entries": [
+            {
+              "name": "[STAGING] 합성 일반 상품",
+              "itemId": 1,
+              "rarity": "N",
+              "imageUrl": null,
+              "isPremium": false,
+              "conversionGP": 100,
+              "estimatedValue": 1000,
+              "probabilityPpm": 900000
+            },
+            {
+              "name": "[STAGING] 합성 프리미엄 상품",
+              "itemId": 2,
+              "rarity": "SSR",
+              "imageUrl": null,
+              "isPremium": true,
+              "conversionGP": 2000,
+              "estimatedValue": 2000,
+              "probabilityPpm": 100000
+            }
+          ],
+          "schemaVersion": 1
+        },
+        "createdAt": "2026-09-22T12:01:52.078Z",
+        "capsules": [
+          {
+            "id": "889c1031-5b10-491b-a1ec-2cd2e7f5f38a",
+            "orderId": "0c7b31d6-878b-42ff-b230-aba41acff8cd",
+            "sequence": 1,
+            "status": "UNOPENED",
+            "createdAt": "2026-09-22T12:01:52.038Z"
+          }
+        ]
+      },
+      "receipt": {
+        "refundId": "1f49e57f-2ed9-45c4-a50c-899475af56a1",
+        "orderId": "0c7b31d6-878b-42ff-b230-aba41acff8cd",
+        "capsuleIds": [
+          "889c1031-5b10-491b-a1ec-2cd2e7f5f38a"
+        ],
+        "quantity": 1,
+        "amount": 100,
+        "currency": "GP",
+        "status": "SUCCEEDED",
+        "balanceAfter": 94100,
+        "createdAt": "2026-09-22T12:28:09.382Z",
+        "completedAt": "2026-09-22T12:28:09.402Z",
+        "reason": "STAGING synthetic full refund response-discard test"
+      },
+      "afterPayload": {
+        "orderId": "0c7b31d6-878b-42ff-b230-aba41acff8cd",
+        "gachaId": 1,
+        "title": "[STAGING 전용] Stage 4B 합성 검증 박스",
+        "quantity": 1,
+        "unitPrice": 100,
+        "total": 100,
+        "currency": "GP",
+        "status": "REFUNDED",
+        "refundedQuantity": 1,
+        "refundEligible": true,
+        "refundUntil": "2026-10-01T14:59:59.999Z",
+        "refundPolicy": {
+          "version": 1,
+          "saleType": "STANDARD",
+          "timeZone": "Asia/Seoul",
+          "businessDays": 7,
+          "calendarVersion": "a2377bd91bd86d7d2ccf7249630f5db9e69c2e05a965d74f80a4c57884f08b81",
+          "purchaseDayExcluded": true
+        },
+        "balanceAfter": "93800",
+        "probabilityVersion": "1054bd96ee48661bbfc942827b87f6455db1ad9b6d752a7a72f06edf4c63a596",
+        "probabilitySnapshot": {
+          "mode": "FIXED_PPM",
+          "entries": [
+            {
+              "name": "[STAGING] 합성 일반 상품",
+              "itemId": 1,
+              "rarity": "N",
+              "imageUrl": null,
+              "isPremium": false,
+              "conversionGP": 100,
+              "estimatedValue": 1000,
+              "probabilityPpm": 900000
+            },
+            {
+              "name": "[STAGING] 합성 프리미엄 상품",
+              "itemId": 2,
+              "rarity": "SSR",
+              "imageUrl": null,
+              "isPremium": true,
+              "conversionGP": 2000,
+              "estimatedValue": 2000,
+              "probabilityPpm": 100000
+            }
+          ],
+          "schemaVersion": 1
+        },
+        "createdAt": "2026-09-22T12:01:52.078Z",
+        "capsules": [
+          {
+            "id": "889c1031-5b10-491b-a1ec-2cd2e7f5f38a",
+            "orderId": "0c7b31d6-878b-42ff-b230-aba41acff8cd",
+            "sequence": 1,
+            "status": "REFUNDED",
+            "createdAt": "2026-09-22T12:01:52.038Z"
+          }
+        ]
+      }
+    },
+    "partial": {
+      "key": "34998ecf-dc5a-48ce-9577-4bf103c2a5be",
+      "body": {
+        "capsuleIds": [
+          "e7a5aa75-3e85-4f51-a884-7b1dd039986c",
+          "31e4f51d-f15c-456b-a489-81d0698a05e4"
+        ],
+        "expectedAmount": 200,
+        "reason": "STAGING synthetic partial unopened refund"
+      },
+      "quote": {
+        "orderId": "423c8d94-12f0-4a3b-a0fb-3a5e2ec5637d",
+        "capsules": [
+          {
+            "id": "31e4f51d-f15c-456b-a489-81d0698a05e4",
+            "sequence": 3,
+            "status": "UNOPENED"
+          },
+          {
+            "id": "e7a5aa75-3e85-4f51-a884-7b1dd039986c",
+            "sequence": 2,
+            "status": "UNOPENED"
+          }
+        ],
+        "quantity": 2,
+        "amount": 200,
+        "currency": "GP",
+        "balance": 89800,
+        "refundUntil": "2026-10-01T14:59:59.999Z",
+        "refundPolicy": {
+          "version": 1,
+          "saleType": "STANDARD",
+          "timeZone": "Asia/Seoul",
+          "businessDays": 7,
+          "calendarVersion": "a2377bd91bd86d7d2ccf7249630f5db9e69c2e05a965d74f80a4c57884f08b81",
+          "purchaseDayExcluded": true
+        },
+        "cashEnabled": false
+      },
+      "beforePayload": {
+        "orderId": "423c8d94-12f0-4a3b-a0fb-3a5e2ec5637d",
+        "gachaId": 1,
+        "title": "[STAGING 전용] Stage 4B 합성 검증 박스",
+        "quantity": 3,
+        "unitPrice": 100,
+        "total": 300,
+        "currency": "GP",
+        "status": "PAID",
+        "refundedQuantity": 0,
+        "refundEligible": true,
+        "refundUntil": "2026-10-01T14:59:59.999Z",
+        "refundPolicy": {
+          "version": 1,
+          "saleType": "STANDARD",
+          "timeZone": "Asia/Seoul",
+          "businessDays": 7,
+          "calendarVersion": "a2377bd91bd86d7d2ccf7249630f5db9e69c2e05a965d74f80a4c57884f08b81",
+          "purchaseDayExcluded": true
+        },
+        "balanceAfter": "89800",
+        "probabilityVersion": "1054bd96ee48661bbfc942827b87f6455db1ad9b6d752a7a72f06edf4c63a596",
+        "probabilitySnapshot": {
+          "mode": "FIXED_PPM",
+          "entries": [
+            {
+              "name": "[STAGING] 합성 일반 상품",
+              "itemId": 1,
+              "rarity": "N",
+              "imageUrl": null,
+              "isPremium": false,
+              "conversionGP": 100,
+              "estimatedValue": 1000,
+              "probabilityPpm": 900000
+            },
+            {
+              "name": "[STAGING] 합성 프리미엄 상품",
+              "itemId": 2,
+              "rarity": "SSR",
+              "imageUrl": null,
+              "isPremium": true,
+              "conversionGP": 2000,
+              "estimatedValue": 2000,
+              "probabilityPpm": 100000
+            }
+          ],
+          "schemaVersion": 1
+        },
+        "createdAt": "2026-09-22T12:28:24.852Z",
+        "capsules": [
+          {
+            "id": "661fdcaf-fe5b-45b3-878d-b9631eea1a70",
+            "orderId": "423c8d94-12f0-4a3b-a0fb-3a5e2ec5637d",
+            "sequence": 1,
+            "status": "OPENED",
+            "createdAt": "2026-09-22T12:28:24.841Z"
+          },
+          {
+            "id": "e7a5aa75-3e85-4f51-a884-7b1dd039986c",
+            "orderId": "423c8d94-12f0-4a3b-a0fb-3a5e2ec5637d",
+            "sequence": 2,
+            "status": "UNOPENED",
+            "createdAt": "2026-09-22T12:28:24.841Z"
+          },
+          {
+            "id": "31e4f51d-f15c-456b-a489-81d0698a05e4",
+            "orderId": "423c8d94-12f0-4a3b-a0fb-3a5e2ec5637d",
+            "sequence": 3,
+            "status": "UNOPENED",
+            "createdAt": "2026-09-22T12:28:24.841Z"
+          }
+        ]
+      },
+      "receipt": {
+        "refundId": "f6c20502-151f-4cc3-a292-e91cea094545",
+        "orderId": "423c8d94-12f0-4a3b-a0fb-3a5e2ec5637d",
+        "capsuleIds": [
+          "31e4f51d-f15c-456b-a489-81d0698a05e4",
+          "e7a5aa75-3e85-4f51-a884-7b1dd039986c"
+        ],
+        "quantity": 2,
+        "amount": 200,
+        "currency": "GP",
+        "status": "SUCCEEDED",
+        "balanceAfter": 90000,
+        "createdAt": "2026-09-22T12:28:25.379Z",
+        "completedAt": "2026-09-22T12:28:25.397Z",
+        "reason": "STAGING synthetic partial unopened refund"
+      },
+      "afterPayload": {
+        "orderId": "423c8d94-12f0-4a3b-a0fb-3a5e2ec5637d",
+        "gachaId": 1,
+        "title": "[STAGING 전용] Stage 4B 합성 검증 박스",
+        "quantity": 3,
+        "unitPrice": 100,
+        "total": 300,
+        "currency": "GP",
+        "status": "PARTIALLY_REFUNDED",
+        "refundedQuantity": 2,
+        "refundEligible": true,
+        "refundUntil": "2026-10-01T14:59:59.999Z",
+        "refundPolicy": {
+          "version": 1,
+          "saleType": "STANDARD",
+          "timeZone": "Asia/Seoul",
+          "businessDays": 7,
+          "calendarVersion": "a2377bd91bd86d7d2ccf7249630f5db9e69c2e05a965d74f80a4c57884f08b81",
+          "purchaseDayExcluded": true
+        },
+        "balanceAfter": "89800",
+        "probabilityVersion": "1054bd96ee48661bbfc942827b87f6455db1ad9b6d752a7a72f06edf4c63a596",
+        "probabilitySnapshot": {
+          "mode": "FIXED_PPM",
+          "entries": [
+            {
+              "name": "[STAGING] 합성 일반 상품",
+              "itemId": 1,
+              "rarity": "N",
+              "imageUrl": null,
+              "isPremium": false,
+              "conversionGP": 100,
+              "estimatedValue": 1000,
+              "probabilityPpm": 900000
+            },
+            {
+              "name": "[STAGING] 합성 프리미엄 상품",
+              "itemId": 2,
+              "rarity": "SSR",
+              "imageUrl": null,
+              "isPremium": true,
+              "conversionGP": 2000,
+              "estimatedValue": 2000,
+              "probabilityPpm": 100000
+            }
+          ],
+          "schemaVersion": 1
+        },
+        "createdAt": "2026-09-22T12:28:24.852Z",
+        "capsules": [
+          {
+            "id": "661fdcaf-fe5b-45b3-878d-b9631eea1a70",
+            "orderId": "423c8d94-12f0-4a3b-a0fb-3a5e2ec5637d",
+            "sequence": 1,
+            "status": "OPENED",
+            "createdAt": "2026-09-22T12:28:24.841Z"
+          },
+          {
+            "id": "e7a5aa75-3e85-4f51-a884-7b1dd039986c",
+            "orderId": "423c8d94-12f0-4a3b-a0fb-3a5e2ec5637d",
+            "sequence": 2,
+            "status": "REFUNDED",
+            "createdAt": "2026-09-22T12:28:24.841Z"
+          },
+          {
+            "id": "31e4f51d-f15c-456b-a489-81d0698a05e4",
+            "orderId": "423c8d94-12f0-4a3b-a0fb-3a5e2ec5637d",
+            "sequence": 3,
+            "status": "REFUNDED",
+            "createdAt": "2026-09-22T12:28:24.841Z"
+          }
+        ]
+      }
+    }
+  },
+  "unopenedPurchase": {
+    "orderId": "423c8d94-12f0-4a3b-a0fb-3a5e2ec5637d",
+    "gachaId": 1,
+    "title": "[STAGING 전용] Stage 4B 합성 검증 박스",
+    "quantity": 3,
+    "unitPrice": 100,
+    "total": 300,
+    "currency": "GP",
+    "status": "PAID",
+    "refundedQuantity": 0,
+    "refundEligible": true,
+    "refundUntil": "2026-10-01T14:59:59.999Z",
+    "refundPolicy": {
+      "version": 1,
+      "saleType": "STANDARD",
+      "businessDays": 7,
+      "timeZone": "Asia/Seoul",
+      "purchaseDayExcluded": true,
+      "calendarVersion": "a2377bd91bd86d7d2ccf7249630f5db9e69c2e05a965d74f80a4c57884f08b81"
+    },
+    "balanceAfter": "89800",
+    "probabilityVersion": "1054bd96ee48661bbfc942827b87f6455db1ad9b6d752a7a72f06edf4c63a596",
+    "probabilitySnapshot": {
+      "schemaVersion": 1,
+      "mode": "FIXED_PPM",
+      "entries": [
+        {
+          "itemId": 1,
+          "name": "[STAGING] 합성 일반 상품",
+          "rarity": "N",
+          "imageUrl": null,
+          "estimatedValue": 1000,
+          "isPremium": false,
+          "conversionGP": 100,
+          "probabilityPpm": 900000
+        },
+        {
+          "itemId": 2,
+          "name": "[STAGING] 합성 프리미엄 상품",
+          "rarity": "SSR",
+          "imageUrl": null,
+          "estimatedValue": 2000,
+          "isPremium": true,
+          "conversionGP": 2000,
+          "probabilityPpm": 100000
+        }
+      ]
+    },
+    "createdAt": "2026-09-22T12:28:24.852Z",
+    "capsules": [
+      {
+        "id": "661fdcaf-fe5b-45b3-878d-b9631eea1a70",
+        "orderId": "423c8d94-12f0-4a3b-a0fb-3a5e2ec5637d",
+        "sequence": 1,
+        "status": "UNOPENED",
+        "createdAt": "2026-09-22T12:28:24.841Z"
+      },
+      {
+        "id": "e7a5aa75-3e85-4f51-a884-7b1dd039986c",
+        "orderId": "423c8d94-12f0-4a3b-a0fb-3a5e2ec5637d",
+        "sequence": 2,
+        "status": "UNOPENED",
+        "createdAt": "2026-09-22T12:28:24.841Z"
+      },
+      {
+        "id": "31e4f51d-f15c-456b-a489-81d0698a05e4",
+        "orderId": "423c8d94-12f0-4a3b-a0fb-3a5e2ec5637d",
+        "sequence": 3,
+        "status": "UNOPENED",
+        "createdAt": "2026-09-22T12:28:24.841Z"
+      }
+    ]
+  },
+  "confirmedOpening": {
+    "capsuleId": "661fdcaf-fe5b-45b3-878d-b9631eea1a70",
+    "inventoryItemId": 70,
+    "probabilityVersion": "1054bd96ee48661bbfc942827b87f6455db1ad9b6d752a7a72f06edf4c63a596",
+    "prize": {
+      "name": "[STAGING] 합성 프리미엄 상품",
+      "itemId": 2,
+      "rarity": "SSR",
+      "imageUrl": null,
+      "isPremium": true,
+      "conversionGP": 2000,
+      "estimatedValue": 2000,
+      "probabilityPpm": 100000
+    },
+    "openedAt": "2026-09-22T12:28:25.056Z"
+  }
+}

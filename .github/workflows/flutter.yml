@@ -1,0 +1,56 @@
+name: Flutter quality
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+concurrency:
+  group: flutter-quality-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.4'
+          channel: stable
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - uses: actions/upload-artifact@v4
+        with:
+          name: resolved-flutter-lockfile
+          path: pubspec.lock
+          retention-days: 7
+      - run: flutter analyze
+      - run: flutter test
+      - name: Verify existing unopened entry with its debug gate enabled
+        run: flutter test --dart-define=ENABLE_GP_ORDER_PREVIEW=true test/features/v33_navigation_test.dart
+
+      - name: Verify existing shipping form in isolated debug fixtures
+        run: flutter test --dart-define=ENABLE_SHIPPING_PREVIEW=true test/features/v33_stage3_test.dart --plain-name 'shipping application retains gate'
+
+      - name: Verify release constants keep all transaction gates closed
+        run: flutter test --dart-define=dart.vm.product=true --dart-define=ENABLE_GP_ORDER_PREVIEW=true --dart-define=ENABLE_GP_CONVERSION_PREVIEW=true --dart-define=ENABLE_SHIPPING_PREVIEW=true --dart-define=ENABLE_ORDER_REFUND_PREVIEW=true --dart-define=ENABLE_LEGACY_TRANSACTIONS=true test/core/v33_release_gate_test.dart
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: catalog-ui-previews
+          path: build/ui-previews/*.png
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Export synthetic screen previews for review
+        if: success()
+        run: |
+          python - <<'PY'
+          import base64, pathlib
+          for path in sorted(pathlib.Path('build/ui-previews').glob('*.png')):
+              data = base64.b64encode(path.read_bytes()).decode()
+              for i in range(0, len(data), 6000):
+                  print('VISUAL:' + path.stem + ':' + data[i:i+6000])
+          PY

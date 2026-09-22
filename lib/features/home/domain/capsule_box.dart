@@ -4,7 +4,7 @@ import '../../../core/utils/icon_mapper.dart';
 /// 가치가차 - "인기 랜덤박스" 그리드에 사용되는 캡슐 박스 모델.
 ///
 /// 백엔드 GET /gachas 응답을 기반으로 하며, [id]는 뽑기 요청
-/// (POST /draws)에 그대로 전달되는 백엔드 Gacha.id(숫자)이다.
+/// 구매 전 서버 견적과 확률을 조회하는 Gacha.id(숫자)이다.
 class CapsuleBox {
   /// 백엔드 Gacha.id.
   final int id;
@@ -14,6 +14,7 @@ class CapsuleBox {
   final String? tagline;
 
   final String name;
+  final String category;
 
   /// GP(포인트) 가격. 백엔드 Gacha.price(통화 GP)와 1:1 대응.
   final int priceWon;
@@ -38,6 +39,7 @@ class CapsuleBox {
     required this.id,
     this.tagline,
     required this.name,
+    this.category = 'other',
     required this.priceWon,
     required this.icon,
     this.iconName,
@@ -52,6 +54,7 @@ class CapsuleBox {
       id: json['id'] as int,
       tagline: json['tagline'] as String?,
       name: json['title'] as String,
+      category: json['category'] as String? ?? 'other',
       priceWon: (json['price'] as num).toInt(),
       icon: IconMapper.resolve(json['iconName'] as String?),
       iconName: json['iconName'] as String?,

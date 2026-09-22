@@ -1,0 +1,66 @@
+name: iOS execution
+on:
+  pull_request:
+  workflow_dispatch:
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.4'
+          channel: stable
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - name: Prepare iPhone simulator
+        run: python3 tool/ios/simulator_smoke.py prepare
+      - name: Build iOS simulator application
+        run: |
+          flutter build ios --simulator --debug --dart-define=API_BASE_URL=https://gacha-vault-backend.onrender.com --dart-define=ENABLE_GP_ORDER_PREVIEW=true --dart-define=ENABLE_GP_CONVERSION_PREVIEW=true --dart-define=ENABLE_SHIPPING_PREVIEW=true
+          codesign --verify --verbose build/ios/iphonesimulator/Runner.app
+          mkdir -p build/ios-deliverables
+          ditto build/ios/iphonesimulator/Runner.app build/ios-deliverables/Runner.app
+          ditto -c -k --sequesterRsrc --keepParent build/ios-deliverables/Runner.app build/ios-deliverables/gachigacha-simulator.zip
+      - name: Boot, install and launch actual application
+        run: python3 tool/ios/simulator_smoke.py app
+      - name: Build and verify native keychain recovery
+        run: |
+          flutter build ios --simulator --debug --target=tool/android/storage_probe.dart
+          codesign --verify --verbose build/ios/iphonesimulator/Runner.app
+          python3 tool/ios/simulator_smoke.py storage
+      - name: Build and capture V33 presentation on simulator
+        run: |
+          flutter build ios --simulator --debug --target=tool/v33/ui_probe.dart
+          codesign --verify --verbose build/ios/iphonesimulator/Runner.app
+          python3 tool/ios/simulator_smoke.py v33
+      - name: Build and capture V33 Stage 2 on simulator
+        run: |
+          flutter build ios --simulator --debug --target=tool/v33_stage2/ui_probe.dart
+          codesign --verify --verbose build/ios/iphonesimulator/Runner.app
+          python3 tool/ios/simulator_smoke.py v33-stage2
+      - name: Build and capture V33 Stage 3 on simulator
+        run: |
+          flutter build ios --simulator --debug --target=tool/v33_stage3/ui_probe.dart
+          codesign --verify --verbose build/ios/iphonesimulator/Runner.app
+          python3 tool/ios/simulator_smoke.py v33-stage3
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-execution-evidence
+          path: build/ios-evidence
+          if-no-files-found: ignore
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-app
+          path: build/ios-deliverables/gachigacha-simulator.zip
+          retention-days: 14

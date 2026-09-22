@@ -18,6 +18,11 @@ enum InventoryStatus {
 
   /// 배송완료
   delivered,
+
+  converted,
+
+  /// Unknown states must never permit shipping or conversion.
+  unavailable,
 }
 
 extension InventoryStatusLabel on InventoryStatus {
@@ -31,6 +36,10 @@ extension InventoryStatusLabel on InventoryStatus {
         return '배송중';
       case InventoryStatus.delivered:
         return '배송완료';
+      case InventoryStatus.converted:
+        return 'GP 전환 완료';
+      case InventoryStatus.unavailable:
+        return '처리 상태 확인 필요';
     }
   }
 }
@@ -38,6 +47,8 @@ extension InventoryStatusLabel on InventoryStatus {
 /// 백엔드 status 문자열("STORED" 등) -> Flutter [InventoryStatus] 변환.
 InventoryStatus _statusFromBackend(String? backendStatus) {
   switch (backendStatus) {
+    case 'CONVERTED':
+      return InventoryStatus.converted;
     case 'SHIPPING_REQUESTED':
       return InventoryStatus.shippingRequested;
     case 'SHIPPING':
@@ -45,8 +56,9 @@ InventoryStatus _statusFromBackend(String? backendStatus) {
     case 'DELIVERED':
       return InventoryStatus.delivered;
     case 'STORED':
-    default:
       return InventoryStatus.stored;
+    default:
+      return InventoryStatus.unavailable;
   }
 }
 
@@ -61,6 +73,10 @@ String _statusToBackend(InventoryStatus status) {
       return 'SHIPPING';
     case InventoryStatus.delivered:
       return 'DELIVERED';
+    case InventoryStatus.converted:
+      return 'CONVERTED';
+    case InventoryStatus.unavailable:
+      return 'UNAVAILABLE';
   }
 }
 
@@ -92,14 +108,19 @@ class InventoryItem {
   /// 등급 코드 ("S"/"A"/"B"/"C"). 백엔드 rarity(N/R/SR/SSR)를 [GradeMapper]로 변환한 값.
   final String grade;
 
-  /// 상품 추정 가치 (GP).
+  /// 상품 추정 가치 (원). 전환 GP와 별도로 표시한다.
   final int price;
+  final int? conversionGP;
+  final bool? isPremium;
 
   final IconData icon;
+  final String? imageUrl;
 
   final InventoryStatus status;
+  final bool shippingEnabled;
+  final String fulfillmentType;
 
-  /// 잠금 여부. 잠금된 상품은 배송/포인트 전환이 불가하다.
+  /// 잠금은 포인트 전환만 제한한다. 배송은 서버가 허용한 실물 보관 상품만 가능하다.
   final bool isLocked;
 
   /// 획득 시각 (최근 획득순 정렬에 사용).
@@ -114,10 +135,28 @@ class InventoryItem {
     required this.status,
     required this.acquiredAt,
     this.isLocked = false,
+    this.shippingEnabled = false,
+    this.fulfillmentType = 'UNSPECIFIED',
+    this.imageUrl,
+    this.conversionGP,
+    this.isPremium,
   });
 
-  /// 배송 신청(`POST /shipping-requests`) 시 백엔드에 전달할 숫자 PK.
-  int get numericId => int.tryParse(id) ?? 0;
+  bool get canSelect => status == InventoryStatus.stored;
+  bool get canShip =>
+      status == InventoryStatus.stored &&
+      shippingEnabled &&
+      fulfillmentType == 'PHYSICAL';
+  bool get canConvert => status == InventoryStatus.stored && !isLocked;
+
+  /// 배송 신청(`POST /fulfillments/quotes`) 시 백엔드에 전달할 숫자 PK.
+  int get numericId {
+    final value = int.tryParse(id);
+    if (value == null || value <= 0) {
+      throw const FormatException('유효하지 않은 보관함 상품 ID');
+    }
+    return value;
+  }
 
   /// 백엔드 `GET /inventory` 응답의 items[] 항목 1개를 [InventoryItem]으로 변환한다.
   factory InventoryItem.fromJson(Map<String, dynamic> json) {
@@ -129,7 +168,15 @@ class InventoryItem {
       grade: GradeMapper.toUiGrade(rarity),
       price: (json['estimatedValue'] as num?)?.toInt() ?? 0,
       icon: _iconForRarity(rarity),
+      imageUrl: json['imageUrl'] as String?,
+      conversionGP:
+          json['conversionGP'] is int && (json['conversionGP'] as int) >= 0
+          ? json['conversionGP'] as int
+          : null,
+      isPremium: json['isPremium'] is bool ? json['isPremium'] as bool : null,
       status: _statusFromBackend(json['status'] as String?),
+      shippingEnabled: json['shippingEnabled'] == true,
+      fulfillmentType: json['fulfillmentType'] as String? ?? 'UNSPECIFIED',
       acquiredAt: acquiredAtRaw != null
           ? (DateTime.tryParse(acquiredAtRaw) ?? DateTime.now())
           : DateTime.now(),
@@ -137,16 +184,18 @@ class InventoryItem {
     );
   }
 
-  /// 화면 표시용 가격 포맷 (예: "1,200,000 GP")
+  /// 화면 표시용 상품 가치 (예: "1,200,000원")
   String get formattedPrice {
     final str = price.toString();
     final buffer = StringBuffer();
     for (int i = 0; i < str.length; i++) {
       final posFromEnd = str.length - i;
       buffer.write(str[i]);
-      if (posFromEnd > 1 && posFromEnd % 3 == 1) buffer.write(',');
+      if (posFromEnd > 1 && posFromEnd % 3 == 1) {
+        buffer.write(',');
+      }
     }
-    return '${buffer.toString()} GP';
+    return '${buffer.toString()}원';
   }
 }
 
@@ -182,17 +231,66 @@ class InventoryRepository {
   const InventoryRepository({ApiClient apiClient = const ApiClient()})
     : _apiClient = apiClient;
 
+  Future<void> setLock(InventoryItem item, {required bool locked}) async {
+    if (item.status != InventoryStatus.stored) {
+      throw StateError('보관중인 상품만 잠금을 변경할 수 있습니다');
+    }
+    final data = await _apiClient.put(
+      '/inventory/${item.numericId}/lock',
+      body: {'locked': locked},
+    );
+    if (data is! Map<String, dynamic> ||
+        data['inventoryItemId'] != item.numericId ||
+        data['isLocked'] != locked) {
+      throw ApiException(
+        statusCode: 0,
+        message: '잠금 상태를 확인하지 못했습니다. 보관함을 새로고침해주세요',
+      );
+    }
+  }
+
   /// 보관함 전체 목록을 조회한다. [status]를 지정하면 해당 상태만 필터링한다.
   Future<List<InventoryItem>> getAll({InventoryStatus? status}) async {
-    final query = <String>['page=1', 'limit=100'];
-    if (status != null) {
-      query.add('status=${_statusToBackend(status)}');
+    final result = <InventoryItem>[];
+    final ids = <String>{};
+    var page = 1;
+    while (true) {
+      final query = <String>['page=$page', 'limit=100'];
+      if (status != null) {
+        query.add('status=${_statusToBackend(status)}');
+      }
+      final data = await _apiClient.get('/inventory?${query.join('&')}');
+      if (data is! Map<String, dynamic> ||
+          data['items'] is! List ||
+          data['totalCount'] is! int ||
+          (data['totalCount'] as int) < 0 ||
+          data['page'] != page ||
+          data['limit'] is! int ||
+          (data['limit'] as int) <= 0) {
+        throw ApiException(statusCode: 0, message: '보관함 응답을 확인하지 못했습니다');
+      }
+      final rows = data['items'] as List;
+      final limit = data['limit'] as int;
+      for (final row in rows) {
+        final item = InventoryItem.fromJson(row as Map<String, dynamic>);
+        if (!ids.add(item.id)) {
+          throw ApiException(
+            statusCode: 0,
+            message: '보관함 목록이 변경되었습니다. 새로고침해주세요',
+          );
+        }
+        result.add(item);
+      }
+      if (page * limit >= (data['totalCount'] as int)) {
+        return result;
+      }
+      if (rows.length != limit) {
+        throw ApiException(
+          statusCode: 0,
+          message: '보관함 목록 일부를 확인하지 못했습니다. 새로고침해주세요',
+        );
+      }
+      page++;
     }
-    final data = await _apiClient.get('/inventory?${query.join('&')}');
-    final map = data as Map<String, dynamic>;
-    final items = map['items'] as List<dynamic>? ?? [];
-    return items
-        .map((e) => InventoryItem.fromJson(e as Map<String, dynamic>))
-        .toList();
   }
 }

@@ -16,6 +16,19 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
 
+// Opt-in configuration: ordinary debug/release builds keep their existing IDs.
+// This avoids adding a flavor dimension to the existing CI build commands.
+val stagingProperty = providers.gradleProperty("gachiStaging").orElse("false").get()
+require(stagingProperty in listOf("true", "false")) { "gachiStaging must be true or false" }
+val gachiStaging = stagingProperty == "true"
+if (gachiStaging) {
+    // Validate the defines actually consumed by Flutter, not a fallback URL.
+    providers.exec {
+        commandLine("python3", rootProject.file("../tool/staging/validate.py"), "defines")
+        environment("DART_DEFINES", providers.gradleProperty("dart-defines").orElse("").get())
+    }.result.get().assertNormalExitValue()
+}
+
 android {
     namespace = "com.gachavault.gacha"
     compileSdk = flutter.compileSdkVersion
@@ -51,13 +64,34 @@ android {
     }
 
     buildTypes {
+        debug {
+            applicationIdSuffix = if (gachiStaging) ".staging" else ".debug"
+            versionNameSuffix = "-debug"
+            resValue("string", "app_name", "가치가차 테스트")
+        }
         release {
+            resValue("string", "app_name", "가치가차")
             signingConfig = signingConfigs.getByName("release")
         }
+    }
+
+    if (gachiStaging) {
+        buildTypes.getByName("debug").resValue("string", "app_name", "가치가차 Staging")
+        // Flutter creates profile before this script configures debug.
+        buildTypes.getByName("profile").apply {
+            applicationIdSuffix = ".staging"
+            resValue("string", "app_name", "가치가차 Staging")
+        }
+    }
+}
+
+androidComponents {
+    beforeVariants(selector().withBuildType("release")) { variant ->
+        // Staging uses debug/profile; do not consume the production release key.
+        if (gachiStaging) variant.enable = false
     }
 }
 
 flutter {
     source = "../.."
 }
-

@@ -1,0 +1,41 @@
+name: Native refunds contract
+on:
+  pull_request:
+    paths:
+      - 'lib/**'
+      - 'test/**'
+      - '.github/workflows/native-refunds.yml'
+permissions:
+  contents: read
+jobs:
+  refund-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.4'
+          channel: stable
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - name: Test native refund models, recovery and screens
+        run: |
+          mkdir -p refund-evidence
+          git rev-parse HEAD > refund-evidence/checked-commit.txt
+          flutter test --no-pub --machine test/features/refund_repository_test.dart test/features/refund_page_test.dart > refund-evidence/tests.jsonl
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-refunds-contract-evidence
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            refund-evidence/
+            lib/features/refunds/
+            test/features/refund_repository_test.dart
+            test/features/refund_page_test.dart
+            test/support/refund_fixture.dart
+            docs/NATIVE_ORDER_REFUNDS.ko.md

@@ -1,3 +1,4 @@
+import '../../../shared/data/activity_page.dart';
 // 가치가차 - 랭킹 탭 도메인 모델.
 //
 // 백엔드 `GET /rankings/users`, `/rankings/gachas`, `/rankings/wins`
@@ -94,8 +95,7 @@ class WinFeedItem {
       rarity: json['rarity'] as String? ?? 'N',
       estimatedValue: (json['estimatedValue'] as num?)?.toInt() ?? 0,
       imageUrl: json['imageUrl'] as String?,
-      wonAt: DateTime.tryParse(json['wonAt'] as String? ?? '') ??
-          DateTime.now(),
+      wonAt: activityDate(json['wonAt']),
     );
   }
 

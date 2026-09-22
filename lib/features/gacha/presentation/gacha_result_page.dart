@@ -2,14 +2,11 @@ import 'dart:math';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:provider/provider.dart';
 import '../../../core/constants/rank_colors.dart';
 import '../../../core/theme/app_colors.dart';
-import '../../../shared/providers/gp_provider.dart';
 import '../../home/domain/capsule_box.dart';
 import '../domain/draw_result.dart';
 import '../domain/gacha_grade.dart';
-import 'gacha_animation_page.dart';
 import 'widgets/gacha_fx_painters.dart';
 
 /// 가치가차 - 뽑기 결과 화면 (CLOVE 오리파 스타일 Stage5).
@@ -19,10 +16,7 @@ import 'widgets/gacha_fx_painters.dart';
 /// 나머지 결과를 화이트 배경 2열 그리드로 하단에 나열한다.
 /// S/SSS 등급 당첨 시 화면 상단에서 색종이 낙하 효과를 재생한다.
 ///
-/// 하단에는 CLOVE 오리파 핵심 기능인 3대 원클릭 액션 버튼을 제공한다:
-///  - ⚡ 즉시 포인트로 환원: 결과 전체를 정가의 ~87% GP로 즉시 환급
-///  - 📦 보관함에 담기: 서버에 이미 저장된 상태를 그대로 유지하고 확인만
-///  - 🔄 한 번 더 뽑기: 동일 박스/수량으로 GP 차감 후 다음 뽑기 시퀀스 재실행
+/// 결과는 서버 확정값만 표시한다. 전환은 별도 서버 견적·확정 흐름에서 처리한다.
 class GachaResultPage extends StatefulWidget {
   final CapsuleBox box;
   final int count;
@@ -48,10 +42,6 @@ class _GachaResultPageState extends State<GachaResultPage>
   late final DrawResult _highlightResult;
   late final List<DrawResult> _remainingResults;
 
-  bool _redeemed = false;
-  bool _isRedeeming = false;
-  bool _isRedrawing = false;
-
   GachaGrade get _highlightGrade => _highlightResult.gradeEnum;
   bool get _hasCelebration =>
       widget.results.any((r) => r.gradeEnum.hasCutinStage);
@@ -59,16 +49,13 @@ class _GachaResultPageState extends State<GachaResultPage>
       widget.results.any((r) => r.gradeEnum.hasRainbowConfetti);
 
   int get _totalValue => widget.results.fold(0, (sum, r) => sum + r.price);
-  int get _totalRefund =>
-      widget.results.fold(0, (sum, r) => sum + r.refundPointGP);
   int get _totalSpent => widget.count * widget.box.priceWon;
 
   @override
   void initState() {
     super.initState();
 
-    final sorted = [...widget.results]
-      ..sort((a, b) => b.gradeEnum.rank.compareTo(a.gradeEnum.rank));
+    final sorted = [...widget.results]..sort(DrawResult.compareForReveal);
     _highlightResult = sorted.first;
     _remainingResults = sorted.skip(1).toList();
 
@@ -111,36 +98,6 @@ class _GachaResultPageState extends State<GachaResultPage>
     return buffer.toString();
   }
 
-  /// ⚡ 즉시 포인트로 환원: 정가의 약 87%에 해당하는 GP를 즉시 지급하고
-  /// 결과 화면을 닫는다. (서버에 이미 저장된 인벤토리 아이템은 실제
-  /// "판매 처리" API가 없는 관계로, 낙관적 GP 지급 + 안내로 대체한다.)
-  Future<void> _instantRefund() async {
-    if (_redeemed || _isRedeeming) return;
-    setState(() => _isRedeeming = true);
-    HapticFeedback.mediumImpact();
-
-    context.read<GpProvider>().add(_totalRefund);
-
-    await Future<void>.delayed(const Duration(milliseconds: 420));
-    if (!mounted) return;
-
-    setState(() {
-      _redeemed = true;
-      _isRedeeming = false;
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${_formatWon(_totalRefund)} GP가 즉시 환원되었습니다'),
-        backgroundColor: AppColors.accentViolet,
-      ),
-    );
-
-    await Future<void>.delayed(const Duration(milliseconds: 500));
-    if (!mounted) return;
-    Navigator.of(context).popUntil((route) => route.isFirst);
-  }
-
   void _saveToInventory() {
     // 뽑기 결과는 서버(POST /draws)에서 이미 인벤토리에 저장되었으므로
     // 여기서는 확인 메시지만 보여주고 홈으로 복귀한다.
@@ -149,33 +106,6 @@ class _GachaResultPageState extends State<GachaResultPage>
       context,
     ).showSnackBar(const SnackBar(content: Text('보관함에 저장되었습니다')));
     Navigator.of(context).popUntil((route) => route.isFirst);
-  }
-
-  /// 🔄 한 번 더 뽑기: 현재 박스 가격만큼 GP를 낙관적으로 차감한 뒤,
-  /// 동일한 박스/수량으로 뽑기 애니메이션을 즉시 재실행한다.
-  Future<void> _drawAgain() async {
-    if (_isRedrawing) return;
-    final gp = context.read<GpProvider>();
-    final cost = _totalSpent;
-
-    if (gp.balance < cost) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('GP 잔액이 부족합니다')));
-      return;
-    }
-
-    setState(() => _isRedrawing = true);
-    HapticFeedback.mediumImpact();
-    gp.spend(cost);
-
-    if (!mounted) return;
-    await Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (context) =>
-            GachaAnimationPage(box: widget.box, count: widget.count),
-      ),
-    );
   }
 
   @override
@@ -305,7 +235,7 @@ class _GachaResultPageState extends State<GachaResultPage>
                                   crossAxisAlignment: CrossAxisAlignment.end,
                                   children: [
                                     const Text(
-                                      '지불 금액',
+                                      '캡슐 기준 금액',
                                       style: TextStyle(
                                         color: AppColors.textSecondary,
                                         fontSize: 12,
@@ -331,133 +261,14 @@ class _GachaResultPageState extends State<GachaResultPage>
                   ),
                 ),
 
-                // ── CLOVE 오리파 3대 원클릭 액션 버튼 ──
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                  child: Column(
-                    children: [
-                      // ⚡ 즉시 포인트로 환원 (전체 폭 강조 버튼)
-                      SizedBox(
-                        width: double.infinity,
-                        height: 54,
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            gradient: _redeemed
-                                ? null
-                                : const LinearGradient(
-                                    colors: [
-                                      Color(0xFFFFC94A),
-                                      AppColors.accentViolet,
-                                    ],
-                                    begin: Alignment.centerLeft,
-                                    end: Alignment.centerRight,
-                                  ),
-                            color: _redeemed
-                                ? AppColors.surfaceElevated2
-                                : null,
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: Material(
-                            type: MaterialType.transparency,
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(16),
-                              onTap: _redeemed ? null : _instantRefund,
-                              child: Center(
-                                child: _isRedeeming
-                                    ? const SizedBox(
-                                        width: 20,
-                                        height: 20,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2.4,
-                                          valueColor:
-                                              AlwaysStoppedAnimation<Color>(
-                                                Colors.white,
-                                              ),
-                                        ),
-                                      )
-                                    : Text(
-                                        _redeemed
-                                            ? '환원 완료'
-                                            : '⚡ 즉시 포인트로 환원 (+${_formatWon(_totalRefund)} GP)',
-                                        style: TextStyle(
-                                          color: _redeemed
-                                              ? AppColors.textSecondary
-                                              : Colors.white,
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      // 📦 보관함에 담기 / 🔄 한번더 뽑기 (1:1 비율)
-                      Row(
-                        children: [
-                          Expanded(
-                            child: SizedBox(
-                              height: 50,
-                              child: OutlinedButton(
-                                onPressed: _saveToInventory,
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: AppColors.textPrimary,
-                                  side: const BorderSide(
-                                    color: AppColors.surfaceBorder,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(14),
-                                  ),
-                                ),
-                                child: const Text(
-                                  '📦 보관함에 담기',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: SizedBox(
-                              height: 50,
-                              child: OutlinedButton(
-                                onPressed: _isRedrawing ? null : _drawAgain,
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: AppColors.primary,
-                                  side: BorderSide(
-                                    color: AppColors.primary.withValues(
-                                      alpha: 0.5,
-                                    ),
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(14),
-                                  ),
-                                ),
-                                child: _isRedrawing
-                                    ? const SizedBox(
-                                        width: 18,
-                                        height: 18,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2.2,
-                                        ),
-                                      )
-                                    : const Text(
-                                        '🔄 한번더 뽑기',
-                                        style: TextStyle(
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
+                  padding: const EdgeInsets.all(16),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: _saveToInventory,
+                      child: const Text('결과 확인'),
+                    ),
                   ),
                 ),
               ],
@@ -569,8 +380,11 @@ class _HighlightCardState extends State<_HighlightCard>
                       width: 88,
                       height: 88,
                       fit: BoxFit.cover,
-                      errorWidget: (context, url, error) =>
-                          Icon(Icons.card_giftcard_rounded, size: 72, color: color),
+                      errorWidget: (context, url, error) => Icon(
+                        Icons.card_giftcard_rounded,
+                        size: 72,
+                        color: color,
+                      ),
                     ),
                   )
                 else
@@ -596,7 +410,7 @@ class _HighlightCardState extends State<_HighlightCard>
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '즉시환원가 ${widget.result.formattedRefundGP}',
+                  '전환 GP: ${widget.result.formattedConversionGp}',
                   style: TextStyle(
                     color: AppColors.textSecondary.withValues(alpha: 0.9),
                     fontSize: 11,
@@ -611,7 +425,9 @@ class _HighlightCardState extends State<_HighlightCard>
               child: AnimatedBuilder(
                 animation: _shimmerController,
                 builder: (context, child) {
-                  if (_shimmerController.value <= 0) return const SizedBox.shrink();
+                  if (_shimmerController.value <= 0) {
+                    return const SizedBox.shrink();
+                  }
                   return ShaderMask(
                     blendMode: BlendMode.srcATop,
                     shaderCallback: (rect) {
@@ -629,7 +445,9 @@ class _HighlightCardState extends State<_HighlightCard>
                         end: Alignment(-0.6 + 3.2 * t, 1),
                       ).createShader(rect);
                     },
-                    child: Container(color: Colors.white.withValues(alpha: 0.001)),
+                    child: Container(
+                      color: Colors.white.withValues(alpha: 0.001),
+                    ),
                   );
                 },
               ),

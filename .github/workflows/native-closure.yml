@@ -1,0 +1,43 @@
+name: Native closure request contract
+on:
+  pull_request:
+    paths:
+      - 'lib/**'
+      - 'test/**'
+      - '.github/workflows/native-closure.yml'
+      - 'docs/NATIVE_ACCOUNT_CLOSURE.ko.md'
+permissions:
+  contents: read
+jobs:
+  closure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.4'
+          channel: stable
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - name: Test closure request state and recovery contract
+        run: |
+          set -o pipefail
+          mkdir -p build/closure-evidence
+          git rev-parse HEAD > build/closure-evidence/checked-commit.txt
+          printf '%s\n' 'Synthetic HTTP/model/memory-store tests. No new closure widget tests, live database, account deletion or external payment.' > build/closure-evidence/SCOPE.txt
+          flutter test test/features/closure_repository_test.dart --reporter=json 2>build/closure-evidence/stderr.txt | tee build/closure-evidence/tests.jsonl
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-closure-contract-evidence
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            build/closure-evidence/
+            lib/features/closure/
+            test/features/closure_repository_test.dart
+            test/support/closure_fixture.dart
+            docs/NATIVE_ACCOUNT_CLOSURE.ko.md

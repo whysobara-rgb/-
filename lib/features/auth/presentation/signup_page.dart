@@ -1,6 +1,6 @@
+import '../../../shared/widgets/gachi_flow.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../shared/providers/auth_provider.dart';
 
 /// 가치가차 - 회원가입 페이지 (이메일/비밀번호/닉네임).
@@ -77,156 +77,38 @@ class _SignupPageState extends State<SignupPage> {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
-
-    return Scaffold(
-      backgroundColor: AppColors.scaffoldBg,
-      appBar: AppBar(
-        backgroundColor: AppColors.scaffoldBg,
-        elevation: 0,
-        title: const Text(
-          '회원가입',
-          style: TextStyle(
-            color: AppColors.textPrimary,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        iconTheme: const IconThemeData(color: AppColors.textPrimary),
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const Text(
-                  '가치가차에서 특별한 순간을 만들어보세요',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-                const SizedBox(height: 28),
-                _buildTextField(
-                  controller: _emailController,
-                  hintText: '이메일',
-                  prefixIcon: Icons.email_outlined,
-                  obscureText: false,
-                  validator: _validateEmail,
-                ),
-                const SizedBox(height: 12),
-                _buildTextField(
-                  controller: _nicknameController,
-                  hintText: '닉네임 (2~20자)',
-                  prefixIcon: Icons.person_outline,
-                  obscureText: false,
-                  validator: _validateNickname,
-                ),
-                const SizedBox(height: 12),
-                _buildTextField(
-                  controller: _passwordController,
-                  hintText: '비밀번호 (영문+숫자 8자 이상)',
-                  prefixIcon: Icons.lock_outline,
-                  obscureText: _obscurePassword,
-                  validator: _validatePassword,
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                      _obscurePassword
-                          ? Icons.visibility_off_outlined
-                          : Icons.visibility_outlined,
-                      color: AppColors.textSecondary,
-                      size: 20,
-                    ),
-                    onPressed: () {
-                      setState(() => _obscurePassword = !_obscurePassword);
-                    },
-                  ),
-                ),
-                const SizedBox(height: 24),
-                Container(
-                  width: double.infinity,
-                  height: 54,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    gradient: auth.isLoading ? null : AppColors.goldGradient,
-                    color: auth.isLoading ? AppColors.surfaceBorder : null,
-                  ),
-                  child: Material(
-                    color: Colors.transparent,
-                    borderRadius: BorderRadius.circular(12),
-                    child: InkWell(
-                      onTap: auth.isLoading ? null : _handleSignup,
-                      borderRadius: BorderRadius.circular(12),
-                      child: Center(
-                        child: auth.isLoading
-                            ? const SizedBox(
-                                width: 22,
-                                height: 22,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2.5,
-                                  color: AppColors.textSecondary,
-                                ),
-                              )
-                            : const Text(
-                                '회원가입',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
-                                  color: Color(0xFF1A1A1A),
-                                ),
-                              ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
+    return GachiFlowScaffold(
+      appBar: AppBar(title: const Text('회원가입')),
+      body: SingleChildScrollView(padding: const EdgeInsets.all(GachiSpace.page),
+        child: Form(key: _formKey, child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            const GachiFlowHeading(label: 'JOIN GACHIGACHA', title: '가치 있는 시작',
+              description: '가치가차에서 특별한 순간을 만들어보세요'),
+            _buildTextField(controller: _emailController, label: '이메일',
+              icon: Icons.email_outlined, validator: _validateEmail),
+            _buildTextField(controller: _nicknameController, label: '닉네임 (2~20자)',
+              icon: Icons.person_outline, validator: _validateNickname),
+            _buildTextField(controller: _passwordController, label: '비밀번호',
+              icon: Icons.lock_outline, validator: _validatePassword,
+              obscure: _obscurePassword, helper: '영문과 숫자를 포함해 8자 이상 입력해주세요.',
+              suffix: IconButton(tooltip: _obscurePassword ? '비밀번호 표시' : '비밀번호 숨기기',
+                icon: Icon(_obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined),
+                onPressed: () => setState(() => _obscurePassword = !_obscurePassword))),
+            const SizedBox(height: GachiSpace.sm),
+            GachiPrimaryButton(label: auth.isLoading ? '가입 확인 중' : '회원가입',
+              onPressed: auth.isLoading ? null : _handleSignup),
+          ])),
       ),
     );
   }
 
-  Widget _buildTextField({
-    required TextEditingController controller,
-    required String hintText,
-    required IconData prefixIcon,
-    required bool obscureText,
-    String? Function(String?)? validator,
-    Widget? suffixIcon,
-  }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surfaceElevated2,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: TextFormField(
-        controller: controller,
-        obscureText: obscureText,
-        validator: validator,
-        style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
-        decoration: InputDecoration(
-          hintText: hintText,
-          hintStyle: const TextStyle(
-            color: AppColors.textSecondary,
-            fontSize: 14,
-          ),
-          prefixIcon: Icon(
-            prefixIcon,
-            color: AppColors.textSecondary,
-            size: 20,
-          ),
-          suffixIcon: suffixIcon,
-          border: InputBorder.none,
-          errorBorder: InputBorder.none,
-          focusedErrorBorder: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 14,
-          ),
-        ),
-      ),
+  Widget _buildTextField({required TextEditingController controller,
+    required String label, required IconData icon,
+    required String? Function(String?) validator, bool obscure = false,
+    String? helper, Widget? suffix}) => Padding(
+      padding: const EdgeInsets.only(bottom: GachiSpace.lg),
+      child: TextFormField(controller: controller, validator: validator,
+        obscureText: obscure, decoration: InputDecoration(labelText: label,
+          helperText: helper, prefixIcon: Icon(icon), suffixIcon: suffix)),
     );
-  }
 }

@@ -20,8 +20,20 @@ class AppUser {
       id: json['id'] as int,
       email: json['email'] as String,
       nickname: json['nickname'] as String? ?? '',
-      coinBalance: (json['coinBalance'] as num?)?.toInt() ?? 0,
+      coinBalance: _balance(json['coinBalance']),
     );
+  }
+
+  static int _balance(dynamic value) {
+    final parsed = value is int
+        ? value
+        : value is String && RegExp(r'^\d+$').hasMatch(value)
+        ? int.tryParse(value)
+        : null;
+    if (parsed == null || parsed < 0 || parsed > 9007199254740991) {
+      throw const FormatException('Invalid GP balance');
+    }
+    return parsed;
   }
 
   /// 화면 표시용 이메일 마스킹 (예: "sohn****@gachigacha.com")

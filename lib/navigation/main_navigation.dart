@@ -1,152 +1,118 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../core/config/app_config.dart';
 import '../core/theme/app_colors.dart';
+import '../shared/providers/auth_provider.dart';
+import '../shared/widgets/gachi_components.dart';
 import '../features/home/presentation/home_page.dart';
 import '../features/inventory/presentation/inventory_page.dart';
 import '../features/profile/presentation/profile_page.dart';
 import '../features/ranking/presentation/ranking_screen.dart';
 import '../features/wallet/presentation/wallet_page.dart';
+import '../features/orders/order_flow_page.dart';
 
-/// 가치가차 - 앱 하단 탭 네비게이션 컨테이너.
-///
-/// [IndexedStack]으로 5개 탭(홈/랭킹/박스/충전/마이)의 상태를 유지하며,
-/// 하단 네비게이션은 Claymorphism & Pastel 3D 스타일의 플로팅
-/// 라운드 바(아이콘 전용, 선택 시 그라데이션 소프트 원형 배경)로 구성된다.
+/// Home/shop share one catalog owner. Deferred screens keep their existing theme.
 class MainNavigation extends StatefulWidget {
   const MainNavigation({super.key});
-
   @override
   State<MainNavigation> createState() => _MainNavigationState();
 }
 
 class _MainNavigationState extends State<MainNavigation> {
-  int _currentIndex = 0;
+  int _currentIndex = 0, _inventoryRevision = 0, _homeRevision = 0;
+  bool _openingRoute = false;
 
   void _onTap(int index) {
-    setState(() => _currentIndex = index);
+    FocusManager.instance.primaryFocus?.unfocus();
+    if (index == 2) {
+      _openUnopened();
+      return;
+    }
+    setState(() {
+      // Home <-> shop shares the result. Explicit home reselection and return
+      // from another section retain the original refresh behavior.
+      if (index <= 1 && _currentIndex > 1 || index == 0 && _currentIndex == 0) {
+        _homeRevision++;
+      }
+      if (index == 3) _inventoryRevision++;
+      _currentIndex = index;
+    });
   }
 
-  void _goToHome() => setState(() => _currentIndex = 0);
+  Future<void> _openUnopened() async {
+    // Same feature gate as InventoryPage's existing unopened entry point.
+    if (!AppConfig.orderPreviewEnabled) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('현재 캡슐 구매 서비스를 준비하고 있습니다.')));
+      return;
+    }
+    final user = context.read<AuthProvider>().currentUser;
+    if (user == null || _openingRoute) return;
+    _openingRoute = true;
+    try {
+      await Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => OrderFlowPage(userId: user.id)));
+      if (mounted) {
+        setState(() {
+          _inventoryRevision++;
+          _homeRevision++;
+        });
+      }
+    } finally {
+      _openingRoute = false;
+    }
+  }
 
-  void _goToWallet() => setState(() => _currentIndex = 3);
+  void _goToWallet() => Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (walletContext) => WalletPage(
+        onGoToHome: () {
+          Navigator.of(walletContext).popUntil((route) => route.isFirst);
+          _onTap(0);
+        },
+      ),
+    ),
+  );
 
-  List<Widget> get _screens => [
-    HomePage(onGoToWallet: _goToWallet),
-    const RankingScreen(),
-    const InventoryPage(),
-    WalletPage(onGoToHome: _goToHome),
-    ProfilePage(onGoToWallet: _goToWallet),
-  ];
+  void _goToRanking() => Navigator.of(
+    context,
+  ).push(MaterialPageRoute(builder: (_) => const RankingScreen()));
 
   @override
   Widget build(BuildContext context) {
+    final bodyIndex = _currentIndex <= 1
+        ? 0
+        : _currentIndex == 3
+        ? 1
+        : 2;
+    final screens = [
+      HomePage(
+        onGoToWallet: _goToWallet,
+        showShop: _currentIndex == 1,
+        refreshRevision: _homeRevision,
+        onShop: () => _onTap(1),
+        onRanking: _goToRanking,
+        onOpenUnopened: _openUnopened,
+        onCollection: () => _onTap(3),
+      ),
+      InventoryPage(key: ValueKey(_inventoryRevision)),
+      ProfilePage(onGoToWallet: _goToWallet),
+    ];
     return Scaffold(
       backgroundColor: AppColors.scaffoldBg,
-      body: IndexedStack(index: _currentIndex, children: _screens),
-      bottomNavigationBar: _FloatingNavBar(
-        currentIndex: _currentIndex,
-        onTap: _onTap,
+      body: IndexedStack(
+        index: bodyIndex,
+        children: screens
+            .asMap()
+            .entries
+            .map((e) => TickerMode(enabled: e.key == bodyIndex, child: e.value))
+            .toList(),
       ),
-    );
-  }
-}
-
-/// 플로팅 라운드 코너 하단 네비게이션 바.
-///
-/// 5개의 미니멀 라인 아이콘(홈/카테고리/장바구니/선물상자/프로필)으로
-/// 구성되며, 선택된 아이템은 코랄→바이올렛 그라데이션 소프트 원형
-/// 배경으로 강조된다. 텍스트 라벨은 사용하지 않는다.
-class _FloatingNavBar extends StatelessWidget {
-  final int currentIndex;
-  final ValueChanged<int> onTap;
-
-  const _FloatingNavBar({required this.currentIndex, required this.onTap});
-
-  static const List<IconData> _icons = [
-    Icons.home_rounded,
-    Icons.grid_view_rounded,
-    Icons.shopping_cart_rounded,
-    Icons.card_giftcard_rounded,
-    Icons.person_rounded,
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    // 홈 인디케이터/시스템 제스처 바 위에 여유 있는 마진을 두어
-    // 플로팅 네비게이션 바가 화면 하단 UI와 겹치지 않도록 한다.
-    final bottomInset = MediaQuery.of(context).padding.bottom;
-    final bottomMargin = bottomInset > 0 ? bottomInset + 10 : 18.0;
-
-    return SafeArea(
-      top: false,
-      minimum: EdgeInsets.fromLTRB(20, 0, 20, bottomMargin),
-      child: Container(
-        height: 66,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(33),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.10),
-              blurRadius: 20,
-              offset: const Offset(0, 8),
-            ),
-          ],
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: List.generate(_icons.length, (index) {
-            final isSelected = index == currentIndex;
-            return _NavItem(
-              icon: _icons[index],
-              isSelected: isSelected,
-              onTap: () => onTap(index),
-            );
-          }),
-        ),
-      ),
-    );
-  }
-}
-
-class _NavItem extends StatelessWidget {
-  final IconData icon;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  const _NavItem({
-    required this.icon,
-    required this.isSelected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        width: 48,
-        height: 48,
-        decoration: BoxDecoration(
-          gradient: isSelected ? AppColors.navActiveGradient : null,
-          shape: BoxShape.circle,
-          boxShadow: isSelected
-              ? [
-                  BoxShadow(
-                    color: AppColors.accentViolet.withValues(alpha: 0.35),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ]
-              : null,
-        ),
-        alignment: Alignment.center,
-        child: Icon(
-          icon,
-          size: 24,
-          color: isSelected ? Colors.white : const Color(0xFFBFB8C4),
-        ),
+      bottomNavigationBar: GachiBottomNavigation(
+        selectedIndex: _currentIndex,
+        onSelected: _onTap,
       ),
     );
   }

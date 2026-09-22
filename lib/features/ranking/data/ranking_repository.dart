@@ -14,7 +14,7 @@ class RankingRepository {
   /// 유저 랭킹 (누적 뽑기/획득가치 기준 상위 목록).
   Future<List<UserRankingItem>> getUserRankings() async {
     final data = await _apiClient.get('/rankings/users');
-    final map = data as Map<String, dynamic>;
+    final map = _confirmed(data);
     final items = map['items'] as List<dynamic>;
     return items
         .map((e) => UserRankingItem.fromJson(e as Map<String, dynamic>))
@@ -24,7 +24,7 @@ class RankingRepository {
   /// 인기 박스 랭킹 (누적 뽑기 횟수 기준 상위 목록).
   Future<List<GachaRankingItem>> getGachaRankings() async {
     final data = await _apiClient.get('/rankings/gachas');
-    final map = data as Map<String, dynamic>;
+    final map = _confirmed(data);
     final items = map['items'] as List<dynamic>;
     return items
         .map((e) => GachaRankingItem.fromJson(e as Map<String, dynamic>))
@@ -34,10 +34,22 @@ class RankingRepository {
   /// 실시간 당첨 피드 (최근 당첨 목록).
   Future<List<WinFeedItem>> getWinFeed() async {
     final data = await _apiClient.get('/rankings/wins');
-    final map = data as Map<String, dynamic>;
+    final map = _confirmed(data);
     final items = map['items'] as List<dynamic>;
     return items
         .map((e) => WinFeedItem.fromJson(e as Map<String, dynamic>))
         .toList();
+  }
+
+  Map<String, dynamic> _confirmed(dynamic data) {
+    if (data is! Map<String, dynamic> ||
+        data['source'] != 'CONFIRMED_CAPSULE_OPENINGS_V1' ||
+        data['items'] is! List) {
+      throw ApiException(
+        statusCode: 0,
+        message: '확정 개봉 내역 연결을 확인하고 있어요. 잠시 후 다시 시도해주세요.',
+      );
+    }
+    return data;
   }
 }
