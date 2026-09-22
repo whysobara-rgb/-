@@ -168,3 +168,11 @@ jobs:
             build/staging-ios/validation.json
           if-no-files-found: error
           retention-days: 7
+      - name: Retain sanitized iOS inspection failure only
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-ios-inspection-failure-${{ github.sha }}
+          path: build/staging-ios/inspection-failure.json
+          if-no-files-found: ignore
+          retention-days: 7

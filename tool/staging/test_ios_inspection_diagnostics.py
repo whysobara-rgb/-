@@ -155,6 +155,25 @@ class IOSInspectionDiagnosticsTests(unittest.TestCase):
         _, saved, _, _, _ = self.inspect('codesign_verify', archive_exists=False)
         self.assertEqual(saved, {'failed_stage': 'codesign_verify', 'archive_exists': False})
 
+    def test_failure_upload_is_ios_only_and_whitelists_one_sanitized_json(self):
+        from validate import ROOT
+        workflow = (ROOT / '.github/workflows/staging.yml').read_text()
+        before_ios, ios = workflow.split('\n  ios:\n', 1)
+        name = '      - name: Retain sanitized iOS inspection failure only\n'
+        self.assertNotIn(name, before_ios)
+        self.assertEqual(ios.count(name), 1)
+        step = ios.split(name, 1)[1].split('\n      - ', 1)[0]
+        lines = [line.strip() for line in step.splitlines()]
+        self.assertIn('if: failure()', lines)
+        self.assertIn('uses: actions/upload-artifact@v4', lines)
+        self.assertEqual([line for line in lines if line.startswith('path:')],
+                         ['path: build/staging-ios/inspection-failure.json'])
+        self.assertIn('if-no-files-found: ignore', lines)
+        success = ios.split('      - name: Retain only IPA and sanitized validation evidence\n', 1)[1]
+        success = success.split('\n      - ', 1)[0]
+        self.assertFalse(any(line.strip().startswith('if:') for line in success.splitlines()),
+                         'IPA upload must retain the default success-only condition')
+
 
 if __name__ == '__main__':
     unittest.main()
