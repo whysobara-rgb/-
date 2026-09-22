@@ -252,6 +252,7 @@ void main() {
       await f.initialize();
       f.closure.row = closureRow();
       await mount(t, f, 'closure_active', width: 320, scale: 2);
+      expect(find.textContaining('미개봉·환불 대기 캡슐 2개'), findsOneWidget);
       await t.ensureVisible(find.byKey(const Key('closure-cancel')));
       await t.pumpAndSettle();
       expect(find.text('요청 접수 상태입니다. 계정 삭제 완료가 아닙니다.'), findsOneWidget);

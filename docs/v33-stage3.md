@@ -18,7 +18,7 @@ Published V33 and the approved Stage 1/2 tokens are the visual baseline. Sites r
 
 State/amount/action comes before explanatory/reference information. Existing IDs remain available as subdued support references where required; shipping inventory IDs are removed from the main product rows. No new order numbers, dates, statuses, images or calculated policy amounts. Existing domain state-label maps and actual server fields are used. Missing data is not synthesized.
 
-All Stage 1/2 screen files, shared tokens, GachiProductImage, navigation and Open state/transaction files remain unchanged. `ActivityFeed` only changes six visual color references to the approved tokens; its pagination, failure and retry implementation is unchanged. Its production consumers are Stage 3 support, shipping and point history.
+All Stage 1/2 screen files, shared tokens, GachiProductImage, navigation and Open state/transaction files remain unchanged. `ActivityFeed` only changes visual color references to the approved tokens; its pagination, failure and retry implementation is unchanged. Its production consumers are Stage 3 support, shipping and point history.
 
 `DeliveryRequestPage` and `SupportComposePage` accept optional repository inputs for isolated UI tests. Their production default constructor expressions remain identical. Repositories, services, DTOs, endpoints, config, gates, secure storage, account leases, recovery and all pre-existing test assertions remain unchanged. Dialog substitutions wrap the existing title/body/actions; they do not alter confirmation decisions or callbacks.
 

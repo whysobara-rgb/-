@@ -201,7 +201,7 @@ class _AccountClosurePageState extends State<AccountClosurePage>
                 GachiInfoCard(child: ExpansionTile(
                   tilePadding: EdgeInsets.zero,
                   title: const Text('현재 계정 현황 · 항목 간 중복 수량 포함', style: GachiType.product),
-                  subtitle: Text('${_check!.summary.values['balance']} GP · 미개봉 ${_check!.summary.values['unopened']}개'),
+                  subtitle: Text('${_check!.summary.values['balance']} GP · 미개봉·환불 대기 캡슐 ${_check!.summary.values['unopened']}개'),
                   children: [
                     const Text('현재 조회 값이며 탈퇴 가능 여부나 자동 삭제 판정이 아닙니다.'),
                     for (final entry in _check!.summary.values.entries)
