@@ -66,10 +66,7 @@ def build():
                             '--dart-define=API_BASE_URL=' + os.environ['API_BASE_URL']], check=True)
             options = ['-workspace', 'ios/Runner.xcworkspace', '-scheme', 'staging',
                        '-configuration', 'Profile-staging', '-sdk', 'iphoneos',
-                       '-destination', 'generic/platform=iOS',
-                       'CODE_SIGN_STYLE=Manual', 'CODE_SIGN_IDENTITY=' + CERT_SHA1,
-                       'PROVISIONING_PROFILE_SPECIFIER=' + PROFILE_NAME,
-                       'DEVELOPMENT_TEAM=' + TEAM_ID]
+                       '-destination', 'generic/platform=iOS']
             settings = json.loads(run(['xcodebuild', *options, '-showBuildSettings', '-json']))
             runner = next(s['buildSettings'] for s in settings if s['target'] == 'Runner')
             validate_ios_prebuild({**runner, 'API_BASE_URL': os.environ['API_BASE_URL']})

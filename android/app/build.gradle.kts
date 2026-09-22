@@ -77,17 +77,12 @@ android {
 
     if (gachiStaging) {
         buildTypes.getByName("debug").resValue("string", "app_name", "가치가차 Staging")
-        // Flutter creates profile before this script configures debug.
-        buildTypes.getByName("profile").apply {
-            applicationIdSuffix = ".staging"
-            resValue("string", "app_name", "가치가차 Staging")
-        }
     }
 }
 
 androidComponents {
     beforeVariants(selector().withBuildType("release")) { variant ->
-        // Staging uses debug/profile; do not consume the production release key.
+        // Staging uses debug only; do not consume the production release key.
         if (gachiStaging) variant.enable = false
     }
 }
