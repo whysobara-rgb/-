@@ -31,7 +31,10 @@ class PhysicalTransactionPreviewScopeTest(unittest.TestCase):
                      'ENABLE_ORDER_REFUND_PREVIEW', 'ENABLE_LEGACY_TRANSACTIONS'):
             with self.subTest(flag=flag), self.assertRaises(ValueError):
                 config.check_physical_transaction_preview_scope(
-                    GOOD_WORKFLOW + f' --dart-define={flag}=true',
+                    GOOD_WORKFLOW.replace(
+                        ' --dart-define=ENABLE_GP_ORDER_PREVIEW=true',
+                        f' --dart-define=ENABLE_GP_ORDER_PREVIEW=true --dart-define={flag}=true',
+                    ),
                     GOOD_IOS,
                 )
 
