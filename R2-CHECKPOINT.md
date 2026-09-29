@@ -39,3 +39,20 @@
 - 기존 native protected baseline guard는 그대로이다. 이번 검사는 새로운 R2 native 배포 승인이 아니다.
 - 거래/DTO/repository/가격/확률/GP/R1 구매·선택·복구/signing/ID/origin/release gate/기존 CI baseline 모두 무변경.
 - 여기서 종료. 진행 중 background 작업 없음.
+
+
+## 브라우저 직접 검토 체크포인트 — 2026-09-29
+
+- 시작/실제 앱 기준 SHA: `f58a075c18c77c644efd2c2b14a6d1c39a65b2a9` (R2-A1 구현 `4a86538b417471c4940187ce143a6f2050b42c0e` + 문서). 시작 시 clean, 원격 동일. R2-A1 재실행/reset 없음.
+- 브랜치: `codex/r2-consumer-experience`. 이번 저장은 `tool/r2/browser_*`, `tool/r2/package_browser.py`, 신규 검토 테스트와 문서만 변경. lib/native/DTO/repository/gate/origin/signing/CI 무변경.
+- 실행형 진입점: `tool/r2/browser_preview.dart`. 실제 HomeScreen/BoxShopScreen/ProductDetailView/OrderFlowPage/SingleOpeningView/BatchResultView/InventoryPage 재사용. HTML 재구현 없음.
+- 홈→상세→구매 확인→확률 안내, 검색/필터 적용·닫기, 고정 개봉 연출/단일·다중·부분 결과/보관함 진입. R2-B/C/D 기능 개발 아님.
+- API_BASE_URL 미설정 + 모든 앱 preview gate OFF 필수. 주입된 MockClient는 합성 GET만, 모든 변경 요청 거절. 나머지 http.Client도 transport 없는 MockClient. 실제 로그인/토큰/서버/거래 없음.
+- 모든 사진/폰트/CanvasKit을 로컬에 포함. loopback 전용 GET/HEAD 정적 서버, 외부 연결 CSP 차단. 공개 호스팅/URL 신규 생성 없음.
+- 검토 표시줄에 앱 SHA/도구 SHA, 합성/무거래, 기존 화면/미완료 범위 구분. 결과는 거래 결과가 아니라 사전 정의 데이터.
+- 검사: analyze PASS, 신규 검토 테스트7 PASS, R2 catalog+A1 49 PASS/2 조건부 skip; 동일2 route는 API/preview define을 명시한 별도18 PASS에서 실행. 중복 합산 금지.
+- 브라우저: Chrome Headless Shell154, 1250×1050 브라우저 안 최대430×844 논리 앱 영역, 100%/200%. 실제 클릭·스크롤·검색·필터 적용/취소·구매확인·확률·샘플 결과/보관함 확인. 외부/API 요청0, JS/console error0. Python 정적 서버 GET200/POST거절 확인.
+- Windows PowerShell launcher는 정적 검토. 실제 Windows PC 실행은 미검증이며 Python3 fallback 제공. 물리 기기 인수 아님.
+- 실행물: `GachiGacha-R2-A1-Browser-Preview.zip`. 압축 해제 후 `Start-Preview.cmd`, 같은PC `http://127.0.0.1:8765`. 서버창 유지 필요. Python3 `serve.py` 대안.
+- 증거/정확한 도구 SHA: ZIP의 `preview-manifest.json`, `evidence/browser-validation.json`, `evidence/*.png`. 본 문서 포함 저장 SHA는 `git log -1 --format=%H -- R2-CHECKPOINT.md`로 식별한다.
+- 미커밋 변경: 저장 완료 후 없음. 다음 작업은 사용자 브라우저 검토. 별도 지시 전 R2-B/native/tag/Firebase/Sites/Backend/DB 작업 없음.
