@@ -42,11 +42,12 @@ class BatchResultView extends StatelessWidget {
     final result = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        GachiOpeningBreakdown(
-          completed: b.results.length,
-          pending: pending,
-          unopened: unopened,
-        ),
+        if (!b.complete)
+          GachiOpeningBreakdown(
+            completed: b.results.length,
+            pending: pending,
+            unopened: unopened,
+          ),
         const SizedBox(height: GachiSpace.lg),
         if (error != null)
           Semantics(
@@ -73,24 +74,28 @@ class BatchResultView extends StatelessWidget {
         ],
         if (b.results.isNotEmpty) ...[
           const SizedBox(height: GachiSpace.lg),
-          Wrap(
-            spacing: GachiSpace.sm,
-            runSpacing: GachiSpace.sm,
-            children: ['전체', ...b.results.map((r) => r.prize.displayGrade).toSet()]
-                .map(
-                  (g) => ChoiceChip(
-                    label: Text(
-                      '$g ${g == '전체' ? b.results.length : b.results.where((r) => r.prize.displayGrade == g).length}',
-                      style: TextStyle(
-                        color: g == grade ? GachiColors.ivory : GachiColors.ink,
-                      ),
-                    ),
-                    selected: grade == g,
-                    onSelected: (_) => onGrade(g),
-                  ),
-                )
-                .toList(),
-          ),
+          if (b.results.map((r) => r.prize.displayGrade).toSet().length > 1)
+            Wrap(
+              spacing: GachiSpace.sm,
+              runSpacing: GachiSpace.sm,
+              children:
+                  ['전체', ...b.results.map((r) => r.prize.displayGrade).toSet()]
+                      .map(
+                        (g) => ChoiceChip(
+                          label: Text(
+                            '$g ${g == '전체' ? b.results.length : b.results.where((r) => r.prize.displayGrade == g).length}',
+                            style: TextStyle(
+                              color: g == grade
+                                  ? GachiColors.ivory
+                                  : GachiColors.ink,
+                            ),
+                          ),
+                          selected: grade == g,
+                          onSelected: (_) => onGrade(g),
+                        ),
+                      )
+                      .toList(),
+            ),
           GachiResultGroups(groups: groups.values.toList()),
           const SizedBox(height: GachiSpace.md),
           GachiPrimaryButton(
@@ -119,8 +124,9 @@ class BatchResultView extends StatelessWidget {
               : b.results.isEmpty
               ? '개봉 상태 확인'
               : '${b.results.length}개 개봉 완료',
-          description:
-              '${b.results.length} / ${b.capsuleIds.length}개 확인 · 추가 결제 0 GP',
+          description: b.complete
+              ? '확인된 상품은 내 보관함에 저장됐어요.'
+              : '${b.results.length} / ${b.capsuleIds.length}개 확인 · 추가 결제 0 GP',
         ),
         if (!working && b.results.isEmpty)
           result
@@ -143,36 +149,128 @@ class BatchResultView extends StatelessWidget {
 }
 
 /// Presentation-only disclosure; all confirmed results remain in the batch.
-class GachiResultGroups extends StatefulWidget {
+class GachiResultGroups extends StatelessWidget {
   final List<List<Opening>> groups;
   const GachiResultGroups({super.key, required this.groups});
-  @override
-  State<GachiResultGroups> createState() => _GachiResultGroupsState();
-}
 
-class _GachiResultGroupsState extends State<GachiResultGroups> {
-  bool _expanded = false;
+  Widget _group(List<Opening> group) => groups.length == 1
+      ? PrizeReveal(
+          animate: false,
+          prize: group.first.prize,
+          quantity: group.length,
+        )
+      : GachiConfirmedResultRow(
+          prize: group.first.prize,
+          quantity: group.length,
+        );
+
   @override
   Widget build(BuildContext context) {
-    final visible = _expanded ? widget.groups : widget.groups.take(3);
+    final limit = MediaQuery.textScalerOf(context).scale(15) > 21 ? 1 : 3;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        for (final group in visible)
-          PrizeReveal(
-            animate: false,
-            prize: group.first.prize,
-            quantity: group.length,
-          ),
-        if (widget.groups.length > 3)
+        for (final group in groups.take(limit)) _group(group),
+        if (groups.length > limit)
           TextButton(
             key: const Key('result-groups-toggle'),
-            onPressed: () => setState(() => _expanded = !_expanded),
-            child: Text(
-              _expanded ? '상품 요약 접기' : '나머지 ${widget.groups.length - 3}종 모두 보기',
+            onPressed: () => showModalBottomSheet<void>(
+              context: context,
+              isScrollControlled: true,
+              useSafeArea: true,
+              backgroundColor: GachiOpeningColors.panel,
+              builder: (_) => GachiOpeningTheme(
+                child: FractionallySizedBox(
+                  heightFactor: .9,
+                  child: Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.all(GachiSpace.lg),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '확정 상품 ${groups.length}종',
+                                style: GachiType.section.copyWith(
+                                  color: GachiColors.ivory,
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: '상품 목록 닫기',
+                              onPressed: () => Navigator.pop(context),
+                              icon: const Icon(Icons.close),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: ListView.builder(
+                          key: const Key('all-confirmed-results'),
+                          padding: const EdgeInsets.all(GachiSpace.lg),
+                          itemCount: groups.length,
+                          itemBuilder: (_, i) => _group(groups[i]),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
+            child: Text('확정 상품 ${groups.length}종 모두 보기'),
           ),
       ],
     );
   }
+}
+
+/// Compact multi-result presentation; values are confirmed server prizes only.
+class GachiConfirmedResultRow extends StatelessWidget {
+  final Prize prize;
+  final int quantity;
+  const GachiConfirmedResultRow({
+    super.key,
+    required this.prize,
+    required this.quantity,
+  });
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(GachiSpace.md),
+    margin: const EdgeInsets.symmetric(vertical: GachiSpace.xs),
+    decoration: BoxDecoration(
+      color: GachiOpeningColors.panel,
+      borderRadius: GachiShape.card,
+    ),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 64,
+          child: GachiProductImage(
+            url: prize.imageUrl,
+            label: prize.name,
+            compact: true,
+          ),
+        ),
+        const SizedBox(width: GachiSpace.md),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                prize.name,
+                style: GachiType.product.copyWith(color: GachiColors.ivory),
+              ),
+              Text(
+                '${prize.displayGrade} · × $quantity',
+                style: GachiType.meta.copyWith(
+                  color: GachiOpeningColors.secondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
 }

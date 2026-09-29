@@ -127,48 +127,43 @@ class _BatchOpeningPageState extends State<BatchOpeningPage>
         context.watch<AuthProvider>().currentUser?.id ==
         widget.repository.userId;
     final b = _batch;
-    return GachiOpeningTheme(
-      child: Scaffold(
-        appBar: AppBar(title: const Text('일괄 개봉')),
-        body: SafeArea(
-          child: !sameUser
-              ? const Center(child: Text('구매한 계정으로 다시 로그인해주세요.'))
-              : ListView(
-                  padding: const EdgeInsets.all(GachiSpace.page),
-                  children: [
-                    if (_busy)
-                      const GachiOpeningHeading(
-                        title: '개봉을 준비하고 있어요',
-                        description: '저장된 기록을 확인합니다.',
+    return GachiOpeningScaffold(
+      body: !sameUser
+          ? const Center(child: Text('구매한 계정으로 다시 로그인해주세요.'))
+          : ListView(
+              padding: const EdgeInsets.all(GachiSpace.page),
+              children: [
+                if (_busy)
+                  const GachiOpeningHeading(
+                    title: '개봉을 준비하고 있어요',
+                    description: '저장된 기록을 확인합니다.',
+                  ),
+                if (!_busy && b != null)
+                  BatchResultView(
+                    batch: b,
+                    working: _working,
+                    continuing: _continue,
+                    grade: _grade,
+                    error: _error,
+                    onGrade: (grade) => setState(() => _grade = grade),
+                    onStop: () => setState(() => _continue = false),
+                    onResume: _run,
+                    onClose: _close,
+                    onCollection: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const InventoryPage(),
                       ),
-                    if (!_busy && b != null)
-                      BatchResultView(
-                        batch: b,
-                        working: _working,
-                        continuing: _continue,
-                        grade: _grade,
-                        error: _error,
-                        onGrade: (grade) => setState(() => _grade = grade),
-                        onStop: () => setState(() => _continue = false),
-                        onResume: _run,
-                        onClose: _close,
-                        onCollection: () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => const InventoryPage(),
-                          ),
-                        ),
-                      ),
-                    if (!_busy && b == null) ...[
-                      Text(_error ?? '진행 중인 일괄 개봉이 없습니다.'),
-                      GachiSecondaryButton(
-                        label: '미개봉 보관함으로',
-                        onPressed: () => Navigator.pop(context),
-                      ),
-                    ],
-                  ],
-                ),
-        ),
-      ),
+                    ),
+                  ),
+                if (!_busy && b == null) ...[
+                  Text(_error ?? '진행 중인 일괄 개봉이 없습니다.'),
+                  GachiSecondaryButton(
+                    label: '미개봉 보관함으로',
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ],
+            ),
     );
   }
 }

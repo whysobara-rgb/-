@@ -630,7 +630,7 @@ void main() {
         tester,
         OrderFlowPage(userId: 10, repository: readOnlyRepository()),
       );
-      final subtitle = find.text('선택해서 함께 개봉할 수 있어요').first;
+      final subtitle = find.text('1번째 박스');
       final style = DefaultTextStyle.of(tester.element(subtitle)).style;
       double contrast(Color a, Color b) {
         final luminances = [a.computeLuminance(), b.computeLuminance()]..sort();

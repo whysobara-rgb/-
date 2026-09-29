@@ -374,7 +374,14 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const Key('purchase-odds-disclosure')),
+      );
+      await tester.tap(find.byKey(const Key('purchase-odds-disclosure')));
+      await tester.pumpAndSettle();
       expect(find.text('당첨 확률 100%'), findsOneWidget);
+      await tester.tap(find.byTooltip('확률 안내 닫기'));
+      await tester.pumpAndSettle();
       await tester.scrollUntilVisible(find.text('GP로 구매하고 보관하기'), 200);
       await tester.tap(find.text('GP로 구매하고 보관하기'));
       await tester.pump();

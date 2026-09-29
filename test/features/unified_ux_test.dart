@@ -8,7 +8,6 @@ import 'package:gacha_vault/features/home/presentation/catalog_views.dart';
 import 'package:gacha_vault/features/home/presentation/widgets/capsule_box_card.dart';
 import 'package:gacha_vault/features/orders/batch_result_view.dart';
 import 'package:gacha_vault/features/orders/order_models.dart';
-import 'package:gacha_vault/features/orders/prize_reveal.dart';
 import 'package:gacha_vault/shared/widgets/gachi_components.dart';
 import '../../tool/unified_ux/catalog.dart';
 import '../../tool/v33_stage2/fixtures.dart';
@@ -78,7 +77,7 @@ void main() {
     },
   );
   testWidgets(
-    'One hundred distinct confirmed results disclose three groups first without changing results',
+    'One hundred confirmed groups use a lazy full list without changing results',
     (tester) async {
       final groups = List.generate(
         100,
@@ -95,11 +94,22 @@ void main() {
         SingleChildScrollView(child: GachiResultGroups(groups: groups)),
         nav: false,
       );
-      expect(find.byType(PrizeReveal), findsNWidgets(3));
+      expect(find.byType(GachiConfirmedResultRow), findsNWidgets(3));
       await tester.ensureVisible(find.byKey(const Key('result-groups-toggle')));
       await tester.tap(find.byKey(const Key('result-groups-toggle')));
       await tester.pumpAndSettle();
-      expect(find.byType(PrizeReveal), findsNWidgets(100));
+      final all = find.byKey(const Key('all-confirmed-results'));
+      expect(all, findsOneWidget);
+      expect(
+        find.byType(GachiConfirmedResultRow).evaluate().length,
+        lessThan(25),
+      );
+      await tester.scrollUntilVisible(
+        find.text('확정 상품 100'),
+        600,
+        scrollable: find.descendant(of: all, matching: find.byType(Scrollable)),
+      );
+      expect(find.text('확정 상품 100'), findsOneWidget);
       expect(groups.map((g) => g.first.toJson()).toList(), before);
       expect(tester.takeException(), isNull);
     },
@@ -133,7 +143,7 @@ void main() {
         reviewProviders(reviewScreen(screen)),
         nav: screen == 'Home' || screen == 'Box Shop',
       );
-      if (screen == 'Result' || screen == 'Partial') {
+      if (screen.contains('Result') || screen == 'Partial') {
         final skip = find.text('스킵');
         if (skip.evaluate().isNotEmpty) {
           await tester.tap(skip);

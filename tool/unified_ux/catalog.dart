@@ -8,6 +8,8 @@ import 'package:gacha_vault/features/home/domain/gacha_detail.dart';
 import 'package:gacha_vault/features/home/presentation/catalog_views.dart';
 import 'package:gacha_vault/features/gacha/presentation/product_detail_view.dart';
 import 'package:gacha_vault/features/orders/order_models.dart';
+import 'package:gacha_vault/features/orders/purchase_completion_view.dart';
+import 'review_order_fixtures.dart';
 import 'package:gacha_vault/features/orders/order_flow_page.dart';
 import 'package:gacha_vault/features/orders/batch_result_view.dart';
 import 'package:gacha_vault/features/inventory/presentation/inventory_page.dart';
@@ -16,6 +18,7 @@ import 'package:gacha_vault/features/auth/presentation/login_page.dart';
 import 'package:gacha_vault/shared/providers/auth_provider.dart';
 import 'package:gacha_vault/shared/providers/gp_provider.dart';
 import 'package:gacha_vault/shared/widgets/gachi_components.dart';
+import 'package:gacha_vault/shared/widgets/gachi_opening.dart';
 import '../v33_stage2/fixtures.dart';
 import 'fixture_data.dart';
 
@@ -31,9 +34,13 @@ const reviewScreens = [
   'Home',
   'Box Shop',
   'Product Detail',
+  'Purchase',
+  'Purchase Complete',
   'Open',
+  'Single Result',
   'Result',
   'Partial',
+  'Unopened Retained',
   'Collection',
   'My',
   'Login',
@@ -79,30 +86,62 @@ Widget reviewScreen(String screen) {
           onPurchase: none,
         ),
       );
-    case 'Open':
-      return OrderFlowPage(userId: 10, repository: readOnlyRepository());
-    case 'Result':
-    case 'Partial':
-      return GachiScaffold(
-        title: '개봉 결과',
-        body: SingleChildScrollView(
-          padding: const EdgeInsets.all(GachiSpace.page),
-          child: BatchResultView(
-            batch: screen == 'Result'
-                ? batchFixture()
-                : batchFixture(completed: 1, total: 3, pending: true),
-            working: false,
-            continuing: false,
-            grade: '전체',
-            onGrade: (_) {},
-            onCollection: none,
-            onClose: none,
-            onResume: none,
+    case 'Purchase':
+      return OrderFlowPage(
+        userId: 10,
+        gachaId: reviewOdds.gachaId,
+        title: reviewBoxes.first.name,
+        repository: reviewOrderRepository(),
+      );
+    case 'Purchase Complete':
+      return Scaffold(
+        appBar: AppBar(title: const Text('구매 확인')),
+        body: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.all(GachiSpace.page),
+            children: [
+              PurchaseCompletionView(
+                receipt: reviewReceipt(),
+                onPrepareOpening: none,
+                onLater: none,
+              ),
+            ],
           ),
         ),
       );
+    case 'Open':
+      return OrderFlowPage(userId: 10, repository: reviewOrderRepository());
+    case 'Result':
+    case 'Single Result':
+    case 'Partial':
+    case 'Unopened Retained':
+      return GachiOpeningScaffold(
+        body: ListView(
+          padding: const EdgeInsets.all(GachiSpace.page),
+          children: [
+            BatchResultView(
+              batch: reviewBatch(
+                completed: screen == 'Unopened Retained'
+                    ? 0
+                    : screen == 'Single Result' || screen == 'Partial'
+                    ? 1
+                    : 3,
+                total: screen == 'Single Result' ? 1 : 3,
+                pending: screen == 'Partial',
+              ),
+              working: false,
+              continuing: false,
+              grade: '전체',
+              onGrade: (_) {},
+              onCollection: none,
+              onClose: none,
+              onResume: none,
+            ),
+          ],
+        ),
+      );
     case 'Collection':
-      return InventoryPage(repository: FixtureInventory(inventoryFixtures()));
+      return InventoryPage(repository: FixtureInventory(reviewInventory()));
     case 'My':
       return ProfilePage(onGoToWallet: none);
     default:

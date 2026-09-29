@@ -56,6 +56,26 @@ class GachiOpeningTheme extends StatelessWidget {
   }
 }
 
+/// The native opening shell, also used by the read-only review catalog.
+/// Keep theme and safe-area ownership identical across those two entry points.
+class GachiOpeningScaffold extends StatelessWidget {
+  final Widget body;
+  final String title;
+  const GachiOpeningScaffold({
+    super.key,
+    required this.body,
+    this.title = '일괄 개봉',
+  });
+
+  @override
+  Widget build(BuildContext context) => GachiOpeningTheme(
+    child: Scaffold(
+      appBar: AppBar(title: Text(title)),
+      body: SafeArea(child: body),
+    ),
+  );
+}
+
 class GachiOpeningHeading extends StatelessWidget {
   final String title, description;
   const GachiOpeningHeading({

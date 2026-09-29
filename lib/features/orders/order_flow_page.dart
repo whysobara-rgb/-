@@ -9,6 +9,7 @@ import '../../shared/widgets/gachi_opening.dart';
 import '../inventory/presentation/inventory_page.dart';
 import 'order_models.dart';
 import 'prize_reveal.dart';
+import 'purchase_completion_view.dart';
 import 'order_repository.dart';
 import 'batch_opening.dart';
 import 'batch_opening_page.dart';
@@ -37,6 +38,8 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
   PendingPurchase? _pending;
   String? _pendingOpen;
   Receipt? _receipt, _focusedOrder;
+  Receipt? _recentPurchase;
+  bool _onlyRecentPurchase = false;
   Capsule? _focused;
   Opening? _opening;
   List<Capsule> _capsules = [];
@@ -166,6 +169,7 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
       final current = order.capsules.where((c) => c.id == capsule.id);
       if (current.length != 1) invalidResponse();
       _focusedOrder = order;
+      if (_recentPurchase?.id == order.id) _recentPurchase = order;
       // The list may predate a refund in another session. Use the current
       // order's capsule state, not the cached unopened-list item.
       _focused = current.single;
@@ -235,12 +239,15 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
       );
       if (!mounted || !_sameUser) return;
       _selectedCapsules.clear();
+      _onlyRecentPurchase = false;
+      _recentPurchase = null;
       setState(() => _busy = true);
       await _load();
     }, showProgress: false);
   }
 
-  Future<void> _inventory() async {
+  Future<void> _inventory({bool selectPurchased = false}) async {
+    final purchased = selectPurchased ? _receipt : null;
     await _run(() async {
       if (_opening != null) {
         await _repo!.acknowledgeOpening(_opening!.capsuleId);
@@ -253,7 +260,61 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
       _showInventory = true;
       _page = 1;
       await _load();
+      if (purchased != null && mounted && _sameUser) {
+        _recentPurchase = purchased;
+        _onlyRecentPurchase = true;
+        _selectedCapsules
+          ..clear()
+          ..addAll(purchased.capsules.where((c) => c.canOpen).map((c) => c.id));
+      } else {
+        _onlyRecentPurchase = false;
+        _recentPurchase = null;
+      }
     });
+  }
+
+  List<Capsule> get _visibleCapsules => _onlyRecentPurchase
+      ? _recentPurchase!.capsules.where((c) => c.canOpen).toList()
+      : _capsules;
+
+  Future<void> _showOdds() async {
+    final odds = _odds;
+    if (odds == null) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (context) => FractionallySizedBox(
+        heightFactor: .9,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(GachiSpace.lg),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Text('구성 상품 · 확률 · 전환 GP', style: GachiType.section),
+                  ),
+                  IconButton(
+                    tooltip: '확률 안내 닫기',
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView.builder(
+                key: const Key('purchase-odds-list'),
+                padding: const EdgeInsets.all(GachiSpace.lg),
+                itemCount: odds.prizes.length,
+                itemBuilder: (_, i) => _prize(odds.prizes[i], odds: true),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _summary(IconData icon, String title, String description) =>
@@ -423,18 +484,14 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
     if (_receipt != null && _openingId == null) {
       if (_receipt!.hasRefund) return _refundedReceipt(_receipt!);
       return [
-        _summary(
-          Icons.check_circle_outline,
-          '구매가 완료됐어요',
-          '구매한 박스는 미개봉 상태로 보관됩니다.',
+        PurchaseCompletionView(
+          receipt: _receipt!,
+          onPrepareOpening: _busy
+              ? null
+              : () => _inventory(selectPurchased: true),
+          onLater: _busy ? null : () => Navigator.of(context).pop(),
         ),
-        _detail('구매 상품', _receipt!.title),
-        _detail('캡슐 수량', '${_receipt!.quantity}개'),
-        _detail('사용 GP', _gp(_receipt!.total)),
         const BalanceNotice(),
-        const Text('개봉할 박스를 선택한 뒤 직접 개봉해주세요. 추가 GP 차감은 없습니다.'),
-        _button('바로 개봉', _inventory),
-        _button('나중에 개봉', () => Navigator.of(context).pop(), primary: false),
       ];
     }
     if (_openingId != null) {
@@ -539,8 +596,37 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
           '아직 열지 않은 설렘 $_total개. 캡슐을 선택해 상품을 확인하세요.',
         ),
       );
-      widgets.add(Text('총 $_total개 · $_page페이지'));
-      widgets.add(const Text('페이지를 넘겨 최대 100개까지 선택할 수 있어요.'));
+      if (_recentPurchase != null) {
+        widgets.add(
+          Wrap(
+            spacing: GachiSpace.sm,
+            children: [
+              ChoiceChip(
+                label: const Text('이번 구매'),
+                selected: _onlyRecentPurchase,
+                onSelected: (_) => setState(() => _onlyRecentPurchase = true),
+              ),
+              ChoiceChip(
+                label: const Text('전체 미개봉'),
+                selected: !_onlyRecentPurchase,
+                onSelected: (_) => setState(() => _onlyRecentPurchase = false),
+              ),
+            ],
+          ),
+        );
+      }
+      widgets.add(
+        Text(
+          _onlyRecentPurchase ? _recentPurchase!.title : '최대 100개까지 선택할 수 있어요.',
+        ),
+      );
+      if (!_onlyRecentPurchase && _total > 20) widgets.add(Text('$_page페이지'));
+      if (_inlineAction &&
+          _selectedCapsules.isNotEmpty &&
+          _pendingOpen == null &&
+          _batchPending == null) {
+        widgets.add(_selectionAction());
+      }
       if (_pendingOpen == null && _batchPending == null) {
         widgets.add(
           Wrap(
@@ -550,7 +636,9 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
                 onPressed: _busy
                     ? null
                     : () => setState(() {
-                        for (final c in _capsules) {
+                        for (final c in _visibleCapsules.where(
+                          (c) => c.canOpen,
+                        )) {
                           if (_selectedCapsules.length >= 100) break;
                           _selectedCapsules.add(c.id);
                         }
@@ -567,7 +655,7 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
           ),
         );
       }
-      if (_capsules.isEmpty && !_busy) {
+      if (_visibleCapsules.isEmpty && !_busy) {
         widgets.add(
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 36),
@@ -576,7 +664,7 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
         );
       }
       widgets.addAll(
-        _capsules.map(
+        _visibleCapsules.map(
           (c) => Card(
             child: ListTile(
               leading: Checkbox(
@@ -590,8 +678,12 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
                 horizontal: 12,
                 vertical: 10,
               ),
-              title: Text('미개봉 박스 · ${c.sequence}번'),
-              subtitle: const Text('선택해서 함께 개봉할 수 있어요'),
+              title: Text(
+                _recentPurchase?.id == c.orderId
+                    ? _recentPurchase!.title
+                    : '미개봉 박스',
+              ),
+              subtitle: Text('${c.sequence}번째 박스'),
               trailing: IconButton(
                 tooltip: '박스 정보 확인',
                 icon: const Icon(Icons.info_outline),
@@ -607,50 +699,56 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
           ),
         ),
       );
+      if (!_onlyRecentPurchase && _total > 20) {
+        widgets.add(
+          Row(
+            children: [
+              Expanded(
+                child: _button(
+                  '이전',
+                  _page > 1
+                      ? () => _run(() async {
+                          _page--;
+                          await _load();
+                        })
+                      : null,
+                  primary: false,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _button(
+                  '다음',
+                  _page * 20 < _total
+                      ? () => _run(() async {
+                          _page++;
+                          await _load();
+                        })
+                      : null,
+                  primary: false,
+                ),
+              ),
+            ],
+          ),
+        );
+      }
       widgets.add(
-        Row(
-          children: [
-            Expanded(
-              child: _button(
-                '이전',
-                _page > 1
-                    ? () => _run(() async {
-                        _page--;
-                        await _load();
-                      })
-                    : null,
-                primary: false,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _button(
-                '다음',
-                _page * 20 < _total
-                    ? () => _run(() async {
-                        _page++;
-                        await _load();
-                      })
-                    : null,
-                primary: false,
-              ),
-            ),
-          ],
+        _button(
+          '새로고침',
+          () => _run(() async {
+            _onlyRecentPurchase = false;
+            _recentPurchase = null;
+            await _load();
+          }),
+          primary: false,
         ),
       );
-      widgets.add(_button('새로고침', () => _run(_load), primary: false));
     } else if (_pending == null && _odds != null) {
       widgets.addAll([
-        _summary(Icons.shopping_bag_outlined, '구매 전 마지막 확인', widget.title),
+        const Text('구매 전 마지막 확인', style: GachiType.pageTitle),
+        const SizedBox(height: GachiSpace.md),
+        Text(widget.title, style: GachiType.section),
         _detail('캡슐 1개', _gp(_odds!.price)),
-        const SizedBox(height: 16),
-        const Text(
-          '어떤 상품이 들어 있나요?',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
-        ),
-        const SizedBox(height: 8),
-        const Text('구매 전 확률과 전환 GP를 확인해주세요.\n구매한 캡슐은 미개봉 보관함에 저장됩니다.'),
-        ..._odds!.prizes.map((p) => _prize(p, odds: true)),
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -690,6 +788,12 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
           '구매 시 GP가 차감되고 미개봉 캡슐이 보관됩니다. 개봉 시 추가 차감은 없어요.',
           style: TextStyle(color: AppColors.textSecondary, height: 1.6),
         ),
+        TextButton.icon(
+          key: const Key('purchase-odds-disclosure'),
+          onPressed: _busy ? null : _showOdds,
+          icon: const Icon(Icons.info_outline),
+          label: Text('구성 ${_odds!.prizes.length}종 · 확률과 전환 GP 보기'),
+        ),
         CheckboxListTile(
           value: _accepted,
           onChanged: _busy
@@ -699,7 +803,7 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
           controlAffinity: ListTileControlAffinity.leading,
           contentPadding: EdgeInsets.zero,
         ),
-        _button('GP로 구매하고 보관하기', _accepted ? () => _buy() : null),
+        if (_inlineAction) _purchaseAction(),
         _button('최신 조건 다시 확인', () => _run(_load), primary: false),
       ]);
     } else if (_pending == null && !_busy) {
@@ -737,6 +841,15 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
     _button('미개봉 보관함 보기', _inventory, primary: false),
   ];
 
+  bool get _inlineAction =>
+      MediaQuery.textScalerOf(context).scale(15) > 21 ||
+      MediaQuery.sizeOf(context).height < 600;
+
+  Widget _purchaseAction() => Padding(
+    padding: const EdgeInsets.all(GachiSpace.lg),
+    child: _button('GP로 구매하고 보관하기', _accepted ? () => _buy() : null),
+  );
+
   Widget _selectionAction() => Padding(
     padding: const EdgeInsets.all(GachiSpace.lg),
     child: Column(
@@ -765,13 +878,20 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
         _batchPending == null &&
         _focused == null &&
         _openingId == null;
-    final inlineAction =
-        MediaQuery.textScalerOf(context).scale(15) > 21 ||
-        MediaQuery.sizeOf(context).height < 600;
+    final purchase =
+        sameUser &&
+        !_showInventory &&
+        _receipt == null &&
+        _pending == null &&
+        _odds != null &&
+        _openingId == null;
     final scaffold = Scaffold(
       appBar: AppBar(title: Text(_showInventory ? '미개봉 보관함' : '구매 확인')),
-      bottomNavigationBar: selection && !inlineAction
-          ? SafeArea(top: false, child: _selectionAction())
+      bottomNavigationBar: !_inlineAction && (selection || purchase)
+          ? SafeArea(
+              top: false,
+              child: selection ? _selectionAction() : _purchaseAction(),
+            )
           : null,
       body: SafeArea(
         child: !sameUser
@@ -795,7 +915,6 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
                             ),
                           ),
                         ..._content(),
-                        if (selection && inlineAction) _selectionAction(),
                       ],
                     ),
                   ),
