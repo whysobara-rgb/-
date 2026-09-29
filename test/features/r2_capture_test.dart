@@ -155,106 +155,155 @@ void main() {
       });
     }
   }
-  if (phase == 'after') {
-    for (final mode in ['missing', 'loading', 'error']) {
-      testWidgets(
-        'R2 hero $mode retains frame, name, price and detail action',
-        (tester) async {
-          tester.view.physicalSize = const Size(390, 844);
-          tester.view.devicePixelRatio = 1;
-          addTearDown(tester.view.resetPhysicalSize);
-          addTearDown(tester.view.resetDevicePixelRatio);
-          final pending = Completer<ImageInfo>();
-          final url = mode == 'missing'
-              ? null
-              : 'https://review.invalid/$mode.jpg';
-          if (url != null) {
-            PaintingBinding.instance.imageCache.putIfAbsent(
-              CachedNetworkImageProvider(url),
-              () => OneFrameImageStreamCompleter(pending.future),
+  if (phase != 'before') {
+    for (final scale in [1.0, 2.0]) {
+      for (final mode in ['missing', 'loading', 'error', 'table', 'coffee']) {
+        testWidgets(
+          'R2 hero $mode scale=$scale preserves name, price and action with appropriate frame',
+          (tester) async {
+            tester.view.physicalSize = const Size(390, 844);
+            tester.view.devicePixelRatio = 1;
+            addTearDown(tester.view.resetPhysicalSize);
+            addTearDown(tester.view.resetDevicePixelRatio);
+            final pending = Completer<ImageInfo>();
+            final alternate = mode == 'table' || mode == 'coffee';
+            final source = mode == 'table'
+                ? r2Boxes[1]
+                : mode == 'coffee'
+                ? r2Boxes[2]
+                : r2Boxes.first;
+            final url = mode == 'missing'
+                ? null
+                : alternate
+                ? source.imageUrl!
+                : 'https://review.invalid/$mode.jpg';
+            if (url != null) {
+              PaintingBinding.instance.imageCache.putIfAbsent(
+                CachedNetworkImageProvider(url),
+                () => OneFrameImageStreamCompleter(pending.future),
+              );
+            }
+            if (alternate) {
+              await tester.runAsync(() async {
+                final codec = await ui.instantiateImageCodec(
+                  await File('tool/r2/photos/$mode-review.jpg').readAsBytes(),
+                );
+                final frame = await codec.getNextFrame();
+                pending.complete(ImageInfo(image: frame.image));
+                codec.dispose();
+              });
+            }
+            final box = CapsuleBox(
+              id: source.id,
+              name: source.name,
+              category: source.category,
+              priceWon: source.priceWon,
+              icon: source.icon,
+              accentColor: source.accentColor,
+              imageUrl: url,
             );
-          }
-          final source = r2Boxes.first;
-          final box = CapsuleBox(
-            id: source.id,
-            name: source.name,
-            category: source.category,
-            priceWon: source.priceWon,
-            icon: source.icon,
-            accentColor: source.accentColor,
-            imageUrl: url,
-          );
-          var opened = 0;
-          await tester.pumpWidget(
-            MaterialApp(
-              theme: AppTheme.lightTheme,
-              builder: (context, child) => MediaQuery(
-                data: MediaQuery.of(context).copyWith(
-                  padding: const EdgeInsets.only(top: 44, bottom: 34),
-                  viewPadding: const EdgeInsets.only(top: 44, bottom: 34),
-                ),
-                child: child!,
-              ),
-              home: RepaintBoundary(
-                key: const Key('state-capture'),
-                child: Scaffold(
-                  body: HomeScreen(
-                    boxes: [box],
-                    balance: '93,800',
-                    onRefresh: () async {},
-                    onOpen: (_) => opened++,
-                    onWallet: () {},
-                    onShop: () {},
-                    onRanking: () {},
-                    onOpenUnopened: () {},
-                    onCollection: () {},
-                    onUpdates: () {},
+            var opened = 0;
+            await tester.pumpWidget(
+              MaterialApp(
+                theme: AppTheme.lightTheme,
+                builder: (context, child) => MediaQuery(
+                  data: MediaQuery.of(context).copyWith(
+                    textScaler: TextScaler.linear(scale),
+                    padding: const EdgeInsets.only(top: 44, bottom: 34),
+                    viewPadding: const EdgeInsets.only(top: 44, bottom: 34),
                   ),
-                  bottomNavigationBar: GachiBottomNavigation(
-                    selectedIndex: 0,
-                    onSelected: (_) {},
+                  child: child!,
+                ),
+                home: RepaintBoundary(
+                  key: const Key('state-capture'),
+                  child: Scaffold(
+                    body: HomeScreen(
+                      boxes: [box],
+                      balance: '93,800',
+                      onRefresh: () async {},
+                      onOpen: (_) => opened++,
+                      onWallet: () {},
+                      onShop: () {},
+                      onRanking: () {},
+                      onOpenUnopened: () {},
+                      onCollection: () {},
+                      onUpdates: () {},
+                    ),
+                    bottomNavigationBar: GachiBottomNavigation(
+                      selectedIndex: 0,
+                      onSelected: (_) {},
+                    ),
                   ),
                 ),
               ),
-            ),
-          );
-          await tester.pump(const Duration(milliseconds: 100));
-          final before = tester.getRect(find.byType(GachiProductImage));
-          if (mode == 'error') {
-            pending.completeError(StateError('Synthetic review image failure'));
-            await tester.pump();
-            await tester.pump(const Duration(seconds: 1));
-            expect(find.text('사진을 불러오지 못했어요'), findsOneWidget);
-          }
-          if (mode == 'missing') {
-            expect(find.text('등록된 사진이 없어요'), findsOneWidget);
-          }
-          if (mode == 'loading') {
-            expect(find.byType(CircularProgressIndicator), findsOneWidget);
-          }
-          expect(tester.getRect(find.byType(GachiProductImage)), before);
-          expect(before.height, closeTo(350 / 1.5, .1));
-          expect(find.text('1개 · 1,000 GP'), findsOneWidget);
-          await tester.tap(find.text('구성·확률 보기'));
-          expect(opened, 1);
-          await tester.pump(const Duration(milliseconds: 300));
-          expect(tester.takeException(), isNull);
-          final boundary = tester.renderObject<RenderRepaintBoundary>(
-            find.byKey(const Key('state-capture')),
-          );
-          await tester.runAsync(() async {
-            final image = await boundary.toImage();
-            final data = await image.toByteData(format: ui.ImageByteFormat.png);
-            await File(
-              'build/r2-evidence/after/home-photo-$mode.png',
-            ).writeAsBytes(data!.buffer.asUint8List());
-            image.dispose();
-          });
-          await tester.pumpWidget(const SizedBox());
-          PaintingBinding.instance.imageCache.clear();
-          PaintingBinding.instance.imageCache.clearLiveImages();
-        },
-      );
+            );
+            await tester.pump(const Duration(milliseconds: 100));
+            final before = mode == 'missing'
+                ? null
+                : tester.getRect(find.byType(GachiProductImage));
+            if (mode == 'error') {
+              pending.completeError(
+                StateError('Synthetic review image failure'),
+              );
+              await tester.pump();
+              await tester.pump(const Duration(seconds: 1));
+              expect(find.text('사진을 불러오지 못했어요'), findsOneWidget);
+            }
+            if (mode == 'missing') {
+              expect(find.text('등록된 사진이 없어요'), findsOneWidget);
+            }
+            if (mode == 'loading') {
+              expect(find.byType(CircularProgressIndicator), findsOneWidget);
+            }
+            if (mode == 'missing') {
+              expect(find.byType(GachiProductImage), findsNothing);
+            } else {
+              expect(tester.getRect(find.byType(GachiProductImage)), before);
+              expect(before!.height, closeTo(350 / 1.5, .1));
+            }
+            expect(find.textContaining('사진 속 상품'), findsNothing);
+            expect(find.text('특정 상품의 획득은 보장되지 않아요.'), findsOneWidget);
+            expect(find.text('1개 · ${source.formattedPrice}'), findsOneWidget);
+            await tester.pump(const Duration(milliseconds: 300));
+            expect(tester.takeException(), isNull);
+            final boundary = tester.renderObject<RenderRepaintBoundary>(
+              find.byKey(const Key('state-capture')),
+            );
+            await tester.runAsync(() async {
+              final image = await boundary.toImage();
+              final data = await image.toByteData(
+                format: ui.ImageByteFormat.png,
+              );
+              await File(
+                'build/r2-evidence/$phase/home-photo-$mode-${scale.toInt()}x.png',
+              ).writeAsBytes(data!.buffer.asUint8List());
+              image.dispose();
+            });
+            File(
+              'build/r2-evidence/$phase/home-photo-$mode-${scale.toInt()}x.json',
+            ).writeAsStringSync(
+              jsonEncode({
+                'state': mode,
+                'textScale': scale,
+                'imageFrameHeight': before?.height,
+                'heroHeight': tester
+                    .getSize(find.byType(GachiCatalogHero))
+                    .height,
+                'imageFit': 'contain, uncropped, undistorted',
+                'fixture': 'synthetic non-transactional',
+              }),
+            );
+            await tester.ensureVisible(find.text('구성·확률 보기'));
+            await tester.pump(const Duration(milliseconds: 400));
+            expect(find.text('구성·확률 보기').hitTestable(), findsOneWidget);
+            await tester.tap(find.text('구성·확률 보기'));
+            expect(opened, 1);
+            await tester.pumpWidget(const SizedBox());
+            PaintingBinding.instance.imageCache.clear();
+            PaintingBinding.instance.imageCache.clearLiveImages();
+          },
+        );
+      }
     }
   }
 }

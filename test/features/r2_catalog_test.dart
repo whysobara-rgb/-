@@ -19,6 +19,8 @@ import 'package:gacha_vault/shared/providers/auth_provider.dart';
 import 'package:gacha_vault/shared/providers/gp_provider.dart';
 import 'package:gacha_vault/shared/widgets/gachi_components.dart';
 import '../../tool/r2/fixture.dart' as review;
+import '../../tool/unified_ux/fixture_data.dart';
+import 'package:gacha_vault/features/orders/order_flow_page.dart';
 import 'v33_stage1_test.dart' as v33;
 
 // State/route tests isolate image I/O; actual photo/error frames have separate captures.
@@ -240,86 +242,178 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
-  testWidgets(
-    'HomePage actual detail route uses selected ID and performs read-only requests',
-    (tester) async {
-      tester.view.physicalSize = const Size(390, 844);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      final requests = <String>[];
-      SharedPreferences.setMockInitialValues({});
-      FlutterSecureStorage.setMockInitialValues({});
-      final auth = SessionAuth(), gp = GpProvider(initialBalance: 93800);
-      await http.runWithClient(
-        () async {
-          await tester.pumpWidget(
-            MultiProvider(
-              providers: [
-                ChangeNotifierProvider<AuthProvider>.value(value: auth),
-                ChangeNotifierProvider<GpProvider>.value(value: gp),
-              ],
-              child: MaterialApp(
-                theme: AppTheme.lightTheme,
-                home: HomePage(
-                  loadCatalog: () async => r2Boxes,
-                  loadUnopenedCount: (_) async => 0,
-                  onGoToWallet: () {},
-                  onShop: () {},
-                  onRanking: () {},
-                  onOpenUnopened: () {},
-                  onCollection: () {},
+  for (final oddsSuccess in [true, false]) {
+    testWidgets(
+      'HomePage actual detail route odds ${oddsSuccess ? 'success' : 'failure and purchase retry guard'}',
+      (tester) async {
+        tester.view.physicalSize = const Size(390, 844);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final requests = <String>[];
+        final oddsFixture =
+            Map<String, dynamic>.from(jsonDecode(unifiedFixtureJson)['odds'])
+              ..['gachaId'] = r2Boxes.first.id
+              ..['unitPrice'] = r2Boxes.first.priceWon;
+        final entries = (oddsFixture['snapshot']['entries'] as List);
+
+        SharedPreferences.setMockInitialValues({});
+        FlutterSecureStorage.setMockInitialValues({
+          'gacha_vault_access_token': 'synthetic-r2-route-token',
+        });
+        final auth = SessionAuth(), gp = GpProvider(initialBalance: 93800);
+        await http.runWithClient(
+          () async {
+            await tester.pumpWidget(
+              MultiProvider(
+                providers: [
+                  ChangeNotifierProvider<AuthProvider>.value(value: auth),
+                  ChangeNotifierProvider<GpProvider>.value(value: gp),
+                ],
+                child: MaterialApp(
+                  theme: AppTheme.lightTheme,
+                  home: HomePage(
+                    loadCatalog: () async => r2Boxes,
+                    loadUnopenedCount: (_) async => 0,
+                    onGoToWallet: () {},
+                    onShop: () {},
+                    onRanking: () {},
+                    onOpenUnopened: () {},
+                    onCollection: () {},
+                  ),
                 ),
               ),
-            ),
-          );
-          await tester.pumpAndSettle();
-          await tester.ensureVisible(find.text('구성·확률 보기'));
-          await tester.pumpAndSettle();
-          await tester.tap(find.text('구성·확률 보기'));
-          await tester.pumpAndSettle();
-          expect(
-            tester.widget<GachaDetailPage>(find.byType(GachaDetailPage)).box.id,
-            9901,
-          );
-          expect(requests, contains('GET /gachas/9901'));
-          expect(requests, contains('GET /gachas/9901/odds'));
-          expect(requests.every((r) => r.startsWith('GET ')), isTrue);
-          expect(find.text('1,000 GP'), findsWidgets);
-          expect(tester.takeException(), isNull);
-        },
-        () => MockClient((r) async {
-          requests.add('${r.method} ${r.url.path}');
-          if (r.url.path == '/gachas/9901') {
-            return http.Response(
-              jsonEncode({
-                'statusCode': 10000,
-                'data': {
-                  'id': 9901,
-                  'title': '사운드 박스',
-                  'price': 1000,
-                  'description': '합성 데이터',
-                  'totalStock': 100,
-                  'soldStock': 0,
-                  'lineup': [],
-                },
-              }),
-              200,
-              headers: {'content-type': 'application/json'},
             );
-          }
-          return http.Response(
-            jsonEncode({'statusCode': 404, 'message': 'Not in this fixture'}),
-            404,
-          );
-        }),
-      );
-      await tester.pumpWidget(const SizedBox());
-      auth.dispose();
-      gp.dispose();
-    },
-    skip: AppConfig.apiBaseUrl.isEmpty,
-  );
+            await tester.pumpAndSettle();
+            await tester.ensureVisible(find.text('구성·확률 보기'));
+            await tester.pumpAndSettle();
+            await tester.tap(find.text('구성·확률 보기'));
+            await tester.pumpAndSettle();
+            expect(
+              tester
+                  .widget<GachaDetailPage>(find.byType(GachaDetailPage))
+                  .box
+                  .id,
+              9901,
+            );
+            expect(requests, contains('GET /gachas/9901'));
+            expect(requests, contains('GET /gachas/9901/odds'));
+            expect(requests.every((r) => r.startsWith('GET ')), isTrue);
+            expect(find.text('1,000 GP'), findsWidgets);
+            final view = tester.widget<ProductDetailView>(
+              find.byType(ProductDetailView),
+            );
+            expect(view.detail.id, r2Boxes.first.id);
+            expect(view.detail.price, r2Boxes.first.priceWon);
+            expect(view.detail.title, r2Boxes.first.name);
+            if (oddsSuccess) {
+              expect(view.odds!.gachaId, view.detail.id);
+              expect(view.odds!.price, view.detail.price);
+              expect(
+                view.odds!.prizes.map((p) => p.ppm),
+                entries.map((e) => e['probabilityPpm']),
+              );
+              expect(
+                view.odds!.prizes.fold<int>(0, (sum, p) => sum + p.ppm),
+                1000000,
+              );
+              // Match visible original fixture values, not just the parsed DTO.
+              for (final e in entries) {
+                await tester.ensureVisible(find.text(e['name'] as String));
+                await tester.pumpAndSettle();
+                expect(
+                  find.text(e['name'] as String).hitTestable(),
+                  findsOneWidget,
+                );
+                final value = '${(e['probabilityPpm'] as int) / 10000}'
+                    .replaceFirst(RegExp(r'\.0$'), '');
+                expect(find.text('$value%'), findsOneWidget);
+              }
+              expect(find.textContaining('공개 확률을 불러오지 못했어요'), findsNothing);
+            } else {
+              expect(view.odds, isNull);
+              final notice = find.textContaining('공개 확률을 불러오지 못했어요');
+              await tester.ensureVisible(notice);
+              await tester.pumpAndSettle();
+              expect(notice.hitTestable(), findsOneWidget);
+              expect(find.text('90%'), findsNothing);
+              expect(find.text('10%'), findsNothing);
+              // Existing contract: detail remains readable; purchase confirmation
+              // independently fetches odds and exposes only Retry if that fails.
+              if (AppConfig.orderPreviewEnabled) {
+                final cta = find.text('1,000 GP · 구매 전 확인');
+                await tester.ensureVisible(cta);
+                await tester.pumpAndSettle();
+                await tester.tap(cta);
+                await tester.pumpAndSettle();
+                expect(find.byType(OrderFlowPage), findsOneWidget);
+                expect(find.text('합성 확률 조회 실패'), findsOneWidget);
+                expect(find.byType(CheckboxListTile), findsNothing);
+                expect(
+                  find.byKey(const Key('purchase-odds-disclosure')),
+                  findsNothing,
+                );
+                expect(find.text('GP로 구매하고 보관하기'), findsNothing);
+                final before = requests
+                    .where((r) => r == 'GET /gachas/9901/odds')
+                    .length;
+                await tester.tap(find.text('다시 불러오기'));
+                await tester.pumpAndSettle();
+                expect(
+                  requests.where((r) => r == 'GET /gachas/9901/odds').length,
+                  before + 1,
+                );
+                expect(find.text('합성 확률 조회 실패'), findsOneWidget);
+                expect(find.byType(CheckboxListTile), findsNothing);
+              }
+            }
+            expect(requests.every((r) => r.startsWith('GET ')), isTrue);
+            expect(tester.takeException(), isNull);
+          },
+          () => MockClient((r) async {
+            requests.add('${r.method} ${r.url.path}');
+            if (r.url.path == '/gachas/9901/odds') {
+              return http.Response(
+                jsonEncode(
+                  oddsSuccess
+                      ? {'statusCode': 10000, 'data': oddsFixture}
+                      : {'statusCode': 404, 'message': '합성 확률 조회 실패'},
+                ),
+                oddsSuccess ? 200 : 404,
+                headers: {'content-type': 'application/json'},
+              );
+            }
+            if (r.url.path == '/gachas/9901') {
+              return http.Response(
+                jsonEncode({
+                  'statusCode': 10000,
+                  'data': {
+                    'id': 9901,
+                    'title': '사운드 박스',
+                    'price': 1000,
+                    'description': '합성 데이터',
+                    'totalStock': 100,
+                    'soldStock': 0,
+                    'lineup': [],
+                  },
+                }),
+                200,
+                headers: {'content-type': 'application/json'},
+              );
+            }
+            return http.Response(
+              jsonEncode({'statusCode': 404, 'message': 'Not in this fixture'}),
+              404,
+            );
+          }),
+        );
+        await tester.pumpWidget(const SizedBox());
+        auth.dispose();
+        gp.dispose();
+      },
+      skip: AppConfig.apiBaseUrl.isEmpty,
+    );
+  }
   testWidgets(
     'Unopened count is session-bound, ignores late account response, refreshes and fails closed',
     (tester) async {

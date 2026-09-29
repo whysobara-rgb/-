@@ -383,6 +383,17 @@ class _CatalogFilterPanelState extends State<CatalogFilterPanel> {
                   (label) => ChoiceChip(
                     label: Text(label),
                     selected: _sort == label,
+                    selectedColor: GachiColors.navy,
+                    backgroundColor: GachiColors.surface,
+                    labelStyle: GachiType.meta.copyWith(
+                      color: _sort == label
+                          ? GachiColors.surface
+                          : GachiColors.ink,
+                    ),
+                    checkmarkColor: _sort == label
+                        ? GachiColors.surface
+                        : GachiColors.ink,
+                    showCheckmark: true,
                     onSelected: (_) => setState(() => _sort = label),
                   ),
                 )
@@ -529,12 +540,12 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                   ],
-                  const SizedBox(height: GachiSpace.xl),
-                  GachiSectionHeader(
-                    title: '다른 박스도 살펴보세요',
-                    onAction: widget.onShop,
-                  ),
                   if (available && visible.length > 1) ...[
+                    const SizedBox(height: GachiSpace.xl),
+                    GachiSectionHeader(
+                      title: '다른 박스도 살펴보세요',
+                      onAction: widget.onShop,
+                    ),
                     const SizedBox(height: GachiSpace.md),
                     CatalogGrid(
                       boxes: visible.skip(1).take(2).toList(),
@@ -589,11 +600,14 @@ class GachiCatalogHero extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          GachiProductImage(
-            url: box.imageUrl,
-            label: '${box.name} 대표 이미지',
-            aspectRatio: 1.5,
-          ),
+          // Known absence needs no reserved photo frame. Loading/error for an
+          // actual URL keep the same frame; shared result images are untouched.
+          if (box.imageUrl?.trim().isNotEmpty ?? false)
+            GachiProductImage(
+              url: box.imageUrl,
+              label: '${box.name} 대표 이미지',
+              aspectRatio: 1.5,
+            ),
           ColoredBox(
             color: GachiColors.navy,
             child: Padding(
@@ -619,6 +633,13 @@ class GachiCatalogHero extends StatelessWidget {
                       ),
                     ],
                   ),
+                  if (box.imageUrl?.trim().isEmpty ?? true) ...[
+                    const SizedBox(height: GachiSpace.sm),
+                    Text(
+                      '등록된 사진이 없어요',
+                      style: GachiType.meta.copyWith(color: GachiColors.ivory),
+                    ),
+                  ],
                   const SizedBox(height: GachiSpace.sm),
                   Text(
                     box.name,
@@ -646,7 +667,7 @@ class GachiCatalogHero extends StatelessWidget {
                   ),
                   const SizedBox(height: GachiSpace.sm),
                   Text(
-                    '사진 속 상품의 획득이 보장되지는 않아요.',
+                    '특정 상품의 획득은 보장되지 않아요.',
                     style: GachiType.meta.copyWith(color: GachiColors.ivory),
                   ),
                 ],
