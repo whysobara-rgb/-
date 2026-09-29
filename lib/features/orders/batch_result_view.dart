@@ -91,13 +91,7 @@ class BatchResultView extends StatelessWidget {
                 )
                 .toList(),
           ),
-          ...groups.values.map(
-            (group) => PrizeReveal(
-              animate: false,
-              prize: group.first.prize,
-              quantity: group.length,
-            ),
-          ),
+          GachiResultGroups(groups: groups.values.toList()),
           const SizedBox(height: GachiSpace.md),
           GachiPrimaryButton(
             label: '보관함 보기',
@@ -143,6 +137,41 @@ class BatchResultView extends StatelessWidget {
             child: const Text('현재 박스까지 열고 멈추기'),
           ),
         ],
+      ],
+    );
+  }
+}
+
+/// Presentation-only disclosure; all confirmed results remain in the batch.
+class GachiResultGroups extends StatefulWidget {
+  final List<List<Opening>> groups;
+  const GachiResultGroups({super.key, required this.groups});
+  @override
+  State<GachiResultGroups> createState() => _GachiResultGroupsState();
+}
+
+class _GachiResultGroupsState extends State<GachiResultGroups> {
+  bool _expanded = false;
+  @override
+  Widget build(BuildContext context) {
+    final visible = _expanded ? widget.groups : widget.groups.take(3);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final group in visible)
+          PrizeReveal(
+            animate: false,
+            prize: group.first.prize,
+            quantity: group.length,
+          ),
+        if (widget.groups.length > 3)
+          TextButton(
+            key: const Key('result-groups-toggle'),
+            onPressed: () => setState(() => _expanded = !_expanded),
+            child: Text(
+              _expanded ? '상품 요약 접기' : '나머지 ${widget.groups.length - 3}종 모두 보기',
+            ),
+          ),
       ],
     );
   }

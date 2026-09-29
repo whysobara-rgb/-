@@ -79,36 +79,95 @@ class _SignupPageState extends State<SignupPage> {
     final auth = context.watch<AuthProvider>();
     return GachiFlowScaffold(
       appBar: AppBar(title: const Text('회원가입')),
-      body: SingleChildScrollView(padding: const EdgeInsets.all(GachiSpace.page),
-        child: Form(key: _formKey, child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            const GachiFlowHeading(label: 'JOIN GACHIGACHA', title: '가치 있는 시작',
-              description: '가치가차에서 특별한 순간을 만들어보세요'),
-            _buildTextField(controller: _emailController, label: '이메일',
-              icon: Icons.email_outlined, validator: _validateEmail),
-            _buildTextField(controller: _nicknameController, label: '닉네임 (2~20자)',
-              icon: Icons.person_outline, validator: _validateNickname),
-            _buildTextField(controller: _passwordController, label: '비밀번호',
-              icon: Icons.lock_outline, validator: _validatePassword,
-              obscure: _obscurePassword, helper: '영문과 숫자를 포함해 8자 이상 입력해주세요.',
-              suffix: IconButton(tooltip: _obscurePassword ? '비밀번호 표시' : '비밀번호 숨기기',
-                icon: Icon(_obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined),
-                onPressed: () => setState(() => _obscurePassword = !_obscurePassword))),
-            const SizedBox(height: GachiSpace.sm),
-            GachiPrimaryButton(label: auth.isLoading ? '가입 확인 중' : '회원가입',
-              onPressed: auth.isLoading ? null : _handleSignup),
-          ])),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(GachiSpace.page),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const GachiFlowHeading(
+                label: 'JOIN GACHIGACHA',
+                title: '가치 있는 시작',
+                description: '가치가차에서 특별한 순간을 만들어보세요',
+              ),
+              _buildTextField(
+                controller: _emailController,
+                label: '이메일',
+                icon: Icons.email_outlined,
+                validator: _validateEmail,
+              ),
+              _buildTextField(
+                controller: _nicknameController,
+                label: '닉네임 (2~20자)',
+                icon: Icons.person_outline,
+                validator: _validateNickname,
+              ),
+              _buildTextField(
+                controller: _passwordController,
+                label: '비밀번호',
+                icon: Icons.lock_outline,
+                validator: _validatePassword,
+                obscure: _obscurePassword,
+                helper: '영문과 숫자를 포함해 8자 이상 입력해주세요.',
+                suffix: IconButton(
+                  tooltip: _obscurePassword ? '비밀번호 표시' : '비밀번호 숨기기',
+                  icon: Icon(
+                    _obscurePassword
+                        ? Icons.visibility_off_outlined
+                        : Icons.visibility_outlined,
+                  ),
+                  onPressed: () =>
+                      setState(() => _obscurePassword = !_obscurePassword),
+                ),
+              ),
+              const SizedBox(height: GachiSpace.sm),
+              GachiPrimaryButton(
+                label: auth.isLoading ? '가입 확인 중' : '회원가입',
+                onPressed: auth.isLoading ? null : _handleSignup,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
 
-  Widget _buildTextField({required TextEditingController controller,
-    required String label, required IconData icon,
-    required String? Function(String?) validator, bool obscure = false,
-    String? helper, Widget? suffix}) => Padding(
-      padding: const EdgeInsets.only(bottom: GachiSpace.lg),
-      child: TextFormField(controller: controller, validator: validator,
-        obscureText: obscure, decoration: InputDecoration(labelText: label,
-          helperText: helper, prefixIcon: Icon(icon), suffixIcon: suffix)),
-    );
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String label,
+    required IconData icon,
+    required String? Function(String?) validator,
+    bool obscure = false,
+    String? helper,
+    Widget? suffix,
+  }) => Padding(
+    padding: const EdgeInsets.only(bottom: GachiSpace.lg),
+    child: TextFormField(
+      controller: controller,
+      validator: validator,
+      keyboardType: controller == _emailController
+          ? TextInputType.emailAddress
+          : TextInputType.text,
+      textInputAction: controller == _nicknameController
+          ? TextInputAction.done
+          : TextInputAction.next,
+      autocorrect: false,
+      enableSuggestions: controller != _passwordController,
+      autofillHints: [
+        controller == _emailController
+            ? AutofillHints.email
+            : controller == _passwordController
+            ? AutofillHints.newPassword
+            : AutofillHints.nickname,
+      ],
+      obscureText: obscure,
+      decoration: InputDecoration(
+        labelText: label,
+        helperText: helper,
+        prefixIcon: Icon(icon),
+        suffixIcon: suffix,
+      ),
+    ),
+  );
 }

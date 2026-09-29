@@ -668,29 +668,34 @@ void main() {
       await tester.ensureVisible(find.text('GP 지갑 보기'));
       await tester.tap(find.text('GP 지갑 보기'));
       expect(wallet, 1);
-      for (final label in [
-        '주문·환불 내역',
-        'GP 전환 · 상품 복구',
-        '내 컬렉션',
-        '배송 내역',
-        '소식·고객지원',
-        '포인트 내역',
-        '계정 보안',
-        '이메일 인증',
-        '탈퇴 요청·상태',
-      ]) {
-        await tester.scrollUntilVisible(find.text(label), 160);
-        expect(
-          tester
-              .widget<ListTile>(
-                find.ancestor(
-                  of: find.text(label),
-                  matching: find.byType(ListTile),
-                ),
-              )
-              .onTap,
-          isNotNull,
-        );
+      Future<void> expectEntries(List<String> labels) async {
+        for (final label in labels) {
+          await tester.scrollUntilVisible(find.text(label), 160);
+          expect(
+            tester
+                .widget<ListTile>(
+                  find.ancestor(
+                    of: find.text(label),
+                    matching: find.byType(ListTile),
+                  ),
+                )
+                .onTap,
+            isNotNull,
+          );
+        }
+      }
+
+      await expectEntries(['주문·환불 내역', '배송 내역', '소식·고객지원']);
+      for (final group in {
+        '내 활동 내역': ['내 컬렉션', 'GP 전환 · 상품 복구', '포인트 내역'],
+        '계정·보안 설정': ['계정 보안', '이메일 인증', '탈퇴 요청·상태'],
+      }.entries) {
+        await tester.scrollUntilVisible(find.text(group.key), -160);
+        await tester.tap(find.text(group.key));
+        await tester.pumpAndSettle();
+        await expectEntries(group.value);
+        await tester.pageBack();
+        await tester.pumpAndSettle();
       }
       await tester.scrollUntilVisible(find.text('로그아웃'), 180);
       await tester.tap(find.text('로그아웃'));

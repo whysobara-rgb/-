@@ -206,10 +206,11 @@ class _GachiOpeningExperienceState extends State<GachiOpeningExperience>
             ExcludeSemantics(
               child: Opacity(
                 opacity: .6 + _motion.value * .4,
-                child: const Icon(
-                  Icons.inventory_2_outlined,
-                  size: 64,
-                  color: GachiColors.gold,
+                child: Image.asset(
+                  'assets/images/brand/gachi-orb.webp',
+                  width: 112,
+                  height: 112,
+                  fit: BoxFit.contain,
                 ),
               ),
             ),

@@ -55,7 +55,12 @@ class ProductDetailView extends StatelessWidget {
                 GachiProductImage(
                   url: detail.imageUrl ?? box.imageUrl,
                   label: detail.title,
-                  aspectRatio: 1.35,
+                  aspectRatio:
+                      (detail.imageUrl ?? box.imageUrl)?.isNotEmpty == true
+                      ? 1.6
+                      : 3.2,
+                  compact:
+                      (detail.imageUrl ?? box.imageUrl)?.isNotEmpty != true,
                 ),
                 const SizedBox(height: GachiSpace.xl),
                 Wrap(
@@ -97,45 +102,9 @@ class ProductDetailView extends StatelessWidget {
                   ),
                 ],
                 const SizedBox(height: GachiSpace.xl),
-                GachiInfoCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Wrap(
-                        spacing: GachiSpace.sm,
-                        children: [
-                          Text(
-                            '남은 수량',
-                            style: GachiType.meta.copyWith(
-                              color: GachiColors.secondary,
-                            ),
-                          ),
-                          Text('$remaining개', style: GachiType.product),
-                        ],
-                      ),
-                      const SizedBox(height: GachiSpace.md),
-                      ClipRRect(
-                        borderRadius: GachiShape.small,
-                        child: LinearProgressIndicator(
-                          value: detail.totalStock > 0
-                              ? remaining / detail.totalStock
-                              : 0,
-                          minHeight: 6,
-                          color: GachiColors.navy,
-                          backgroundColor: GachiColors.divider,
-                          semanticsLabel: '남은 수량',
-                          semanticsValue: '$remaining개',
-                        ),
-                      ),
-                      const SizedBox(height: GachiSpace.sm),
-                      Text(
-                        '전체 ${detail.totalStock}개 중 ${detail.soldStock}개 판매',
-                        style: GachiType.meta.copyWith(
-                          color: GachiColors.secondary,
-                        ),
-                      ),
-                    ],
-                  ),
+                Text(
+                  '남은 수량 $remaining개 · 전체 ${detail.totalStock}개',
+                  style: GachiType.meta.copyWith(color: GachiColors.secondary),
                 ),
                 const SizedBox(height: GachiSpace.section),
                 const GachiSectionHeader(title: '어떤 상품을 만날까요?'),

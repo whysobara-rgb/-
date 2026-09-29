@@ -62,6 +62,9 @@ class CatalogArtwork extends StatelessWidget {
   final CapsuleBox box;
   const CatalogArtwork({super.key, required this.box});
   @override
-  Widget build(BuildContext context) =>
-      GachiProductImage(url: box.imageUrl, label: box.name);
+  Widget build(BuildContext context) => GachiProductImage(
+    url: box.imageUrl,
+    label: box.name,
+    aspectRatio: box.imageUrl == null ? 1.6 : 1.12,
+  );
 }

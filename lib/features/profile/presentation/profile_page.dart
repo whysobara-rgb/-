@@ -59,6 +59,20 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
+  void _openMenu(String title, List<Widget> entries) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => GachiScaffold(
+          title: title,
+          body: ListView(
+            padding: const EdgeInsets.all(GachiSpace.page),
+            children: [GachiInfoCard(child: Column(children: entries))],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = context.watch<AuthProvider>().currentUser;
@@ -104,8 +118,8 @@ class _ProfilePageState extends State<ProfilePage> {
           ),
           const BalanceNotice(),
           const SizedBox(height: 20),
-          const GachiSectionHeader(title: '내 활동 · 계정'),
-          const SizedBox(height: 12),
+          const GachiSectionHeader(title: '주문과 보관'),
+          const SizedBox(height: GachiSpace.sm),
           GachiInfoCard(
             child: Column(
               children: [
@@ -113,7 +127,6 @@ class _ProfilePageState extends State<ProfilePage> {
                   key: const Key('profile-order-history'),
                   leading: const Icon(Icons.receipt_long),
                   title: const Text('주문·환불 내역'),
-                  subtitle: const Text('구매 내역 · 미개봉 환불 · 처리 결과 확인'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: user == null
                       ? null
@@ -125,9 +138,37 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
                 const Divider(height: 1),
                 ListTile(
+                  leading: const Icon(Icons.local_shipping_outlined),
+                  title: const Text('배송 내역'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const ShippingHistoryPage(),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: GachiSpace.lg),
+          GachiInfoCard(
+            child: ListTile(
+              title: const Text('내 활동 내역'),
+              leading: const Icon(Icons.history),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _openMenu('내 활동 내역', [
+                ListTile(
+                  leading: const Icon(Icons.collections_bookmark_outlined),
+                  title: const Text('내 컬렉션'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const InventoryPage()),
+                  ),
+                ),
+                const Divider(height: 1),
+                ListTile(
                   leading: const Icon(Icons.swap_horiz),
                   title: const Text('GP 전환 · 상품 복구'),
-                  subtitle: const Text('전환 내역과 복구 가능 여부 확인'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: user == null
                       ? null
@@ -139,31 +180,23 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
                 const Divider(height: 1),
                 ListTile(
-                  leading: const Icon(Icons.collections_bookmark_outlined),
-                  title: const Text('내 컬렉션'),
-                  subtitle: const Text('획득한 상품과 배송 상태 확인'),
+                  leading: const Icon(Icons.receipt_long_outlined),
+                  title: const Text('포인트 내역'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const InventoryPage()),
+                    MaterialPageRoute(builder: (_) => const PointHistoryPage()),
                   ),
                 ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.local_shipping_outlined),
-                  title: const Text('배송 내역'),
-                  subtitle: const Text('신청 상품과 진행 상태 확인'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => const ShippingHistoryPage(),
-                    ),
-                  ),
-                ),
-                const Divider(height: 1),
+              ]),
+            ),
+          ),
+          const SizedBox(height: GachiSpace.sm),
+          GachiInfoCard(
+            child: Column(
+              children: [
                 ListTile(
                   leading: const Icon(Icons.support_agent),
                   title: const Text('소식·고객지원'),
-                  subtitle: const Text('이벤트·공지·문의·교환 처리 현황'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute(
@@ -172,21 +205,20 @@ class _ProfilePageState extends State<ProfilePage> {
                     ),
                   ),
                 ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.receipt_long_outlined),
-                  title: const Text('포인트 내역'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const PointHistoryPage()),
-                  ),
-                ),
-                const Divider(height: 1),
+              ],
+            ),
+          ),
+          const SizedBox(height: GachiSpace.sm),
+          GachiInfoCard(
+            child: ListTile(
+              title: const Text('계정·보안 설정'),
+              leading: const Icon(Icons.security),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _openMenu('계정·보안 설정', [
                 ListTile(
                   key: const Key('profile-account-security'),
                   leading: const Icon(Icons.security),
                   title: const Text('계정 보안'),
-                  subtitle: const Text('비밀번호 변경 · 모든 로그인 해제'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: user == null
                       ? null
@@ -201,7 +233,6 @@ class _ProfilePageState extends State<ProfilePage> {
                   key: const Key('profile-email-verification'),
                   leading: const Icon(Icons.mark_email_read_outlined),
                   title: const Text('이메일 인증'),
-                  subtitle: const Text('인증 메일 요청 · 이메일 소유 확인'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: user == null
                       ? null
@@ -217,7 +248,6 @@ class _ProfilePageState extends State<ProfilePage> {
                   key: const Key('profile-account-closure'),
                   leading: const Icon(Icons.person_off_outlined),
                   title: const Text('탈퇴 요청·상태'),
-                  subtitle: const Text('잔여 거래 확인 · 요청 접수 및 취소'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: user == null
                       ? null
@@ -227,7 +257,7 @@ class _ProfilePageState extends State<ProfilePage> {
                           ),
                         ),
                 ),
-              ],
+              ]),
             ),
           ),
           const SizedBox(height: 24),

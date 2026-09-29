@@ -400,6 +400,11 @@ void main() {
       await capture(tester, 'shipping-history');
       await tester.tap(find.text('신청 상세 보기'));
       await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('샘플 배송지 · 실제 주소가 아닙니다'),
+        160,
+        scrollable: find.byType(Scrollable).last,
+      );
       expect(find.text('샘플 배송지 · 실제 주소가 아닙니다'), findsOneWidget);
       await mount(
         tester,

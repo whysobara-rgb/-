@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../shared/widgets/gachi_components.dart';
+import '../../../shared/widgets/gachi_discovery.dart';
 import '../../customer_updates/customer_content.dart';
 import '../../customer_updates/customer_updates_page.dart';
 import '../../../shared/data/activity_page.dart';
@@ -26,31 +27,27 @@ class GachiCategoryTabs extends StatelessWidget {
     required this.onSelected,
   });
   @override
-  Widget build(BuildContext context) => SingleChildScrollView(
-    scrollDirection: Axis.horizontal,
-    child: Row(
-      children: catalogCategories.entries
-          .map(
-            (e) => Padding(
-              padding: const EdgeInsets.only(right: GachiSpace.sm),
-              child: ChoiceChip(
-                label: Text(
-                  e.value,
-                  style: GachiType.meta.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: selected == e.key
-                        ? GachiColors.surface
-                        : GachiColors.secondary,
-                  ),
-                ),
-                selected: selected == e.key,
-                showCheckmark: false,
-                onSelected: (_) => onSelected(e.key),
+  Widget build(BuildContext context) => Wrap(
+    spacing: GachiSpace.sm,
+    runSpacing: GachiSpace.xs,
+    children: catalogCategories.entries
+        .map(
+          (e) => ChoiceChip(
+            label: Text(
+              e.value,
+              style: GachiType.meta.copyWith(
+                fontWeight: FontWeight.w700,
+                color: selected == e.key
+                    ? GachiColors.surface
+                    : GachiColors.secondary,
               ),
             ),
-          )
-          .toList(),
-    ),
+            selected: selected == e.key,
+            showCheckmark: false,
+            onSelected: (_) => onSelected(e.key),
+          ),
+        )
+        .toList(),
   );
 }
 
@@ -344,23 +341,13 @@ class _HomeScreenState extends State<HomeScreen> {
                     onUpdates: widget.onUpdates,
                   ),
                   if (widget.balanceNotice != null) widget.balanceNotice!,
-                  GachiCategoryTabs(
-                    selected: _category,
-                    onSelected: (value) => setState(() => _category = value),
-                  ),
-                  const SizedBox(height: GachiSpace.lg),
                   if (widget.campaigns.isNotEmpty)
                     GachiCampaignPager(
                       campaigns: widget.campaigns,
                       onUpdates: widget.onUpdates,
                     )
-                  else if (!widget.loading &&
-                      widget.error == null &&
-                      widget.boxes.isNotEmpty)
-                    GachiCatalogHero(
-                      box: widget.boxes.first,
-                      onOpen: () => widget.onOpen(widget.boxes.first),
-                    ),
+                  else
+                    GachiDiscoveryHero(onExplore: widget.onShop),
                   if (widget.contentError != null)
                     Padding(
                       padding: const EdgeInsets.only(top: GachiSpace.md),
@@ -371,58 +358,34 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                     ),
-                  const SizedBox(height: GachiSpace.xl),
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      final columns =
-                          MediaQuery.textScalerOf(context).scale(12) > 18
-                          ? 2
-                          : 4;
-                      final entries = [
-                        (Icons.storefront_outlined, '박스샵', widget.onShop),
-                        (
-                          Icons.inventory_2_outlined,
-                          '미개봉',
-                          widget.onOpenUnopened,
-                        ),
-                        (Icons.widgets_outlined, '보관함', widget.onCollection),
-                        (Icons.leaderboard_outlined, '랭킹', widget.onRanking),
-                      ];
-                      return Wrap(
-                        spacing: GachiSpace.sm,
-                        runSpacing: GachiSpace.sm,
-                        children: entries
-                            .map(
-                              (e) => SizedBox(
-                                width:
-                                    (constraints.maxWidth -
-                                        (columns - 1) * GachiSpace.sm) /
-                                    columns,
-                                child: _QuickAction(
-                                  icon: e.$1,
-                                  label: e.$2,
-                                  onTap: e.$3,
-                                ),
-                              ),
-                            )
-                            .toList(),
-                      );
-                    },
-                  ),
                   const SizedBox(height: GachiSpace.section),
                   GachiSectionHeader(
                     title: '취향을 발견하는 박스',
                     onAction: widget.onShop,
                   ),
                   const SizedBox(height: GachiSpace.md),
+                  GachiCategoryTabs(
+                    selected: _category,
+                    onSelected: (value) => setState(() => _category = value),
+                  ),
+                  const SizedBox(height: GachiSpace.md),
                   CatalogBody(
                     loading: widget.loading,
                     error: widget.error,
-                    boxes: visible.take(6).toList(),
+                    boxes: visible.take(4).toList(),
                     filtered: _category != 'all',
                     onClear: () => setState(() => _category = 'all'),
                     onRetry: widget.onRefresh,
                     onOpen: widget.onOpen,
+                  ),
+                  const SizedBox(height: GachiSpace.lg),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: widget.onRanking,
+                      icon: const Icon(Icons.leaderboard_outlined),
+                      label: const Text('랭킹'),
+                    ),
                   ),
                 ],
               ),
@@ -432,43 +395,6 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
-}
-
-class _QuickAction extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  const _QuickAction({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-  @override
-  Widget build(BuildContext context) => Semantics(
-    button: true,
-    child: InkWell(
-      onTap: onTap,
-      borderRadius: GachiShape.card,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Column(
-          children: [
-            Container(
-              width: 48,
-              height: 48,
-              decoration: const BoxDecoration(
-                color: GachiColors.navy,
-                borderRadius: GachiShape.card,
-              ),
-              child: Icon(icon, color: GachiColors.gold, size: GachiSize.icon),
-            ),
-            const SizedBox(height: GachiSpace.sm),
-            Text(label, textAlign: TextAlign.center, style: GachiType.meta),
-          ],
-        ),
-      ),
-    ),
-  );
 }
 
 class GachiCatalogHero extends StatelessWidget {

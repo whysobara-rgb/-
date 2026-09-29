@@ -180,7 +180,17 @@ void main() {
             await inspectScroll(tester);
             if (name == 'detail') {
               expect(find.text('1,000 GP · 구매 전 확인'), findsOneWidget);
+              await tester.scrollUntilVisible(
+                find.text('90%'),
+                -120,
+                scrollable: find.byType(Scrollable).first,
+              );
               expect(find.text('90%'), findsOneWidget);
+              await tester.scrollUntilVisible(
+                find.text('10%'),
+                120,
+                scrollable: find.byType(Scrollable).first,
+              );
               expect(find.text('10%'), findsOneWidget);
             }
           },
@@ -243,6 +253,12 @@ void main() {
             )
             .first,
       );
+      await Scrollable.ensureVisible(
+        tester.element(find.text('다시 불러오기')),
+        alignment: 0.5,
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('다시 불러오기').hitTestable(), findsOneWidget);
       await tester.tap(find.text('다시 불러오기'));
       await tester.pump();
       expect(retries, 1);

@@ -14,12 +14,13 @@ void main() {
         child: const MaterialApp(home: LoginPage()),
       ),
     );
-    expect(find.text('GACHIGACHA'), findsOneWidget);
+    expect(find.text('GACHI GACHA'), findsOneWidget);
     expect(find.text('이메일로 로그인'), findsOneWidget);
     expect(find.text('카카오로 시작하기'), findsNothing);
     await tester.ensureVisible(find.text('이메일로 로그인'));
     await tester.tap(find.text('이메일로 로그인'));
     await tester.pump();
-    expect(find.text('이메일과 비밀번호를 입력해주세요'), findsOneWidget);
+    expect(find.text('이메일을 입력해주세요'), findsOneWidget);
+    expect(find.text('비밀번호를 입력해주세요'), findsOneWidget);
   });
 }

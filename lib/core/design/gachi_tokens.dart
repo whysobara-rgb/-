@@ -76,13 +76,13 @@ abstract final class GachiType {
   static const meta = TextStyle(
     color: GachiColors.ink,
     fontFamily: 'Pretendard',
-    fontSize: 12,
+    fontSize: 14,
     height: 1.5,
   );
   static const english = TextStyle(
     color: GachiColors.ink,
     fontFamily: 'Pretendard',
-    fontSize: 11,
+    fontSize: 12,
     height: 1.5,
     fontWeight: FontWeight.w700,
     letterSpacing: 1.6,

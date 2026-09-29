@@ -169,8 +169,21 @@ class GachiProductImage extends StatelessWidget {
     this.imageProvider,
     this.placeholderIcon,
   });
+  double _safeAspectRatio(BuildContext context, double width) {
+    if (compact || !width.isFinite || width <= 16) return aspectRatio;
+    final text = TextPainter(
+      text: const TextSpan(text: '사진을 불러오지 못했어요', style: GachiType.meta),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+    )..layout(maxWidth: width - 2 * GachiSpace.sm);
+    final minHeight = 32 + 3 * GachiSpace.sm + text.height;
+    text.dispose();
+    final safeRatio = width / minHeight;
+    return aspectRatio < safeRatio ? aspectRatio : safeRatio;
+  }
+
   Widget _placeholder({bool failed = false}) => ColoredBox(
-    color: GachiColors.navy,
+    color: GachiColors.ivory,
     child: Center(
       child: Padding(
         padding: const EdgeInsets.all(GachiSpace.sm),
@@ -182,7 +195,7 @@ class GachiProductImage extends StatelessWidget {
                   (failed
                       ? Icons.hide_image_outlined
                       : Icons.inventory_2_outlined),
-              color: GachiColors.gold,
+              color: GachiColors.secondary,
               size: compact ? 22 : 32,
             ),
             if (!compact) ...[
@@ -190,7 +203,7 @@ class GachiProductImage extends StatelessWidget {
               Text(
                 failed ? '사진을 불러오지 못했어요' : '등록된 사진이 없어요',
                 textAlign: TextAlign.center,
-                style: GachiType.meta.copyWith(color: GachiColors.ivory),
+                style: GachiType.meta.copyWith(color: GachiColors.secondary),
               ),
             ],
           ],
@@ -204,67 +217,69 @@ class GachiProductImage extends StatelessWidget {
     label: '$label 사진',
     child: ClipRRect(
       borderRadius: GachiShape.card,
-      child: AspectRatio(
-        aspectRatio: aspectRatio,
-        child: url == null || url!.trim().isEmpty
-            ? Semantics(label: '등록된 사진 없음', child: _placeholder())
-            : imageProvider != null
-            ? Image(
-                image: imageProvider!,
-                fit: BoxFit.contain,
-                excludeFromSemantics: true,
-                frameBuilder: (context, child, frame, synchronous) =>
-                    frame != null || synchronous
-                    ? ColoredBox(color: GachiColors.surface, child: child)
-                    : const ColoredBox(
-                        color: GachiColors.navy,
-                        child: Center(
-                          child: SizedBox(
-                            width: 24,
-                            height: 24,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: GachiColors.gold,
-                              semanticsLabel: '사진 불러오는 중',
+      child: LayoutBuilder(
+        builder: (context, constraints) => AspectRatio(
+          aspectRatio: _safeAspectRatio(context, constraints.maxWidth),
+          child: url == null || url!.trim().isEmpty
+              ? Semantics(label: '등록된 사진 없음', child: _placeholder())
+              : imageProvider != null
+              ? Image(
+                  image: imageProvider!,
+                  fit: BoxFit.contain,
+                  excludeFromSemantics: true,
+                  frameBuilder: (context, child, frame, synchronous) =>
+                      frame != null || synchronous
+                      ? ColoredBox(color: GachiColors.surface, child: child)
+                      : const ColoredBox(
+                          color: GachiColors.ivory,
+                          child: Center(
+                            child: SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: GachiColors.secondary,
+                                semanticsLabel: '사진 불러오는 중',
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                errorBuilder: (_, _, _) => Semantics(
-                  label: '사진 로드 실패',
-                  child: _placeholder(failed: true),
-                ),
-              )
-            : CachedNetworkImage(
-                imageUrl: url!,
-                fit: BoxFit.contain,
-                imageBuilder: (context, provider) => ColoredBox(
-                  color: GachiColors.surface,
-                  child: Image(
-                    image: provider,
-                    fit: BoxFit.contain,
-                    excludeFromSemantics: true,
+                  errorBuilder: (_, _, _) => Semantics(
+                    label: '사진 로드 실패',
+                    child: _placeholder(failed: true),
                   ),
-                ),
-                placeholder: (_, _) => const ColoredBox(
-                  color: GachiColors.navy,
-                  child: Center(
-                    child: SizedBox(
-                      width: 24,
-                      height: 24,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: GachiColors.gold,
-                        semanticsLabel: '사진 불러오는 중',
+                )
+              : CachedNetworkImage(
+                  imageUrl: url!,
+                  fit: BoxFit.contain,
+                  imageBuilder: (context, provider) => ColoredBox(
+                    color: GachiColors.surface,
+                    child: Image(
+                      image: provider,
+                      fit: BoxFit.contain,
+                      excludeFromSemantics: true,
+                    ),
+                  ),
+                  placeholder: (_, _) => const ColoredBox(
+                    color: GachiColors.ivory,
+                    child: Center(
+                      child: SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: GachiColors.secondary,
+                          semanticsLabel: '사진 불러오는 중',
+                        ),
                       ),
                     ),
                   ),
+                  errorWidget: (_, _, _) => Semantics(
+                    label: '사진 로드 실패',
+                    child: _placeholder(failed: true),
+                  ),
                 ),
-                errorWidget: (_, _, _) => Semantics(
-                  label: '사진 로드 실패',
-                  child: _placeholder(failed: true),
-                ),
-              ),
+        ),
       ),
     ),
   );

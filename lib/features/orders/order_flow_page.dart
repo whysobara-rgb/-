@@ -337,19 +337,12 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: SizedBox(
-              width: 64,
-              height: 64,
-              child: prize.imageUrl == null || prize.imageUrl!.isEmpty
-                  ? const Icon(Icons.card_giftcard, size: 36)
-                  : Image.network(
-                      prize.imageUrl!,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, error, stack) =>
-                          const Icon(Icons.card_giftcard, size: 36),
-                    ),
+          SizedBox(
+            width: 64,
+            child: GachiProductImage(
+              url: prize.imageUrl,
+              label: prize.name,
+              compact: true,
             ),
           ),
           const SizedBox(width: 12),
@@ -415,7 +408,7 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
                         ),
                       ),
                     ),
-                    _button('미개봉 보관함으로', _inventory),
+                    _button('미개봉 보관함으로', _inventory, primary: false),
                     _button('확인하고 돌아가기', () async {
                       await _run(() async {
                         await _repo!.acknowledgeOpening(_opening!.capsuleId);
@@ -433,14 +426,15 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
         _summary(
           Icons.check_circle_outline,
           '구매가 완료됐어요',
-          '열어볼 설렘을 보관했어요. 원하는 순간에 캡슐을 열어보세요.',
+          '구매한 박스는 미개봉 상태로 보관됩니다.',
         ),
         _detail('구매 상품', _receipt!.title),
         _detail('캡슐 수량', '${_receipt!.quantity}개'),
         _detail('사용 GP', _gp(_receipt!.total)),
         const BalanceNotice(),
-        const Text('박스는 미개봉 상태로 보관됩니다. 최대 100개까지 함께 열 수 있어요.'),
-        _button('미개봉 보관함 보기', _inventory),
+        const Text('개봉할 박스를 선택한 뒤 직접 개봉해주세요. 추가 GP 차감은 없습니다.'),
+        _button('바로 개봉', _inventory),
+        _button('나중에 개봉', () => Navigator.of(context).pop(), primary: false),
       ];
     }
     if (_openingId != null) {
