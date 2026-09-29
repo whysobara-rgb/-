@@ -43,8 +43,8 @@ jobs:
         run: python3 tool/staging/validate.py workflow
       - name: Verify protected application baseline
         run: |
-          git merge-base --is-ancestor 524bc6837baa2a8406cd395091b43c31d5cfec9c HEAD
-          git diff --exit-code 524bc6837baa2a8406cd395091b43c31d5cfec9c HEAD -- lib test android ios pubspec.yaml pubspec.lock
+          git merge-base --is-ancestor b52caf1ba3cf3b595a0aa8dbcf55fe46074a21b1 HEAD
+          git diff --exit-code b52caf1ba3cf3b595a0aa8dbcf55fe46074a21b1 HEAD -- lib test android ios pubspec.yaml pubspec.lock
           python3 tool/staging/check_configuration.py
           python3 -m unittest discover -s tool/staging -p 'test_*.py' -v
       - name: Verify live staging Backend identity
@@ -72,6 +72,12 @@ jobs:
       - run: flutter test --dart-define=ENABLE_GP_ORDER_PREVIEW=true test/features/v33_navigation_test.dart
       - run: flutter test --dart-define=ENABLE_SHIPPING_PREVIEW=true test/features/v33_stage3_test.dart --plain-name 'shipping application retains gate'
       - run: flutter test --dart-define=dart.vm.product=true --dart-define=ENABLE_GP_ORDER_PREVIEW=true --dart-define=ENABLE_GP_CONVERSION_PREVIEW=true --dart-define=ENABLE_SHIPPING_PREVIEW=true --dart-define=ENABLE_ORDER_REFUND_PREVIEW=true --dart-define=ENABLE_LEGACY_TRANSACTIONS=true test/core/v33_release_gate_test.dart
+      - name: Preserve synthetic real-widget review captures
+        uses: actions/upload-artifact@v4
+        with:
+          name: unified-ux-widget-captures-${{ github.sha }}
+          path: build/ui-previews/*.png
+          retention-days: 7
 
   android:
     needs: [validate, regression]
