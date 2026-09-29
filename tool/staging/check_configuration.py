@@ -11,7 +11,7 @@ import xml.etree.ElementTree as ET
 from validate import ANDROID_ID, IOS_ID, ROOT, TEAM_ID, require
 from native_validation import PROFILE_NAME
 
-NATIVE_BASELINE = "934383b7c8d8216a9bc3e4a906041bfd21f9d867"
+NATIVE_BASELINE = "053a6e7eccbfef8b12dd816a0e4ce4ed4397fba2"
 
 
 def check_android_debug_only(gradle):

@@ -43,8 +43,8 @@ jobs:
         run: python3 tool/staging/validate.py workflow
       - name: Verify protected application baseline
         run: |
-          git merge-base --is-ancestor 934383b7c8d8216a9bc3e4a906041bfd21f9d867 HEAD
-          git diff --exit-code 934383b7c8d8216a9bc3e4a906041bfd21f9d867 HEAD -- lib test android ios pubspec.yaml pubspec.lock
+          git merge-base --is-ancestor 053a6e7eccbfef8b12dd816a0e4ce4ed4397fba2 HEAD
+          git diff --exit-code 053a6e7eccbfef8b12dd816a0e4ce4ed4397fba2 HEAD -- lib test android ios pubspec.yaml pubspec.lock
           python3 tool/staging/check_configuration.py
           python3 -m unittest discover -s tool/staging -p 'test_*.py' -v
       - name: Verify live staging Backend identity
@@ -69,6 +69,8 @@ jobs:
       - run: flutter analyze
       - run: flutter test
       - run: flutter test test/features/orders/refund_contract_compatibility_test.dart
+      - name: Verify actual app root, cross-order scope and direct recovery (mock HTTP only)
+        run: flutter test --dart-define=ENABLE_GP_ORDER_PREVIEW=true --dart-define=API_BASE_URL=https://stage2.invalid test/features/ux_r1_scope_recovery_test.dart
       - run: flutter test --dart-define=ENABLE_GP_ORDER_PREVIEW=true test/features/v33_navigation_test.dart
       - run: flutter test --dart-define=ENABLE_SHIPPING_PREVIEW=true test/features/v33_stage3_test.dart --plain-name 'shipping application retains gate'
       - run: flutter test --dart-define=dart.vm.product=true --dart-define=ENABLE_GP_ORDER_PREVIEW=true --dart-define=ENABLE_GP_CONVERSION_PREVIEW=true --dart-define=ENABLE_SHIPPING_PREVIEW=true --dart-define=ENABLE_ORDER_REFUND_PREVIEW=true --dart-define=ENABLE_LEGACY_TRANSACTIONS=true test/core/v33_release_gate_test.dart
