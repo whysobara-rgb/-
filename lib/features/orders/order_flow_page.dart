@@ -8,7 +8,7 @@ import '../../shared/widgets/gachi_components.dart';
 import '../../shared/widgets/gachi_opening.dart';
 import '../inventory/presentation/inventory_page.dart';
 import 'order_models.dart';
-import 'prize_reveal.dart';
+import 'single_opening_view.dart';
 import 'purchase_completion_view.dart';
 import 'order_repository.dart';
 import 'batch_opening.dart';
@@ -200,6 +200,40 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
     });
   }
 
+  // Scope changes deliberately reset selection; pagination within a scope does not.
+  void _changeSelectionScope(bool recent) {
+    if (_busy || _onlyRecentPurchase == recent) return;
+    setState(() {
+      _onlyRecentPurchase = recent;
+      _selectedCapsules.clear();
+    });
+  }
+
+  Widget _selectionScopeChip(String label, {required bool recent}) {
+    final selected = _onlyRecentPurchase == recent;
+    return ChoiceChip(
+      label: Text(label),
+      selected: selected,
+      backgroundColor: GachiOpeningColors.panel,
+      selectedColor: GachiColors.gold,
+      labelStyle: GachiType.meta.copyWith(
+        color: selected ? GachiColors.navy : GachiColors.ivory,
+      ),
+      onSelected: _busy ? null : (_) => _changeSelectionScope(recent),
+    );
+  }
+
+  String get _selectionScope => _onlyRecentPurchase ? '이번 구매' : '전체 미개봉';
+
+  String get _selectionSummary {
+    final visible = _visibleCapsules.map((c) => c.id).toSet();
+    final elsewhere = _selectedCapsules
+        .where((id) => !visible.contains(id))
+        .length;
+    return '$_selectionScope에서 ${_selectedCapsules.length}개 선택'
+        '${elsewhere == 0 ? '' : ' · 다른 페이지 $elsewhere개 포함'}';
+  }
+
   Future<void> _batchPage({bool resume = false}) async {
     if (_busy || !_sameUser) return;
     final ids = List<String>.of(_selectedCapsules);
@@ -208,21 +242,23 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
       if (!resume) {
         final agreed = await showDialog<bool>(
           context: context,
-          builder: (context) => AlertDialog(
-            title: Text('박스 ${ids.length}개를 개봉할까요?'),
-            content: const Text(
-              '추가 결제는 0 GP입니다. 구매 당시 확률로 상품이 지급됩니다. 개봉한 박스는 미개봉 상태로 되돌릴 수 없어요. 중간에 멈추면 나머지는 미개봉으로 남습니다.',
+          builder: (context) => GachiOpeningTheme(
+            child: AlertDialog(
+              title: Text('박스 ${ids.length}개를 개봉할까요?'),
+              content: Text(
+                '$_selectionSummary\n\n추가 결제는 0 GP입니다. 구매 당시 확률로 상품이 지급됩니다. 개봉한 박스는 미개봉 상태로 되돌릴 수 없어요. 중간에 멈추면 나머지는 미개봉으로 남습니다.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('돌아가기'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: Text('${ids.length}개 개봉'),
+                ),
+              ],
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('돌아가기'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: Text('${ids.length}개 개봉'),
-              ),
-            ],
           ),
         );
         if (agreed != true || !mounted || !_sameUser) return;
@@ -284,34 +320,40 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (context) => FractionallySizedBox(
-        heightFactor: .9,
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(GachiSpace.lg),
-              child: Row(
-                children: [
-                  const Expanded(
-                    child: Text('구성 상품 · 확률 · 전환 GP', style: GachiType.section),
-                  ),
-                  IconButton(
-                    tooltip: '확률 안내 닫기',
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: ListView.builder(
-                key: const Key('purchase-odds-list'),
+      backgroundColor: GachiColors.surface,
+      builder: (context) => GachiTheme(
+        child: FractionallySizedBox(
+          heightFactor: .9,
+          child: Column(
+            children: [
+              Padding(
                 padding: const EdgeInsets.all(GachiSpace.lg),
-                itemCount: odds.prizes.length,
-                itemBuilder: (_, i) => _prize(odds.prizes[i], odds: true),
+                child: Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        '구성 상품 · 확률 · 전환 GP',
+                        style: GachiType.section,
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: '확률 안내 닫기',
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+              Expanded(
+                child: ListView.builder(
+                  key: const Key('purchase-odds-list'),
+                  padding: const EdgeInsets.all(GachiSpace.lg),
+                  itemCount: odds.prizes.length,
+                  itemBuilder: (_, i) => _prize(odds.prizes[i], odds: true),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -437,47 +479,21 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
   List<Widget> _content() {
     if (_opening != null || (_openingId != null && _busy)) {
       return [
-        GachiOpeningHeading(
-          title: _opening == null ? '박스를 열고 있어요' : '1개 개봉 완료',
-          description: '추가 결제 0 GP · 확인된 결과만 공개합니다.',
-        ),
-        GachiOpeningExperience(
+        SingleOpeningView(
           key: ValueKey(_openingId),
-          waiting: _opening == null,
-          result: _opening == null
-              ? const SizedBox.shrink()
-              : Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    PrizeReveal(
-                      animate: false,
-                      key: ValueKey(_opening!.capsuleId),
-                      prize: _opening!.prize,
-                    ),
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: GachiSpace.lg),
-                      child: Text(
-                        '내 보관함에 저장했어요. 이 화면을 다시 열어도 같은 결과를 확인할 수 있습니다.',
-                      ),
-                    ),
-                    GachiPrimaryButton(
-                      label: '보관함 보기',
-                      gold: true,
-                      onPressed: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => const InventoryPage(),
-                        ),
-                      ),
-                    ),
-                    _button('미개봉 보관함으로', _inventory, primary: false),
-                    _button('확인하고 돌아가기', () async {
-                      await _run(() async {
-                        await _repo!.acknowledgeOpening(_opening!.capsuleId);
-                        if (mounted) Navigator.pop(context);
-                      });
-                    }, primary: false),
-                  ],
-                ),
+          opening: _opening,
+          onCollection: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const InventoryPage()),
+          ),
+          onUnopened: _busy ? null : _inventory,
+          onClose: _busy
+              ? null
+              : () async {
+                  await _run(() async {
+                    await _repo!.acknowledgeOpening(_opening!.capsuleId);
+                    if (mounted) Navigator.pop(context);
+                  });
+                },
         ),
       ];
     }
@@ -601,16 +617,8 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
           Wrap(
             spacing: GachiSpace.sm,
             children: [
-              ChoiceChip(
-                label: const Text('이번 구매'),
-                selected: _onlyRecentPurchase,
-                onSelected: (_) => setState(() => _onlyRecentPurchase = true),
-              ),
-              ChoiceChip(
-                label: const Text('전체 미개봉'),
-                selected: !_onlyRecentPurchase,
-                onSelected: (_) => setState(() => _onlyRecentPurchase = false),
-              ),
+              _selectionScopeChip('이번 구매', recent: true),
+              _selectionScopeChip('전체 미개봉', recent: false),
             ],
           ),
         );
@@ -620,6 +628,9 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
           _onlyRecentPurchase ? _recentPurchase!.title : '최대 100개까지 선택할 수 있어요.',
         ),
       );
+      widgets.add(
+        const Text('범위 변경이나 새로고침 시 선택이 초기화됩니다.'),
+      ); // Keep cross-page selection explicit.
       if (!_onlyRecentPurchase && _total > 20) widgets.add(Text('$_page페이지'));
       if (_inlineAction &&
           _selectedCapsules.isNotEmpty &&
@@ -666,6 +677,7 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
       widgets.addAll(
         _visibleCapsules.map(
           (c) => Card(
+            key: ValueKey('unopened-${c.id}'),
             child: ListTile(
               leading: Checkbox(
                 value: _selectedCapsules.contains(c.id),
@@ -736,8 +748,10 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
         _button(
           '새로고침',
           () => _run(() async {
+            _selectedCapsules.clear();
             _onlyRecentPurchase = false;
             _recentPurchase = null;
+            _page = 1;
             await _load();
           }),
           primary: false,
@@ -856,6 +870,11 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        Text(
+          _selectionSummary,
+          key: const Key('opening-selection-scope'),
+          textAlign: TextAlign.center,
+        ),
         const Text('개봉 후에는 미개봉 상태로 되돌릴 수 없어요.', textAlign: TextAlign.center),
         const SizedBox(height: GachiSpace.sm),
         GachiPrimaryButton(
@@ -876,6 +895,7 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
         _showInventory &&
         _selectedCapsules.isNotEmpty &&
         _batchPending == null &&
+        _pendingOpen == null &&
         _focused == null &&
         _openingId == null;
     final purchase =
@@ -885,43 +905,47 @@ class _OrderFlowPageState extends State<OrderFlowPage> {
         _pending == null &&
         _odds != null &&
         _openingId == null;
-    final scaffold = Scaffold(
-      appBar: AppBar(title: Text(_showInventory ? '미개봉 보관함' : '구매 확인')),
-      bottomNavigationBar: !_inlineAction && (selection || purchase)
-          ? SafeArea(
-              top: false,
-              child: selection ? _selectionAction() : _purchaseAction(),
-            )
-          : null,
-      body: SafeArea(
-        child: !sameUser
-            ? const Center(child: Text('구매한 계정으로 다시 로그인해주세요.'))
-            : Column(
-                children: [
-                  if (_busy && _openingId == null)
-                    const LinearProgressIndicator(),
-                  Expanded(
-                    child: ListView(
-                      padding: const EdgeInsets.all(GachiSpace.page),
-                      children: [
-                        if (_error != null)
-                          Padding(
-                            padding: const EdgeInsets.only(
-                              bottom: GachiSpace.lg,
-                            ),
-                            child: Semantics(
-                              liveRegion: true,
-                              child: Text(_error!),
-                            ),
-                          ),
-                        ..._content(),
-                      ],
-                    ),
-                  ),
-                ],
+    final bottomAction = !_inlineAction && (selection || purchase)
+        ? SafeArea(
+            top: false,
+            child: selection ? _selectionAction() : _purchaseAction(),
+          )
+        : null;
+    final body = !sameUser
+        ? const Center(child: Text('구매한 계정으로 다시 로그인해주세요.'))
+        : Column(
+            children: [
+              if (_busy && _openingId == null) const LinearProgressIndicator(),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.all(GachiSpace.page),
+                  children: [
+                    if (_error != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: GachiSpace.lg),
+                        child: Semantics(
+                          liveRegion: true,
+                          child: Text(_error!),
+                        ),
+                      ),
+                    ..._content(),
+                  ],
+                ),
               ),
-      ),
-    );
-    return _showInventory ? GachiOpeningTheme(child: scaffold) : scaffold;
+            ],
+          );
+    // Result/recovery can enter from purchase, without switching to inventory.
+    // Select the presentation shell from the visible state, not its entry route.
+    return _showInventory || _openingId != null
+        ? GachiOpeningScaffold(
+            title: _openingId == null ? '미개봉 보관함' : '개봉 결과',
+            body: body,
+            bottomNavigationBar: bottomAction,
+          )
+        : GachiScaffold(
+            title: '구매 확인',
+            body: body,
+            bottomNavigationBar: bottomAction,
+          );
   }
 }

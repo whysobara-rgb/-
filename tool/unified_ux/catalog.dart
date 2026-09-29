@@ -8,6 +8,8 @@ import 'package:gacha_vault/features/home/domain/gacha_detail.dart';
 import 'package:gacha_vault/features/home/presentation/catalog_views.dart';
 import 'package:gacha_vault/features/gacha/presentation/product_detail_view.dart';
 import 'package:gacha_vault/features/orders/order_models.dart';
+import 'package:gacha_vault/core/theme/app_theme.dart';
+import 'package:gacha_vault/features/orders/single_opening_view.dart';
 import 'package:gacha_vault/features/orders/purchase_completion_view.dart';
 import 'review_order_fixtures.dart';
 import 'package:gacha_vault/features/orders/order_flow_page.dart';
@@ -38,6 +40,7 @@ const reviewScreens = [
   'Purchase Complete',
   'Open',
   'Single Result',
+  'Direct Single Recovery',
   'Result',
   'Partial',
   'Unopened Retained',
@@ -94,19 +97,32 @@ Widget reviewScreen(String screen) {
         repository: reviewOrderRepository(),
       );
     case 'Purchase Complete':
-      return Scaffold(
-        appBar: AppBar(title: const Text('구매 확인')),
-        body: SafeArea(
-          child: ListView(
-            padding: const EdgeInsets.all(GachiSpace.page),
-            children: [
-              PurchaseCompletionView(
-                receipt: reviewReceipt(),
-                onPrepareOpening: none,
-                onLater: none,
-              ),
-            ],
-          ),
+      return GachiScaffold(
+        title: '구매 확인',
+        body: ListView(
+          padding: const EdgeInsets.all(GachiSpace.page),
+          children: [
+            PurchaseCompletionView(
+              receipt: reviewReceipt(),
+              onPrepareOpening: none,
+              onLater: none,
+            ),
+          ],
+        ),
+      );
+    case 'Direct Single Recovery':
+      return GachiOpeningScaffold(
+        title: '개봉 결과',
+        body: ListView(
+          padding: const EdgeInsets.all(GachiSpace.page),
+          children: [
+            SingleOpeningView(
+              opening: reviewBatch(completed: 1, total: 1).results.single,
+              onCollection: none,
+              onUnopened: none,
+              onClose: none,
+            ),
+          ],
         ),
       );
     case 'Open':
@@ -162,7 +178,7 @@ void main() {
   runApp(
     reviewProviders(
       MaterialApp(
-        theme: GachiTheme.data,
+        theme: AppTheme.lightTheme,
         debugShowCheckedModeBanner: false,
         home: const ReviewCatalog(),
       ),

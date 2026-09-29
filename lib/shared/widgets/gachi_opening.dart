@@ -61,17 +61,24 @@ class GachiOpeningTheme extends StatelessWidget {
 class GachiOpeningScaffold extends StatelessWidget {
   final Widget body;
   final String title;
+  final Widget? bottomNavigationBar;
   const GachiOpeningScaffold({
     super.key,
     required this.body,
     this.title = '일괄 개봉',
+    this.bottomNavigationBar,
   });
 
   @override
   Widget build(BuildContext context) => GachiOpeningTheme(
     child: Scaffold(
       appBar: AppBar(title: Text(title)),
-      body: SafeArea(child: body),
+      body: SafeArea(
+        top: false,
+        bottom: bottomNavigationBar == null,
+        child: body,
+      ),
+      bottomNavigationBar: bottomNavigationBar,
     ),
   );
 }
