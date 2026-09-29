@@ -39,7 +39,7 @@ void main() {
     );
   });
   testWidgets(
-    'Home has one hero and no duplicated quick menu, at most four boxes',
+    'Home has one real catalog hero and two distinct boxes without duplicated quick menu',
     (tester) async {
       await v33.mount(
         tester,
@@ -47,8 +47,18 @@ void main() {
       );
       await tester.drag(find.byType(CustomScrollView), const Offset(0, -350));
       await tester.pumpAndSettle();
-      expect(find.byType(CapsuleBoxCard), findsNWidgets(4));
-      expect(find.text('박스 둘러보기'), findsOneWidget);
+      expect(find.byType(CapsuleBoxCard), findsNWidgets(2));
+      expect(
+        tester.widget<GachiCatalogHero>(find.byType(GachiCatalogHero)).box.id,
+        reviewBoxes.first.id,
+      );
+      expect(
+        tester
+            .widgetList<CapsuleBoxCard>(find.byType(CapsuleBoxCard))
+            .map((c) => c.box.id),
+        reviewBoxes.skip(1).map((b) => b.id),
+      );
+      expect(find.text('구성·확률 보기'), findsOneWidget);
       expect(find.text('보관함'), findsOneWidget); // only bottom navigation
       expect(tester.takeException(), isNull);
     },

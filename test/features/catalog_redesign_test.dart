@@ -159,7 +159,10 @@ void main() {
   ) async {
     await mount(tester, catalog());
     await capture(tester, 'home');
+    await tester.tap(find.byKey(const Key('catalog-filter')));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('낮은 가격순'));
+    await tester.tap(find.byKey(const Key('catalog-filter-apply')));
     await tester.pumpAndSettle();
     expect(
       tester

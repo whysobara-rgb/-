@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/network/api_client.dart';
+import '../../../core/config/app_config.dart';
+import '../../orders/order_repository.dart';
 import '../../../shared/providers/auth_provider.dart';
 import '../../../shared/providers/gp_provider.dart';
 import '../../../shared/widgets/balance_notice.dart';
@@ -19,6 +21,7 @@ typedef CatalogScreen = BoxShopScreen;
 class HomePage extends StatefulWidget {
   final VoidCallback onGoToWallet;
   final Future<List<CapsuleBox>> Function()? loadCatalog;
+  final Future<int> Function(int userId)? loadUnopenedCount;
   final bool showShop;
   final int refreshRevision;
   final VoidCallback onShop, onRanking, onOpenUnopened, onCollection;
@@ -26,6 +29,7 @@ class HomePage extends StatefulWidget {
     super.key,
     required this.onGoToWallet,
     this.loadCatalog,
+    this.loadUnopenedCount,
     this.showShop = false,
     this.refreshRevision = 0,
     required this.onShop,
@@ -42,6 +46,8 @@ class _HomePageState extends State<HomePage> {
   List<Campaign> _campaigns = [];
   String? _contentError;
   int _catalogRequest = 0, _contentRequest = 0;
+  int _unopenedRequest = 0;
+  int? _unopenedCount, _unopenedSession, _unopenedUser;
   bool _loading = true;
   String? _error;
   @override
@@ -52,11 +58,55 @@ class _HomePageState extends State<HomePage> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final auth = context.watch<AuthProvider>();
+    if (_unopenedSession != auth.sessionGeneration ||
+        _unopenedUser != auth.currentUser?.id) {
+      _unopenedSession = auth.sessionGeneration;
+      _unopenedUser = auth.currentUser?.id;
+      _unopenedCount = null;
+      ++_unopenedRequest;
+      // A new session, including the same account signing in again, invalidates
+      // the old count. Do not fetch or expose this entry outside the order gate.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _loadUnopened();
+      });
+    }
+  }
+
+  Future<void> _loadUnopened() async {
+    final request = ++_unopenedRequest;
+    final auth = context.read<AuthProvider>();
+    final user = auth.currentUser;
+    final session = auth.sessionGeneration;
+    if (!AppConfig.orderPreviewEnabled || user == null) return;
+    setState(() => _unopenedCount = null);
+    try {
+      final count = widget.loadUnopenedCount != null
+          ? await widget.loadUnopenedCount!(user.id)
+          : (await (await OrderRepository.forUser(user.id)).capsules(1)).$2;
+      if (mounted &&
+          request == _unopenedRequest &&
+          auth.isSessionCurrent(session) &&
+          auth.currentUser?.id == user.id) {
+        setState(() => _unopenedCount = count);
+      }
+    } catch (_) {
+      // Unknown is not zero. Existing unopened route remains in bottom nav.
+      if (mounted && request == _unopenedRequest) {
+        setState(() => _unopenedCount = null);
+      }
+    }
+  }
+
+  @override
   void didUpdateWidget(covariant HomePage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.refreshRevision != widget.refreshRevision) {
       _load();
       _loadContent();
+      _loadUnopened();
     }
   }
 
@@ -118,7 +168,7 @@ class _HomePageState extends State<HomePage> {
     if (mounted) {
       await context.read<AuthProvider>().refreshProfile();
       if (mounted) {
-        await _load();
+        await Future.wait([_load(), _loadUnopened()]);
       }
     }
   }
@@ -127,6 +177,7 @@ class _HomePageState extends State<HomePage> {
     await Future.wait([
       _load(),
       _loadContent(),
+      _loadUnopened(),
       context.read<AuthProvider>().refreshProfile(),
     ]);
   }
@@ -145,6 +196,7 @@ class _HomePageState extends State<HomePage> {
           enabled: !widget.showShop,
           child: HomeScreen(
             boxes: _boxes,
+            unopenedCount: _unopenedCount,
             campaigns: _campaigns,
             contentError: _contentError,
             onUpdates: _updates,

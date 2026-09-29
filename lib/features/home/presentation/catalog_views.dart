@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../shared/widgets/gachi_components.dart';
-import '../../../shared/widgets/gachi_discovery.dart';
 import '../../customer_updates/customer_content.dart';
 import '../../customer_updates/customer_updates_page.dart';
 import '../../../shared/data/activity_page.dart';
@@ -170,9 +169,33 @@ class _BoxShopScreenState extends State<BoxShopScreen> {
     return result;
   }
 
+  Future<void> _filters() async {
+    FocusScope.of(context).unfocus();
+    final selection = await showModalBottomSheet<(String, String)>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: GachiColors.surface,
+      builder: (_) => GachiTheme(
+        child: CatalogFilterPanel(category: _category, sort: _sort),
+      ),
+    );
+    if (!mounted || selection == null) return;
+    setState(() {
+      _category = selection.$1;
+      _sort = selection.$2;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final visible = _visible;
+    final scale = MediaQuery.textScalerOf(context).scale(14) / 14;
+    final columns = MediaQuery.sizeOf(context).width - 40 < 300 || scale > 1.4
+        ? 1
+        : 2;
+    final hasCards =
+        !widget.loading && widget.error == null && visible.isNotEmpty;
     return GachiScaffold(
       body: RefreshIndicator(
         onRefresh: widget.onRefresh,
@@ -182,7 +205,7 @@ class _BoxShopScreenState extends State<BoxShopScreen> {
           keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           slivers: [
             SliverPadding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
+              padding: const EdgeInsets.symmetric(horizontal: GachiSpace.page),
               sliver: SliverList.list(
                 children: [
                   GachiHeader(
@@ -190,27 +213,15 @@ class _BoxShopScreenState extends State<BoxShopScreen> {
                     onWallet: widget.onWallet,
                     onUpdates: widget.onUpdates,
                   ),
-                  const SizedBox(height: GachiSpace.lg),
-                  Text(
-                    'BOX SHOP',
-                    style: GachiType.english.copyWith(
-                      color: GachiColors.secondary,
-                    ),
-                  ),
-                  const SizedBox(height: GachiSpace.xs),
+                  const SizedBox(height: GachiSpace.md),
                   Semantics(
                     header: true,
                     child: const Text('박스샵', style: GachiType.pageTitle),
                   ),
-                  const SizedBox(height: GachiSpace.xl),
+                  const SizedBox(height: GachiSpace.xs),
+                  const Text('구성과 확률을 살펴보고 골라보세요.', style: GachiType.body),
+                  const SizedBox(height: GachiSpace.lg),
                   if (widget.balanceNotice != null) widget.balanceNotice!,
-                  if (widget.campaigns.isNotEmpty)
-                    GachiCampaignPager(
-                      campaigns: widget.campaigns,
-                      onUpdates: widget.onUpdates,
-                    ),
-                  if (widget.contentError != null)
-                    Text(widget.contentError!, style: GachiType.meta),
                   TextField(
                     controller: _search,
                     onChanged: (_) => setState(() {}),
@@ -228,51 +239,89 @@ class _BoxShopScreenState extends State<BoxShopScreen> {
                             ),
                     ),
                   ),
-                  const SizedBox(height: GachiSpace.lg),
-                  GachiCategoryTabs(
-                    selected: _category,
-                    onSelected: (value) => setState(() => _category = value),
-                  ),
-                  const SizedBox(height: GachiSpace.lg),
+                  const SizedBox(height: GachiSpace.sm),
                   Wrap(
-                    spacing: GachiSpace.sm,
-                    runSpacing: GachiSpace.sm,
-                    children: ['기본순', '낮은 가격순', '높은 가격순']
-                        .map(
-                          (label) => ChoiceChip(
-                            label: Text(
-                              label,
-                              style: GachiType.meta.copyWith(
-                                color: _sort == label
-                                    ? GachiColors.surface
-                                    : GachiColors.secondary,
-                              ),
-                            ),
-                            selected: _sort == label,
-                            showCheckmark: false,
-                            onSelected: (_) => setState(() => _sort = label),
+                    alignment: WrapAlignment.spaceBetween,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: GachiSpace.md,
+                    children: [
+                      Text(
+                        widget.loading
+                            ? '박스를 불러오고 있어요'
+                            : '박스 ${visible.length}개',
+                        style: GachiType.meta,
+                      ),
+                      TextButton.icon(
+                        key: const Key('catalog-filter'),
+                        onPressed: _filters,
+                        icon: const Icon(Icons.tune_rounded),
+                        label: Text(
+                          '${catalogCategories[_category]} · $_sort',
+                          semanticsLabel:
+                              '필터, ${catalogCategories[_category]}, $_sort',
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: GachiSpace.sm),
+                  if (!hasCards)
+                    CatalogBody(
+                      loading: widget.loading,
+                      error: widget.error,
+                      boxes: visible,
+                      filtered: _search.text.isNotEmpty || _category != 'all',
+                      onRetry: widget.onRefresh,
+                      onClear: () => setState(() {
+                        _search.clear();
+                        _category = 'all';
+                        _sort = '기본순';
+                      }),
+                      onOpen: widget.onOpen,
+                    ),
+                ],
+              ),
+            ),
+            if (hasCards)
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: GachiSpace.page,
+                ),
+                sliver: SliverList.builder(
+                  itemCount: (visible.length / columns).ceil(),
+                  itemBuilder: (context, row) => Padding(
+                    padding: const EdgeInsets.only(bottom: GachiSpace.lg),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        for (var col = 0; col < columns; col++) ...[
+                          if (col > 0) const SizedBox(width: GachiSpace.md),
+                          Expanded(
+                            child: row * columns + col < visible.length
+                                ? CapsuleBoxCard(
+                                    box: visible[row * columns + col],
+                                    onTap: () => widget.onOpen(
+                                      visible[row * columns + col],
+                                    ),
+                                  )
+                                : const SizedBox.shrink(),
                           ),
-                        )
-                        .toList(),
+                        ],
+                      ],
+                    ),
                   ),
-                  const SizedBox(height: GachiSpace.xl),
-                  Text(
-                    widget.loading ? '박스를 불러오고 있어요' : '박스 ${visible.length}개',
-                    style: GachiType.meta,
-                  ),
-                  const SizedBox(height: GachiSpace.md),
-                  CatalogBody(
-                    loading: widget.loading,
-                    error: widget.error,
-                    boxes: visible,
-                    filtered: _search.text.isNotEmpty || _category != 'all',
-                    onRetry: widget.onRefresh,
-                    onClear: () => setState(() {
-                      _search.clear();
-                      _category = 'all';
-                    }),
-                    onOpen: widget.onOpen,
-                  ),
+                ),
+              ),
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
+              sliver: SliverList.list(
+                children: [
+                  if (widget.campaigns.isNotEmpty)
+                    CatalogNews(
+                      campaign: widget.campaigns.first,
+                      onUpdates: widget.onUpdates,
+                    ),
+                  if (widget.contentError != null)
+                    Text(widget.contentError!, style: GachiType.meta),
                 ],
               ),
             ),
@@ -283,12 +332,109 @@ class _BoxShopScreenState extends State<BoxShopScreen> {
   }
 }
 
+/// Draft filters only become active on Apply; closing the sheet preserves state.
+class CatalogFilterPanel extends StatefulWidget {
+  final String category, sort;
+  const CatalogFilterPanel({
+    super.key,
+    required this.category,
+    required this.sort,
+  });
+  @override
+  State<CatalogFilterPanel> createState() => _CatalogFilterPanelState();
+}
+
+class _CatalogFilterPanelState extends State<CatalogFilterPanel> {
+  late String _category = widget.category, _sort = widget.sort;
+  @override
+  Widget build(BuildContext context) => SafeArea(
+    top: false,
+    child: SingleChildScrollView(
+      padding: const EdgeInsets.all(GachiSpace.page),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              const Expanded(child: Text('박스 필터', style: GachiType.section)),
+              IconButton(
+                tooltip: '필터 닫기',
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.close),
+              ),
+            ],
+          ),
+          const SizedBox(height: GachiSpace.lg),
+          const Text('카테고리', style: GachiType.product),
+          const SizedBox(height: GachiSpace.sm),
+          GachiCategoryTabs(
+            selected: _category,
+            onSelected: (value) => setState(() => _category = value),
+          ),
+          const SizedBox(height: GachiSpace.xl),
+          const Text('가격 정렬 · GP 기준', style: GachiType.product),
+          const SizedBox(height: GachiSpace.sm),
+          Wrap(
+            spacing: GachiSpace.sm,
+            runSpacing: GachiSpace.sm,
+            children: ['기본순', '낮은 가격순', '높은 가격순']
+                .map(
+                  (label) => ChoiceChip(
+                    label: Text(label),
+                    selected: _sort == label,
+                    onSelected: (_) => setState(() => _sort = label),
+                  ),
+                )
+                .toList(),
+          ),
+          const SizedBox(height: GachiSpace.xl),
+          GachiPrimaryButton(
+            key: const Key('catalog-filter-apply'),
+            label: '적용하기',
+            onPressed: () => Navigator.pop(context, (_category, _sort)),
+          ),
+          Center(
+            child: TextButton(
+              onPressed: () => setState(() {
+                _category = 'all';
+                _sort = '기본순';
+              }),
+              child: const Text('필터 초기화'),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+/// A published notice never replaces the product hero or rotates while reading.
+class CatalogNews extends StatelessWidget {
+  final Campaign campaign;
+  final VoidCallback? onUpdates;
+  const CatalogNews({super.key, required this.campaign, this.onUpdates});
+  @override
+  Widget build(BuildContext context) => ListTile(
+    contentPadding: EdgeInsets.zero,
+    leading: const Icon(Icons.campaign_outlined, color: GachiColors.secondary),
+    title: Text(campaign.title, style: GachiType.meta),
+    trailing: const Icon(Icons.chevron_right),
+    onTap:
+        onUpdates ??
+        () => Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const CustomerUpdatesPage())),
+  );
+}
+
 class HomeScreen extends StatefulWidget {
   final List<CapsuleBox> boxes;
   final List<Campaign> campaigns;
   final String balance;
   final bool loading;
   final String? error, contentError;
+  final int? unopenedCount;
   final Widget? balanceNotice;
   final Future<void> Function() onRefresh;
   final ValueChanged<CapsuleBox> onOpen;
@@ -302,6 +448,7 @@ class HomeScreen extends StatefulWidget {
     this.loading = false,
     this.error,
     this.contentError,
+    this.unopenedCount,
     this.balanceNotice,
     required this.onRefresh,
     required this.onOpen,
@@ -317,12 +464,16 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  String _category = 'all';
   @override
   Widget build(BuildContext context) {
-    final visible = widget.boxes
-        .where((b) => _category == 'all' || b.category == _category)
-        .toList();
+    // Server catalog order only; no invented popularity or personalized ranking.
+    final unique = <int, CapsuleBox>{};
+    for (final box in widget.boxes) {
+      unique.putIfAbsent(box.id, () => box);
+    }
+    final visible = unique.values.toList();
+    final available =
+        !widget.loading && widget.error == null && visible.isNotEmpty;
     return GachiScaffold(
       body: RefreshIndicator(
         onRefresh: widget.onRefresh,
@@ -331,54 +482,78 @@ class _HomeScreenState extends State<HomeScreen> {
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
             SliverPadding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
               sliver: SliverList.list(
                 children: [
                   GachiHeader(
                     balance: widget.balance,
                     onWallet: widget.onWallet,
-                    onSearch: widget.onShop,
                     onUpdates: widget.onUpdates,
                   ),
                   if (widget.balanceNotice != null) widget.balanceNotice!,
-                  if (widget.campaigns.isNotEmpty)
-                    GachiCampaignPager(
-                      campaigns: widget.campaigns,
-                      onUpdates: widget.onUpdates,
+                  const SizedBox(height: GachiSpace.md),
+                  if (available)
+                    GachiCatalogHero(
+                      box: visible.first,
+                      onOpen: () => widget.onOpen(visible.first),
                     )
                   else
-                    GachiDiscoveryHero(onExplore: widget.onShop),
-                  if (widget.contentError != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: GachiSpace.md),
-                      child: Text(
-                        widget.contentError!,
-                        style: GachiType.meta.copyWith(
-                          color: GachiColors.secondary,
+                    CatalogBody(
+                      loading: widget.loading,
+                      error: widget.error,
+                      boxes: const [],
+                      onRetry: widget.onRefresh,
+                      onOpen: widget.onOpen,
+                    ),
+                  if ((widget.unopenedCount ?? 0) > 0) ...[
+                    const SizedBox(height: GachiSpace.md),
+                    Material(
+                      color: GachiColors.surface,
+                      borderRadius: GachiShape.card,
+                      child: ListTile(
+                        key: const Key('home-unopened'),
+                        leading: const Icon(
+                          Icons.inventory_2_outlined,
+                          color: GachiColors.ink,
                         ),
+                        title: Text(
+                          '미개봉 ${widget.unopenedCount}개',
+                          style: GachiType.product,
+                        ),
+                        subtitle: const Text(
+                          '선택해서 개봉하기',
+                          style: GachiType.meta,
+                        ),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: widget.onOpenUnopened,
                       ),
                     ),
-                  const SizedBox(height: GachiSpace.section),
+                  ],
+                  const SizedBox(height: GachiSpace.xl),
                   GachiSectionHeader(
-                    title: '취향을 발견하는 박스',
+                    title: '다른 박스도 살펴보세요',
                     onAction: widget.onShop,
                   ),
+                  if (available && visible.length > 1) ...[
+                    const SizedBox(height: GachiSpace.md),
+                    CatalogGrid(
+                      boxes: visible.skip(1).take(2).toList(),
+                      onOpen: widget.onOpen,
+                    ),
+                  ],
                   const SizedBox(height: GachiSpace.md),
-                  GachiCategoryTabs(
-                    selected: _category,
-                    onSelected: (value) => setState(() => _category = value),
-                  ),
-                  const SizedBox(height: GachiSpace.md),
-                  CatalogBody(
-                    loading: widget.loading,
-                    error: widget.error,
-                    boxes: visible.take(4).toList(),
-                    filtered: _category != 'all',
-                    onClear: () => setState(() => _category = 'all'),
-                    onRetry: widget.onRefresh,
-                    onOpen: widget.onOpen,
-                  ),
-                  const SizedBox(height: GachiSpace.lg),
+                  if (widget.campaigns.isNotEmpty)
+                    CatalogNews(
+                      campaign: widget.campaigns.first,
+                      onUpdates: widget.onUpdates,
+                    ),
+                  if (widget.contentError != null)
+                    Text(
+                      widget.contentError!,
+                      style: GachiType.meta.copyWith(
+                        color: GachiColors.secondary,
+                      ),
+                    ),
                   Align(
                     alignment: Alignment.centerLeft,
                     child: TextButton.icon(
@@ -397,64 +572,89 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
+/// One real catalog record: image, exact GP price and one detail action.
+/// The pictured object is not promised as the opening result.
 class GachiCatalogHero extends StatelessWidget {
   final CapsuleBox box;
   final VoidCallback onOpen;
   const GachiCatalogHero({super.key, required this.box, required this.onOpen});
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(GachiSpace.xl),
+  Widget build(BuildContext context) => DecoratedBox(
     decoration: const BoxDecoration(
-      color: GachiColors.navy,
       borderRadius: GachiShape.card,
+      boxShadow: GachiShape.shadow,
     ),
-    child: LayoutBuilder(
-      builder: (context, constraints) {
-        final copy = Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'GACHI DISCOVERY',
-              style: GachiType.english.copyWith(color: GachiColors.gold),
-            ),
-            const SizedBox(height: GachiSpace.md),
-            Text(
-              box.name,
-              style: GachiType.pageTitle.copyWith(color: GachiColors.ivory),
-            ),
-            const SizedBox(height: GachiSpace.md),
-            Text(
-              box.formattedPrice,
-              style: GachiType.product.copyWith(color: GachiColors.ivory),
-            ),
-            const SizedBox(height: GachiSpace.xl),
-            GachiPrimaryButton(
-              label: '구성 상품 보기',
-              onPressed: onOpen,
-              gold: true,
-            ),
-          ],
-        );
-        if (box.imageUrl == null ||
-            MediaQuery.textScalerOf(context).scale(15) > 21 ||
-            constraints.maxWidth < 300) {
-          return copy;
-        }
-        return Row(
-          children: [
-            Expanded(flex: 3, child: copy),
-            const SizedBox(width: GachiSpace.md),
-            Expanded(
-              flex: 2,
-              child: GachiProductImage(
-                url: box.imageUrl,
-                label: box.name,
-                compact: true,
+    child: ClipRRect(
+      borderRadius: GachiShape.card,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          GachiProductImage(
+            url: box.imageUrl,
+            label: '${box.name} 대표 이미지',
+            aspectRatio: 1.5,
+          ),
+          ColoredBox(
+            color: GachiColors.navy,
+            child: Padding(
+              padding: const EdgeInsets.all(GachiSpace.lg),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.token_outlined,
+                        color: GachiColors.gold,
+                        size: 20,
+                      ),
+                      const SizedBox(width: GachiSpace.sm),
+                      Expanded(
+                        child: Text(
+                          'GACHI / DISCOVER',
+                          style: GachiType.english.copyWith(
+                            color: GachiColors.gold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: GachiSpace.sm),
+                  Text(
+                    box.name,
+                    style: GachiType.pageTitle.copyWith(
+                      color: GachiColors.surface,
+                    ),
+                  ),
+                  const SizedBox(height: GachiSpace.xs),
+                  Text(
+                    '1개 · ${box.formattedPrice}',
+                    style: GachiType.section.copyWith(
+                      color: GachiColors.surface,
+                    ),
+                  ),
+                  const SizedBox(height: GachiSpace.sm),
+                  Text(
+                    '어떤 상품을 만날지, 구성과 확률부터.',
+                    style: GachiType.meta.copyWith(color: GachiColors.ivory),
+                  ),
+                  const SizedBox(height: GachiSpace.md),
+                  GachiPrimaryButton(
+                    label: '구성·확률 보기',
+                    onPressed: onOpen,
+                    gold: true,
+                  ),
+                  const SizedBox(height: GachiSpace.sm),
+                  Text(
+                    '사진 속 상품의 획득이 보장되지는 않아요.',
+                    style: GachiType.meta.copyWith(color: GachiColors.ivory),
+                  ),
+                ],
               ),
             ),
-          ],
-        );
-      },
+          ),
+        ],
+      ),
     ),
   );
 }
