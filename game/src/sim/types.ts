@@ -54,6 +54,34 @@ export interface Command {
   aim?: Vec2 | null;
   /** One-shot ping request this tick (null/undefined = none). */
   ping?: { pos: Vec2; targetId: EntityId | null } | null;
+  /**
+   * One-shot taunt request this tick (owner addition: cute taunts like a butt wiggle in front of
+   * a rival). Purely cosmetic. Ignored while holding, dashing or knocked down, or on cooldown.
+   */
+  emote?: EmoteId | null;
+}
+
+/**
+ * Taunt emotes (owner addition). Four base emotes are always available; the three rival emotes
+ * are unlocked by beating that rival in the tournament (unlock checks live in game flow, the sim
+ * accepts any id).
+ */
+export type EmoteId =
+  | 'wiggle' // 엉덩이 흔들기 (butt wiggle + tail swish)
+  | 'bleh' // 메롱 (tongue out, pulling an eyelid)
+  | 'fanCash' // 돈다발 부채질 (fanning itself with loot cash)
+  | 'squatBounce' // 쭈그려 뛰기 (cute crouch-bounce)
+  | 'hodadakZoom' // 호다닥: 후다닥 포즈
+  | 'tongkeunFlex' // 통큰이: 근육 자랑
+  | 'nunchiShrug'; // 눈치왕: 어깨 으쓱
+
+export const BASE_EMOTES: readonly EmoteId[] = ['wiggle', 'bleh', 'fanCash', 'squatBounce'];
+
+export interface EmoteState {
+  id: EmoteId;
+  startTick: number;
+  /** Tick at which the emote finishes on its own (cancelled earlier by move/grab/dash/knockdown). */
+  endTick: number;
 }
 
 export const EMPTY_COMMAND: Readonly<Command> = Object.freeze({
@@ -318,6 +346,8 @@ export interface CharacterState {
   protectTicks: number;
   /** Bank whose moving floor currently carries this character. */
   floorOf: EntityId | null;
+  /** Taunt currently playing (owner addition; optional until every sim path sets it). */
+  emote?: EmoteState | null;
 }
 
 export interface RecoveryProgress {
@@ -545,6 +575,15 @@ export type SimEvent =
   | { type: 'policeStunned'; tick: number; officerId: EntityId; byCharId: EntityId }
   | { type: 'policeLeaving'; tick: number; carId: number }
   | { type: 'policeGone'; tick: number; carId: number }
+  | {
+      type: 'emote';
+      tick: number;
+      charId: EntityId;
+      emoteId: EmoteId;
+      /** Nearest opponent within EMOTE.nearOpponentRadius with line of sight ("in front of a rival"), else null. */
+      nearOpponentId: EntityId | null;
+    }
+  | { type: 'emoteCancel'; tick: number; charId: EntityId; emoteId: EmoteId }
   | { type: 'matchEnd'; tick: number; result: MatchResult };
 
 export type SimEventType = SimEvent['type'];

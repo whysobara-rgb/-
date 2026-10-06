@@ -272,6 +272,25 @@ export const STALL_RESCUE = {
 } as const;
 
 /** Bot perception (doc §11: public loot info + observed opponents only). */
+/** Taunt emotes (owner addition). Cosmetic only; never affect physics or scoring. */
+export const EMOTE = {
+  durationTicks: {
+    wiggle: secondsToTicks(1.6),
+    bleh: secondsToTicks(1.2),
+    fanCash: secondsToTicks(1.8),
+    squatBounce: secondsToTicks(1.6),
+    hodadakZoom: secondsToTicks(1.4),
+    tongkeunFlex: secondsToTicks(1.8),
+    nunchiShrug: secondsToTicks(1.4),
+  },
+  /** Gap after an emote ends (or is cancelled) before the next one can start. */
+  cooldownTicks: secondsToTicks(0.8),
+  /** Move input above this magnitude cancels an emote. */
+  cancelMove: 0.2,
+  /** "In front of a rival": nearest opponent within this radius with line of sight. */
+  nearOpponentRadius: 6,
+} as const;
+
 export const VISION = {
   radius: 18,
 } as const;
