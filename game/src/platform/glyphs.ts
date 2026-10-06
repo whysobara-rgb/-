@@ -13,6 +13,7 @@
  */
 import {
   MENU_BINDINGS,
+  chordBase,
   isMatchAction,
   parsePadCode,
   type BindingDevice,
@@ -196,6 +197,11 @@ export function bindingGlyph(
 ): Glyph {
   if (!code) return { label: '—', variant: 'key' };
   if (device === 'keyboard') {
+    const base = chordBase(code);
+    if (base !== null) {
+      const inner = bindingGlyph('keyboard', base, family, layout);
+      return { label: `Ctrl+${inner.label}`, variant: 'wide', title: `Ctrl + ${inner.title ?? inner.label}` };
+    }
     const m = /^Mouse([0-4])$/.exec(code);
     if (m) {
       const i = Number(m[1]);

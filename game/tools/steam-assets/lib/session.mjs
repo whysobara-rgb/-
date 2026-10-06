@@ -63,16 +63,15 @@ export async function takeControl(page) {
     __cap.manual(true);
     __cap.cssManual(true);
     const a = window.__uproot.app;
-    const rs = [a.d.view.webgl];
-    if (a.stage) rs.push(a.stage.gl);
-    __cap.renderers(rs);
+    __cap.renderers([a.d.view.webgl], 'all');
+    if (a.stage) __cap.renderers([a.stage.gl], 'screen');
     __cap.setDraw(false);
   })()`);
 }
 
 /** Re-register renderers (GameView recreates its renderer when MSAA settings change). */
 export async function registerRenderers(page) {
-  await page.evaluate(`(() => { const a = window.__uproot.app; const rs = [a.d.view.webgl]; if (a.stage) rs.push(a.stage.gl); __cap.renderers(rs); })()`);
+  await page.evaluate(`(() => { const a = window.__uproot.app; __cap.renderers([a.d.view.webgl], 'all'); if (a.stage) __cap.renderers([a.stage.gl], 'screen'); })()`);
 }
 
 export async function pump(page, n, dtMs = 1000 / 60) {

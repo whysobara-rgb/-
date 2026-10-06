@@ -329,4 +329,12 @@ export const BOT_TUNING = {
    * mirrored "each collects its half" endings that finish 1600-1600.
    */
   tieDeny: 1.0,
+  /**
+   * Endgame arithmetic (doc §8: the leader wins only with more than half of what is left beyond
+   * its lead; "lead == remaining" still allows a tie): late in the match (or with <= 1000 points
+   * left) a load whose recovery decides the match for us, or an opponent carry / haul whose
+   * recovery would let them tie or win, gets x(1 + clinch). Before it, a leader often left the
+   * last small safe to the trailer — most draws were such 1600-1600 "all recovered" endings.
+   */
+  clinch: 1.0,
 };

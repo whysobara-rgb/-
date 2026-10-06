@@ -34,6 +34,7 @@ import {
   preloadModelFonts,
   setModelTime,
   setOcclusionFocus,
+  TAUNT_SECONDS,
   type BankRig,
   type DebrisBurst,
   type FenceRig,
@@ -46,7 +47,7 @@ import {
 } from '../models';
 import { countTriangles } from '../models/geometry';
 import { BANK_MODEL } from '../../sim/config';
-import type { CharacterLook, DecorKind, HatId, LayoutDef, LayoutId, StaticBoxDef, StaticCircleDef, TeamId } from '../../sim/types';
+import type { CharacterLook, DecorKind, EmoteId, HatId, LayoutDef, LayoutId, StaticBoxDef, StaticCircleDef, TeamId } from '../../sim/types';
 
 const app = document.getElementById('app')!;
 const hud = document.getElementById('hud')!;
@@ -133,6 +134,29 @@ poseRow.forEach(([, pose], i) => addRaccoon((i % 2) as TeamId, { hat: i % 2 ? 't
 addRaccoon(1, { hat: 'teamCapB' }, -2.5, 4.6, FACE_CAM - 0.9, (t) => ({ ...idlePose(t), tumble: t % 2 }));
 // A highlighted raccoon.
 addRaccoon(1, { hat: 'teamCapB' }, 3.2, 0.6, FACE_CAM, (t) => idlePose(t)).setHighlight(HIGHLIGHT_COLORS.ping);
+
+// --- taunts (owner addition): every taunt looping, plus a fixed-clock mode for frame captures.
+const TAUNTS: EmoteId[] = ['wiggle', 'bleh', 'fanCash', 'squatBounce', 'hodadakZoom', 'tongkeunFlex', 'nunchiShrug'];
+/** Fixed taunt clock (seconds into every taunt) or null = loop in real time. */
+let tauntClock: number | null = params.get('tauntT') !== null ? Number(params.get('tauntT')) : null;
+const TAUNT_LOOKS: CharacterLook[] = [
+  { hat: 'teamCapA', furTint: 0.5 },
+  { hat: 'teamCapB', furTint: 0.3 },
+  { hat: 'tongkeunHat', furTint: 0.7 },
+  { hat: 'teamCapA', furTint: 0.6 },
+  { hat: 'hodadakBand', rival: 'hodadak', furTint: 0.35 },
+  { hat: 'tongkeunHat', rival: 'tongkeun', furTint: 0.8 },
+  { hat: 'nunchiMask', rival: 'nunchi', furTint: 0.4 },
+];
+TAUNTS.forEach((id, i) => {
+  const dur = TAUNT_SECONDS[id];
+  addRaccoon((i % 2) as TeamId, TAUNT_LOOKS[i]!, -7.8 + i * 1.6, -14, FACE_CAM - (id === 'wiggle' ? Math.PI * 0.9 : 0), (t) => {
+    // Loop: the taunt, then a short idle beat (the blend in/out shows too).
+    const cycle = dur + 0.7;
+    const local = tauntClock !== null ? tauntClock : (t + i * 0.23) % cycle;
+    return { ...idlePose(t), taunt: local < dur ? { id, t: local, dur } : null };
+  });
+});
 
 // --- safes ------------------------------------------------------------------------------
 const safes: { rig: SafeRig; strain?: boolean; cycle?: boolean }[] = [];
@@ -489,6 +513,12 @@ const CAMERAS: Record<string, CamPreset> = {
   kiosk: { pos: [S + 12, 2.2, 28.5], target: [S + 12, 1.0, 23] },
   decor: { pos: [S + 6, 5.5, 23.5], target: [S + 6, 0.4, 16], fov: 42 },
   gameShowRaccoons: gameCam(S - 2, -1),
+  /** Taunt row: close-up and through the match camera at the game's distances. */
+  taunts: { pos: [S - 3, 3.4, -2.6], target: [S - 3, 0.7, -14], fov: 42 },
+  tauntsLeft: { pos: [S - 5.4, 2.0, -8.4], target: [S - 5.4, 0.7, -14], fov: 40 },
+  tauntsRight: { pos: [S - 0.6, 2.0, -8.4], target: [S - 0.6, 0.7, -14], fov: 40 },
+  tauntsGame: gameCam(S - 3, -14, 22),
+  tauntsGameFar: gameCam(S - 3, -14, 29),
   police: { pos: [S - 2, 4.5, 14.5], target: [S - 2.5, 0.7, 8.5] },
   emotes: { pos: [S - 30, 5, 18], target: [S - 30, 1.8, 12.4] },
   expressions: { pos: [S - 1, 2.6, 6.2], target: [S - 1, 1.0, 2.6] },
@@ -608,6 +638,8 @@ declare global {
       breakdown(): Record<string, { count: number; triangles: number }>;
       selftest(): unknown;
       advance(seconds: number): void;
+      /** Freeze every taunt at `t` seconds (null = loop in real time); renders one frame. */
+      tauntAt(t: number | null): void;
     };
   }
 }
@@ -654,6 +686,16 @@ window.__gallery = {
   },
   advance(seconds: number) {
     elapsed += seconds;
+  },
+  tauntAt(t: number | null) {
+    tauntClock = t;
+    // A few small steps so the rigs' blends settle on the frozen frame.
+    for (let i = 0; i < 12; i++) {
+      elapsed += 1 / 60;
+      setModelTime(elapsed);
+      for (const u of updaters) u(1 / 60, elapsed);
+    }
+    renderer.render(scene, camera);
   },
 };
 frame();

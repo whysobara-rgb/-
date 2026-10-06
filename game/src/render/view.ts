@@ -30,10 +30,16 @@
  *     (yaw / pitch / distance) with a clearance search against statics and banks.
  *   - World-space aids owned by the view: grab-candidate brackets + anchor dot (doc §4),
  *     recovery ground meters (doc §8 dwell), ping beacons, team ground rings.
+ *   - Taunts (owner addition): CharacterState.emote / 'emote' events drive the raccoon's taunt
+ *     animation (taunts.ts state machine -> RaccoonPose.taunt), a pink-rimmed taunt bubble over
+ *     the head and a few particles. The raccoon turns to the rival the event names (the butt
+ *     wiggle turns its back on it). ViewSettings.showOthersTaunts = false hides everyone's
+ *     taunts except the focus character's own.
  */
 import * as THREE from 'three';
 import type {
   CharacterState,
+  EmoteId,
   EntityId,
   GrabCandidate,
   LayoutDef,
@@ -44,7 +50,7 @@ import type {
   TeamId,
   Vec2,
 } from '../sim';
-import { BANK_MODEL, PING, SAFE_SPECS } from '../sim';
+import { BANK_MODEL, EMOTE, PING, SAFE_SPECS } from '../sim';
 import { LAYOUT_STRINGS } from '../sim/layouts/strings';
 import { TEAM_STYLES } from '../shared/teams';
 import {
@@ -89,6 +95,7 @@ import { MoodDirector } from './moods';
 import { UprootDirector, type LootPose } from './uproot';
 import { PoliceView } from './police';
 import { PoseBuffer, damp, insideRect, lerpAngle, onBankSlab, pointVelocity, toLocal, wrapAngle, type Pose2 } from './sync';
+import { TauntTracker, type TauntWorld } from './taunts';
 
 export type { ViewMode } from './camera';
 
@@ -114,7 +121,24 @@ export interface ViewSettings {
    * the HUD shows its own callout from takeCallouts() / onCallout.
    */
   builtinCallouts?: boolean;
+  /**
+   * (extension) Show other raccoons' taunts (default true). Off hides everyone else's taunt
+   * animations, bubbles and particles; the focus character's own always play. Leaving the field
+   * out of an applySettings() call keeps the current value.
+   */
+  showOthersTaunts?: boolean;
 }
+
+/** Taunt bubble sticker per taunt emote. */
+export const TAUNT_BUBBLE: Readonly<Record<EmoteId, EmoteKind>> = {
+  wiggle: 'tauntWiggle',
+  bleh: 'tauntBleh',
+  fanCash: 'tauntCash',
+  squatBounce: 'tauntSquat',
+  hodadakZoom: 'tauntZoom',
+  tongkeunFlex: 'tauntFlex',
+  nunchiShrug: 'tauntShrug',
+};
 
 export interface ViewFocus {
   charId: EntityId;
@@ -199,6 +223,10 @@ interface CharView {
   telegraph: { kind: TelegraphKind; until: number; start: number } | null;
   poseObj: RaccoonPose;
   marker: CharMarker;
+  /** Seconds of softened turning left after a taunt released the facing. */
+  tauntTurn: number;
+  /** Taunt shown last frame (dust cadence for the zoom run). */
+  tauntFxAcc: number;
 }
 
 interface SafeView {
@@ -358,6 +386,15 @@ export class GameView {
   private readonly effects: ViewEffects;
   private post!: PostFX;
   private readonly emotes = new EmoteSystem(48);
+  private readonly taunts = new TauntTracker();
+  private readonly tauntWorld: TauntWorld = {
+    posOf: (id) => {
+      const cv = this.chars.get(id);
+      if (cv) return { x: cv.pose.x, y: cv.pose.y };
+      return this.sim?.getCharacter(id)?.pos ?? null;
+    },
+    nearestOpponent: (c) => this.nearestVisibleOpponent(c),
+  };
   private readonly markers = new OffscreenMarkers(8);
   private readonly banners = new UprootBanners();
   private readonly moods: MoodDirector;
@@ -617,6 +654,8 @@ export class GameView {
         flashOn: false,
         telegraph: null,
         poseObj: idleRaccoonPose(),
+        tauntTurn: 0,
+        tauntFxAcc: 0,
       });
     }
 
@@ -688,6 +727,7 @@ export class GameView {
       const cv = this.chars.get(c.id);
       if (cv) this.updateChar(cv, c, sim, alpha, dt, focus);
     }
+    this.flushTauntChanges();
     // --- zones, vans, fences ------------------------------------------------------------
     this.updateZones(sim, dt);
     const siren = st.finalCountdown && mode !== 'title';
@@ -755,6 +795,69 @@ export class GameView {
     this.updatePigeons(sim, dt);
     this.effects.update(dt);
     this.snapVisuals = false;
+  }
+
+  /** Is this character's taunt shown (setting off: only the focus character's own)? */
+  private tauntShown(charId: EntityId): boolean {
+    return this.settings.showOthersTaunts !== false || charId === this.lastFocusId;
+  }
+
+  /** Nearest opponent within EMOTE.nearOpponentRadius in line of sight (taunt facing fallback). */
+  private nearestVisibleOpponent(c: CharacterState): EntityId | null {
+    const sim = this.sim;
+    if (!sim) return null;
+    let best: EntityId | null = null;
+    let bestD: number = EMOTE.nearOpponentRadius;
+    for (const o of sim.state.characters) {
+      if (o.team === c.team || o.id === c.id) continue;
+      const d = Math.hypot(o.pos.x - c.pos.x, o.pos.y - c.pos.y);
+      if (d > bestD) continue;
+      if (!sim.lineOfSight(c.pos, o.pos)) continue;
+      best = o.id;
+      bestD = d;
+    }
+    return best;
+  }
+
+  /** Taunt starts / stops of this frame: bubble pop / hide and a few particles. */
+  private flushTauntChanges(): void {
+    for (const ch of this.taunts.takeChanges()) {
+      const kind = TAUNT_BUBBLE[ch.id];
+      if (ch.kind === 'stop') {
+        this.emotes.hide(ch.charId, kind);
+        continue;
+      }
+      if (!this.tauntShown(ch.charId) || (this.viewMode !== 'match' && this.viewMode !== 'preview')) continue;
+      const dur = EMOTE.durationTicks[ch.id] / 60;
+      this.emotes.show(ch.charId, kind, { duration: dur + 0.15, priority: 3 });
+      const cv = this.chars.get(ch.charId);
+      if (!cv) continue;
+      const head = { x: cv.pose.x, y: cv.y + 1.15, z: cv.pose.y };
+      const fx = this.effects.fx;
+      switch (ch.id) {
+        case 'wiggle':
+          fx.sparkle(head, { count: 5, radius: 0.55, color: '#FF9EC0' });
+          break;
+        case 'bleh':
+          fx.sparkle(head, { count: 4, radius: 0.45, color: '#FF7F9C' });
+          break;
+        case 'fanCash':
+          fx.confetti({ x: head.x, y: cv.y + 1.0, z: head.z }, { count: 9, colors: ['#DDF4CB', '#9CD3A4', '#FFD45E'], power: 0.55 });
+          break;
+        case 'squatBounce':
+          fx.dust({ x: cv.pose.x, y: cv.y, z: cv.pose.y }, { count: 4, spread: 0.4, size: 0.2 });
+          break;
+        case 'hodadakZoom':
+          fx.sparkle(head, { count: 3, radius: 0.4, color: '#7FC8FF' });
+          break;
+        case 'tongkeunFlex':
+          fx.sparkle(head, { count: 6, radius: 0.6, color: '#FFD45E' });
+          break;
+        case 'nunchiShrug':
+          fx.sparkle(head, { count: 3, radius: 0.45, color: '#B9A3F0' });
+          break;
+      }
+    }
   }
 
   /** Head-top point for an emote owner (raccoon id or POLICE_OWNER + officer id). */
@@ -894,7 +997,15 @@ export class GameView {
 
   applySettings(s: ViewSettings): void {
     const prev = this.settings;
-    this.settings = { ...s };
+    this.settings = { ...s, showOthersTaunts: s.showOthersTaunts ?? prev.showOthersTaunts };
+    if (prev.showOthersTaunts !== false && this.settings.showOthersTaunts === false) {
+      // Hide the bubbles of taunts already playing (the poses stop on the next frame).
+      for (const id of this.chars.keys()) {
+        if (id === this.lastFocusId) continue;
+        const cur = this.taunts.current(id);
+        if (cur) this.emotes.hide(id, TAUNT_BUBBLE[cur]);
+      }
+    }
     const next = qualityPreset(s.quality);
     const old = this.preset;
     this.preset = next;
@@ -1099,6 +1210,7 @@ export class GameView {
     this.police.clear();
     this.banners.clear();
     this.moods.reset();
+    this.taunts.clear();
     clearShockwaves();
     this.callouts.length = 0;
     this.alarmLevel = 0;
@@ -1146,6 +1258,7 @@ export class GameView {
     };
     this.moods.onEvent(e, sim);
     this.police.onEvent(e, sim);
+    if (e.type === 'emote' || e.type === 'emoteCancel') this.taunts.onEvent(e);
     switch (e.type) {
       case 'dash': {
         const c = sim.getCharacter(e.charId);
@@ -1608,9 +1721,36 @@ export class GameView {
     this.poses.sample(c.id, alpha, cv.pose, { pos: c.pos, angle: c.facing });
     const look = cv.rig.look;
     if (look.hat !== c.look.hat || (look.rival ?? null) !== (c.look.rival ?? null) || look.furTint !== c.look.furTint) cv.rig.setLook(c.look);
+    // Taunt (owner addition): animation + facing toward (or, for the wiggle, away from) the rival.
+    pose.taunt = null;
+    let faceTo = cv.pose.a;
+    let turnRate = 22;
+    if (mode === 'match' || mode === 'preview') {
+      const tv = this.taunts.update(c, sim.state.tick - 1 + alpha, this.tauntWorld);
+      if (tv && this.tauntShown(c.id)) {
+        pose.taunt = { id: tv.id, t: tv.t, dur: tv.dur };
+        if (tv.facing !== null) {
+          faceTo = tv.facing;
+          turnRate = 11;
+        }
+        cv.tauntTurn = 0.45;
+        // The zoom sprint kicks up dust behind the feet.
+        if (tv.id === 'hodadakZoom' && tv.t < 0.75 && dt > 0) {
+          cv.tauntFxAcc += dt;
+          if (cv.tauntFxAcc > 0.09) {
+            cv.tauntFxAcc = 0;
+            const back = cv.facing + Math.PI;
+            this.effects.fx.dust({ x: cv.pose.x + Math.cos(back) * 0.3, y: cv.y, z: cv.pose.y + Math.sin(back) * 0.3 }, { count: 2, spread: 0.2, size: 0.2, up: 0.3 });
+          }
+        }
+      } else if (cv.tauntTurn > 0) {
+        cv.tauntTurn = Math.max(0, cv.tauntTurn - dt);
+        turnRate = 9;
+      }
+    }
     // Facing: interpolated + a little extra smoothing for snappy turns.
     if (this.snapVisuals || (Math.abs(wrapAngle(cv.pose.a - cv.facing)) > 2.8 && c.knockdownTicks > 0)) cv.facing = cv.pose.a;
-    else cv.facing = lerpAngle(cv.facing, cv.pose.a, damp(22, dt));
+    else cv.facing = lerpAngle(cv.facing, faceTo, damp(turnRate, dt));
     // Floor height (riders on a bank floor), smoothed across the door threshold.
     const onFloor = c.floorOf !== null || this.onAnySlab(cv.pose);
     const targetY = onFloor ? BANK_FLOOR_Y : 0;

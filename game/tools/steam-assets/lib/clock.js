@@ -86,8 +86,14 @@
         if (!a.__capV) {
           a.__capV = 1;
           a.pause();
-        } else if (dtMs > 0) {
-          a.currentTime = (Number(a.currentTime) || 0) + dtMs;
+        } else if (dtMs > 0 && !a.__capDone) {
+          const t = (Number(a.currentTime) || 0) + dtMs;
+          const end = a.effect ? Number(a.effect.getComputedTiming().endTime) : Infinity;
+          if (Number.isFinite(end) && t >= end) {
+            // Finish so `animation.finished` / animationend fire like they would in real time.
+            a.__capDone = 1;
+            a.finish();
+          } else a.currentTime = t;
         }
       } catch {
         /* ignore */
@@ -123,12 +129,17 @@
   // --- drawing switch -------------------------------------------------------------------------
   const patched = new Set();
   let drawOn = true;
-  function patchRenderer(r) {
+  /**
+   * mode 'all': skip every draw (GameView: its post-processing passes are only for display).
+   * mode 'screen': skip only draws to the canvas; render-to-texture work (the menu renderer's
+   * portrait snapshots used by the HUD / results cards) always runs.
+   */
+  function patchRenderer(r, mode) {
     if (!r || patched.has(r)) return;
     patched.add(r);
     const orig = r.render.bind(r);
     r.render = (...a) => {
-      if (drawOn) return orig(...a);
+      if (drawOn || (mode === 'screen' && r.getRenderTarget() !== null)) return orig(...a);
       return undefined;
     };
   }
@@ -167,8 +178,8 @@
       } else stepCss(0);
     },
     /** Register renderers whose draws setDraw() switches. */
-    renderers(list) {
-      for (const r of list) patchRenderer(r);
+    renderers(list, mode = 'all') {
+      for (const r of list) patchRenderer(r, mode);
       return patched.size;
     },
     setDraw(on) {

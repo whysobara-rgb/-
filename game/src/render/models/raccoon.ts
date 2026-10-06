@@ -21,18 +21,50 @@
  *          ├ armL/armR (shoulder pivots), legL/legR (hip pivots)
  *          ├ tail1 ─ tail2 ─ tail3, scarfTail
  *       └ speedLines
- *    └ blob shadow
+ *    └ blob shadow, taunt sparkles
+ *
+ * Taunts (owner addition): `pose.taunt` plays one of the seven taunt animations of
+ * tauntPoses.ts on top of the regular pose (fast blend in; a taunt that stops early blends out
+ * from its last frame). Props live on the rig and stay hidden otherwise: a 3D tongue, a fan of
+ * the game's own banknotes in the right paw with notes fluttering down, gold glints on the paws
+ * and star sparkles around the feet.
  */
 import * as THREE from 'three';
-import type { CharacterLook, HatId, TeamId } from '../../sim/types';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import type { CharacterLook, EmoteId, HatId, TeamId } from '../../sim/types';
 import { TEAM_STYLES } from '../../shared/teams';
 import { PAL } from './palette';
 import { G, PartBuilder, lathe, rng } from './geometry';
 import { matVC, matTextured, matBasic } from './materials';
-import { FACE_DECAL, faceTexture, nunchiMaskTexture, blobShadowTexture, type FaceExpression } from './textures';
+import { FACE_DECAL, banknoteTexture, faceTexture, nunchiMaskTexture, blobShadowTexture, type FaceExpression } from './textures';
 import { Highlighter, InkOutline } from './outline';
+import { neutralTauntPose, tauntPose, type TauntArm, type TauntPose } from './tauntPoses';
 
-export type RaccoonExpression = 'normal' | 'blink' | 'happy' | 'cheer' | 'strain' | 'dizzy' | 'sad' | 'determined' | 'shock' | 'angry' | 'panic' | 'sly';
+export type RaccoonExpression =
+  | 'normal'
+  | 'blink'
+  | 'happy'
+  | 'cheer'
+  | 'strain'
+  | 'dizzy'
+  | 'sad'
+  | 'determined'
+  | 'shock'
+  | 'angry'
+  | 'panic'
+  | 'sly'
+  | 'bleh'
+  | 'cheeky'
+  | 'smug'
+  | 'proud';
+
+/** A taunt to play (owner addition): `t` seconds since it started, lasting `dur` seconds. */
+export interface RaccoonTaunt {
+  id: EmoteId;
+  t: number;
+  /** Total length (default: the taunt's nominal length). */
+  dur?: number;
+}
 
 export interface RaccoonPose {
   /** Ground speed in m/s (walk ~5, dash ~11). */
@@ -63,6 +95,11 @@ export interface RaccoonPose {
    * none): tumble back, sit with legs up, spring up happy (~0.85 s).
    */
   tumble?: number;
+  /**
+   * Taunt in progress (owner addition), or null. When it goes back to null the rig blends out
+   * from the taunt's last frame within ~0.15 s (a cancel), so callers simply stop sending it.
+   */
+  taunt?: RaccoonTaunt | null;
 }
 
 /** Length of the pop tumble (sit + spring up). */
@@ -631,6 +668,71 @@ function speedLineGeometry(): THREE.BufferGeometry {
   return speedGeo;
 }
 
+// --- taunt props -----------------------------------------------------------------
+
+let tongueGeo: THREE.BufferGeometry | null = null;
+/** Tongue, pivot at its root, pointing along +x. */
+function tongueGeometry(): THREE.BufferGeometry {
+  if (tongueGeo) return tongueGeo;
+  const b = new PartBuilder();
+  b.add(G.sphere(14, 10), { color: '#FF7F9C', pos: [0.06, 0, 0], scale: [0.085, 0.026, 0.06] });
+  b.add(G.sphere(10, 8), { color: '#E8607C', pos: [0.075, 0.012, 0], scale: [0.05, 0.016, 0.012] });
+  tongueGeo = b.merge('vc')!;
+  return tongueGeo;
+}
+
+const FAN_NOTES = 5;
+let fanGeo: THREE.BufferGeometry | null = null;
+/**
+ * Fan of banknotes held at the origin (the paw): notes radiate along -y, spread in the y-z plane
+ * (faces toward ±x), each a hair apart in x so they never z-fight.
+ */
+function fanGeometry(): THREE.BufferGeometry {
+  if (fanGeo) return fanGeo;
+  const parts: THREE.BufferGeometry[] = [];
+  for (let i = 0; i < FAN_NOTES; i++) {
+    const k = i / (FAN_NOTES - 1) - 0.5;
+    const g = new THREE.PlaneGeometry(0.34, 0.17);
+    g.rotateZ(-Math.PI / 2); // long side along y
+    g.translate(0, -0.17 - 0.02, 0); // grip end at the origin
+    g.rotateY(Math.PI / 2); // into the y-z plane
+    g.rotateX(k * 1.5);
+    g.translate((i - (FAN_NOTES - 1) / 2) * 0.006, 0, 0);
+    parts.push(g);
+  }
+  fanGeo = mergeGeometries(parts, false)!;
+  for (const p of parts) p.dispose();
+  return fanGeo;
+}
+
+let billGeo: THREE.BufferGeometry | null = null;
+function billGeometry(): THREE.BufferGeometry {
+  if (!billGeo) billGeo = new THREE.PlaneGeometry(0.15, 0.075);
+  return billGeo;
+}
+
+let glintGeo: THREE.BufferGeometry | null = null;
+/** Crossed four-point gold glint (reads from any angle). */
+function glintGeometry(): THREE.BufferGeometry {
+  if (glintGeo) return glintGeo;
+  const b = new PartBuilder();
+  b.add(G.star(4, 0.28, 0.12, false), { color: '#FFE27A', scale: 0.1, emissive: 0.9 });
+  b.add(G.star(4, 0.28, 0.12, false), { color: '#FFF6C8', rot: [0, Math.PI / 2, 0], scale: 0.1, emissive: 0.9 });
+  b.add(G.star(4, 0.28, 0.12, false), { color: '#FFF6C8', rot: [Math.PI / 2, 0, Math.PI / 4], scale: 0.07, emissive: 0.9 });
+  glintGeo = b.merge('vc')!;
+  return glintGeo;
+}
+
+let sparkleGeo: THREE.BufferGeometry | null = null;
+function sparkleGeometry(): THREE.BufferGeometry {
+  if (sparkleGeo) return sparkleGeo;
+  const b = new PartBuilder();
+  b.add(G.star(5, 0.45, 0.35), { color: PAL.gold, scale: 1, emissive: 0.7 });
+  b.add(G.star(5, 0.45, 0.35), { color: '#FFFFFF', rot: [0, Math.PI / 2, 0], scale: 0.8, emissive: 0.7 });
+  sparkleGeo = b.merge('vc')!;
+  return sparkleGeo;
+}
+
 let blobGeo: THREE.BufferGeometry | null = null;
 function blobGeometry(): THREE.BufferGeometry {
   if (!blobGeo) blobGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
@@ -774,6 +876,31 @@ export function createRaccoon(opts: { team: TeamId | null; look: CharacterLook }
   labelAnchor.position.y = RACCOON_LABEL_HEIGHT;
   root.add(labelAnchor);
 
+  // --- taunt props (hidden unless a taunt shows them) ---------------------------------
+  const prop = (m: THREE.Mesh, parent: THREE.Object3D, name: string, shadow = false): THREE.Mesh => {
+    m.name = `raccoon:${name}`;
+    m.userData.noOutline = true;
+    m.castShadow = shadow;
+    m.visible = false;
+    parent.add(m);
+    return m;
+  };
+  const tongue = prop(new THREE.Mesh(tongueGeometry(), matVC()), head, 'tongue');
+  tongue.position.set(HEAD_C[0] + 0.3, HEAD_C[1] - 0.15, 0);
+  const noteMat = matTextured(banknoteTexture(), { side: THREE.DoubleSide, rim: 0.3 });
+  const fanPivot = new THREE.Group();
+  fanPivot.name = 'raccoon:fanPivot';
+  fanPivot.position.set(0.01, -0.21, 0);
+  armR.add(fanPivot);
+  const fan = prop(new THREE.Mesh(fanGeometry(), noteMat), fanPivot, 'fan', true);
+  const bills = [0, 1, 2].map((i) => prop(new THREE.Mesh(billGeometry(), noteMat), pivot, `bill${i}`));
+  const glints = [armL, armR].map((a, i) => {
+    const g = prop(new THREE.Mesh(glintGeometry(), matVC()), a, `glint${i}`);
+    g.position.set(0.02, -0.25, 0);
+    return g;
+  });
+  const sparkles = [0, 1, 2, 3, 4].map((i) => prop(new THREE.Mesh(sparkleGeometry(), matVC()), root, `sparkle${i}`));
+
   const highlighter = new Highlighter(root);
   // Bold toon ink line so raccoons read at the high game camera (hidden while a colored
   // highlight / impact flash replaces it).
@@ -820,9 +947,108 @@ export function createRaccoon(opts: { team: TeamId | null; look: CharacterLook }
   let nextBlink = 1.5 + rand() * 3;
   let blinkUntil = -1;
   const idleSeed = rand() * 10;
+  // Taunt blend: weight, the last evaluated taunt pose (held while blending out), its clock.
+  let tauntW = 0;
+  let tauntT = 0;
+  const tp: TauntPose = neutralTauntPose();
 
   const approach = (cur: number, target: number, rate: number, dt: number): number =>
     cur + (target - cur) * (1 - Math.exp(-rate * dt));
+
+  const lerp = (a: number, b: number, k: number): number => a + (b - a) * k;
+  const blendArm = (arm: THREE.Mesh, side: number, a: TauntArm, k: number): void => {
+    arm.rotation.x = lerp(arm.rotation.x, -side * a.out, k);
+    arm.rotation.y = lerp(arm.rotation.y, side * a.inward, k);
+    arm.rotation.z = lerp(arm.rotation.z, a.fwd, k);
+    arm.position.y += a.lift * k;
+    const bulge = lerp(1, a.bulge, k);
+    arm.scale.set(bulge, lerp(1, a.stretch, k), bulge);
+  };
+  /** Blend the taunt pose over the regular pose (and drive the props). */
+  const applyTaunt = (t: number): void => {
+    const k = tauntW;
+    if (k <= 0) {
+      armL.scale.setScalar(1);
+      armR.scale.setScalar(1);
+      head.position.y = NECK[1];
+      tongue.visible = fan.visible = false;
+      for (const m of bills) m.visible = false;
+      for (const m of glints) m.visible = false;
+      for (const m of sparkles) m.visible = false;
+      return;
+    }
+    pivot.position.y = lerp(pivot.position.y, tp.pivotY, k);
+    pivot.rotation.y += tp.pivotYaw * k;
+    body.rotation.z = lerp(body.rotation.z, tp.lean, k);
+    body.rotation.x = lerp(body.rotation.x, tp.roll, k);
+    body.rotation.y = lerp(body.rotation.y, tp.twist, k);
+    body.position.x += tp.bodyX * k;
+    body.position.z += tp.bodyZ * k;
+    body.scale.set(lerp(body.scale.x, tp.sx, k), lerp(body.scale.y, tp.sy, k), lerp(body.scale.z, tp.sz, k));
+    for (const [leg, side, l] of [
+      [legL, -1, tp.legL],
+      [legR, 1, tp.legR],
+    ] as const) {
+      leg.rotation.z = lerp(leg.rotation.z, l.fwd, k);
+      leg.rotation.x = lerp(leg.rotation.x, -side * l.out, k);
+      leg.position.y += l.lift * k;
+    }
+    blendArm(armL, -1, tp.armL, k);
+    blendArm(armR, 1, tp.armR, k);
+    head.rotation.x = lerp(head.rotation.x, tp.headRoll, k);
+    head.rotation.y = lerp(head.rotation.y, tp.headYaw, k);
+    head.rotation.z = lerp(head.rotation.z, tp.headPitch, k);
+    head.position.y = NECK[1] + tp.neckY * k;
+    const tl = tp.tail;
+    tail1.rotation.y = lerp(tail1.rotation.y, tl[0], k);
+    tail1.rotation.z = lerp(tail1.rotation.z, tl[1], k);
+    tail2.rotation.y = lerp(tail2.rotation.y, tl[2], k);
+    tail2.rotation.z = lerp(tail2.rotation.z, tl[3], k);
+    tail3.rotation.y = lerp(tail3.rotation.y, tl[4], k);
+    tail3.rotation.z = lerp(tail3.rotation.z, tl[5], k);
+    // Props.
+    const tg = tp.tongue * k;
+    tongue.visible = tg > 0.02;
+    if (tongue.visible) {
+      tongue.scale.set(tg, Math.max(0.3, tg), tg);
+      tongue.rotation.set(0, tp.tongueWag, -0.75);
+    }
+    const fs = tp.fan * k;
+    fan.visible = fs > 0.02;
+    if (fan.visible) {
+      fan.scale.setScalar(fs);
+      fanPivot.rotation.set(0, tp.fanWave, 0.25);
+    }
+    const bl = tp.bills * k;
+    bills.forEach((m, i) => {
+      m.visible = bl > 0.05;
+      if (!m.visible) return;
+      // Notes peel off the fan and flutter down in front-right of the body.
+      const ph = (tauntT * 0.95 + i * 0.37) % 1;
+      const sway = Math.sin((tauntT + i) * 7) * 0.12;
+      m.position.set(0.32 + i * 0.07 + sway * 0.5, 1.2 - ph * 1.0, 0.28 + sway);
+      m.rotation.set(ph * 5 + i, ph * 7 + i * 2, Math.sin((tauntT + i) * 9) * 0.8);
+      m.scale.setScalar(bl * (1 - 0.3 * ph));
+    });
+    const gl = tp.glint * k;
+    glints.forEach((m, i) => {
+      m.visible = gl > 0.04;
+      if (!m.visible) return;
+      m.scale.setScalar(0.4 + gl * 1.1);
+      m.rotation.set(0, tp.glintSpin * (i ? 1 : -1), tp.glintSpin * 0.5);
+    });
+    const sk = tp.sparkle * k;
+    sparkles.forEach((m, i) => {
+      m.visible = sk > 0.04;
+      if (!m.visible) return;
+      const ph = tp.sparklePhase;
+      const a = (i / sparkles.length) * Math.PI * 2 + tp.sparkleBurst * 1.3;
+      const r = 0.35 + 0.42 * ph;
+      m.position.set(Math.cos(a) * r, 0.12 + Math.sin(Math.PI * ph) * (0.3 + (i % 2) * 0.12), Math.sin(a) * r);
+      m.rotation.set(0, t * 4 + i, 0);
+      m.scale.setScalar(sk * Math.sin(Math.PI * Math.min(1, ph * 1.15)) * (i % 2 ? 0.07 : 0.095));
+    });
+  };
 
   const setFace = (kind: FaceExpression): void => {
     if (kind === faceKind) return;
@@ -834,6 +1060,15 @@ export function createRaccoon(opts: { team: TeamId | null; look: CharacterLook }
     dt = Math.min(Math.max(dt, 0), 0.1);
     const t = pose.time;
     const rival = params.rival;
+    // Taunt: evaluate the target pose; without one, hold the last frame and blend out.
+    const taunt = pose.taunt && !pose.knockedDown ? pose.taunt : null;
+    if (taunt) {
+      tauntPose(taunt.id, taunt.t, taunt.dur, tp);
+      tauntT = taunt.t;
+    }
+    tauntW = approach(tauntW, taunt ? 1 : 0, taunt ? 26 : pose.knockedDown ? 40 : 16, dt);
+    if (dt === 0 && taunt && tauntW === 0) tauntW = 1; // a frozen first frame still shows the pose
+    if (!taunt && tauntW < 0.002) tauntW = 0;
     const moveTarget = THREE.MathUtils.clamp(pose.speed / 5, 0, 1.6);
     w.move = approach(w.move, moveTarget, 10, dt);
     w.grab = approach(w.grab, pose.grabbing ? 1 : 0, 14, dt);
@@ -968,6 +1203,9 @@ export function createRaccoon(opts: { team: TeamId | null; look: CharacterLook }
     scarfTail.rotation.z = 0.25 + mv * 0.7 + w.dash * 0.6 + Math.sin(t * (6 + mv * 10)) * 0.12 * (0.3 + mv);
     scarfTail.rotation.x = Math.sin(t * 4.3) * 0.1;
 
+    // --- taunt blend over the regular pose -------------------------------------------------
+    applyTaunt(t);
+
     // --- FX children ----------------------------------------------------------------------
     stars.visible = w.down > 0.05;
     if (stars.visible) {
@@ -982,7 +1220,7 @@ export function createRaccoon(opts: { team: TeamId | null; look: CharacterLook }
       sweat.position.set(0.12, HEAD_C[1] + 0.22 - k * 0.12, -0.31);
       sweat.scale.setScalar(w.boost * (1 - k * 0.3));
     }
-    const lineW = Math.max(w.dash, w.boost * 0.8);
+    const lineW = Math.max(w.dash, w.boost * 0.8, tp.speed * tauntW);
     speedLines.visible = lineW > 0.05;
     if (speedLines.visible) {
       lines.forEach((l, i) => {
@@ -995,7 +1233,8 @@ export function createRaccoon(opts: { team: TeamId | null; look: CharacterLook }
     // --- expression ---------------------------------------------------------------------
     let kind: FaceExpression;
     const override = pose.expression ?? null;
-    if (override) kind = override;
+    if (tauntW > 0.45 && !pose.knockedDown) kind = tp.face;
+    else if (override) kind = override;
     else if (pose.knockedDown || w.down > 0.6) kind = 'dizzy';
     else if (sitW > 0.4) kind = 'shock';
     else if (springW > 0.05) kind = 'happy';
@@ -1058,6 +1297,12 @@ export function disposeRaccoonCache(): void {
   speedGeo?.dispose();
   blobGeo?.dispose();
   blobMat?.dispose();
+  tongueGeo?.dispose();
+  fanGeo?.dispose();
+  billGeo?.dispose();
+  glintGeo?.dispose();
+  sparkleGeo?.dispose();
   faceGeo = maskGeo = starsGeo = sweatGeo = speedGeo = blobGeo = null;
+  tongueGeo = fanGeo = billGeo = glintGeo = sparkleGeo = null;
   blobMat = null;
 }

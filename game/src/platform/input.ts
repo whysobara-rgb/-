@@ -32,14 +32,18 @@
 import { DT } from '../sim/config';
 import type { Command, EntityId, Vec2 } from '../sim/types';
 import {
+  CHORD_ACTIONS,
+  EMOTE_ACTIONS,
   HARDWIRED_PAUSE,
   MATCH_ACTIONS,
   MENU_ACTIONS,
   MENU_BINDINGS,
   assignBinding,
+  chordCode,
   cloneBindings,
   defaultBindings,
   isBindable,
+  isModifierCode,
   isMouseCode,
   parsePadCode,
   type BindingDevice,
@@ -82,6 +86,17 @@ export interface MatchFrame {
   pingAtPointer: PointerPos | null;
   pausePressed: boolean;
   lastDevice: InputDevice;
+  /** Direct taunt pressed this poll: 0..3 for emote1..emote4 (base taunt slots), else null. */
+  emotePressed: number | null;
+  /** The taunt-wheel input (pad LB / keyboard T) is held. */
+  emoteWheelDown: boolean;
+  /**
+   * Wheel aim from the pad: the stronger of the two sticks, screen space (+y down), radial
+   * deadzone applied (0 = centered). Game flow freezes movement while the wheel is open.
+   */
+  wheelStick: Vec2;
+  /** Wheel aim from the keyboard movement keys (screen space, unit or zero). */
+  wheelKeys: Vec2;
 }
 
 /**
@@ -334,6 +349,8 @@ interface RebindState {
   slot: number;
   startedAt: number;
   padNeutral: boolean;
+  /** A Control key went down during a chord-capable capture: Ctrl+key, or Ctrl alone on release. */
+  pendingCtrl: string | null;
   resolve: (code: string | null) => void;
   timeout: ReturnType<typeof setTimeout> | null;
   poll: ReturnType<typeof setInterval> | null;
@@ -410,8 +427,10 @@ export class InputManager {
   private layoutRequest = 0;
   private pollSeq = 0;
 
-  /** Keyboard + mouse codes physically held. */
+  /** Keyboard + mouse codes physically held (a key pressed as a bound Ctrl chord is held as the chord). */
   private readonly held = new Set<string>();
+  /** Physical key code -> the code its keydown registered as (plain or 'Ctrl+…' chord). */
+  private readonly keyAs = new Map<string, string>();
   private readonly consumers: Record<Consumer, ConsumerState>;
   private pointerPos: PointerPos | null = null;
 
@@ -622,6 +641,9 @@ export class InputManager {
 
     const pausePressed = this.pressedCode(st, pad, this.pauseCodes('keyboard'), this.pauseCodes('gamepad')) !== null;
 
+    let emotePressed: number | null = null;
+    for (let i = 0; i < EMOTE_ACTIONS.length && emotePressed === null; i++) if (pressedCode(EMOTE_ACTIONS[i]) !== null) emotePressed = i;
+
     const frame: MatchFrame = {
       move: this.readMove(pad),
       grabDown: down('grab'),
@@ -632,6 +654,10 @@ export class InputManager {
       pingAtPointer,
       pausePressed,
       lastDevice: this.lastDeviceValue,
+      emotePressed,
+      emoteWheelDown: down('emoteWheel'),
+      wheelStick: this.readWheelStick(pad),
+      wheelKeys: this.readMoveKeys(),
     };
     this.finishPoll(st, pad);
     return frame;
@@ -729,6 +755,7 @@ export class InputManager {
         startedAt: this.now(),
         // Wait for every pad input to be released first (the A that opened the capture).
         padNeutral: false,
+        pendingCtrl: null,
         resolve,
         timeout: null,
         poll: null,
@@ -781,6 +808,7 @@ export class InputManager {
   /** Release everything (blur, visibility loss, disable). */
   clearAll(): void {
     this.held.clear();
+    this.keyAs.clear();
     this.analogLatched.clear();
     for (const st of Object.values(this.consumers)) {
       st.pressed.clear();
@@ -836,21 +864,33 @@ export class InputManager {
       return;
     }
     if (isEditableTarget(e.target)) return;
-    if (!e.ctrlKey && !e.metaKey && !e.altKey && (SCROLL_KEYS.has(code) || this.isBoundKeyboardCode(code))) e.preventDefault();
+    // A key pressed with Ctrl held counts as its Ctrl chord when that chord is bound (taunts).
+    const chord = e.ctrlKey && !e.altKey && !e.metaKey && !isModifierCode(code) ? chordCode(code) : null;
+    const asCode = chord !== null && this.isBoundKeyboardCode(chord) ? chord : code;
+    if (asCode !== code) e.preventDefault();
+    else if (!e.ctrlKey && !e.metaKey && !e.altKey && (SCROLL_KEYS.has(code) || this.isBoundKeyboardCode(code))) e.preventDefault();
     this.learnFromKeyEvent(e);
     this.setDevice('keyboard');
-    if (e.repeat && this.held.has(code)) return;
-    this.held.add(code);
-    for (const st of Object.values(this.consumers)) st.pressed.add(code);
+    const prevAs = this.keyAs.get(code);
+    if (e.repeat && prevAs !== undefined && this.held.has(prevAs)) return;
+    if (prevAs !== undefined && prevAs !== asCode) this.held.delete(prevAs);
+    this.keyAs.set(code, asCode);
+    this.held.add(asCode);
+    for (const st of Object.values(this.consumers)) st.pressed.add(asCode);
   }
 
   private onKeyUp(e: KeyboardEvent): void {
     const code = e.code;
     if (!code) return;
-    this.held.delete(code);
-    for (const st of Object.values(this.consumers)) {
-      st.suppressed.delete(code);
-      st.continuing.delete(code);
+    if (this.rebind) this.captureKeyUp(e);
+    const asCode = this.keyAs.get(code) ?? code;
+    this.keyAs.delete(code);
+    for (const c of asCode === code ? [code] : [code, asCode]) {
+      this.held.delete(c);
+      for (const st of Object.values(this.consumers)) {
+        st.suppressed.delete(c);
+        st.continuing.delete(c);
+      }
     }
   }
 
@@ -1024,7 +1064,28 @@ export class InputManager {
       pingAtPointer: null,
       pausePressed: false,
       lastDevice: this.lastDeviceValue,
+      emotePressed: null,
+      emoteWheelDown: false,
+      wheelStick: { ...NEUTRAL_MOVE },
+      wheelKeys: { ...NEUTRAL_MOVE },
     };
+  }
+
+  /** Keyboard movement keys as a screen-space direction (taunt wheel aim). */
+  private readMoveKeys(): Vec2 {
+    const kb = this.bindings.keyboard;
+    const key = (a: MatchAction): number => (kb[a].some((c) => this.held.has(c)) ? 1 : 0);
+    const v = clampUnit({ x: key('moveRight') - key('moveLeft'), y: key('moveDown') - key('moveUp') });
+    return { x: v.x === 0 ? 0 : v.x, y: v.y === 0 ? 0 : v.y };
+  }
+
+  /** The stronger stick of the active pad (taunt wheel aim; either stick picks). */
+  private readWheelStick(pad: PadSnapshot): Vec2 {
+    const p = pad.pad;
+    if (!p) return { ...NEUTRAL_MOVE };
+    const a = applyRadialDeadzone(p.axes[0] ?? 0, p.axes[1] ?? 0);
+    const b = applyRadialDeadzone(p.axes[2] ?? 0, p.axes[3] ?? 0);
+    return Math.hypot(b.x, b.y) > Math.hypot(a.x, a.y) ? b : a;
   }
 
   private readMove(pad: PadSnapshot): Vec2 {
@@ -1189,7 +1250,29 @@ export class InputManager {
       return;
     }
     if (st.device !== 'keyboard') return;
+    if (CHORD_ACTIONS.has(st.action)) {
+      // Taunts may take a Ctrl chord: wait for the main key (Ctrl alone binds on release).
+      if (e.code === 'ControlLeft' || e.code === 'ControlRight') {
+        st.pendingCtrl = e.code;
+        return;
+      }
+      if (e.ctrlKey && !isModifierCode(e.code)) {
+        const chord = chordCode(e.code);
+        if (isBindable(st.action, 'keyboard', chord)) this.finishRebind(st, chord);
+        return;
+      }
+    }
     if (isBindable(st.action, 'keyboard', e.code)) this.finishRebind(st, e.code);
+  }
+
+  /** Chord-capable capture: Ctrl pressed and released alone binds the Control key itself. */
+  private captureKeyUp(e: KeyboardEvent): void {
+    const st = this.rebind;
+    if (!st || st.pendingCtrl === null || e.code !== st.pendingCtrl) return;
+    e.preventDefault();
+    const code = st.pendingCtrl;
+    st.pendingCtrl = null;
+    if (isBindable(st.action, 'keyboard', code)) this.finishRebind(st, code);
   }
 
   private captureMouse(e: MouseEvent, code: string): void {

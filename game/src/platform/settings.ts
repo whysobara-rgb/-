@@ -38,6 +38,11 @@ export interface Settings {
   /** HUD / menu scale, 0.8..1.4. */
   uiScale: number;
   showTutorialHints: boolean;
+  /**
+   * Show other raccoons' taunts (bubbles, poses, sounds). Off hides everyone else's taunts;
+   * your own always play. Default on.
+   */
+  showOthersTaunts: boolean;
 }
 
 export const LANGUAGES: readonly Language[] = ['ko', 'en'];
@@ -119,6 +124,7 @@ export function createDefaultSettings(hints?: LanguageHints): Settings {
     fullscreen: true,
     uiScale: 1,
     showTutorialHints: true,
+    showOthersTaunts: true,
   };
 }
 
@@ -184,6 +190,7 @@ export function sanitizeSettings(raw: unknown, base: Readonly<Settings> = DEFAUL
     fullscreen: bool(src.fullscreen, base.fullscreen),
     uiScale: round2(num(src.uiScale, base.uiScale, UI_SCALE_MIN, UI_SCALE_MAX)),
     showTutorialHints: bool(src.showTutorialHints, base.showTutorialHints),
+    showOthersTaunts: bool(src.showOthersTaunts, base.showOthersTaunts),
   };
 }
 

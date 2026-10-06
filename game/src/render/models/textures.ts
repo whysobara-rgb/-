@@ -258,7 +258,26 @@ export function dashedLineTexture(): THREE.Texture {
 // Raccoon face decals
 // ---------------------------------------------------------------------------
 
-export type FaceExpression = 'normal' | 'blink' | 'happy' | 'cheer' | 'strain' | 'dizzy' | 'sad' | 'sly' | 'slyBlink' | 'determined' | 'shock' | 'angry' | 'panic';
+export type FaceExpression =
+  | 'normal'
+  | 'blink'
+  | 'happy'
+  | 'cheer'
+  | 'strain'
+  | 'dizzy'
+  | 'sad'
+  | 'sly'
+  | 'slyBlink'
+  | 'determined'
+  | 'shock'
+  | 'angry'
+  | 'panic'
+  // Taunt faces (owner addition): 메롱 with a pulled eyelid, a cheeky wink, a half-lidded smirk,
+  // and a proud eyes-closed grin.
+  | 'bleh'
+  | 'cheeky'
+  | 'smug'
+  | 'proud';
 
 /**
  * The face decal is a sphere patch: phi (around Y) spans FACE_DECAL.phiLength centred on
@@ -458,6 +477,78 @@ function drawMouth(ctx: CanvasRenderingContext2D, kind: FaceExpression): void {
       ctx.stroke();
       break;
     }
+    case 'bleh': {
+      // Open "nyah" mouth with a fat tongue hanging out (the 3D tongue prop pokes out too).
+      ctx.fillStyle = '#7A2E45';
+      ctx.beginPath();
+      ctx.moveTo(-0.14, y - 0.03);
+      ctx.quadraticCurveTo(0, y + 0.0, 0.14, y - 0.03);
+      ctx.quadraticCurveTo(0.1, y + 0.09, 0, y + 0.09);
+      ctx.quadraticCurveTo(-0.1, y + 0.09, -0.14, y - 0.03);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#FF7F9C';
+      ctx.beginPath();
+      ctx.moveTo(-0.085, y + 0.03);
+      ctx.lineTo(0.085, y + 0.03);
+      ctx.quadraticCurveTo(0.1, y + 0.2, 0, y + 0.22);
+      ctx.quadraticCurveTo(-0.1, y + 0.2, -0.085, y + 0.03);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      strokeStyle(ctx, '#D9536F', 0.016);
+      ctx.beginPath();
+      ctx.moveTo(0, y + 0.06);
+      ctx.lineTo(0, y + 0.15);
+      ctx.stroke();
+      break;
+    }
+    case 'cheeky': {
+      // Lopsided grin, the tongue tip peeking out of one corner.
+      ctx.beginPath();
+      ctx.moveTo(-0.13, y - 0.02);
+      ctx.quadraticCurveTo(0, y + 0.09, 0.13, y - 0.04);
+      ctx.stroke();
+      ctx.fillStyle = '#FF7F9C';
+      ctx.beginPath();
+      ctx.ellipse(0.075, y + 0.06, 0.045, 0.05, -0.3, 0, Math.PI);
+      ctx.fill();
+      strokeStyle(ctx, INK, 0.022);
+      ctx.stroke();
+      break;
+    }
+    case 'smug': {
+      // A small, one-sided smirk.
+      ctx.beginPath();
+      ctx.moveTo(-0.07, y + 0.03);
+      ctx.quadraticCurveTo(0.03, y + 0.05, 0.11, y - 0.035);
+      ctx.stroke();
+      ctx.lineWidth = 0.02;
+      ctx.beginPath();
+      ctx.moveTo(0.1, y - 0.06);
+      ctx.quadraticCurveTo(0.13, y - 0.035, 0.115, y - 0.005);
+      ctx.stroke();
+      break;
+    }
+    case 'proud': {
+      // Wide toothy grin.
+      ctx.fillStyle = '#FFFFFF';
+      ctx.beginPath();
+      ctx.moveTo(-0.15, y - 0.03);
+      ctx.quadraticCurveTo(0, y - 0.0, 0.15, y - 0.03);
+      ctx.quadraticCurveTo(0.12, y + 0.12, 0, y + 0.12);
+      ctx.quadraticCurveTo(-0.12, y + 0.12, -0.15, y - 0.03);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.lineWidth = 0.014;
+      ctx.beginPath();
+      ctx.moveTo(-0.13, y + 0.03);
+      ctx.quadraticCurveTo(0, y + 0.055, 0.13, y + 0.03);
+      ctx.stroke();
+      break;
+    }
     default: {
       // 'ω' smile
       ctx.beginPath();
@@ -610,6 +701,78 @@ function drawFace(ctx: CanvasRenderingContext2D, w: number, h: number, kind: Fac
         const jx = kind === 'panic' ? s2 * 0.03 : 0;
         ctx.ellipse(s2 * ex + jx, ey + 0.01, 0.045, 0.055, 0, 0, Math.PI * 2);
         ctx.fill();
+      }
+      break;
+    }
+    case 'bleh': {
+      // Akanbe: the +z-side eye (texture left = the raccoon's right paw side) is pulled down by
+      // the paw, showing the pink under-lid; the other eye squeezes into a happy arc.
+      drawEyeOpen(ctx, -ex, ey + 0.035, 1.05, 0.03);
+      ctx.fillStyle = '#FF8FA8';
+      ctx.beginPath();
+      ctx.ellipse(-ex, ey + 0.26, 0.15, 0.075, 0, 0, Math.PI * 2);
+      ctx.fill();
+      strokeStyle(ctx, INK, 0.022);
+      ctx.stroke();
+      ctx.fillStyle = '#E8607C';
+      ctx.beginPath();
+      ctx.ellipse(-ex, ey + 0.27, 0.1, 0.035, 0, 0, Math.PI * 2);
+      ctx.fill();
+      strokeStyle(ctx, LINE_LIGHT, 0.05);
+      ctx.beginPath();
+      ctx.moveTo(ex - 0.13, ey + 0.06);
+      ctx.quadraticCurveTo(ex, ey - 0.14, ex + 0.13, ey + 0.06);
+      ctx.stroke();
+      break;
+    }
+    case 'cheeky': {
+      // Wink: one sparkly open eye, the other a tight '>' wink.
+      drawEyeOpen(ctx, -ex, ey, 1.04);
+      strokeStyle(ctx, LINE_LIGHT, 0.05);
+      ctx.beginPath();
+      ctx.moveTo(ex + 0.12, ey - 0.09);
+      ctx.lineTo(ex - 0.08, ey + 0.0);
+      ctx.lineTo(ex + 0.12, ey + 0.09);
+      ctx.stroke();
+      break;
+    }
+    case 'smug': {
+      // Heavier lids than 'sly' plus one raised brow.
+      drawEyeOpen(ctx, -ex, ey + 0.04, 0.95, 0.05);
+      drawEyeOpen(ctx, ex, ey + 0.04, 0.95, 0.05);
+      for (const s of [-1, 1]) {
+        ctx.fillStyle = PAL.mask;
+        ctx.beginPath();
+        ctx.ellipse(s * ex, ey - 0.1, 0.23, 0.2, s * -0.08, 0, Math.PI * 2);
+        ctx.fill();
+        strokeStyle(ctx, LINE_LIGHT, 0.036);
+        ctx.beginPath();
+        ctx.moveTo(s * ex - 0.17, ey + 0.06 + s * 0.008);
+        ctx.quadraticCurveTo(s * ex, ey + 0.1, s * ex + 0.17, ey + 0.06 - s * 0.008);
+        ctx.stroke();
+      }
+      strokeStyle(ctx, INK, 0.05);
+      ctx.beginPath();
+      ctx.moveTo(ex - 0.15, ey - 0.27);
+      ctx.quadraticCurveTo(ex, ey - 0.36, ex + 0.16, ey - 0.29);
+      ctx.stroke();
+      break;
+    }
+    case 'proud': {
+      // Eyes closed in content arcs, brows up: "behold".
+      strokeStyle(ctx, LINE_LIGHT, 0.05);
+      for (const s of [-1, 1]) {
+        ctx.beginPath();
+        ctx.moveTo(s * ex - 0.13, ey - 0.01);
+        ctx.quadraticCurveTo(s * ex, ey + 0.11, s * ex + 0.13, ey - 0.01);
+        ctx.stroke();
+      }
+      strokeStyle(ctx, INK, 0.05);
+      for (const s of [-1, 1]) {
+        ctx.beginPath();
+        ctx.moveTo(s * (ex - 0.14), ey - 0.2);
+        ctx.quadraticCurveTo(s * ex, ey - 0.3, s * (ex + 0.15), ey - 0.22);
+        ctx.stroke();
       }
       break;
     }
@@ -1340,4 +1503,78 @@ function drawSignIcon(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: 
     default:
       break;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Banknote (taunt prop: 돈다발 부채질)
+// ---------------------------------------------------------------------------
+
+/**
+ * The game's own banknote: mint paper with a rounded green frame, the paw-print roundel of the
+ * game's coins in the middle, ringed raccoon-tail bands at both ends and a chunky "100" in the
+ * corners. Drawn landscape (2:1), the same on both faces.
+ */
+export function banknoteTexture(): THREE.Texture {
+  return cachedTex('banknote', () =>
+    makeCanvasTexture(
+      256,
+      128,
+      (ctx, w, h) => {
+        ctx.clearRect(0, 0, w, h);
+        // Paper + frame.
+        ctx.fillStyle = '#DDF4CB';
+        roundRectPath(ctx, 2, 2, w - 4, h - 4, 14);
+        ctx.fill();
+        ctx.lineWidth = 5;
+        ctx.strokeStyle = '#3F7F57';
+        ctx.stroke();
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = '#7CC08B';
+        roundRectPath(ctx, 12, 12, w - 24, h - 24, 9);
+        ctx.stroke();
+        // Tail bands at both ends (ringed like a raccoon tail).
+        for (const x0 of [20, w - 44]) {
+          for (let i = 0; i < 4; i++) {
+            ctx.fillStyle = i % 2 ? '#9CD3A4' : '#4E9A63';
+            roundRectPath(ctx, x0, 22 + i * 21, 24, 17, 6);
+            ctx.fill();
+          }
+        }
+        // Center roundel: gold coin with the paw stamp.
+        const cx = w / 2;
+        const cy = h / 2;
+        ctx.fillStyle = '#E2A93B';
+        ctx.beginPath();
+        ctx.arc(cx, cy, 36, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#FFD45E';
+        ctx.beginPath();
+        ctx.arc(cx, cy - 2, 30, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#C98A2A';
+        ctx.beginPath();
+        ctx.ellipse(cx, cy + 6, 11, 9.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        for (const [dx, dy] of [
+          [-12, -7],
+          [-4, -14],
+          [5, -14],
+          [13, -7],
+        ] as const) {
+          ctx.beginPath();
+          ctx.arc(cx + dx, cy + dy, 4.3, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        // Value in two corners.
+        ctx.font = `bold 22px ${FONT_STACK}`;
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#2F6644';
+        ctx.textAlign = 'left';
+        ctx.fillText('100', 52, 30);
+        ctx.textAlign = 'right';
+        ctx.fillText('100', w - 52, h - 28);
+      },
+      { fontText: '100', anisotropy: 4 },
+    ),
+  );
 }

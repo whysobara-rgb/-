@@ -61,6 +61,17 @@
       return true;
     },
 
+    /** Snap the game camera to its goal (what the view does itself when the focus teleports). */
+    snapCamera() {
+      const v = D.app.d.view;
+      if (v && v.cam && typeof v.cam.snap === 'function') v.cam.snap();
+    },
+    /** Mark every achievement as already earned (no unlock toasts over staged screenshots). */
+    quietAchievements(ids) {
+      const d = window.__uproot.save();
+      for (const id of ids) if (!d.achievements.includes(id)) d.achievements.push(id);
+      return d.achievements.length;
+    },
     set(slot, fn) {
       D.ctl.set(slot, fn);
     },
@@ -135,7 +146,7 @@
         phase: D.match.state,
         chars: s.characters.map((c) => ({ slot: c.slot, x: +c.pos.x.toFixed(2), y: +c.pos.y.toFixed(2), grab: c.grab ? c.grab.targetId : null, strain: c.straining, kd: c.knockdownTicks })),
         banks: D.banks().map((b) => ({ id: b.id, x: +b.pos.x.toFixed(2), y: +b.pos.y.toFixed(2), anchored: b.anchored, p: +b.unanchorProgress.toFixed(2), est: b.estimatedValue, rec: b.recovered })),
-        police: (s.police ? s.police.officers || [] : []).map((o) => ({ id: o.id, phase: o.phase, x: +o.pos.x.toFixed(1), y: +o.pos.y.toFixed(1), t: o.targetCharId })),
+        police: (s.police || []).map((o) => ({ id: o.id, phase: o.phase, x: +o.pos.x.toFixed(1), y: +o.pos.y.toFixed(1), t: o.targetCharId })),
       };
     },
     /** A free spot near `p` (spiral search) for a body of radius r. */
@@ -163,21 +174,30 @@
    * north bank and pull; the rivals come running. The view's uproot choreography (roots, cracks,
    * the pop) and the HUD "은행째!" stamp are the game's own reaction.
    */
-  S.uproot = () => {
+  S.uproot = (o = {}) => {
     const b = D.banks()[0];
-    const faceY = b.pos.y + 4 + 0.55;
-    D.tp(D.charId(0), { x: b.pos.x - 1.3, y: faceY }, -Math.PI / 2);
-    D.tp(D.charId(1), { x: b.pos.x + 1.35, y: faceY + 0.05 }, -Math.PI / 2);
-    D.set(0, D.hold({ x: 0.15, y: 1 }, { x: 0, y: -1 }));
-    D.set(1, D.hold({ x: -0.1, y: 1 }, { x: 0, y: -1 }));
     const n = D.sim.state.characters.length;
+    if (o.side === 'south') {
+      const faceY = b.pos.y + 4 + 0.55;
+      D.tp(D.charId(0), { x: b.pos.x - 1.3, y: faceY }, -Math.PI / 2);
+      D.tp(D.charId(1), { x: b.pos.x + 1.35, y: faceY + 0.05 }, -Math.PI / 2);
+      D.set(0, D.hold({ x: 0.15, y: 1 }, { x: 0, y: -1 }));
+      D.set(1, D.hold({ x: -0.1, y: 1 }, { x: 0, y: -1 }));
+    } else {
+      // West wall (bank side, in profile from the camera), one raccoon each side of the door.
+      const faceX = b.pos.x - 3 - 0.55;
+      D.tp(D.charId(0), { x: faceX, y: b.pos.y + 2.3 }, 0);
+      D.tp(D.charId(1), { x: faceX, y: b.pos.y - 2.4 }, 0);
+      D.set(0, D.hold({ x: -1, y: 0.12 }, { x: 1, y: 0 }));
+      D.set(1, D.hold({ x: -1, y: -0.1 }, { x: 1, y: 0 }));
+    }
     if (n > 2) {
-      D.tp(D.charId(2), D.freeNear({ x: b.pos.x + 9.5, y: b.pos.y + 8.5 }), Math.PI);
-      D.set(2, D.walk(2, { x: b.pos.x + 4.6, y: b.pos.y + 6.2 }, { speed: 0.8, faceAt: b.pos }));
+      D.tp(D.charId(2), D.freeNear({ x: b.pos.x - 13, y: b.pos.y + 9 }), -Math.PI / 4);
+      D.set(2, D.walk(2, { x: b.pos.x - 7.2, y: b.pos.y + 5.2 }, { speed: 0.85, faceAt: b.pos }));
     }
     if (n > 3) {
-      D.tp(D.charId(3), D.freeNear({ x: b.pos.x - 9.5, y: b.pos.y + 9.5 }), 0);
-      D.set(3, D.walk(3, { x: b.pos.x - 4.8, y: b.pos.y + 6.8 }, { speed: 0.75, faceAt: b.pos }));
+      D.tp(D.charId(3), D.freeNear({ x: b.pos.x - 14, y: b.pos.y - 3 }), 0);
+      D.set(3, D.walk(3, { x: b.pos.x - 8.2, y: b.pos.y - 1.5 }, { speed: 0.75, faceAt: b.pos }));
     }
     return { bankId: b.id };
   };

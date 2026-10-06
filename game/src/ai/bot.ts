@@ -157,6 +157,8 @@ export interface BotStats {
   pingsAnswered: number;
   /** Dashes thrown at officers (reflex or body-block). */
   policeStunTries: number;
+  /** Banks given up to the police for a while (hounded by a pack / again and again). */
+  policeHolds: number;
   goalsByKind: Record<string, number>;
 }
 
@@ -177,10 +179,22 @@ export interface BotInternalOptions extends BotOptions {
 const REFLEX_LEAD_TICKS = 6;
 /** Longest wait (x police awareness) with the hands off a load while an officer stands by. */
 const HOLDOFF_TICKS = 150;
+/** After letting go with a pack of officers around: keep the hands off this long while they stand by. */
+const HANDS_OFF_TICKS = 90;
 /** Knocked off (or kept off) one bank this many times in 20 s with officers on duty: give it up for a while. */
 const HOUNDED_GIVE_UP = 3;
 /** A load this close to the own zone center (m) is pushed home under the officers' noses. */
 const NEAR_HOME_M = 11;
+/**
+ * Two or more officers ready to lunge within this distance (m) of a solo hauler: it cannot stun
+ * them all (one dash per 4 s, a tackle every 2 s of hit protection), so the haul is lost for now.
+ */
+const PACK_R = 4;
+/** A bank the police hold is left alone at least this long, and at most until their shift ends. */
+const HOLD_MIN_TICKS = 4 * TICK_RATE;
+const HOLD_MAX_S = 25;
+/** ... and is back on the menu once fewer than two ready officers stand within this distance (m) of it. */
+const HOLD_CLEAR_R = 6;
 
 export class Bot implements BotController {
   readonly slot: number;
@@ -205,6 +219,7 @@ export class Bot implements BotController {
     goalFails: 0,
     pingsAnswered: 0,
     policeStunTries: 0,
+    policeHolds: 0,
     goalsByKind: {},
   };
 
@@ -622,17 +637,52 @@ export class Bot implements BotController {
     let a = this.bankHeat.get(bankId);
     if (!a) this.bankHeat.set(bankId, (a = []));
     a.push(tick);
-    // knocked off it a third time in 20 s with officers still around: give it up for now (score
-    // elsewhere; the haul is back on the menu once they leave or after a while). A teammate on
-    // the bank keeps it worth fighting for.
+    // Give the bank up for now (score elsewhere) and come back when the officers leave it:
+    //  - a pack (two or more officers ready to lunge) on a solo hauler: knocked off / kept off it
+    //    twice — it cannot stun them all, every further grab is another tackle;
+    //  - knocked off it a third time in 20 s (a fourth a few steps from home) with officers around.
+    // A teammate on the bank keeps it worth fighting for (body-blocks, stuns, a second hauler).
     const bank = sim.getLoot(bankId);
-    const nearHome = bank !== undefined && V.dist(bank.pos, zoneOf(sim.layout, this.team).center) < NEAR_HOME_M;
-    if (!nearHome && this.heatOf(bankId, tick) >= HOUNDED_GIVE_UP && this.ps.onField() && this.mateHolders(sim, bankId).length === 0) {
-      const dur = Math.round(Math.min(15, Math.max(6, this.ps.shiftLeft())) * TICK_RATE);
-      this.blacklist.set(`haul:${bankId}`, tick + dur);
-      this.blacklist.set(`assist:${bankId}`, tick + dur);
-      if (this.goal && this.goal.targetId === bankId && (this.goal.kind === 'haulBank' || this.goal.kind === 'assistHaul')) this.endGoal(sim, 'hounded by the police: later');
+    if (!bank || !this.ps.onField() || this.mateHolders(sim, bankId).length > 0) return;
+    const heat = this.heatOf(bankId, tick);
+    const nearHome = V.dist(bank.pos, zoneOf(sim.layout, this.team).center) < NEAR_HOME_M;
+    const pack = this.readyCops(bank.pos, PACK_R + Math.hypot(bank.half.x, bank.half.y), 60).length >= 2;
+    if ((pack && heat >= 2) || heat >= HOUNDED_GIVE_UP + (nearHome ? 1 : 0)) {
+      const max = tick + Math.round(Math.min(HOLD_MAX_S, this.ps.shiftLeft() + 2) * TICK_RATE);
+      this.policeHold.set(bankId, { min: tick + HOLD_MIN_TICKS, max: Math.max(tick + HOLD_MIN_TICKS, max) });
+      this.stats.policeHolds++;
+      if (this.goal && this.goal.targetId === bankId && (this.goal.kind === 'haulBank' || this.goal.kind === 'assistHaul')) this.endGoal(sim, `hounded by the police${pack ? ' (a pack)' : ''}: later`);
     }
+  }
+
+  /** Bank id -> tick an opponent was last seen hauling it. */
+  private readonly oppHauledAt = new Map<EntityId, number>();
+
+  /** Banks the police hold for now (see addHeat): bank id -> earliest / latest tick to come back. */
+  private readonly policeHold = new Map<EntityId, { min: number; max: number }>();
+
+  /**
+   * Still leaving this bank to the police? Until the hold's minimum has passed and then while
+   * two or more ready officers stand near it (they circle a ringing bank for their whole shift),
+   * at most until their shift ends.
+   */
+  private policeHolds(sim: Simulation, bankId: EntityId, tick: number): boolean {
+    const h = this.policeHold.get(bankId);
+    if (!h) return false;
+    const b = sim.getLoot(bankId);
+    if (!b || b.recovered || tick >= h.max || !this.ps.onField()) {
+      this.policeHold.delete(bankId);
+      return false;
+    }
+    if (tick < h.min) return true;
+    if (this.readyCops(b.pos, HOLD_CLEAR_R + Math.hypot(b.half.x, b.half.y), 60).length >= 2) return true;
+    this.policeHold.delete(bankId);
+    return false;
+  }
+
+  /** Officers on duty within r of p that can lunge within `withinTicks` (not stunned for longer, not stepping out). */
+  private readyCops(p: Vec2, r: number, withinTicks: number): CopView[] {
+    return this.ps.cops.filter((c) => c.phase !== 'arriving' && c.busyTicks <= withinTicks && V.dist(c.pos, p) <= r);
   }
 
   /** How hard the officers have hounded my hauls of this bank in the last 20 s. */
@@ -1061,7 +1111,11 @@ export class Bot implements BotController {
         if (bank && !bank.recovered) {
           if (myTeamBanks.has(bank.id) && !holdingIt) continue; // never unload our own haul
           bankMoving = !bank.anchored;
-          const oppHaul = this.oppHolding(sim, bank.id).length > 0;
+          // (knocked off it a moment ago — an officer, a dash — or letting go to stun one: still
+          // their haul; otherwise a strip goal flickers on and off with every tackle)
+          let oppHaul = this.oppHolding(sim, bank.id).length > 0;
+          if (oppHaul) this.oppHauledAt.set(bank.id, tick);
+          else oppHaul = tick - (this.oppHauledAt.get(bank.id) ?? -Infinity) <= 4 * TICK_RATE;
           strip = oppHaul || bankMoving;
           // a loose bank nobody is hauling (ours, or abandoned) is worth more hauled whole than
           // emptied — and never unpack a bank that already sits in our zone
@@ -1223,6 +1277,8 @@ export class Bot implements BotController {
         if (hounded >= 2 && nAfter < 2) wave *= 1 / (1 + BOT_TUNING.houndedDrop * (hounded - 1) * (0.5 + 0.5 * aw));
       }
       let rate = (value / tPol) * feas * wave;
+      // (left to the police for now: hounded off it by a pack / again and again)
+      if (!holdingIt && this.policeHolds(sim, b.id, tick)) continue;
       if (isAssist) {
         const key = `assist:${b.id}`;
         if (claimed.has(key) || this.blacklisted(key, tick)) continue;
@@ -1442,6 +1498,24 @@ export class Bot implements BotController {
           else if (c.value >= diff) c.utility *= 1.5;
         } else if (bold && c.kind === 'collectSafe' && c.value >= 300) c.utility *= 1.6;
         else if (bold && c.kind === 'collectSafe') c.utility *= 0.85;
+      }
+    }
+    // --- decisive loads (doc §8 arithmetic): whoever recovers this one settles the match ---
+    // (late or with little left: with my lead d and R left, a load of value v of mine wins it
+    // outright when d + v > R - v; an opponent carry / haul of value v lets them tie or win when
+    // v - d >= R - v — "lead == remaining" is still a draw for the taking)
+    {
+      const R = st.remainingValue;
+      const d = st.scores[this.team] - st.scores[(1 - this.team) as TeamId];
+      if (BOT_TUNING.clinch > 0 && (left < 60 || R <= 1000)) {
+        const k = 1 + BOT_TUNING.clinch * Math.min(1, 0.5 + depth);
+        for (const c of out) {
+          const v = c.value;
+          if (v <= 0) continue;
+          const mine = c.kind === 'collectSafe' || c.kind === 'stripBank' || c.kind === 'haulBank' || c.kind === 'assistHaul';
+          const deny = c.kind === 'intercept' || c.kind === 'stripBank';
+          if ((mine && d + v > R - v) || (deny && v - d >= R - v)) c.utility *= k;
+        }
       }
     }
     // --- fallback: guard / patrol where the remaining loot is (never stand around) ---
@@ -3134,23 +3208,38 @@ export class Bot implements BotController {
         return cmd(V.scale(V.norm(V.sub(cop.pos, me.pos)), 0.4), false, V.sub(cop.pos, me.pos));
       }
     }
-    if (me.dashCooldown > 0 || me.knockdownTicks > 0) return null;
+    if (me.knockdownTicks > 0) return null;
     // (after a tackle the officer waits right beside the victim and lunges on the very tick its
     // protection runs out: act a few ticks before, not on the tick it is already too late)
     if (me.grab && me.protectTicks <= REFLEX_LEAD_TICKS && !me.straining) {
       const l = sim.getLoot(me.grab.targetId);
       // (a load already dwelling in our zone scores whatever happens to me)
       if (l && !l.recovered && !(l.recovery && l.recovery.team === this.team)) {
-        for (const cop of ps.chasers(this.id)) {
-          if (!this.copAboutToTackle(cop, me.pos, 2.4) || ps.stunImmune(cop.id) || cop.busyTicks > me.protectTicks + REFLEX_LEAD_TICKS) continue;
-          if (!this.rngCheck(aw, 3)) continue;
-          this.stunPlan = { copId: cop.id, until: tick + 24 };
-          this.log1(sim, `lets go of ${l.id} to stun officer ${cop.id}`);
-          return cmd({ x: 0, y: 0 }, false, V.sub(cop.pos, me.pos));
+        // officers set to lunge at me by the time my protection ends
+        const threats = ps.cops.filter((cop) => (cop.target === this.id || cop.target === null) && this.copAboutToTackle(cop, me.pos, 2.4) && cop.busyTicks <= me.protectTicks + REFLEX_LEAD_TICKS);
+        if (threats.some((c) => c.target === this.id) && this.rngCheck(aw, 3)) {
+          const stun = me.dashCooldown === 0 ? threats.find((c) => !ps.stunImmune(c.id)) : undefined;
+          // one officer: let go and knock it over, then take hold again. A pack (or no dash):
+          // stunning one hands the next one the tackle — let go and step back instead; the load
+          // is "hot" (twice and a solo hauler leaves it to the police for a while, see addHeat).
+          // With a single officer and no dash the tackle is taken (its 2 s protection keeps the
+          // haul going; hands off would only make the next grab an unprotected one).
+          const outnumbered = threats.length >= 2;
+          if (stun || outnumbered) {
+            if (stun) this.stunPlan = { copId: stun.id, until: tick + 24 };
+            if (outnumbered) {
+              this.addHeat(sim, l.id, tick);
+              this.handsOffUntil = tick + HANDS_OFF_TICKS;
+            }
+            this.log1(sim, `lets go of ${l.id}${stun ? ` to stun officer ${stun.id}` : ''}${threats.length >= 2 ? ` (${threats.length} officers on me)` : ''}`);
+            const away = V.norm(V.sub(me.pos, (stun ?? threats[0]!).pos));
+            return cmd(stun ? { x: 0, y: 0 } : away, false, V.sub((stun ?? threats[0]!).pos, me.pos));
+          }
         }
       }
       return null;
     }
+    if (me.dashCooldown > 0) return null;
     if (!me.grab) {
       for (const mate of this.mates(sim)) {
         // (still protected for a while: the officer cannot lunge yet; at the very end it will)
@@ -3219,7 +3308,12 @@ export class Bot implements BotController {
     // 2 s protection and barely moved back; waiting there only gives the officers time)
     const target = this.goal?.targetId != null ? sim.getLoot(this.goal.targetId) : undefined;
     const home = target !== undefined && target.kind === 'bank' && V.dist(target.pos, zoneOf(sim.layout, this.team).center) < NEAR_HOME_M;
-    const budget = home ? 0 : HOLDOFF_TICKS * aw;
+    const budget = (home ? 0.5 : 1) * HOLDOFF_TICKS * aw;
+    // (just let go of it with a pack around: no grab while they still stand by)
+    if (sim.state.tick < this.handsOffUntil && near.d < 2.6 && near.cop.busyTicks < 30) {
+      const away = V.norm(V.sub(me.pos, near.cop.pos));
+      return cmd(V.scale(away, 0.6), false, V.sub(near.cop.pos, me.pos));
+    }
     if (near.d < 2.6 && me.protectTicks < 30 && near.cop.busyTicks < 30 && this.holdoff < budget) {
       this.holdoff++;
       if (this.holdoff >= budget && this.goal?.targetId != null) {
@@ -3233,6 +3327,8 @@ export class Bot implements BotController {
   }
 
   private holdoff = 0;
+  /** Let go of a load with a pack of officers around: no grab before this tick while they stand by. */
+  private handsOffUntil = -1;
 
   /**
    * Body-block: stand on the line from the officer chasing a carrying teammate to that teammate
@@ -3279,6 +3375,8 @@ export class Bot implements BotController {
     const k = this.nav.nearestPassable(block, 'walk', 2);
     const tgt = k >= 0 ? { x: this.nav.cellX(k), y: this.nav.cellY(k) } : block;
     const d = V.dist(me.pos, tgt);
+    // (still running over from afar: travelling, not covering yet)
+    g.phase = d > 3 ? 'travel' : 'block';
     const aim = V.sub(cop.pos, me.pos);
     if (d < 0.25) return cmd({ x: 0, y: 0 }, false, aim);
     if (d < 4 && this.nav.segmentClear(me.pos, tgt, 'walk', 0)) return cmd(V.scale(V.norm(V.sub(tgt, me.pos)), Math.min(1, d / 0.6)), false, aim);

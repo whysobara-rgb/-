@@ -662,9 +662,17 @@ export type EmoteKind =
   | 'tear'
   | 'zzz'
   | 'siren'
-  | 'pointer';
+  | 'pointer'
+  // Taunt bubbles (owner addition), one per taunt emote.
+  | 'tauntWiggle'
+  | 'tauntBleh'
+  | 'tauntCash'
+  | 'tauntSquat'
+  | 'tauntZoom'
+  | 'tauntFlex'
+  | 'tauntShrug';
 
-/** Atlas cell per emote (8 x 3 grid). */
+/** Atlas cell per emote (8 x 4 grid). */
 export const EMOTE_CELLS: Readonly<Record<EmoteKind, number>> = {
   exclaim: 0,
   question: 1,
@@ -687,11 +695,21 @@ export const EMOTE_CELLS: Readonly<Record<EmoteKind, number>> = {
   zzz: 18,
   siren: 19,
   pointer: 20,
+  tauntWiggle: 21,
+  tauntBleh: 22,
+  tauntCash: 23,
+  tauntSquat: 24,
+  tauntZoom: 25,
+  tauntFlex: 26,
+  tauntShrug: 27,
 };
-export const EMOTE_ATLAS = { cols: 8, rows: 3, cell: 128 } as const;
+export const EMOTE_ATLAS = { cols: 8, rows: 4, cell: 128 } as const;
+
+/** Taunt bubbles: drawn in the pink-rimmed taunt bubble. */
+export const TAUNT_KINDS: readonly EmoteKind[] = ['tauntWiggle', 'tauntBleh', 'tauntCash', 'tauntSquat', 'tauntZoom', 'tauntFlex', 'tauntShrug'];
 
 /** Emotes drawn inside a speech bubble (the others float free beside the head). */
-export const EMOTE_BUBBLED: ReadonlySet<EmoteKind> = new Set<EmoteKind>(['exclaim', 'question', 'heart', 'note', 'happy', 'strain', 'shock', 'whistle', 'stop', 'coin', 'zzz']);
+export const EMOTE_BUBBLED: ReadonlySet<EmoteKind> = new Set<EmoteKind>(['exclaim', 'question', 'heart', 'note', 'happy', 'strain', 'shock', 'whistle', 'stop', 'coin', 'zzz', ...TAUNT_KINDS]);
 
 const LW = 7; // ink line width (px) shared by every icon
 
@@ -714,7 +732,7 @@ function sticker(ctx: CanvasRenderingContext2D, draw: () => void, fill: string, 
   ctx.restore();
 }
 
-function bubble(ctx: CanvasRenderingContext2D, cx: number, cy: number): void {
+function bubble(ctx: CanvasRenderingContext2D, cx: number, cy: number, taunt = false): void {
   ctx.save();
   ctx.lineJoin = 'round';
   const path = (): void => {
@@ -736,7 +754,333 @@ function bubble(ctx: CanvasRenderingContext2D, cx: number, cy: number): void {
   ctx.fill();
   // Cover the tail seam.
   ctx.fillRect(cx - 24, cy + 28, 26, 9);
+  if (taunt) {
+    // Taunts: a candy-pink inner rim and two little "teasing" ticks on the top-right corner.
+    ctx.beginPath();
+    roundRectPath(ctx, cx - 43, cy - 45, 86, 74, 28);
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = '#FF9EC0';
+    ctx.stroke();
+    ctx.lineCap = 'round';
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = INK;
+    ctx.beginPath();
+    ctx.moveTo(cx + 46, cy - 50);
+    ctx.lineTo(cx + 54, cy - 60);
+    ctx.moveTo(cx + 51, cy - 42);
+    ctx.lineTo(cx + 62, cy - 47);
+    ctx.stroke();
+  }
   ctx.restore();
+}
+
+/** Small filled ellipse with the ink outline (taunt icons). */
+function blob(ctx: CanvasRenderingContext2D, x: number, y: number, rx: number, ry: number, fill: string, lw = 5, rot = 0): void {
+  ctx.beginPath();
+  ctx.ellipse(x, y, rx, ry, rot, 0, Math.PI * 2);
+  ctx.fillStyle = fill;
+  ctx.fill();
+  ctx.lineWidth = lw;
+  ctx.strokeStyle = INK;
+  ctx.stroke();
+}
+
+/** Raccoon paw (pad + four toe beans), centered at x, y, pointing up (rotation `rot`). */
+function pawIcon(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, rot: number): void {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(rot);
+  blob(ctx, 0, 0, 15 * s, 13 * s, '#F7E2C8', 4.5);
+  ctx.fillStyle = '#E79AA8';
+  ctx.beginPath();
+  ctx.ellipse(0, 3 * s, 7 * s, 5.5 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+  for (const [dx, dy] of [
+    [-8, -7],
+    [-3, -11],
+    [3, -11],
+    [8, -7],
+  ] as const) {
+    ctx.beginPath();
+    ctx.arc(dx * s, dy * s, 2.6 * s, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+/** Four-point twinkle. */
+function twinkle(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, fill = '#FFD45C'): void {
+  ctx.beginPath();
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 - Math.PI / 2;
+    const rr = i % 2 ? r * 0.32 : r;
+    const px = x + Math.cos(a) * rr;
+    const py = y + Math.sin(a) * rr;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.fillStyle = fill;
+  ctx.fill();
+  ctx.lineWidth = 3.5;
+  ctx.strokeStyle = INK;
+  ctx.stroke();
+}
+
+/** Taunt bubble icons (one per taunt emote), drawn inside the taunt bubble around (cx, by). */
+function drawTauntIcon(ctx: CanvasRenderingContext2D, kind: EmoteKind, cx: number, by: number): void {
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  switch (kind) {
+    case 'tauntWiggle': {
+      // The big ringed tail mid-swish, with motion arcs on both sides.
+      ctx.save();
+      ctx.translate(cx + 2, by + 4);
+      ctx.rotate(-0.35);
+      const tail = (): void => {
+        ctx.beginPath();
+        ctx.moveTo(-6, 30);
+        ctx.bezierCurveTo(-30, 10, -22, -26, 4, -32);
+        ctx.bezierCurveTo(24, -36, 30, -18, 20, -8);
+        ctx.bezierCurveTo(12, 2, 10, 18, 10, 30);
+        ctx.closePath();
+      };
+      tail();
+      ctx.fillStyle = '#B9AEB5';
+      ctx.fill();
+      ctx.save();
+      tail();
+      ctx.clip();
+      ctx.fillStyle = '#4A3F4D';
+      for (const y of [-22, -4, 14]) {
+        ctx.beginPath();
+        ctx.ellipse(0, y, 40, 6.5, -0.25, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+      tail();
+      ctx.lineWidth = 5;
+      ctx.strokeStyle = INK;
+      ctx.stroke();
+      ctx.restore();
+      ctx.lineWidth = 5;
+      ctx.strokeStyle = '#FF7FA8';
+      for (const s of [-1, 1]) {
+        ctx.beginPath();
+        ctx.arc(cx + s * 4, by + 4, 38, s < 0 ? Math.PI * 0.86 : -Math.PI * 0.14, s < 0 ? Math.PI * 1.14 : Math.PI * 0.14);
+        ctx.stroke();
+      }
+      break;
+    }
+    case 'tauntBleh': {
+      // "Nyah!" face: one eye squeezed, one with the lid pulled down, tongue out.
+      blob(ctx, cx, by + 2, 34, 31, '#F7E2C8', 5);
+      ctx.fillStyle = '#4A3F4D';
+      for (const s of [-1, 1]) {
+        ctx.beginPath();
+        ctx.ellipse(cx + s * 14, by - 4, 13, 10, s * 0.25, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.strokeStyle = '#FFF6E6';
+      ctx.lineWidth = 4.5;
+      ctx.beginPath();
+      ctx.moveTo(cx - 21, by - 2);
+      ctx.quadraticCurveTo(cx - 14, by - 11, cx - 7, by - 2);
+      ctx.stroke();
+      ctx.fillStyle = '#FFFFFF';
+      ctx.beginPath();
+      ctx.arc(cx + 14, by - 6, 5.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#FF8FA8';
+      ctx.beginPath();
+      ctx.ellipse(cx + 14, by + 4, 7, 3.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#7A2E45';
+      ctx.beginPath();
+      ctx.moveTo(cx - 10, by + 12);
+      ctx.quadraticCurveTo(cx, by + 15, cx + 10, by + 12);
+      ctx.quadraticCurveTo(cx, by + 20, cx - 10, by + 12);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(cx - 8, by + 14);
+      ctx.lineTo(cx + 8, by + 14);
+      ctx.quadraticCurveTo(cx + 10, by + 34, cx, by + 35);
+      ctx.quadraticCurveTo(cx - 10, by + 34, cx - 8, by + 14);
+      ctx.fillStyle = '#FF7F9C';
+      ctx.fill();
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = INK;
+      ctx.stroke();
+      break;
+    }
+    case 'tauntCash': {
+      // Three fanned banknotes (mint paper, gold paw roundel) and a twinkle.
+      for (const [a, dx] of [
+        [-0.55, -9],
+        [-0.05, 0],
+        [0.45, 9],
+      ] as const) {
+        ctx.save();
+        ctx.translate(cx + dx * 0.3, by + 26);
+        ctx.rotate(a);
+        ctx.beginPath();
+        roundRectPath(ctx, -14, -56, 28, 50, 5);
+        ctx.fillStyle = '#DDF4CB';
+        ctx.fill();
+        ctx.lineWidth = 4.5;
+        ctx.strokeStyle = INK;
+        ctx.stroke();
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = '#5FA86A';
+        ctx.beginPath();
+        roundRectPath(ctx, -9, -51, 18, 40, 3);
+        ctx.stroke();
+        ctx.fillStyle = '#FFC93C';
+        ctx.beginPath();
+        ctx.arc(0, -31, 6.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+      twinkle(ctx, cx + 30, by - 24, 10);
+      break;
+    }
+    case 'tauntSquat': {
+      // Squished "boing" spring with stars popping off both sides.
+      ctx.lineWidth = 11;
+      ctx.strokeStyle = INK;
+      const coil = (): void => {
+        ctx.beginPath();
+        ctx.moveTo(cx - 22, by + 26);
+        for (let i = 0; i < 5; i++) ctx.lineTo(cx + (i % 2 ? -22 : 22), by + 18 - i * 9);
+        ctx.lineTo(cx - 22, by - 27);
+      };
+      coil();
+      ctx.stroke();
+      ctx.lineWidth = 5.5;
+      ctx.strokeStyle = '#FF7FA8';
+      coil();
+      ctx.stroke();
+      ctx.beginPath();
+      roundRectPath(ctx, cx - 26, by + 24, 52, 10, 4);
+      ctx.fillStyle = '#8C74E8';
+      ctx.fill();
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = INK;
+      ctx.stroke();
+      twinkle(ctx, cx - 34, by - 16, 9);
+      twinkle(ctx, cx + 34, by - 4, 8, '#FFFFFF');
+      break;
+    }
+    case 'tauntZoom': {
+      // A chunky sneaker with speed lines streaming behind.
+      ctx.lineWidth = 5;
+      ctx.strokeStyle = '#7FC8FF';
+      for (const [y, l] of [
+        [-12, 20],
+        [0, 28],
+        [12, 18],
+      ] as const) {
+        ctx.beginPath();
+        ctx.moveTo(cx - 40, by + y + 4);
+        ctx.lineTo(cx - 40 + l, by + y + 4);
+        ctx.stroke();
+      }
+      ctx.beginPath();
+      ctx.moveTo(cx - 16, by - 14);
+      ctx.quadraticCurveTo(cx - 14, by - 24, cx + 2, by - 20);
+      ctx.lineTo(cx + 10, by - 6);
+      ctx.quadraticCurveTo(cx + 34, by - 2, cx + 38, by + 12);
+      ctx.lineTo(cx + 38, by + 18);
+      ctx.lineTo(cx - 18, by + 18);
+      ctx.closePath();
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fill();
+      ctx.lineWidth = 5;
+      ctx.strokeStyle = INK;
+      ctx.stroke();
+      ctx.beginPath();
+      roundRectPath(ctx, cx - 20, by + 16, 60, 9, 4);
+      ctx.fillStyle = '#8FE3C8';
+      ctx.fill();
+      ctx.stroke();
+      ctx.strokeStyle = '#E8505B';
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(cx + 2, by + 10);
+      ctx.lineTo(cx + 14, by - 4);
+      ctx.moveTo(cx + 12, by + 12);
+      ctx.lineTo(cx + 22, by + 1);
+      ctx.stroke();
+      break;
+    }
+    case 'tauntFlex': {
+      // A raccoon arm flexing (fur sleeve, bicep bump, paw up) and a gold glint.
+      ctx.save();
+      ctx.translate(cx - 4, by + 6);
+      ctx.beginPath();
+      ctx.moveTo(-32, 22);
+      ctx.quadraticCurveTo(-34, 2, -14, -2);
+      ctx.quadraticCurveTo(-10, -22, 6, -10);
+      ctx.lineTo(12, -22);
+      ctx.lineTo(26, -16);
+      ctx.quadraticCurveTo(22, 4, 10, 10);
+      ctx.quadraticCurveTo(-4, 24, -16, 22);
+      ctx.closePath();
+      ctx.fillStyle = '#B9AEB5';
+      ctx.fill();
+      ctx.lineWidth = 5;
+      ctx.strokeStyle = INK;
+      ctx.stroke();
+      ctx.strokeStyle = '#8F8390';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-14, 4);
+      ctx.quadraticCurveTo(-6, -4, 2, 2);
+      ctx.stroke();
+      ctx.restore();
+      pawIcon(ctx, cx + 16, by - 22, 0.85, 0.4);
+      twinkle(ctx, cx - 26, by - 22, 11);
+      twinkle(ctx, cx + 34, by + 14, 7, '#FFFFFF');
+      break;
+    }
+    case 'tauntShrug': {
+      // Half-lidded smirk face between two paws turned up.
+      blob(ctx, cx, by + 6, 23, 21, '#F7E2C8', 5);
+      ctx.fillStyle = '#4A3F4D';
+      for (const s of [-1, 1]) {
+        ctx.beginPath();
+        ctx.ellipse(cx + s * 9, by + 2, 8, 6, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.strokeStyle = '#FFF6E6';
+      ctx.lineWidth = 3;
+      for (const s of [-1, 1]) {
+        ctx.beginPath();
+        ctx.moveTo(cx + s * 9 - 6, by + 3);
+        ctx.lineTo(cx + s * 9 + 6, by + 3);
+        ctx.stroke();
+      }
+      ctx.strokeStyle = INK;
+      ctx.lineWidth = 3.5;
+      ctx.beginPath();
+      ctx.moveTo(cx - 5, by + 16);
+      ctx.quadraticCurveTo(cx + 3, by + 18, cx + 9, by + 12);
+      ctx.stroke();
+      pawIcon(ctx, cx - 34, by - 6, 0.75, -0.5);
+      pawIcon(ctx, cx + 34, by - 6, 0.75, 0.5);
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = INK;
+      for (const s of [-1, 1]) {
+        ctx.beginPath();
+        ctx.moveTo(cx + s * 26, by - 26);
+        ctx.lineTo(cx + s * 30, by - 33);
+        ctx.stroke();
+      }
+      break;
+    }
+    default:
+      break;
+  }
 }
 
 function drawEmote(ctx: CanvasRenderingContext2D, kind: EmoteKind, x: number, y: number): void {
@@ -744,10 +1088,12 @@ function drawEmote(ctx: CanvasRenderingContext2D, kind: EmoteKind, x: number, y:
   const cy = y + 62;
   const inB = EMOTE_BUBBLED.has(kind);
   const by = cy - 6; // icon center inside a bubble
-  if (inB) bubble(ctx, cx, cy);
+  const taunt = TAUNT_KINDS.includes(kind);
+  if (inB) bubble(ctx, cx, cy, taunt);
   ctx.save();
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
+  if (taunt) drawTauntIcon(ctx, kind, cx, by);
   switch (kind) {
     case 'exclaim': {
       ctx.fillStyle = '#E8505B';

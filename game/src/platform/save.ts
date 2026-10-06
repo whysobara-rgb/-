@@ -15,7 +15,7 @@
  *  - main from an older version -> run SAVE_MIGRATIONS step by step, then sanitize.
  * Every path ends in `sanitizeSaveData`, so callers always get a complete, valid object.
  */
-import type { HatId, LayoutId } from '../sim/types';
+import type { EmoteId, HatId, LayoutId } from '../sim/types';
 import { isRecord } from './bindings';
 import { getNative, type SaveSlot } from './native';
 import { createDefaultSettings, sanitizeSettings, type Settings } from './settings';
@@ -68,7 +68,16 @@ export interface CosmeticsData {
   equipped: HatId;
   /** Hats the player has looked at in the wardrobe (unlocked && !seen => NEW badge). */
   seen: HatId[];
+  /**
+   * Taunt emotes unlocked beyond the four base ones (rival taunts, earned by beating that rival).
+   * Optional: a save without the field has none. The base taunts are always available.
+   */
+  unlockedEmotes?: EmoteId[];
 }
+
+/** Every taunt id in wheel order (base four, then the rival taunts). */
+export const EMOTE_IDS: readonly EmoteId[] = ['wiggle', 'bleh', 'fanCash', 'squatBounce', 'hodadakZoom', 'tongkeunFlex', 'nunchiShrug'];
+const isEmote = (x: unknown): x is EmoteId => typeof x === 'string' && (EMOTE_IDS as readonly string[]).includes(x);
 
 export interface PlayerStats {
   matches: number;
@@ -173,6 +182,11 @@ export function sanitizeSaveData(raw: unknown, defaults: SaveData = createDefaul
   const equipped = isHat(c.equipped) && unlockedSet.has(c.equipped) ? c.equipped : defaults.cosmetics.equipped;
   const seenSet = new Set<HatId>([...DEFAULT_UNLOCKED_HATS, ...(Array.isArray(c.seen) ? c.seen.filter(isHat) : unlocked)]);
   const seen = HAT_IDS.filter((h) => seenSet.has(h) && unlockedSet.has(h));
+  const cosmetics: CosmeticsData = { unlocked, equipped, seen };
+  if (Array.isArray(c.unlockedEmotes)) {
+    const set = new Set(c.unlockedEmotes.filter(isEmote));
+    cosmetics.unlockedEmotes = EMOTE_IDS.filter((id) => set.has(id));
+  }
 
   const achievements = Array.isArray(src.achievements)
     ? [...new Set(src.achievements.filter((a): a is string => typeof a === 'string' && ACH_RE.test(a)))].slice(0, 256)
@@ -182,7 +196,7 @@ export function sanitizeSaveData(raw: unknown, defaults: SaveData = createDefaul
     version: SAVE_VERSION,
     settings: sanitizeSettings(src.settings, defaults.settings),
     tournament: { beaten, series: sanitizeSeries(t.series) },
-    cosmetics: { unlocked, equipped, seen },
+    cosmetics,
     stats: {
       matches: count(s.matches),
       wins: count(s.wins),
