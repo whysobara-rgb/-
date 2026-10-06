@@ -62,6 +62,8 @@ export class UiRoot {
   setUiScale(scale: number): void {
     this.scale = clamp(Number.isFinite(scale) ? scale : 1, UI_SCALE_MIN, UI_SCALE_MAX);
     document.documentElement.style.setProperty('--uh-ui-scale', String(this.scale));
+    // Visible screens re-check whether they still fit (see UiScreen.fitToViewport).
+    window.dispatchEvent(new Event('uh-relayout'));
   }
 
   getUiScale(): number {

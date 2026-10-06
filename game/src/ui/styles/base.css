@@ -52,7 +52,8 @@
 /* 16:9 safe frame centred in any aspect ratio (21:9 gets side margins, 16:10 extra height). */
 .uh-frame {
   position: relative;
-  width: min(100%, 177.7778vh);
+  /* --uh-fit = shrink-to-fit zoom applied by UiScreen (vh lengths are zoomed too). */
+  width: min(100%, calc(177.7778vh / var(--uh-fit, 1)));
   height: 100%;
   margin: 0 auto;
   padding: var(--uh-sp-7) var(--uh-sp-8);

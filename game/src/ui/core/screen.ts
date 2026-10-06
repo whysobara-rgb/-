@@ -13,6 +13,19 @@ import type { NavAction } from './prompts';
 import { getUiRoot, type UiLayerName } from './root';
 import { clear } from './dom';
 
+/** Dispatched on window when global sizing changes (UI scale); visible screens re-fit. */
+export const RELAYOUT_EVENT = 'uh-relayout';
+
+/** True when the frame or one of its direct (non-scrolling) children overflows. */
+function frameOverflows(frame: HTMLElement): boolean {
+  if (frame.scrollHeight > frame.clientHeight + 1 || frame.scrollWidth > frame.clientWidth + 1) return true;
+  for (const c of Array.from(frame.children) as HTMLElement[]) {
+    if (c.classList.contains('uh-scroll')) continue;
+    if (c.scrollHeight > c.clientHeight + 1 || c.scrollWidth > c.clientWidth + 1) return true;
+  }
+  return false;
+}
+
 export interface ScreenOptions {
   /** Modifier for the root class: 'uh-screen--<name>'. */
   name: string;
@@ -36,6 +49,10 @@ export abstract class UiScreen<P extends object> implements NavTarget {
   private unsubLang: (() => void) | null = null;
   /** Cleanups for resources created by render() (observers, timers); run before each re-render. */
   private renderDisposers: (() => void)[] = [];
+  private fitRaf = 0;
+  private readonly onRelayout = (): void => {
+    if (this.visible) this.scheduleFit();
+  };
 
   protected constructor(props: P, opts: ScreenOptions) {
     this.props = props;
@@ -51,6 +68,8 @@ export abstract class UiScreen<P extends object> implements NavTarget {
     this.unsubLang = onLanguageChange(() => {
       if (this.rendered) this.rerender();
     });
+    window.addEventListener('resize', this.onRelayout);
+    window.addEventListener(RELAYOUT_EVENT, this.onRelayout);
   }
 
   /** Attach to a parent element (defaults to the UiRoot layer for this screen type). */
@@ -75,8 +94,10 @@ export abstract class UiScreen<P extends object> implements NavTarget {
     window.clearTimeout(this.enterTimer);
     this.enterTimer = window.setTimeout(() => this.el.classList.remove('is-entering'), 900);
     navRouter.push(this);
+    this.fitToViewport();
     this.focus.ensure(this.focus.focusedId ?? this.defaultFocus());
     this.onShow();
+    this.scheduleFit();
     return this;
   }
 
@@ -97,6 +118,9 @@ export abstract class UiScreen<P extends object> implements NavTarget {
     window.clearTimeout(this.enterTimer);
     this.unsubLang?.();
     this.unsubLang = null;
+    cancelAnimationFrame(this.fitRaf);
+    window.removeEventListener('resize', this.onRelayout);
+    window.removeEventListener(RELAYOUT_EVENT, this.onRelayout);
     this.disposeRender();
     this.onDestroy();
     this.el.remove();
@@ -196,6 +220,47 @@ export abstract class UiScreen<P extends object> implements NavTarget {
     this.el.querySelectorAll<HTMLElement>('.uh-scroll').forEach((e, i) => {
       if (scrolls[i] !== undefined) e.scrollTop = scrolls[i];
     });
+    if (this.visible) this.fitToViewport();
     if (this.visible || focusId) this.focus.ensure(focusId ?? this.defaultFocus());
+  }
+
+  // --- fit to viewport ---------------------------------------------------------------------
+
+  /** Re-fit on the next frame (after fonts/layout settle). */
+  protected scheduleFit(): void {
+    cancelAnimationFrame(this.fitRaf);
+    this.fitRaf = requestAnimationFrame(() => {
+      if (this.visible) this.fitToViewport();
+    });
+  }
+
+  /**
+   * Shrink-to-fit safety net: when the screen's `.uh-frame` content does not fit the viewport
+   * (large UI scale on small screens, e.g. 140% on a Steam Deck), apply CSS zoom to the frame
+   * so nothing is clipped. Runs only on show / re-render / resize / UI-scale change.
+   */
+  protected fitToViewport(): void {
+    const frame = this.el.querySelector<HTMLElement>(':scope > .uh-frame');
+    if (!frame) return;
+    const apply = (k: number): void => {
+      if (k >= 0.999) {
+        frame.style.removeProperty('zoom');
+        frame.style.removeProperty('--uh-fit');
+      } else {
+        frame.style.setProperty('zoom', k.toFixed(3));
+        frame.style.setProperty('--uh-fit', k.toFixed(3));
+      }
+    };
+    apply(1);
+    if (!frameOverflows(frame)) return;
+    let lo = 0.5;
+    let hi = 1;
+    for (let i = 0; i < 7; i++) {
+      const mid = (lo + hi) / 2;
+      apply(mid);
+      if (frameOverflows(frame)) hi = mid;
+      else lo = mid;
+    }
+    apply(lo);
   }
 }

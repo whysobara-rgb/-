@@ -61,8 +61,22 @@ class Simulation {
   isFree(p: Vec2, radius: number): boolean   // no overlap with statics, unbroken fences, vans, bank walls, unrecovered safes
   staticOBBs(): OBB[]                        // boundary + layout statics + vans (+ circles as OBB approximations via staticCircles())
   staticCircles(): { center: Vec2; radius: number }[]
+  ticksLeft(): number                        // endTick - tick (Infinity without a time limit)
+  readonly debug: SimDebugApi                // TEST / TUTORIAL ONLY: teleport, setAnchored, setVelocity
 }
 ```
+
+Implementation notes (finished sim):
+- Pushing works like a shopping cart (stick toward the grip pushes along the grip line with steering);
+  pulling = walking away with the object trailing. Sideways grip friction keeps the holder on its side.
+- Dash hits only land inside a ±60° forward cone (`DASH.hitConeHalfAngle`); a head-on dash clash makes
+  both bounce (`DASH.clashBounceSpeed`) with no knockdown; hits within a substep resolve simultaneously.
+- Anything tied to a bank (a rider, a safe on its floor) cannot move that bank by contact; moving a bank
+  means grabbing its outer wall (doc §4).
+- Fences push back with `FENCE.resistForce`; a slowly pushed bank still breaks them after `FENCE.pressTicks`.
+- Bank interior is mirror-symmetric: large safe at the center, small safes at local (±2.8, 0).
+- Tutorial: the fence closes the bank's lane; the practice prompt should say to push the bank from
+  behind ("은행 뒤에서 밀어요") — pulling from the front stalls because the puller reaches the fence first.
 
 Entity ids: characters `1..N` (id = slot + 1), then banks, then safes (bank interiors first,
 then outdoor safes in layout order). Ids are stable for the match and never reused.
