@@ -3,7 +3,7 @@
  * no reward-popup chains between the player and a rematch. Max 3 visible; extra queue up.
  */
 import type { HatId } from '../../sim/types';
-import { t, tr, type TextRef } from '../i18n';
+import { tr, type TextRef } from '../i18n';
 import { h } from '../core/dom';
 import { icon, raccoon, type IconName } from '../core/icons';
 import { getUiRoot } from '../core/root';
@@ -45,7 +45,7 @@ export class Toasts {
     this.show({
       kicker: 'toast.hat',
       title: `hat.${hat}.name`,
-      body: { key: 'toast.hat.body', params: { hat: t(`hat.${hat}.name`) } },
+      body: 'toast.hat.body',
       art: () => raccoon({ hat, expression: 'happy' }),
     });
   }

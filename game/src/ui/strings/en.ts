@@ -432,7 +432,7 @@ export const en: Record<StringKey, string> = {
   // --- dialogs / toasts --------------------------------------------------------------------------
   'toast.achievement': 'Achievement unlocked!',
   'toast.hat': 'New hat!',
-  'toast.hat.body': '{hat} · Try it on in the Wardrobe',
+  'toast.hat.body': 'Try it on in the Wardrobe',
 
   // --- achievements -------------------------------------------------------------------------------
   'ach.FIRST_RECOVERY.name': 'First Haul',

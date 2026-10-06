@@ -43,6 +43,8 @@ export class LoadingScreen extends UiScreen<LoadingScreenProps> {
     this.bar = h('div', { class: 'uh-loading__track' }, h('div', { class: 'uh-loading__fill' }), h('div', { class: 'uh-loading__haul' }, h('div', { class: 'uh-loading__bank' }, lootIcon('bank')), h('div', { class: 'uh-loading__racc' }, raccoon({ hat: 'teamCapA', expression: 'determined' }))));
     this.tipText = h('p', { class: 'uh-loading__tipText' });
     this.el.append(
+      h('div', { class: 'uh-backdrop__stars', 'aria-hidden': 'true' }),
+      h('div', { class: 'uh-backdrop__stars uh-backdrop__stars--b', 'aria-hidden': 'true' }),
       h(
         'div',
         { class: 'uh-frame uh-loading' },

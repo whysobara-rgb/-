@@ -174,6 +174,48 @@ interface ResultsStage {
   nextConfetti: number;
 }
 
+/** Scar footprint half extents (bank footprint + slab rim + dirt lip). */
+const SCAR_HALF: Vec2 = { x: BANK_MODEL.half.x + 0.45, y: BANK_MODEL.half.y + 0.45 };
+/** Scar height scale while the bank still stands on it (everything stays below the floor). */
+const SCAR_FLAT = 0.14;
+
+/** Do two equal oriented rectangles overlap? (SAT on both frames) */
+function rectsOverlap(a: Vec2, aa: number, b: Vec2, ba: number, half: Vec2): boolean {
+  const axes = [aa, aa + Math.PI / 2, ba, ba + Math.PI / 2];
+  const cornersOf = (c: Vec2, ang: number): Vec2[] => {
+    const ca = Math.cos(ang);
+    const sa = Math.sin(ang);
+    return [
+      [1, 1],
+      [1, -1],
+      [-1, 1],
+      [-1, -1],
+    ].map(([sx, sy]) => ({ x: c.x + sx * half.x * ca - sy * half.y * sa, y: c.y + sx * half.x * sa + sy * half.y * ca }));
+  };
+  const A = cornersOf(a, aa);
+  const B = cornersOf(b, ba);
+  for (const ax of axes) {
+    const ux = Math.cos(ax);
+    const uy = Math.sin(ax);
+    let amin = Infinity;
+    let amax = -Infinity;
+    let bmin = Infinity;
+    let bmax = -Infinity;
+    for (const p of A) {
+      const d = p.x * ux + p.y * uy;
+      amin = Math.min(amin, d);
+      amax = Math.max(amax, d);
+    }
+    for (const p of B) {
+      const d = p.x * ux + p.y * uy;
+      bmin = Math.min(bmin, d);
+      bmax = Math.max(bmax, d);
+    }
+    if (amax < bmin || bmax < amin) return false;
+  }
+  return true;
+}
+
 const _v3 = new THREE.Vector3();
 const _v3b = new THREE.Vector3();
 const _ndc = new THREE.Vector3();
@@ -462,7 +504,8 @@ export class GameView {
       van.setSiren(siren);
       van.setEngine(siren || (mode === 'results' && this.stage?.team === van.team));
       van.update(dt);
-      this.glows[van.team]?.update(siren && !this.settings.reducedMotion ? true : siren, this.time);
+      // Reduced motion: steady glow instead of flashing.
+      this.glows[van.team]?.update(siren, this.settings.reducedMotion ? 0 : this.time);
     }
     // --- highlights + pings -------------------------------------------------------------
     this.updateHighlights(sim, focus);
@@ -867,6 +910,10 @@ export class GameView {
     if (!animate) bv.rig.update(1); // settle the pop when loading mid-match
     const scar = createBankScar();
     placeOnSim(scar, bv.home.pos, bv.home.angle, 0.002);
+    // Flattened under the slab until the bank has moved off its old site (clods would poke
+    // through the floor otherwise), then the torn-up patch rises into view.
+    bv.scarRise = SCAR_FLAT;
+    scar.scale.y = SCAR_FLAT;
     this.world.add(scar);
     bv.scar = scar;
   }
@@ -875,9 +922,20 @@ export class GameView {
   // Per-frame entity updates
   // ===========================================================================
 
+  private updateScar(bv: BankView, dt: number): void {
+    const scar = bv.scar;
+    if (!scar) return;
+    const overlap = !bv.done && rectsOverlap(bv.pose, bv.pose.a, bv.home.pos, bv.home.angle, SCAR_HALF);
+    const target = overlap ? SCAR_FLAT : 1;
+    bv.scarRise += (target - bv.scarRise) * damp(overlap ? 30 : 4, dt);
+    if (dt <= 0) bv.scarRise = target;
+    scar.scale.y = bv.scarRise;
+  }
+
   private updateBank(bv: BankView, sim: Simulation, alpha: number, dt: number): void {
     const l = sim.getLoot(bv.id);
     if (!l) return;
+    this.updateScar(bv, dt);
     if (l.recovered || bv.done) {
       if (!bv.done) {
         bv.done = true;
@@ -999,6 +1057,7 @@ export class GameView {
       pose.sad = spot.sad;
       if (!spot.cheer && !spot.sad) pose.expression = 'happy';
       cv.rig.root.scale.set(1, 1, 1);
+      cv.marker.root.visible = false;
       placeOnSim(cv.rig.root, cv.pose, cv.facing, 0);
       cv.rig.setHighlight(null);
       cv.rig.update(dt, pose);
@@ -1076,6 +1135,13 @@ export class GameView {
     }
     cv.rig.root.scale.set(sqXZ, sqY, sqXZ);
     placeOnSim(cv.rig.root, cv.pose, cv.facing, cv.y);
+    // Ground marker: team ring under everyone, a brighter ring + facing notch for the focus.
+    const showMarker = mode === 'match' || mode === 'preview';
+    cv.marker.root.visible = showMarker;
+    if (showMarker) {
+      placeOnSim(cv.marker.root, cv.pose, cv.facing, cv.y + 0.02);
+      cv.marker.setFocus(!!focus && focus.charId === c.id);
+    }
 
     // Footstep puffs.
     if (dt > 0) {
