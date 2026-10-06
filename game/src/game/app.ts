@@ -60,6 +60,7 @@ import {
   type UiSoundOptions,
   type WipeShape,
 } from '../ui';
+import { CreditsScreen } from '../ui/screens/CreditsScreen';
 import { tournamentAchievements, wardrobeAchievement } from './achievements';
 import { MatchController, type MatchSummary } from './match';
 import type { LaunchParams } from './params';
@@ -822,6 +823,7 @@ export class App {
       reducedMotion: s.reducedMotion,
       uiScale: s.uiScale,
       vibration: s.vibration,
+      showOthersTaunts: s.showOthersTaunts,
     };
   }
 
@@ -830,9 +832,10 @@ export class App {
   }
 
   /** Settings screen; `back` returns to wherever it was opened from (menu or pause). */
-  toSettings(back: () => void): void {
+  toSettings(back: () => void, initialFocus?: string): void {
     this.settingsReturn = back;
     const screen = new SettingsScreen({
+      initialFocus,
       settings: this.uiSettings(),
       bindings: this.bindingRows(),
       showFullscreen: true,
@@ -861,6 +864,7 @@ export class App {
         this.d.applySettings(next, 'bindings');
         return this.bindingRows();
       },
+      onCredits: () => this.toCredits(),
       onBack: () => {
         const r = this.settingsReturn;
         this.settingsReturn = null;
@@ -878,6 +882,19 @@ export class App {
       return;
     }
     this.hideout('right')?.setFocus('settings');
+    this.show(screen, 'settings');
+  }
+
+  /** Credits + third-party licenses (from Settings); back returns to Settings (same origin). */
+  private toCredits(): void {
+    const back = this.settingsReturn ?? (() => this.toMenu('settings'));
+    const screen = new CreditsScreen({ version: this.d.version, onBack: () => this.toSettings(back, 'set:credits') });
+    if (this.stateValue === 'paused') {
+      this.overlay?.destroy();
+      this.overlay = screen;
+      screen.show();
+      return;
+    }
     this.show(screen, 'settings');
   }
 

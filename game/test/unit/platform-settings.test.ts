@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_BINDINGS,
   MATCH_ACTIONS,
+  OPTIONAL_ACTIONS,
   assignBinding,
   defaultBindings,
   findBindingConflicts,
@@ -169,7 +170,7 @@ describe('bindings', () => {
     expect(alt.bindings.gamepad.pause).toEqual(['button:9']);
   });
 
-  it('every action keeps a code after any single rebind (exhaustive over defaults)', () => {
+  it('every required action keeps a code after any single rebind (exhaustive over defaults)', () => {
     const codes = {
       keyboard: ['KeyW', 'Space', 'KeyK', 'KeyE', 'KeyP', 'Escape', 'Mouse2', 'KeyZ', 'ArrowDown'],
       gamepad: ['button:0', 'button:1', 'button:2', 'button:3', 'button:5', 'button:9', 'axis:1:-', 'button:12'],
@@ -179,7 +180,8 @@ describe('bindings', () => {
         for (const code of codes[device])
           for (const slot of [0, 1, 3, 9]) {
             const r = assignBinding(defaultBindings(), action, device, code, slot);
-            for (const a of MATCH_ACTIONS) expect(r.bindings[device][a].length, `${action} ${code} ${slot} -> ${a}`).toBeGreaterThan(0);
+            // Taunts are optional actions (pads reach them through the wheel): they may end up empty.
+            for (const a of MATCH_ACTIONS) if (!OPTIONAL_ACTIONS.has(a)) expect(r.bindings[device][a].length, `${action} ${code} ${slot} -> ${a}`).toBeGreaterThan(0);
             expect(listDuplicateBindings(r.bindings)).toEqual([]);
             if (r.ok) expect(r.bindings[device][action]).toContain(code);
           }
@@ -225,6 +227,7 @@ describe('bindings', () => {
     expect(b.gamepad.moveDown).toContain('axis:1:+');
     expect(b.gamepad.grab).toEqual(['button:0']);
     for (const a of MATCH_ACTIONS) {
+      if (OPTIONAL_ACTIONS.has(a)) continue;
       expect(b.keyboard[a].length).toBeGreaterThan(0);
       expect(b.gamepad[a].length).toBeGreaterThan(0);
     }

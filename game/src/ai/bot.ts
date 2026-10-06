@@ -1517,6 +1517,26 @@ export class Bot implements BotController {
           if ((mine && d + v > R - v) || (deny && v - d >= R - v)) c.utility *= k;
         }
       }
+      // A few loads left and the score still open: on mirror-symmetric layouts each side picking
+      // up "its" last safe ends level. Go and contest the one the other team is heading for
+      // (catch them at it: they need a second to work it loose, a carrier is slower than a
+      // walker) instead of quietly taking the mirrored one.
+      if (BOT_TUNING.contestLate > 0 && R <= 400 && Math.abs(d) <= R && !me.grab && !this.isProxy) {
+        for (const c of out) {
+          if (c.kind !== 'collectSafe' || c.targetId === null) continue;
+          const l = st.loot.find((x) => x.id === c.targetId);
+          if (!l || l.floorOf !== null) continue;
+          const mine = V.dist(me.pos, l.pos);
+          for (const o of freshOpps) {
+            if (!o.last || o.last.holdingId !== null) continue;
+            const od = V.dist(o.last.pos, l.pos);
+            if (od < mine && mine < od + 10) {
+              c.utility *= 1 + BOT_TUNING.contestLate * Math.min(1, 0.5 + depth);
+              break;
+            }
+          }
+        }
+      }
     }
     // --- fallback: guard / patrol where the remaining loot is (never stand around) ---
     if (!me.grab) out.push(this.mk('reposition', 'guard', null, 0.02, 0, 6));
@@ -2817,7 +2837,9 @@ export class Bot implements BotController {
     const inZone = this.bankInZone(sim, bank);
     const fence = this.fenceAhead(sim, bank, dir);
     let mode: 'pull' | 'push' = fence ? 'push' : 'pull';
-    if (g.mode && g.modeUntil !== undefined && tick < g.modeUntil) mode = g.mode;
+    // (a forced mode after a stall never makes a puller walk into an intact fence: it would pin
+    // itself in the slot between the bank and the fence)
+    if (g.mode && g.modeUntil !== undefined && tick < g.modeUntil) mode = fence ? 'push' : g.mode;
     // guard reaction while hauling (adaptation guardDoors / deeper counter-play)
     if (holding && !bank.anchored) {
       const d = this.intruderCheck(sim, bank);
@@ -2882,7 +2904,7 @@ export class Bot implements BotController {
       // drive with the face we hold: pull when it faces the travel direction, push when it is
       // the rear face (no regrab needed) — except that a puller cannot walk through a fence
       const nd = V.dot(n, dir);
-      if (!(g.mode && g.modeUntil !== undefined && tick < g.modeUntil)) mode = nd >= 0 && !fence ? 'pull' : 'push';
+      if (!(g.mode && g.modeUntil !== undefined && tick < g.modeUntil) || fence) mode = nd >= 0 && !fence ? 'pull' : 'push';
       const score = mode === 'pull' ? nd : -nd;
       if (score < 0.3) g.badFaceTicks = (g.badFaceTicks ?? 0) + 1;
       else g.badFaceTicks = 0;
@@ -2942,8 +2964,8 @@ export class Bot implements BotController {
           this.endGoal(sim, contested ? 'tug of war (felt)' : 'bank stuck', contested ? 10 * TICK_RATE : 900);
           return cmd({ x: 0, y: 0 }, false);
         }
-        // switch mode and regrab
-        g.mode = mode === 'pull' ? 'push' : 'pull';
+        // switch mode and regrab (with a fence ahead: push again, from another spot)
+        g.mode = mode === 'pull' || fence ? 'push' : 'pull';
         g.modeUntil = tick + 420;
         g.spot = null;
         return cmd({ x: 0, y: 0 }, false);

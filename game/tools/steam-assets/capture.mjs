@@ -56,6 +56,7 @@ const DEV_PORT = Number(args.devPort ?? 4501);
 const BUILD = args['no-build'] === undefined;
 const EXTERNAL = args.base ?? null; // reuse a running server, e.g. --base=http://127.0.0.1:5191
 const SEED = 20261006;
+const JOB_TIMEOUT_MS = Number(args.jobTimeout ?? 15) * 60_000;
 
 // ---------------------------------------------------------------------------------------------
 // Servers
@@ -504,21 +505,34 @@ async function main() {
     base = `http://127.0.0.1:${PORT}`;
     await startServer('npx', ['vite', 'preview', '--port', String(PORT), '--strictPort', '--host', '127.0.0.1'], `${base}/`);
   }
-  const browser = await chromium.launch({ args: S.GL_ARGS });
+  // A fresh browser per job: a software-GL GPU process that just drew a 7680 px frame is better
+  // not reused (it can stall), and every job starts from the same clean state.
+  const launch = () => chromium.launch({ args: S.GL_ARGS });
+  let browser = await launch();
   try {
     const wanted = (j) => !ONLY || ONLY.includes(j.name);
     for (const j of JOBS) {
       if (!wanted(j)) continue;
       for (const lang of j.langs ?? LANGS) {
+        await browser.close().catch(() => undefined);
+        browser = await launch();
+        let timer;
         try {
-          await runJob(browser, base, j, lang);
+          const guard = new Promise((_, rej) => (timer = setTimeout(() => rej(new Error(`timeout after ${JOB_TIMEOUT_MS / 60000} min`)), JOB_TIMEOUT_MS)));
+          await Promise.race([runJob(browser, base, j, lang), guard]);
         } catch (err) {
           S.log(`!! job ${j.name} [${lang}] failed: ${err && err.stack ? err.stack : err}`);
           manifest.failed = [...(manifest.failed ?? []), `${j.name}/${lang}: ${String(err && err.message)}`];
+        } finally {
+          clearTimeout(timer);
         }
       }
     }
-    if (!ONLY || ONLY.includes('icon')) await icons(browser);
+    if (!ONLY || ONLY.includes('icon')) {
+      await browser.close().catch(() => undefined);
+      browser = await launch();
+      await icons(browser);
+    }
   } finally {
     await browser.close();
     const mf = path.join(RAW, 'manifest.json');

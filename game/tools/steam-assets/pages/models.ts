@@ -67,11 +67,12 @@ function render(spec: ShotSpec): string {
     camera.position.set(0.4, 1.35, 4.2);
     camera.lookAt(0.02, 0.6, 0);
   } else {
-    const pose = { ...idlePose(t), expression: spec.expression ?? 'happy' };
+    // Head + shoulders with air around the ears (the bust is cut by the badge edge later).
+    const pose = { ...idlePose(t), expression: spec.expression ?? 'normal' };
     for (let i = 0; i < 30; i++) rig.update(1 / 60, { ...pose, time: t + i / 60 });
     camera.fov = 20;
-    camera.position.set(0.35, 1.05, 2.6);
-    camera.lookAt(0.02, 0.84, 0);
+    camera.position.set(0.3, 1.0, 3.5);
+    camera.lookAt(0.02, 0.8, 0);
   }
   camera.updateProjectionMatrix();
   camera.updateMatrixWorld();

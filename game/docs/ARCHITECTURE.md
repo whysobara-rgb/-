@@ -116,18 +116,25 @@ function chooseAdaptation(summary: ObservationSummary, layout: LayoutDef, rival:
 ```
 
 Police awareness (owner addition): bots read the public police state (`src/ai/policeSense.ts`:
-officers, whom they run at, the alarm / dispatch clock; an officer's remaining shift is estimated
-from its public arrival + the fixed shift, never read from the sim). Carriers route around officers
-and burst away; a carrier about to be tackled lets go and dash-stuns the officer a few ticks before
-its own hit protection ends (an officer waits beside a downed hauler for exactly that tick), then
-picks the load up again; with an officer standing by, a bot stuns it before taking hold of a load,
-or keeps its hands off for a moment (bounded) when the dash is not ready; the dash is saved for
-stuns (no bank-haul boosts) while an officer is near; a bank the bot was knocked off three times in
-20 s is given up for a while (score elsewhere, back when the officers leave). Teammates (incl. the
-human's bot mate) body-block and dash-stun an officer chasing a carrying ally; bank hauls are
-deferred while a fresh wave is on the field; 눈치왕 cashes in on police chaos (loot an opponent just
-lost to a tackle, carriers/hauls with an officer on them). Path planning treats an officer standing
-in a one-body passage and a loose safe leaving a sub-body gap beside a wall as cost circles.
+officers, the alarm / dispatch clock). Whom an officer is after is read the way a player reads it
+on screen — the loot-holding raccoon a chasing officer runs or faces at, or the one a tired officer
+stands over, with a short memory while its run bends around a corner — never from the sim's target
+id; an officer's remaining shift is estimated from its public arrival + the fixed shift. Carriers
+route around officers and burst away; a carrier about to be tackled lets go and dash-stuns the
+officer a few ticks before its own hit protection ends (an officer waits beside a downed hauler for
+exactly that tick), then picks the load up again. Against a pack (two or more officers ready to
+lunge) one stun only hands the next officer the tackle, so a solo hauler lets go and steps back
+instead, and after being knocked / kept off twice it leaves that bank to the police for a while (a
+third time in 20 s with one officer, a fourth a few steps from home) and comes back once fewer than
+two ready officers stand near it or their shift ends. With an officer standing by, a bot stuns it
+before taking hold of a load, or keeps its hands off for a moment (bounded) when the dash is not
+ready; the dash is saved for stuns (no bank-haul boosts, no travel dashes) while an officer is near,
+and a bot never dashes out of a spot an officer pins it in. Teammates (incl. the human's bot mate)
+body-block and dash-stun an officer chasing a carrying ally; bank hauls are deferred while a fresh
+wave is on the field; 눈치왕 cashes in on police chaos (loot an opponent just lost to a tackle,
+carriers/hauls with an officer on them). Path planning treats an officer standing in a one-body
+passage and a loose safe leaving a sub-body gap beside a wall as cost circles; a walker blocked by
+an officer that chases nobody picks another goal for a few seconds.
 How much a bot does this is `DifficultyParams.policeAwareness` (novice 0.3 < normal 0.75 <
 challenge 1). Shared balance knobs live in `BOT_TUNING` (src/ai/params.ts).
 

@@ -11,7 +11,22 @@ import { h } from './dom';
 export type NavAction = 'navUp' | 'navDown' | 'navLeft' | 'navRight' | 'confirm' | 'back' | 'tabPrev' | 'tabNext';
 
 /** Everything a prompt chip can stand for. */
-export type PromptAction = NavAction | 'grab' | 'dash' | 'ping' | 'pause' | 'move' | 'navigate' | 'adjust' | 'any';
+export type PromptAction =
+  | NavAction
+  | 'grab'
+  | 'dash'
+  | 'ping'
+  | 'pause'
+  | 'move'
+  | 'navigate'
+  | 'adjust'
+  | 'any'
+  // Taunts (owner addition): the four direct taunts and the hold-to-open wheel.
+  | 'emote1'
+  | 'emote2'
+  | 'emote3'
+  | 'emote4'
+  | 'emoteWheel';
 
 export interface PromptGlyph {
   /** Short label drawn inside the chip: 'Enter', 'Esc', 'A', 'LB', '↑↓', 'WASD'. */
@@ -47,6 +62,11 @@ export const DEFAULT_KEYBOARD_GLYPHS: Readonly<Record<PromptAction, PromptGlyph>
   pause: { label: 'Esc', variant: 'key' },
   move: { label: 'WASD', variant: 'wide' },
   any: { label: 'Any', variant: 'wide' },
+  emote1: { label: 'Ctrl+1', variant: 'wide' },
+  emote2: { label: 'Ctrl+2', variant: 'wide' },
+  emote3: { label: 'Ctrl+3', variant: 'wide' },
+  emote4: { label: 'Ctrl+4', variant: 'wide' },
+  emoteWheel: { label: 'T', variant: 'key' },
 };
 
 let provider: PromptGlyphProvider = (a) => DEFAULT_KEYBOARD_GLYPHS[a];
@@ -128,6 +148,8 @@ const PAD_BUTTONS: readonly { label: string; variant: PromptGlyph['variant']; cl
 export const defaultBindingLabel: BindingLabelFormatter = (device, code) => {
   if (!code) return { label: '—', variant: 'key' };
   if (device === 'keyboard') {
+    // Ctrl chords (taunts): 'Ctrl+Digit1' -> 'Ctrl+1'.
+    if (code.startsWith('Ctrl+')) return { label: `Ctrl+${defaultBindingLabel(device, code.slice(5)).label}`, variant: 'wide' };
     let label = KEY_NAMES[code];
     if (!label) {
       if (code.startsWith('Key')) label = code.slice(3);

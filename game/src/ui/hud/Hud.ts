@@ -12,7 +12,8 @@
  * prompt with the target's 3D card bottom-center (position + label distinguish it from the
  * confirmed scores), minimap bottom-left, dash button bottom-right, tutorial card left,
  * banners center, captions above the carry tag. World labels / arrows / popups live on the
- * full-size 'world' layer.
+ * full-size 'world' layer. Taunts (owner addition): a small taunt chip beside the ping button and
+ * the radial taunt wheel in the middle while it is held (setTauntWheel).
  */
 import type { LayoutDef, LootKind, TeamId } from '../../sim/types';
 import { TEAM_STYLES } from '../../shared/teams';
@@ -29,6 +30,7 @@ import { Minimap } from './Minimap';
 import { WorldLabels } from './WorldLabels';
 import { OffscreenArrows } from './OffscreenArrows';
 import { Banners, Captions, ScorePopups, Stamps } from './Effects';
+import { EmoteWheel, type EmoteWheelModel } from './EmoteWheel';
 import type { BannerKind, CaptionOptions, HudBank, HudFace, HudModel, HudStampKind, HudStampOptions, ScorePopupOptions, TutorialPromptModel } from './types';
 
 const DASH_R = 26;
@@ -67,6 +69,8 @@ export class Hud {
   readonly banners: Banners;
   readonly captions: Captions;
   readonly stamps: Stamps;
+  /** Taunt wheel + taunt chip (owner addition). */
+  readonly taunts: EmoteWheel;
 
   private readonly root: UiRoot;
   private readonly top: HTMLElement;
@@ -124,6 +128,7 @@ export class Hud {
     this.banners = new Banners();
     this.captions = new Captions();
     this.stamps = new Stamps();
+    this.taunts = new EmoteWheel();
 
     this.top = h('div', { class: 'uh-hud__top' });
     this.lastBankEl = h('div', { class: 'uh-lastbank', role: 'status' });
@@ -160,6 +165,7 @@ export class Hud {
     const actions = h(
       'div',
       { class: 'uh-actions' },
+      this.taunts.chipEl,
       h('div', { class: 'uh-actions__ping' }, glyphChip('ping'), h('span', { class: 'uh-actions__pingLabel' }, icon('ping'))),
       this.dashEl,
     );
@@ -176,6 +182,7 @@ export class Hud {
         h('div', { class: 'uh-hud__bl' }, this.minimap.el),
         h('div', { class: 'uh-hud__bc' }, this.captions.el, this.carryEl, this.grabEl),
         h('div', { class: 'uh-hud__br' }, actions),
+        this.taunts.el,
         this.banners.el,
       ),
       this.fxEl,
@@ -275,6 +282,12 @@ export class Hud {
 
   caption(key: string, o?: CaptionOptions): void {
     this.captions.show(key, o);
+  }
+
+  /** Taunt wheel state (open / hover / cooldown); null hides the wheel. */
+  setTauntWheel(m: EmoteWheelModel | null): void {
+    if (m) this.taunts.update(m);
+    else if (!this.taunts.el.hidden) this.taunts.update({ open: false, hover: null, slots: [], cooldown: 0, blocked: false, showKeys: false });
   }
 
   setTutorialPrompt(p: TutorialPromptModel | null): void {
@@ -664,6 +677,7 @@ export class Hud {
     this.cDash = -1;
     this.labels.invalidate();
     this.paintTutorial();
+    this.taunts.relabel();
     if (this.model) this.update(this.model);
   }
 }

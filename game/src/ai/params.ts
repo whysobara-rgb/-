@@ -337,4 +337,9 @@ export const BOT_TUNING = {
    * last small safe to the trailer — most draws were such 1600-1600 "all recovered" endings.
    */
   clinch: 1.0,
+  /**
+   * <= 400 points left and the score still open: extra weight on a loose safe an empty-handed
+   * opponent is a little closer to (contest it instead of taking the mirrored one).
+   */
+  contestLate: 0,
 };

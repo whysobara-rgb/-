@@ -12,12 +12,19 @@
  * - Input: exactly one InputManager.pollMatch() per sim tick (edges latch between polls, so a
  *   press during hit-stop is buffered, not lost); GrabLatch turns hold/toggle into Command.grab.
  * - Hit-stop / slow-mo only change wall-clock pacing (deterministic ticks).
+ * - Taunts (owner addition): the direct taunt keys and the hold-to-open taunt wheel become a
+ *   one-shot Command.emote, for unlocked taunts only (the four base ones; rival taunts once the
+ *   save lists them in cosmetics.unlockedEmotes). While the wheel is open the stick / movement keys
+ *   aim it and the raccoon stands still; after a pick, movement waits until the stick is let go
+ *   (moving would cancel the taunt at once). The HUD wheel shows a small cooldown ring.
  */
 import { Bot, RivalObserver, createBot, type BotController, type ObservationSummary } from '../ai';
 import { MatchAudioDirector, type AudioEngine } from '../audio';
-import { DT, TICK_RATE, VISION, Simulation, type CharacterState, type Command, type EntityId, type MatchResult, type SimEvent, type TeamId, type Vec2 } from '../sim';
+import { DT, EMOTE, TICK_RATE, VISION, Simulation, type CharacterState, type Command, type EmoteId, type EmoteState, type EntityId, type MatchResult, type SimEvent, type TeamId, type Vec2 } from '../sim';
 import type { GameView, ViewCallout, ViewFocus } from '../render';
 import { GrabLatch, buildCommand, type InputManager, type MatchFrame } from '../platform/input';
+import { EMOTE_IDS, EmoteWheelController, unlockedEmotes } from '../platform/emotes';
+import { getSaveManager } from '../platform/save';
 import type { Settings } from '../platform/settings';
 import { unlockAchievement } from '../platform/steam';
 import { hudModelFromSim, type Hud, type HudModel, type OffscreenTarget, type Toasts } from '../ui';
@@ -120,6 +127,15 @@ export class MatchController {
   /** The first police dispatch of this match was explained to the player. */
   private policeExplained = false;
   private lastFrame: MatchFrame | null = null;
+  // --- taunts (owner addition) ---
+  private readonly wheel: EmoteWheelController;
+  private readonly unlocked: ReadonlySet<EmoteId>;
+  /** After a wheel pick, movement stays off until the stick / keys go back to neutral. */
+  private holdStill = false;
+  /** The human's taunt state at the last tick (start / end detection). */
+  private prevEmote: EmoteState | null = null;
+  /** Tick the human's last taunt ended (cooldown display). */
+  private emoteEndedTick = -Infinity;
   private forcedResult: MatchResult | null = null;
   private summaryCache: MatchSummary | null = null;
   private pauseRequested = false;
@@ -142,7 +158,20 @@ export class MatchController {
         ? new Bot(this.sim, { slot: 0, personality: 'hodadak', difficulty: 'challenge', seed: (config.seed ^ 0x5eed) >>> 0, humanProxy: true })
         : null;
     this.observer = config.kind === 'tournament' ? new RivalObserver(this.sim, this.myTeam) : null;
-    this.director = new MatchAudioDirector(svc.audio, { localTeam: this.myTeam, listenerCharId: this.meId });
+    this.director = new MatchAudioDirector(svc.audio, {
+      localTeam: this.myTeam,
+      listenerCharId: this.meId,
+      // "다른 너구리의 도발 보기" off: only our own taunt sounds.
+      tauntFilter: () => this.svc.settings().showOthersTaunts !== false,
+    });
+    let owned: EmoteId[];
+    try {
+      owned = unlockedEmotes(getSaveManager().data.cosmetics);
+    } catch {
+      owned = unlockedEmotes(null);
+    }
+    this.unlocked = new Set(owned);
+    this.wheel = new EmoteWheelController(owned);
     this.latch = new GrabLatch(svc.settings().grabMode);
     this.time.setEnabled(!svc.settings().reducedMotion);
   }
@@ -192,6 +221,7 @@ export class MatchController {
       reducedMotion: s.reducedMotion,
       language: s.language,
       builtinCallouts: false,
+      showOthersTaunts: s.showOthersTaunts,
     });
   }
 
@@ -323,6 +353,7 @@ export class MatchController {
     for (const b of this.bots) cmds[b.slot] = b.update(sim);
     const events = sim.step(cmds);
     this.stats.steps++;
+    this.trackEmote();
     const { view } = this.svc;
     view.captureTick(sim);
     view.onEvents(events, sim);
@@ -356,7 +387,67 @@ export class MatchController {
     let ping = this.pendingPing;
     this.pendingPing = null;
     if (!ping && f.pingPressed) ping = this.resolvePing(me, f);
-    return buildCommand(f, grab, ping);
+    const emote = this.tauntInput(f);
+    const cmd = buildCommand(f, grab, ping);
+    if (this.wheel.open || this.holdStill) cmd.move = { x: 0, y: 0 };
+    cmd.emote = emote;
+    return cmd;
+  }
+
+  /**
+   * Taunt input of this tick: a direct taunt key (base slots 1..4) or a wheel pick, unlocked taunts
+   * only. Drives the wheel state and the "stand still" latch.
+   */
+  private tauntInput(f: MatchFrame): EmoteId | null {
+    const p = this.svc.input.pointer;
+    const step = this.wheel.update({
+      held: f.emoteWheelDown,
+      stick: f.wheelStick,
+      keys: f.wheelKeys,
+      pointer: p ? { x: p.clientX, y: p.clientY } : null,
+      cancel: f.grabPressed || f.dashPressed || f.pausePressed,
+    });
+    let emote: EmoteId | null = null;
+    if (f.emotePressed !== null) {
+      const id = EMOTE_IDS[f.emotePressed];
+      if (id && this.unlocked.has(id)) emote = id;
+    }
+    if (step.confirmed && this.unlocked.has(step.confirmed)) {
+      emote = step.confirmed;
+      this.holdStill = true;
+    }
+    if (step.lockedPick) this.svc.hud.taunts.lockedPick(EMOTE_IDS.indexOf(step.lockedPick));
+    if (this.holdStill && !this.wheel.open && Math.hypot(f.move.x, f.move.y) <= EMOTE.cancelMove) this.holdStill = false;
+    return emote;
+  }
+
+  /** Follow the human's taunt state (chip pop on start, cooldown from its end). */
+  private trackEmote(): void {
+    const me = this.sim.getCharacter(this.meId);
+    const em = me?.emote ?? null;
+    const prev = this.prevEmote;
+    const tick = this.sim.state.tick;
+    if (em && (!prev || prev.startTick !== em.startTick || prev.id !== em.id)) this.svc.hud.taunts.fired();
+    if (prev && (!em || em.startTick !== prev.startTick)) this.emoteEndedTick = Math.min(tick, prev.endTick);
+    else if (em && tick >= em.endTick && this.emoteEndedTick < em.endTick) this.emoteEndedTick = em.endTick;
+    this.prevEmote = em && tick < em.endTick ? { ...em } : null;
+  }
+
+  /** HUD taunt wheel model for this frame. */
+  private tauntWheelModel(): Parameters<Hud['setTauntWheel']>[0] {
+    const me = this.sim.getCharacter(this.meId);
+    const tick = this.sim.state.tick;
+    const playing = !!me?.emote && tick < me.emote.endTick;
+    const cool = playing ? 1 : Math.max(0, Math.min(1, (this.emoteEndedTick + EMOTE.cooldownTicks - tick) / EMOTE.cooldownTicks));
+    const blocked = !me || me.grab !== null || me.dashTicks > 0 || me.knockdownTicks > 0 || me.boostTicks > 0;
+    return {
+      open: this.wheel.open && !this.paused,
+      hover: this.wheel.hover,
+      slots: EMOTE_IDS.map((id) => ({ id, unlocked: this.unlocked.has(id) })),
+      cooldown: cool,
+      blocked,
+      showKeys: this.svc.input.glyphDevice === 'keyboard',
+    };
   }
 
   /** Key ping: at the grab candidate, else the ground ahead. Mouse ping: the cursor. */
@@ -593,6 +684,7 @@ export class MatchController {
       model.carry = null;
     }
     hud.update(model);
+    hud.setTauntWheel(this.phase === 'playing' ? this.tauntWheelModel() : null);
   }
 
   private scriptArrows(): OffscreenTarget[] {
@@ -688,6 +780,8 @@ export class MatchController {
   pause(): void {
     if (this.paused || this.disposed) return;
     this.paused = true;
+    this.wheel.close();
+    this.holdStill = false;
     this.director.stop();
     this.svc.audio.setMuffled(true);
     this.svc.hud.hide();

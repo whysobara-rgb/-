@@ -5,7 +5,7 @@
  */
 import { t, type TextRef } from '../i18n';
 import { h } from '../core/dom';
-import { glyphChip } from '../core/prompts';
+import { glyphChip, type PromptAction } from '../core/prompts';
 import { UiScreen } from '../core/screen';
 import { chunky } from '../core/juice';
 import { button, chip, promptBar, stagger } from '../components/controls';
@@ -67,7 +67,7 @@ export class PauseMenu extends UiScreen<PauseMenuProps> {
         button({ id: 'pause:menu', label: 'pause.menu', icon: 'home', onActivate: () => this.ask('menu') }),
       ),
     );
-    const hint = (action: 'move' | 'grab' | 'dash' | 'ping', key: string): HTMLElement =>
+    const hint = (action: PromptAction, key: string): HTMLElement =>
       h('span', { class: 'uh-pause__hint' }, glyphChip(action), t(key));
     this.el.append(
       h('div', { class: 'uh-dim uh-dim--stripes' }),
@@ -88,6 +88,7 @@ export class PauseMenu extends UiScreen<PauseMenuProps> {
             hint('grab', 'hint.grab'),
             hint('dash', 'hint.dash'),
             hint('ping', 'hint.ping'),
+            hint('emoteWheel', 'hint.emoteWheel'),
           ),
           h('p', { class: 'uh-pause__grabNote' }, t(p.grabMode === 'toggle' ? 'hint.grabToggle' : 'hint.grabHold')),
         ),

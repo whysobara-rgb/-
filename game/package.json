@@ -41,6 +41,16 @@
       "!**/node_modules/steamworks.js/dist/win64/*.lib",
       "!**/node_modules/steamworks.js/{README.md,*.d.ts}"
     ],
+    "extraResources": [
+      {
+        "from": "LICENSES/THIRD_PARTY_NOTICES.txt",
+        "to": "THIRD_PARTY_NOTICES.txt"
+      },
+      {
+        "from": "docs/PLAYER_README.md",
+        "to": "README.md"
+      }
+    ],
     "asar": true,
     "asarUnpack": [
       "**/node_modules/steamworks.js/**"
@@ -60,7 +70,7 @@
       ],
       "category": "Game",
       "synopsis": "Uproot Heist - drag whole banks to your getaway van",
-      "icon": "electron/icon.png",
+      "icon": "build/icons",
       "files": [
         "dist/**/*",
         "electron/**/*",
@@ -74,7 +84,7 @@
         "zip"
       ],
       "signAndEditExecutable": false,
-      "icon": "electron/icon.png",
+      "icon": "build/icon.ico",
       "files": [
         "dist/**/*",
         "electron/**/*",
@@ -89,7 +99,7 @@
       "category": "public.app-category.games",
       "identity": null,
       "hardenedRuntime": false,
-      "icon": "electron/icon.png",
+      "icon": "build/icon.png",
       "files": [
         "dist/**/*",
         "electron/**/*",

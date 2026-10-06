@@ -15,6 +15,7 @@ import { jitter, rint, rrange } from './rng';
 import { POLICE_RECIPES } from './sfxPolice';
 import { coin, crackles, pn, pnMidi, thump, type SfxRecipe } from './sfxkit';
 import { STAGE_RECIPES } from './sfxStage';
+import { TAUNT_RECIPES } from './sfxTaunt';
 import { midiToHz, scaleNote } from './theory';
 
 export type { SfxRecipe, SfxVoice } from './sfxkit';
@@ -757,6 +758,7 @@ export const SFX_RECIPES: Record<SfxId, SfxRecipe> = {
   // ---- presentation (./sfxStage.ts) and police (./sfxPolice.ts) ---------------------------------
   ...STAGE_RECIPES,
   ...POLICE_RECIPES,
+  ...TAUNT_RECIPES,
 };
 
 /**

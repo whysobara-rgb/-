@@ -829,7 +829,7 @@ export class GameView {
       }
       if (!this.tauntShown(ch.charId) || (this.viewMode !== 'match' && this.viewMode !== 'preview')) continue;
       const dur = EMOTE.durationTicks[ch.id] / 60;
-      this.emotes.show(ch.charId, kind, { duration: dur + 0.15, priority: 3 });
+      this.emotes.show(ch.charId, kind, { duration: dur + 0.15, priority: 3, scale: 1.22 });
       const cv = this.chars.get(ch.charId);
       if (!cv) continue;
       const head = { x: cv.pose.x, y: cv.y + 1.15, z: cv.pose.y };

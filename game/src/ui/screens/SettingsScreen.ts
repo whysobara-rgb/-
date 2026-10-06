@@ -1,6 +1,6 @@
 /**
  * Settings with four tabs (doc §13 accessibility first):
- *  게임  — language, grab mode hold/toggle, tutorial hints
+ *  게임  — language, grab mode hold/toggle, tutorial hints, show other raccoons' taunts
  *  조작  — keyboard + gamepad rebinding ("키를 누르세요" capture via onRebind promise), reset.
  *          Rows the platform changed as a side effect (conflict swaps) are highlighted with a
  *          short note, and any input still bound to two actions is flagged (icon + text).
@@ -42,10 +42,25 @@ export interface UiSettings {
   /** 0.8..1.4 */
   uiScale: number;
   vibration: boolean;
+  /** Show other raccoons' taunts (owner addition; your own always play). Default true. */
+  showOthersTaunts?: boolean;
 }
 
-export type BindableAction = 'moveUp' | 'moveDown' | 'moveLeft' | 'moveRight' | 'grab' | 'dash' | 'ping' | 'pause';
-export const BINDABLE_ACTIONS: readonly BindableAction[] = ['moveUp', 'moveDown', 'moveLeft', 'moveRight', 'grab', 'dash', 'ping', 'pause'];
+export type BindableAction =
+  | 'moveUp'
+  | 'moveDown'
+  | 'moveLeft'
+  | 'moveRight'
+  | 'grab'
+  | 'dash'
+  | 'ping'
+  | 'pause'
+  | 'emote1'
+  | 'emote2'
+  | 'emote3'
+  | 'emote4'
+  | 'emoteWheel';
+export const BINDABLE_ACTIONS: readonly BindableAction[] = ['moveUp', 'moveDown', 'moveLeft', 'moveRight', 'grab', 'dash', 'ping', 'pause', 'emote1', 'emote2', 'emote3', 'emote4', 'emoteWheel'];
 
 export interface BindingRow {
   /** Action id; label is `action.<id>` unless labelKey is given. */
@@ -94,6 +109,10 @@ export interface SettingsScreenProps {
   onRebind: (action: string, device: BindingDevice) => Promise<RebindOutcome>;
   /** Restore default bindings; return the new rows. */
   onResetBindings: () => Promise<readonly BindingRow[]> | readonly BindingRow[];
+  /** Open the credits / licenses screen (a button at the end of the 게임 tab). Omit to hide it. */
+  onCredits?: () => void;
+  /** Nav id to focus first (e.g. 'set:credits' when coming back from the credits). */
+  initialFocus?: string;
   onBack: () => void;
 }
 
@@ -139,7 +158,7 @@ export class SettingsScreen extends UiScreen<SettingsScreenProps> {
   }
 
   protected override defaultFocus(): string {
-    return this.firstRowId();
+    return this.props.initialFocus ?? this.firstRowId();
   }
 
   protected override onBack(): boolean {
@@ -259,6 +278,31 @@ export class SettingsScreen extends UiScreen<SettingsScreenProps> {
           value: s.showTutorialHints,
           onChange: (v) => this.change('showTutorialHints', v),
         }),
+        switchRow({
+          id: 'set:othersTaunts',
+          label: 'settings.showOthersTaunts',
+          desc: 'settings.showOthersTaunts.desc',
+          icon: 'paw',
+          value: s.showOthersTaunts !== false,
+          onChange: (v) => this.change('showOthersTaunts', v),
+        }),
+        this.props.onCredits
+          ? navigable(
+              h(
+                'div',
+                { class: 'uh-row uh-settings__creditsRow', role: 'button' },
+                h(
+                  'div',
+                  { class: 'uh-row__label' },
+                  h('div', { class: 'uh-row__name' }, icon('star'), t('settings.credits')),
+                  h('div', { class: 'uh-row__desc' }, t('settings.credits.desc')),
+                ),
+                h('div', { class: 'uh-row__control' }, icon('chevRight')),
+              ),
+              'set:credits',
+              { onActivate: () => this.leave(this.props.onCredits) },
+            )
+          : null,
       ),
     );
   }

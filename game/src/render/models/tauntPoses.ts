@@ -98,7 +98,7 @@ export const TAUNT_FACES: Readonly<Record<EmoteId, readonly FaceExpression[]>> =
   fanCash: ['smug'],
   squatBounce: ['happy', 'cheeky'],
   hodadakZoom: ['determined', 'cheeky'],
-  tongkeunFlex: ['proud'],
+  tongkeunFlex: ['determined', 'proud'],
   nunchiShrug: ['smug'],
 };
 
@@ -216,23 +216,23 @@ function wiggle(o: TauntPose, T: number): void {
   const ph = (T - 0.2) * TAU * 4;
   const sw = Math.sin(ph);
   o.pivotY = -0.06 * ant + e * 0.025 * Math.abs(sw);
-  o.lean = -0.55 * e + 0.05 * ant;
-  o.roll = e * sw * 0.32;
+  o.lean = -0.4 * e + 0.05 * ant;
+  o.roll = e * sw * 0.4;
   o.twist = e * (0.42 + sw * 0.1);
   o.bodyZ = e * sw * 0.05;
   o.sy = 1 - 0.08 * ant + e * 0.03 * Math.cos(ph * 2);
   o.sx = o.sz = 1 + 0.05 * ant;
   // Feet stay planted under the bowing body.
-  o.legL = { fwd: 0.55 * e + Math.max(0, sw) * 0.12 * e, out: 0.18 * e, lift: Math.max(0, -sw) * 0.02 * e };
-  o.legR = { fwd: 0.55 * e + Math.max(0, -sw) * 0.12 * e, out: 0.18 * e, lift: Math.max(0, sw) * 0.02 * e };
+  o.legL = { fwd: 0.4 * e + Math.max(0, sw) * 0.12 * e, out: 0.18 * e, lift: Math.max(0, -sw) * 0.02 * e };
+  o.legR = { fwd: 0.4 * e + Math.max(0, -sw) * 0.12 * e, out: 0.18 * e, lift: Math.max(0, sw) * 0.02 * e };
   // Paws on the hips.
   for (const a of [o.armL, o.armR]) {
     a.fwd = -0.5 * e;
     a.out = NEUTRAL_ARM_OUT + 0.6 * e;
     a.inward = -0.2 * e;
   }
-  o.headYaw = 1.75 * e;
-  o.headPitch = 0.5 * e + 0.04 * Math.sin(ph * 2) * e;
+  o.headYaw = 1.45 * e;
+  o.headPitch = 0.32 * e + 0.04 * Math.sin(ph * 2) * e;
   o.headRoll = e * (0.2 + 0.08 * sw);
   o.tail = [
     mix(0.35, Math.sin(ph + 0.7) * 0.95, e),
@@ -253,15 +253,15 @@ function bleh(o: TauntPose, T: number): void {
   const ant = bump(0, 0.2, T);
   const e = envelope(T, 0.12, 0.3, 0.98, 1.2);
   const nyah = Math.sin((T - 0.3) * TAU * 3.2) * sstep(0.3, 0.4, T);
-  o.lean = 0.14 * ant - 0.16 * e;
-  o.roll = 0.16 * e;
+  o.lean = 0.14 * ant - 0.18 * e;
+  o.roll = 0.2 * e;
   o.pivotY = -0.035 * ant;
   o.sy = 1 - 0.06 * ant + 0.03 * e;
   o.headRoll = e * (0.45 + nyah * 0.09);
   o.headPitch = 0.22 * ant - 0.04 * e;
   o.headYaw = e * (nyah * 0.13 - 0.12);
   // Right paw up to the eye (stretched a little: toy arms are short).
-  o.armR = { fwd: 2.6 * e, out: mix(NEUTRAL_ARM_OUT, -0.12, e), inward: 0.55 * e, lift: 0.035 * e, stretch: 1 + 0.32 * e, bulge: 1 };
+  o.armR = { fwd: 2.05 * e, out: mix(NEUTRAL_ARM_OUT, -0.05, e), inward: 0.15 * e, lift: 0.06 * e, stretch: 1 + 0.75 * e, bulge: 1 };
   // Left paw on the hip.
   o.armL.fwd = -0.35 * e;
   o.armL.out = NEUTRAL_ARM_OUT + 0.55 * e;
@@ -283,12 +283,13 @@ function fanCash(o: TauntPose, T: number): void {
   const held = sstep(0.26, 0.4, T) * (1 - sstep(1.5, 1.72, T));
   const e = envelope(T, 0.18, 0.42, 1.52, 1.8);
   const f = Math.sin((T - 0.4) * TAU * 3) * sstep(0.38, 0.5, T);
+  // Fan raised beside the head (arm up and out), flapping toward the face.
   o.armR = {
-    fwd: -0.95 * reach + held * (1.75 + 0.16 * f),
-    out: mix(NEUTRAL_ARM_OUT, 0.05, held),
-    inward: held * (0.35 + 0.32 * f),
-    lift: 0.025 * held,
-    stretch: 1,
+    fwd: -0.95 * reach + held * (0.45 + 0.12 * f),
+    out: mix(NEUTRAL_ARM_OUT, 2.0, held),
+    inward: held * (0.3 + 0.35 * f),
+    lift: 0.03 * held,
+    stretch: 1 + 0.12 * held,
     bulge: 1,
   };
   o.fan = Math.max(0, pop(0.27, 0.44, T, 2.4)) * (1 - sstep(1.48, 1.66, T));

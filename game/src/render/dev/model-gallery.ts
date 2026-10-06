@@ -129,6 +129,10 @@ poseRow.forEach(([, pose], i) => addRaccoon((i % 2) as TeamId, { hat: i % 2 ? 't
 (['normal', 'blink', 'happy', 'cheer', 'strain', 'dizzy', 'sad', 'determined', 'shock', 'angry', 'panic'] as const).forEach((expression, i) =>
   addRaccoon(0, { hat: 'none' }, -7.5 + i * 1.5, 2.6, FACE_CAM, (t) => ({ ...idlePose(t), expression })),
 );
+// Taunt faces (owner addition), next to the taunt row.
+(['bleh', 'cheeky', 'smug', 'proud'] as const).forEach((expression, i) =>
+  addRaccoon(1, { hat: 'none' }, -45 + i * 1.5, 4.2, FACE_CAM, (t) => ({ ...idlePose(t), expression })),
+);
 // Uproot effort ramp (plants feet -> giant-radish lean -> violent) and the pop tumble loop.
 [0.2, 0.6, 0.95].forEach((effort, i) => addRaccoon(0, { hat: 'teamCapA' }, -7.5 + i * 1.6, 4.6, FACE_CAM - 0.9, (t) => ({ ...idlePose(t), grabbing: true, straining: true, effort })));
 addRaccoon(1, { hat: 'teamCapB' }, -2.5, 4.6, FACE_CAM - 0.9, (t) => ({ ...idlePose(t), tumble: t % 2 }));
@@ -136,6 +140,8 @@ addRaccoon(1, { hat: 'teamCapB' }, -2.5, 4.6, FACE_CAM - 0.9, (t) => ({ ...idleP
 addRaccoon(1, { hat: 'teamCapB' }, 3.2, 0.6, FACE_CAM, (t) => idlePose(t)).setHighlight(HIGHLIGHT_COLORS.ping);
 
 // --- taunts (owner addition): every taunt looping, plus a fixed-clock mode for frame captures.
+/** Taunt row: its own clear patch of ground, far left of the showcase. */
+const TAUNT_X0 = -46;
 const TAUNTS: EmoteId[] = ['wiggle', 'bleh', 'fanCash', 'squatBounce', 'hodadakZoom', 'tongkeunFlex', 'nunchiShrug'];
 /** Fixed taunt clock (seconds into every taunt) or null = loop in real time. */
 let tauntClock: number | null = params.get('tauntT') !== null ? Number(params.get('tauntT')) : null;
@@ -150,7 +156,7 @@ const TAUNT_LOOKS: CharacterLook[] = [
 ];
 TAUNTS.forEach((id, i) => {
   const dur = TAUNT_SECONDS[id];
-  addRaccoon((i % 2) as TeamId, TAUNT_LOOKS[i]!, -7.8 + i * 1.6, -14, FACE_CAM - (id === 'wiggle' ? Math.PI * 0.9 : 0), (t) => {
+  addRaccoon((i % 2) as TeamId, TAUNT_LOOKS[i]!, TAUNT_X0 + i * 1.6, 0, FACE_CAM - (id === 'wiggle' ? Math.PI * 0.9 : 0), (t) => {
     // Loop: the taunt, then a short idle beat (the blend in/out shows too).
     const cycle = dur + 0.7;
     const local = tauntClock !== null ? tauntClock : (t + i * 0.23) % cycle;
@@ -514,11 +520,12 @@ const CAMERAS: Record<string, CamPreset> = {
   decor: { pos: [S + 6, 5.5, 23.5], target: [S + 6, 0.4, 16], fov: 42 },
   gameShowRaccoons: gameCam(S - 2, -1),
   /** Taunt row: close-up and through the match camera at the game's distances. */
-  taunts: { pos: [S - 3, 3.4, -2.6], target: [S - 3, 0.7, -14], fov: 42 },
-  tauntsLeft: { pos: [S - 5.4, 2.0, -8.4], target: [S - 5.4, 0.7, -14], fov: 40 },
-  tauntsRight: { pos: [S - 0.6, 2.0, -8.4], target: [S - 0.6, 0.7, -14], fov: 40 },
-  tauntsGame: gameCam(S - 3, -14, 22),
-  tauntsGameFar: gameCam(S - 3, -14, 29),
+  taunts: { pos: [S - 41.2, 2.6, 8.2], target: [S - 41.2, 0.6, 0], fov: 42 },
+  tauntsLeft: { pos: [S - 43.6, 1.6, 4.4], target: [S - 43.6, 0.7, 0], fov: 40 },
+  tauntsRight: { pos: [S - 38.8, 1.6, 4.4], target: [S - 38.8, 0.7, 0], fov: 40 },
+  tauntFaces: { pos: [S - 42.75, 1.5, 9.6], target: [S - 42.75, 0.75, 4.2], fov: 34 },
+  tauntsGame: gameCam(S - 41.2, 0, 22),
+  tauntsGameFar: gameCam(S - 41.2, 0, 29),
   police: { pos: [S - 2, 4.5, 14.5], target: [S - 2.5, 0.7, 8.5] },
   emotes: { pos: [S - 30, 5, 18], target: [S - 30, 1.8, 12.4] },
   expressions: { pos: [S - 1, 2.6, 6.2], target: [S - 1, 1.0, 2.6] },

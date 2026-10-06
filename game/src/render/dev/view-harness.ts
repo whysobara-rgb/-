@@ -8,14 +8,21 @@
  *   layout=plaza|shortcut|counter|tutorial   quality=low|medium|high   scenario=<name>
  *   bots=0 (no AI)   hud=0 (hide overlay)   auto=0 (no rAF loop; drive via window.__harness)
  *   labels=1 (draw project() test labels)   lang=ko|en
- * Scenarios: start, strain, haul, pullSafe, fence, recover, final, ping, dash, preview, title, results, free
+ * Scenarios: start, strain, haul, pullSafe, fence, recover, final, ping, dash, preview, title, results, free,
+ *            taunt (four raccoons face off; taunts cycle on mocked CharacterState.emote states)
+ *
+ * Taunts (owner addition): until the sim plays them, the harness MOCKS them the way the sim will:
+ * it sets CharacterState.emote and feeds an 'emote' event (with nearOpponentId) to the view, and
+ * clears the state at endTick (or with 'emoteCancel'). Keys: Z/X/C/V base taunts on the focus
+ * raccoon, B/N/M-less: 5/6/7 rival taunts; window.__harness.emote(slot, id) / cancelEmote(slot).
+ * showOthers=0 renders with the "show others' taunts" setting off.
  *
  * Keys: WASD/arrows move, Space grab (hold), Shift dash, E ping at the mouse, Tab next focus,
  *       M cycle view mode, 1/2/3 quality, R reload scenario.
  *
  * window.__harness exposes step / advance / capture / stats for Playwright.
  */
-import { Simulation, EMPTY_COMMAND, type Command, type EntityId, type LayoutId, type MatchSetup, type RosterEntry, type SimEvent, type Vec2 } from '../../sim';
+import { Simulation, EMPTY_COMMAND, EMOTE, type Command, type EmoteId, type EntityId, type LayoutId, type MatchSetup, type RosterEntry, type SimEvent, type Vec2 } from '../../sim';
 import { LAYOUTS } from '../../sim/layouts';
 import { GameView, type ViewFocus, type ViewMode, type ViewSettings } from '../view';
 import type { QualityLevel } from '../quality';
@@ -45,6 +52,7 @@ const settings: ViewSettings = {
   screenShake: 1,
   reducedMotion: params.get('reduced') === '1',
   language: params.get('lang') === 'en' ? 'en' : 'ko',
+  showOthersTaunts: params.get('showOthers') !== '0',
 };
 const view = new GameView(app, settings);
 
@@ -333,8 +341,79 @@ function setupScenario(name: string): void {
       }
     }
   }
+  if (name === 'taunt') {
+    // Two pairs face off on open ground: focus (slot 0) vs the rival (slot 2), the teammate and
+    // the other rival watch. Everyone stands still (taunts only play standing).
+    const mid = { x: L.size.x / 2, y: L.size.y / 2 };
+    let spot = mid;
+    for (let r = 0; r < 24; r += 1) {
+      let found = false;
+      for (let k = 0; k < 12 && !found; k++) {
+        const p = { x: mid.x + Math.cos((k / 12) * Math.PI * 2) * r, y: mid.y + Math.sin((k / 12) * Math.PI * 2) * r };
+        if (sim.isFree(p, 6.5)) {
+          spot = p;
+          found = true;
+        }
+      }
+      if (found) break;
+    }
+    const at = [
+      { x: spot.x - 1.6, y: spot.y + 0.4, a: 0 },
+      { x: spot.x - 2.6, y: spot.y + 2.2, a: -0.3 },
+      { x: spot.x + 1.6, y: spot.y - 0.2, a: Math.PI },
+      { x: spot.x + 2.8, y: spot.y + 1.8, a: Math.PI + 0.3 },
+    ];
+    sim.state.characters.forEach((c, i) => {
+      const p = at[i % at.length]!;
+      d.teleport(c.id, p, p.a);
+      scripted.add(c.slot);
+      controllers.set(c.slot, holdCtl({ x: 0, y: 0 }, { x: Math.cos(p.a), y: Math.sin(p.a) }, false));
+    });
+  }
+
   // Settle the first tick so poses exist.
   step(1);
+}
+
+// ---------------------------------------------------------------------------
+// Taunt mock (until the sim plays CharacterState.emote itself)
+// ---------------------------------------------------------------------------
+
+const TAUNT_IDS: EmoteId[] = ['wiggle', 'bleh', 'fanCash', 'squatBounce', 'hodadakZoom', 'tongkeunFlex', 'nunchiShrug'];
+const mockEvents: SimEvent[] = [];
+
+/** Start taunt `id` on `slot` exactly like the sim will: state + 'emote' event. */
+function mockEmote(slot: number, id: EmoteId): void {
+  const c = sim.state.characters[slot];
+  if (!c) return;
+  const tick = sim.state.tick;
+  if (c.emote && tick < c.emote.endTick) mockEvents.push({ type: 'emoteCancel', tick, charId: c.id, emoteId: c.emote.id });
+  c.emote = { id, startTick: tick, endTick: tick + EMOTE.durationTicks[id] };
+  // Nearest opponent in front (same rule as the contract: radius + line of sight).
+  let near: EntityId | null = null;
+  let best: number = EMOTE.nearOpponentRadius;
+  for (const o of sim.state.characters) {
+    if (o.team === c.team) continue;
+    const dd = Math.hypot(o.pos.x - c.pos.x, o.pos.y - c.pos.y);
+    if (dd <= best && sim.lineOfSight(c.pos, o.pos)) {
+      best = dd;
+      near = o.id;
+    }
+  }
+  mockEvents.push({ type: 'emote', tick, charId: c.id, emoteId: id, nearOpponentId: near });
+  view.onEvents(mockEvents.splice(0), sim);
+}
+
+function mockCancel(slot: number): void {
+  const c = sim.state.characters[slot];
+  if (!c || !c.emote) return;
+  view.onEvents([{ type: 'emoteCancel', tick: sim.state.tick, charId: c.id, emoteId: c.emote.id }], sim);
+  c.emote = null;
+}
+
+/** Clear finished mocked taunts (the sim will do this itself). */
+function mockTick(): void {
+  for (const c of sim.state.characters) if (c.emote && sim.state.tick >= c.emote.endTick) c.emote = null;
 }
 
 /** Camera-side face offset of a bank at a 90° step angle (half extent along world y). */
@@ -360,6 +439,8 @@ addEventListener('keydown', (e) => {
     settings.quality = (['low', 'medium', 'high'] as const)[Number(e.code.slice(-1)) - 1]!;
     view.applySettings(settings);
   } else if (e.code === 'KeyR') setupScenario(scenario);
+  else if (e.code === 'KeyZ' || e.code === 'KeyX' || e.code === 'KeyC' || e.code === 'KeyV') mockEmote(focusSlot, TAUNT_IDS[['KeyZ', 'KeyX', 'KeyC', 'KeyV'].indexOf(e.code)]!);
+  else if (e.code === 'Digit5' || e.code === 'Digit6' || e.code === 'Digit7') mockEmote(focusSlot, TAUNT_IDS[Number(e.code.slice(-1)) - 1]!);
   else if (e.code === 'KeyE') {
     const g = view.pickGround(mouse.x, mouse.y);
     if (g) {
@@ -416,6 +497,7 @@ function step(n = 1, advanceView = true): SimEvent[] {
   const all: SimEvent[] = [];
   for (let i = 0; i < n; i++) {
     const ev = sim.step(commands());
+    mockTick();
     view.captureTick(sim);
     view.onEvents(ev, sim);
     for (const b of bots) {
@@ -525,6 +607,12 @@ interface HarnessApi {
   hud(): string;
   /** Load/dispose stress test: returns renderer.info.memory after each of n reloads. */
   reloadCycles(n: number): { geometries: number; textures: number }[];
+  /** Mock a taunt on a slot (state + 'emote' event, like the sim will). */
+  emote(slot: number, id: EmoteId): void;
+  /** Mock a taunt cancel on a slot (state cleared + 'emoteCancel'). */
+  cancelEmote(slot: number): void;
+  /** Toggle the "show others' taunts" setting. */
+  setShowOthers(on: boolean): void;
 }
 
 const api: HarnessApi = {
@@ -570,6 +658,16 @@ const api: HarnessApi = {
     return { ...view.stats(), tick: sim.state.tick, events: { ...eventTypes } };
   },
   hud: hudText,
+  emote(slot: number, id: EmoteId) {
+    mockEmote(slot, id);
+  },
+  cancelEmote(slot: number) {
+    mockCancel(slot);
+  },
+  setShowOthers(on: boolean) {
+    settings.showOthersTaunts = on;
+    view.applySettings(settings);
+  },
   reloadCycles(n: number) {
     const out: { geometries: number; textures: number }[] = [];
     for (let i = 0; i < n; i++) {

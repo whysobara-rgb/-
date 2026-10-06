@@ -61,6 +61,14 @@ export const SFX_IDS = [
   'tackleMiss',
   'policeStun',
   'policePhew',
+  // --- taunts (owner addition; ./sfxTaunt.ts) ---
+  'tauntWiggle',
+  'tauntBleh',
+  'tauntCash',
+  'tauntSquat',
+  'tauntZoom',
+  'tauntFlex',
+  'tauntShrug',
 ] as const;
 export type SfxId = (typeof SFX_IDS)[number];
 

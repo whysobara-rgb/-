@@ -331,8 +331,8 @@ describe('police-aware bots: review fixes', () => {
     }
     const c = chainStats(hits);
     expect(hits.length).toBeGreaterThan(10);
-    expect(c.longest).toBeLessThanOrEqual(4);
-    expect(c.inChains / hits.length).toBeLessThan(0.3);
+    expect(c.longest).toBeLessThanOrEqual(3);
+    expect(c.inChains / hits.length).toBeLessThan(0.15);
     expect(stuns).toBeGreaterThan(hits.length * 0.3);
     expect(giveUps).toBeGreaterThan(0);
   });
@@ -410,5 +410,86 @@ describe('police-aware bots: review fixes', () => {
       expect(Number.isInteger(c.shiftLeft)).toBe(true);
       expect(Math.abs(c.shiftLeft - (POLICE.shiftTicks / TICK_RATE - sinceSeen))).toBeLessThan(1.05);
     }
+  });
+});
+
+describe('police-aware bots: fair reads and fighting back (fix pass 2)', () => {
+  it('reads whom an officer is after from the screen (its run / its victim), never from the sim target', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync(new URL('../../src/ai/policeSense.ts', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+    expect(src).not.toMatch(/targetCharId|activeTicks/);
+    // ... and the on-screen read agrees with the truth most of the time
+    let chase = 0;
+    let same = 0;
+    let patrolNonNull = 0;
+    for (const layout of ['plaza', 'counter'] as const) {
+      const { sim, bots } = createMatch({ layout, team0: [{ personality: 'tongkeun', difficulty: 'normal' }], team1: [{ personality: 'hodadak', difficulty: 'normal' }], seed: 3, rules: { police: true } });
+      for (let t = 0; t < 150 * TICK_RATE && !sim.state.over; t++) {
+        sim.step(bots.map((b) => b.update(sim)));
+        const ps = PoliceSense.for(sim);
+        for (const c of ps.cops) {
+          const o = sim.state.police.find((x) => x.id === c.id)!;
+          if (o.phase === 'patrol' && c.target !== null) patrolNonNull++;
+          if (o.phase !== 'chase' || o.targetCharId === null) continue;
+          chase++;
+          if (c.target === o.targetCharId) same++;
+        }
+      }
+    }
+    expect(chase).toBeGreaterThan(300);
+    expect(same / chase).toBeGreaterThan(0.85);
+    expect(patrolNonNull).toBe(0);
+  });
+
+  it('a solo hauler with a pack of officers on it gives the bank up and comes back once they have left it', () => {
+    const { sim, bots } = setup('counter', [{ team: 0, bot: { p: 'tongkeun', d: 'normal' } }, { team: 1 }], 5);
+    const bot = bots[0]!;
+    const bank = sim.state.loot.find((l) => l.kind === 'bank')!;
+    sim.debug.setAnchored(bank.id, false);
+    bot.update(sim);
+    const b = bot as unknown as { ps: PoliceSense; addHeat: (s: Simulation, id: EntityId, t: number) => void; policeHolds: (s: Simulation, id: EntityId, t: number) => boolean; candidates: (s: Simulation) => { key: string }[] };
+    const real = b.ps;
+    const cop = (id: number, x: number, y: number): unknown => ({ id, pos: { x, y }, vel: { x: 0, y: 0 }, facing: 0, phase: 'chase', target: 1, busyTicks: 0, shiftLeft: 30 });
+    const withCops = (cops: unknown[]): PoliceSense => {
+      const fake = Object.create(real) as PoliceSense;
+      Object.defineProperty(fake, 'cops', { value: cops });
+      return fake;
+    };
+    const t0 = sim.state.tick;
+    // one officer: a single tackle is no reason to quit
+    b.ps = withCops([cop(1001, bank.pos.x + 2, bank.pos.y)]);
+    b.addHeat(sim, bank.id, t0);
+    expect(b.policeHolds(sim, bank.id, t0)).toBe(false);
+    // a second ready officer beside it and knocked off again: left to the police
+    b.ps = withCops([cop(1001, bank.pos.x + 2, bank.pos.y), cop(1002, bank.pos.x - 2, bank.pos.y)]);
+    b.addHeat(sim, bank.id, t0 + 60);
+    expect(b.policeHolds(sim, bank.id, t0 + 60)).toBe(true);
+    expect(b.candidates(sim).some((c) => c.key === `haul:${bank.id}`)).toBe(false);
+    // still circling it after the minimum hold: keep away
+    expect(b.policeHolds(sim, bank.id, t0 + 60 + 5 * TICK_RATE)).toBe(true);
+    // they walk off (or one is down for long): back on the menu
+    b.ps = withCops([cop(1001, bank.pos.x + 20, bank.pos.y), cop(1002, bank.pos.x - 2, bank.pos.y)]);
+    expect(b.policeHolds(sim, bank.id, t0 + 60 + 5 * TICK_RATE)).toBe(false);
+    b.ps = real;
+  });
+
+  it('never knocks an officer over by accident: every stun is a deliberate one (no travel / escape dashes into officers)', () => {
+    let stuns = 0;
+    let accidental = 0;
+    for (const layout of ['plaza', 'shortcut', 'counter'] as const) {
+      for (const seed of [1, 2]) {
+        const { sim, bots } = createMatch({ layout, team0: [{ personality: 'hodadak', difficulty: 'challenge' }], team1: [{ personality: 'nunchi', difficulty: 'normal' }], seed, rules: { police: true } });
+        ringBothAlarms(sim);
+        for (let t = 0; t < 120 * TICK_RATE && !sim.state.over; t++) {
+          for (const e of sim.step(bots.map((b) => b.update(sim)))) {
+            if (e.type !== 'policeStunned') continue;
+            stuns++;
+            if (!bots[e.byCharId - 1]!.log.slice(-6).some((l) => l.includes('dash-stuns officer'))) accidental++;
+          }
+        }
+      }
+    }
+    expect(stuns).toBeGreaterThan(10);
+    expect(accidental).toBe(0);
   });
 });

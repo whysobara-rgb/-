@@ -30,11 +30,15 @@
  * ducked with distance). Scoring sounds duck the police ambience (sirens, bells, whistles, barks,
  * car noises: mixer ambience bus); the music ducks under the bank uproot, the bank recovery and a
  * tackle on the listener.
+ *
+ * Taunts (owner addition): an 'emote' event plays that taunt's sound at the raccoon (TAUNT_SFX,
+ * tagged per character) and 'emoteCancel' cuts it. `tauntFilter` hides other raccoons' taunts
+ * (the "show others' taunts" setting); the listener's own taunt always sounds.
  */
-import type { CharacterState, EntityId, LootKind, LootState, PolicePhase, SimEvent, SimState, TeamId, Vec2 } from '../sim/types';
+import type { CharacterState, EmoteId, EntityId, LootKind, LootState, PolicePhase, SimEvent, SimState, TeamId, Vec2 } from '../sim/types';
 import { TICK_RATE } from '../sim/config';
 import type { AudioEngine } from './audio';
-import type { LoopId } from './ids';
+import type { LoopId, SfxId } from './ids';
 import { LAND_DELAY } from './sfxStage';
 
 /** The subset of `Simulation` the director reads (structural, so tests can fake it). */
@@ -62,7 +66,26 @@ export interface DirectorOptions {
    * skips its hit-stops in that mode.
    */
   hitstop?: boolean | (() => boolean);
+  /**
+   * Taunts of which characters are heard (default: everyone). The listener's own taunt always
+   * plays. Game flow passes the "show others' taunts" setting here.
+   */
+  tauntFilter?: ((charId: EntityId) => boolean) | null;
 }
+
+/** Sound per taunt emote (./sfxTaunt.ts). */
+export const TAUNT_SFX: Readonly<Record<EmoteId, SfxId>> = {
+  wiggle: 'tauntWiggle',
+  bleh: 'tauntBleh',
+  fanCash: 'tauntCash',
+  squatBounce: 'tauntSquat',
+  hodadakZoom: 'tauntZoom',
+  tongkeunFlex: 'tauntFlex',
+  nunchiShrug: 'tauntShrug',
+};
+
+/** Voice tag of a character's taunt sound (so a cancel cuts exactly that one). */
+export const tauntTag = (charId: EntityId): string => `taunt:${charId}`;
 
 /** Default for DirectorOptions.hitstop: the game's reduced-motion setting turns hit-stops off. */
 function viewHitstopOn(): boolean {
@@ -209,7 +232,8 @@ interface OfficerAudio {
 
 export class MatchAudioDirector {
   private readonly engine: AudioEngine;
-  private readonly opts: Required<Omit<DirectorOptions, 'listenerCharId' | 'hitstop'>> & { listenerCharId: EntityId | null };
+  private readonly opts: Required<Omit<DirectorOptions, 'listenerCharId' | 'hitstop' | 'tauntFilter'>> & { listenerCharId: EntityId | null };
+  private tauntFilter: ((charId: EntityId) => boolean) | null;
   private hitstopOn: () => boolean;
   /** Distance walked since the last footstep, per character. */
   private readonly stride = new Map<EntityId, number>();
@@ -246,6 +270,12 @@ export class MatchAudioDirector {
       footsteps: opts.footsteps ?? true,
     };
     this.hitstopOn = MatchAudioDirector.hitstopFn(opts.hitstop);
+    this.tauntFilter = opts.tauntFilter ?? null;
+  }
+
+  /** Which characters' taunts are heard (null = everyone's). The listener's own always plays. */
+  setTauntFilter(fn: ((charId: EntityId) => boolean) | null): void {
+    this.tauntFilter = fn;
   }
 
   private static hitstopFn(x: DirectorOptions['hitstop']): () => boolean {
@@ -341,6 +371,20 @@ export class MatchAudioDirector {
   private onEvent(e: SimEvent, sim: AudioSimView): void {
     const a = this.engine;
     switch (e.type) {
+      case 'emote': {
+        const id = TAUNT_SFX[e.emoteId];
+        if (!id) break;
+        const own = e.charId === this.opts.listenerCharId;
+        if (!own && this.tauntFilter && !this.tauntFilter(e.charId)) break;
+        a.stop(id, tauntTag(e.charId));
+        a.play(id, { pos: this.charPos(sim, e.charId), tag: tauntTag(e.charId), volume: own ? 1 : 0.85 });
+        break;
+      }
+      case 'emoteCancel': {
+        const id = TAUNT_SFX[e.emoteId];
+        if (id) a.stop(id, tauntTag(e.charId));
+        break;
+      }
       case 'matchStart':
         this.reset();
         a.play('whistleStart');

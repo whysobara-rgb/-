@@ -44,7 +44,26 @@ export const SFX_CAPTION_KEYS: Partial<Record<SfxId, string>> = {
   tackleMiss: 'caption.tackleMiss',
   policeStun: 'caption.policeStun',
   policePhew: 'caption.policePhew',
+  // taunts (owner addition)
+  tauntWiggle: 'caption.tauntWiggle',
+  tauntBleh: 'caption.tauntBleh',
+  tauntCash: 'caption.tauntCash',
+  tauntSquat: 'caption.tauntSquat',
+  tauntZoom: 'caption.tauntZoom',
+  tauntFlex: 'caption.tauntFlex',
+  tauntShrug: 'caption.tauntShrug',
 };
+
+/** Caption keys of the taunt sounds (owner addition); texts in CAPTION_FALLBACK / the UI tables. */
+export const TAUNT_CAPTION_KEYS: readonly string[] = [
+  'caption.tauntWiggle',
+  'caption.tauntBleh',
+  'caption.tauntCash',
+  'caption.tauntSquat',
+  'caption.tauntZoom',
+  'caption.tauntFlex',
+  'caption.tauntShrug',
+];
 
 /**
  * Caption keys added with the police / presentation audio. Their ko / en texts live in
@@ -143,6 +162,13 @@ export const CAPTION_FALLBACK: Readonly<{ ko: Readonly<Record<string, string>>; 
     'caption.tackleMiss': '[휙! 태클 빗나감]',
     'caption.policeStun': '[뾰옹~ 경찰이 넘어짐]',
     'caption.policePhew': '[휴~ 경찰차가 떠남]',
+    'caption.tauntWiggle': '[뿌뿌~ 엉덩이 흔드는 소리]',
+    'caption.tauntBleh': '[부르르~ 메롱 소리]',
+    'caption.tauntCash': '[촤라락 돈다발 부채질]',
+    'caption.tauntSquat': '[뽀잉뽀잉 쭈그려 뛰기]',
+    'caption.tauntZoom': '[후다닥 슝]',
+    'caption.tauntFlex': '[반짝 근육 자랑]',
+    'caption.tauntShrug': '[으쓱~]',
   },
   en: {
     'caption.siren': '[Siren]',
@@ -184,6 +210,13 @@ export const CAPTION_FALLBACK: Readonly<{ ko: Readonly<Record<string, string>>; 
     'caption.tackleMiss': '[Whoosh! Tackle misses]',
     'caption.policeStun': '[Boing! Officer knocked over]',
     'caption.policePhew': '[Phew! Police drive off]',
+    'caption.tauntWiggle': '[toot-toot booty wiggle]',
+    'caption.tauntBleh': '[raspberry blat]',
+    'caption.tauntCash': '[cash fan flutter]',
+    'caption.tauntSquat': '[boing boing]',
+    'caption.tauntZoom': '[zoom]',
+    'caption.tauntFlex': '[muscle sparkle]',
+    'caption.tauntShrug': '[smug shrug]',
   },
 };
 

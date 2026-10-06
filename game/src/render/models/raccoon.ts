@@ -35,7 +35,7 @@ import type { CharacterLook, EmoteId, HatId, TeamId } from '../../sim/types';
 import { TEAM_STYLES } from '../../shared/teams';
 import { PAL } from './palette';
 import { G, PartBuilder, lathe, rng } from './geometry';
-import { matVC, matTextured, matBasic } from './materials';
+import { matVC, matTextured, matBasic, matColor } from './materials';
 import { FACE_DECAL, banknoteTexture, faceTexture, nunchiMaskTexture, blobShadowTexture, type FaceExpression } from './textures';
 import { Highlighter, InkOutline } from './outline';
 import { neutralTauntPose, tauntPose, type TauntArm, type TauntPose } from './tauntPoses';
@@ -675,8 +675,8 @@ let tongueGeo: THREE.BufferGeometry | null = null;
 function tongueGeometry(): THREE.BufferGeometry {
   if (tongueGeo) return tongueGeo;
   const b = new PartBuilder();
-  b.add(G.sphere(14, 10), { color: '#FF7F9C', pos: [0.06, 0, 0], scale: [0.085, 0.026, 0.06] });
-  b.add(G.sphere(10, 8), { color: '#E8607C', pos: [0.075, 0.012, 0], scale: [0.05, 0.016, 0.012] });
+  b.add(G.sphere(14, 10), { color: '#FF7F9C', pos: [0.085, 0, 0], scale: [0.12, 0.034, 0.085] });
+  b.add(G.sphere(10, 8), { color: '#E8607C', pos: [0.1, 0.018, 0], scale: [0.075, 0.02, 0.016] });
   tongueGeo = b.merge('vc')!;
   return tongueGeo;
 }
@@ -692,9 +692,10 @@ function fanGeometry(): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
   for (let i = 0; i < FAN_NOTES; i++) {
     const k = i / (FAN_NOTES - 1) - 0.5;
-    const g = new THREE.PlaneGeometry(0.34, 0.17);
+    // Toy-sized: big enough to read from the match camera.
+    const g = new THREE.PlaneGeometry(0.46, 0.23);
     g.rotateZ(-Math.PI / 2); // long side along y
-    g.translate(0, -0.17 - 0.02, 0); // grip end at the origin
+    g.translate(0, -0.23 - 0.02, 0); // grip end at the origin
     g.rotateY(Math.PI / 2); // into the y-z plane
     g.rotateX(k * 1.5);
     g.translate((i - (FAN_NOTES - 1) / 2) * 0.006, 0, 0);
@@ -707,7 +708,7 @@ function fanGeometry(): THREE.BufferGeometry {
 
 let billGeo: THREE.BufferGeometry | null = null;
 function billGeometry(): THREE.BufferGeometry {
-  if (!billGeo) billGeo = new THREE.PlaneGeometry(0.15, 0.075);
+  if (!billGeo) billGeo = new THREE.PlaneGeometry(0.2, 0.1);
   return billGeo;
 }
 
@@ -900,6 +901,12 @@ export function createRaccoon(opts: { team: TeamId | null; look: CharacterLook }
     return g;
   });
   const sparkles = [0, 1, 2, 3, 4].map((i) => prop(new THREE.Mesh(sparkleGeometry(), matVC()), root, `sparkle${i}`));
+  // Muscle bumps that swell on the upper arms (근육 자랑), fur-colored.
+  const biceps = [armL, armR].map((a, i) => {
+    const m = prop(new THREE.Mesh(G.sphere(12, 9), matColor(`#${params.fur.getHexString()}`, 0.6)), a, `bicep${i}`, true);
+    m.position.set(0.03, -0.085, (i ? 1 : -1) * 0.03);
+    return m;
+  });
 
   const highlighter = new Highlighter(root);
   // Bold toon ink line so raccoons read at the high game camera (hidden while a colored
@@ -929,6 +936,7 @@ export function createRaccoon(opts: { team: TeamId | null; look: CharacterLook }
     scarfTail.position.set(-0.18 * g, 0.62, 0.12 * g);
     mask.visible = look.hat === 'nunchiMask';
     blob.scale.setScalar(0.95 * g);
+    if (biceps) for (const m of biceps) m.material = matColor(`#${params.fur.getHexString()}`, 0.6);
     highlighter.rebuild();
     ink.refresh();
   };
@@ -975,6 +983,7 @@ export function createRaccoon(opts: { team: TeamId | null; look: CharacterLook }
       for (const m of bills) m.visible = false;
       for (const m of glints) m.visible = false;
       for (const m of sparkles) m.visible = false;
+      for (const m of biceps) m.visible = false;
       return;
     }
     pivot.position.y = lerp(pivot.position.y, tp.pivotY, k);
@@ -1026,15 +1035,21 @@ export function createRaccoon(opts: { team: TeamId | null; look: CharacterLook }
       // Notes peel off the fan and flutter down in front-right of the body.
       const ph = (tauntT * 0.95 + i * 0.37) % 1;
       const sway = Math.sin((tauntT + i) * 7) * 0.12;
-      m.position.set(0.32 + i * 0.07 + sway * 0.5, 1.2 - ph * 1.0, 0.28 + sway);
+      m.position.set(0.18 + i * 0.08 + sway * 0.4, 1.45 - ph * 1.25, 0.55 + sway);
       m.rotation.set(ph * 5 + i, ph * 7 + i * 2, Math.sin((tauntT + i) * 9) * 0.8);
       m.scale.setScalar(bl * (1 - 0.3 * ph));
     });
+    for (const [i, a] of [tp.armL, tp.armR].entries()) {
+      const s = Math.min(1, Math.max(0, (a.bulge - 1) / 0.47)) * k;
+      const m = biceps[i]!;
+      m.visible = s > 0.05;
+      if (m.visible) m.scale.set(0.058 * s, 0.07 * s, 0.058 * s);
+    }
     const gl = tp.glint * k;
     glints.forEach((m, i) => {
       m.visible = gl > 0.04;
       if (!m.visible) return;
-      m.scale.setScalar(0.4 + gl * 1.1);
+      m.scale.setScalar(0.5 + gl * 1.5);
       m.rotation.set(0, tp.glintSpin * (i ? 1 : -1), tp.glintSpin * 0.5);
     });
     const sk = tp.sparkle * k;
@@ -1046,7 +1061,7 @@ export function createRaccoon(opts: { team: TeamId | null; look: CharacterLook }
       const r = 0.35 + 0.42 * ph;
       m.position.set(Math.cos(a) * r, 0.12 + Math.sin(Math.PI * ph) * (0.3 + (i % 2) * 0.12), Math.sin(a) * r);
       m.rotation.set(0, t * 4 + i, 0);
-      m.scale.setScalar(sk * Math.sin(Math.PI * Math.min(1, ph * 1.15)) * (i % 2 ? 0.07 : 0.095));
+      m.scale.setScalar(sk * Math.sin(Math.PI * Math.min(1, ph * 1.15)) * (i % 2 ? 0.1 : 0.14));
     });
   };
 
