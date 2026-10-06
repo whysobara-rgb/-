@@ -1,0 +1,35 @@
+{
+  "name": "uproot-heist",
+  "productName": "뿌리째 털어라",
+  "version": "0.5.0",
+  "description": "뿌리째 털어라 — 두 은행 점수 대전 (Uproot Heist)",
+  "private": true,
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "e2e": "playwright test"
+  },
+  "dependencies": {
+    "@fontsource/jua": "^5.3.0",
+    "@fontsource/noto-sans-kr": "^5.3.0",
+    "steamworks.js": "^0.4.0",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.1",
+    "@types/node": "^26.6.4",
+    "@types/three": "^0.186.0",
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.3",
+    "vitest": "^5.0.3"
+  }
+}
