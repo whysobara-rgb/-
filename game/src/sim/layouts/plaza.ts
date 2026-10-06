@@ -5,7 +5,8 @@
  * wide recovery paths are relatively long. A central park (flower beds, kiosks and
  * a round fountain plaza) sits between the two banks and both zones, so a bank can
  * never cut across: it has to roll along the north or south boulevard and swing
- * down into the zone (~41 m vs ~33 m straight). Small safes tucked in the corners
+ * down into the zone (~37 m to the near south bank, ~46 m to the north one: the zones sit 5 m
+ * south of the middle so the two teams race for the same near bank). Small safes tucked in the corners
  * next to each van reward steady early collecting; the two large safes wait on the
  * loading docks behind the on-axis stores (reached through the service lanes), and two small
  * safes guard the fountain.
@@ -28,7 +29,13 @@ const PI = Math.PI;
 
 const BANK_N = { x: AX, y: 12.5 };
 const BANK_S = { x: AX, y: H - 12.5 };
-const ZONE = { x: 10, y: 26 };
+/**
+ * (balance pass) Zones 5 m south of the middle line: the south bank becomes the nearer, contested
+ * haul for both teams and the north bank the long one. With both banks exactly as far, mirrored
+ * play hauled one each and split the field evenly (1v1 draws ~20 %). Mirror symmetry (x) holds.
+ */
+const ZONE_DY = 5;
+const ZONE = { x: 10, y: 26 + ZONE_DY };
 /** Loading dock in the back of each on-axis store (half width, depth from the service lane). */
 const DOCK_HALF = 1.75; // 1.05 m beside the large safe: no raccoon-wide pocket (was 1.5 -> 0.8 m)
 const DOCK_DEPTH = 2;
@@ -51,16 +58,16 @@ function build(): { def: LayoutDef; meta: LayoutDesignMeta } {
   };
 
   // --- teams ---------------------------------------------------------------------
-  b.zone(ZONE, { x: 1.6, y: 26 }, -PI / 2);
-  b.spawn(5.5, 22.25, 0);
-  b.spawn(5.5, 29.75, 0);
+  b.zone(ZONE, { x: 1.6, y: ZONE.y }, -PI / 2);
+  b.spawn(5.5, ZONE.y - 4.25, 0);
+  b.spawn(5.5, ZONE.y + 2.75, 0);
 
   // --- banks + routes ----------------------------------------------------------------
   const bn = b.bank(BANK_N.x, BANK_N.y, PI / 2);
   const bs = b.bank(BANK_S.x, BANK_S.y, PI / 2);
   // Along the boulevard, then swing down/up into the zone (the park blocks the diagonal).
   b.route(bn, [BANK_N, { x: 14, y: 12.5 }, { x: 10.5, y: 16.5 }, ZONE]);
-  b.route(bs, [BANK_S, { x: 14, y: H - 12.5 }, { x: 10.5, y: H - 16.5 }, ZONE]);
+  b.route(bs, [BANK_S, { x: 12.5, y: H - 12.5 }, { x: 10.2, y: H - 15.5 }, ZONE]);
 
   // --- shop rows (north + south) with a service lane behind ------------------------------
   // Service lane y 0..2.5; shops y 2.5..6.5; boulevard below (banks roll at y = 12.5).
@@ -133,7 +140,7 @@ function build(): { def: LayoutDef; meta: LayoutDesignMeta } {
   b.path('flower.b', 'medium', { x: 26, y: 26 }, { x: AX - 6.5, y: 26 });
 
   // --- loot ---------------------------------------------------------------------------------
-  b.safe('smallSafe', 3.0, 10.0); // NW corner nook, a short jog from the van
+  b.safe('smallSafe', 3.0, 13.5); // NW corner nook, a short jog from the van (zones moved south)
   b.safe('smallSafe', 3.0, H - 10.0); // SW corner nook
   b.safe('smallSafe', AX, 21.0); // fountain north (contested, on axis)
   b.safe('smallSafe', AX, H - 21.0); // fountain south
@@ -186,7 +193,7 @@ function build(): { def: LayoutDef; meta: LayoutDesignMeta } {
   b.decor('arrow', 17.5, 25.0, PI);
   b.decor('arrow', 17.5, 27.0, PI);
   b.decor('arrow', 3.0, 18.5, PI / 2);
-  b.decor('arrow', 3.0, H - 18.5, -PI / 2);
+  b.decor('arrow', 3.0, ZONE.y + 5.5, -PI / 2);
   b.decor('balloon', AX - 6.6, 24.2, 0, { color: '#FFD166' });
   b.decor('balloon', AX - 6.6, 27.8, 0, { color: '#7BDFF2' });
   b.decor('umbrella', AX - 4.2, 26.0, 0, { color: '#F25C54', east: { color: '#4FB0C6' } });

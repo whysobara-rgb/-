@@ -122,8 +122,8 @@ export class TournamentScreen extends UiScreen<TournamentScreenProps> {
           ),
           chunky(locked ? '???' : t(`rival.${c.rival}.name`), { tag: 'h2', cls: 'uh-tourcard__name', tone: locked ? 'cream' : 'cream', seed: i }),
           h('p', { class: 'uh-tourcard__title' }, locked ? t('tournament.lockedHint') : t(`rival.${c.rival}.title`)),
-          h('div', { class: 'uh-tourcard__meta' }, chip(locked ? 'common.locked' : c.layoutNameKey, 'cream', 'map'), chip('tournament.bestOf3', 'cream', 'trophy')),
-          seriesPips(c.playerWins, c.rivalWins, c.rival, locked),
+          // One compact row (layout + series score) so the cards stay low and the 3D stage shows.
+          h('div', { class: 'uh-tourcard__meta' }, chip(locked ? 'common.locked' : c.layoutNameKey, 'cream', 'map'), seriesPips(c.playerWins, c.rivalWins, c.rival, locked)),
           h(
             'div',
             { class: 'uh-tourcard__reward' },

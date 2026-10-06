@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import type { HatId, TeamId } from '../../sim/types';
 import { MenuScene, damp, easeOutBack } from '../scene';
 import { Puppet } from '../puppet';
-import { POP, PropBuilder, addGift, ball, cyl, disposeOwnedMesh, disposeProp, glowDisc, giftBox, roundBox, spotCone, stringLights, type StringLights } from '../kit';
+import { POP, PropBuilder, addGift, ball, cyl, disposeOwnedMesh, disposeProp, glowDisc, giftBox, mirrorGlass, roundBox, spotCone, stringLights, type StringLights } from '../kit';
 
 export interface WardrobeSceneOptions {
   hat: HatId;
@@ -24,6 +24,7 @@ export class WardrobeScene extends MenuScene {
   private readonly gift: THREE.Group;
   private readonly cone: THREE.Mesh;
   private readonly pool: THREE.Mesh;
+  private readonly mirror: THREE.Mesh;
   private shownHat: HatId;
   private locked = false;
   private giftT = 0;
@@ -31,7 +32,7 @@ export class WardrobeScene extends MenuScene {
   private bounce = 1;
 
   constructor(o: WardrobeSceneOptions) {
-    super({ sky: ['#2A1B5E', '#5A3A8E', '#8A5AA8'], shadowRadius: 8 });
+    super({ sky: ['#4FA8F0', '#9ED6FF', '#FFE0B8'], hemi: ['#E2ECFF', '#FFE0CC'], shadowRadius: 8 });
     this.baseFov = 28;
     this.scene.fog = null;
     this.shownHat = o.hat;
@@ -42,10 +43,9 @@ export class WardrobeScene extends MenuScene {
     for (let i = 0; i < 10; i++) b.add(roundBox(16 / 10 - 0.06, 0.03, 9.9, 0.02), i % 2 ? '#F7E6F0' : '#EBC9DD', [-8 + (i + 0.5) * 1.6, 0.01, -1]);
     b.add(roundBox(16, 8, 0.4, 0.1), POP.pink, [0, 4, -5.6]);
     for (let y = 0; y < 6; y++) for (let x = 0; x < 11; x++) b.add(cyl(0.22, 0.22, 0.06, 14), POP.cream, [-7 + x * 1.4 + (y % 2) * 0.7, 0.8 + y * 1.25, -5.37], { rot: [Math.PI / 2, 0, 0] });
-    b.add(roundBox(16.2, 0.4, 0.6, 0.12), POP.grape, [0, 0.2, -5.3]);
+    b.add(roundBox(16.2, 0.4, 0.6, 0.12), POP.mint, [0, 0.2, -5.3]);
     // vanity mirror with bulbs (right side)
     b.add(roundBox(3.2, 3.8, 0.3, 0.3), POP.sun, [3.9, 3.1, -5.1]);
-    b.add(roundBox(2.6, 3.2, 0.1, 0.25), '#CFEFFF', [3.9, 3.1, -4.94]);
     b.add(roundBox(4.2, 1.0, 1.4, 0.15), POP.wood, [3.9, 0.5, -4.4]);
     b.add(roundBox(4.3, 0.12, 1.5, 0.05), POP.woodLight, [3.9, 1.04, -4.4]);
     // hat boxes stack (left)
@@ -67,11 +67,14 @@ export class WardrobeScene extends MenuScene {
     this.room = b.build('ward:room');
     this.scene.add(this.room);
     this.batcher.add(this.room);
+    this.mirror = mirrorGlass(2.6, 3.2, { glow: '#FFC6DA' });
+    this.mirror.position.set(3.9, 3.1, -4.94);
+    this.scene.add(this.mirror);
 
     const tb = new PropBuilder();
-    tb.add(cyl(1.9, 2.05, 0.45, 48), POP.grape, [0, 0.22, 0]);
+    tb.add(cyl(1.9, 2.05, 0.45, 48), POP.sky, [0, 0.22, 0]);
     tb.add(cyl(1.95, 1.95, 0.08, 48), POP.cream, [0, 0.47, 0]);
-    tb.add(cyl(1.75, 1.75, 0.06, 48), '#B79CF6', [0, 0.53, 0]);
+    tb.add(cyl(1.75, 1.75, 0.06, 48), '#9ED6FF', [0, 0.53, 0]);
     for (let k = 0; k < 12; k++) {
       const a = (k / 12) * Math.PI * 2;
       tb.add(ball(0.08, 6), k % 2 ? POP.sun : POP.cream, [Math.cos(a) * 1.98, 0.28, Math.sin(a) * 1.98]);
@@ -171,6 +174,7 @@ export class WardrobeScene extends MenuScene {
     disposeProp(this.gift);
     disposeOwnedMesh(this.cone);
     disposeOwnedMesh(this.pool);
+    disposeOwnedMesh(this.mirror);
     this.lights.dispose();
     disposeProp(this.turntable);
     disposeProp(this.room);

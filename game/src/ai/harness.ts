@@ -367,8 +367,9 @@ export function runMatch(spec: MatchSpec): MatchStats {
           if (l.recovery && l.recovery.team === ch.team) progress = true;
         }
       }
-      // declared waiting (guarding a door / watching a chokepoint / escorting / yielding)
-      const waiting = intent.telegraph || ['guard', 'wait', 'escort', 'yield'].includes(intent.phase);
+      // declared waiting (guarding a door / watching a chokepoint / escorting / yielding /
+      // body-blocking an officer that chases a carrying teammate — an escort against the police)
+      const waiting = intent.telegraph || ['guard', 'wait', 'escort', 'yield', 'block'].includes(intent.phase);
       if (waiting) slotStats[i]!.idleSeconds += 1 / TICK_RATE;
       const left = (st.endTick - st.tick) / TICK_RATE;
       if ((intent.goal === 'reposition' || intent.goal === 'idle') && !ch.grab && st.remainingValue > 0 && left > 5) {

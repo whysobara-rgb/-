@@ -4,8 +4,9 @@
  * Identity (doc §9 table): the bank doors face a shared central crossing that both
  * teams reach easily. The two banks sit north and south on the axis with their front
  * doors looking at a clock-tower square that also holds both large safes. Bank routes
- * are short straight diagonals (~27 m) across an open square, so the decision is
- * "move the bank fast, guard its door, or strip it first".
+ * are short straight diagonals across an open square (25 m to the near south bank, 32 m to the
+ * north one: the zones sit 7 m south of the middle), so the decision is "move the bank fast,
+ * guard its door, or strip it first" — and the near bank is the one both teams race for.
  *
  * The north bank faces south (angle 0) and the south bank faces north (angle PI). Door
  * direction is this layout's identity (doc §9: "출입문이 공용 교차로를 향해"), and with the doors
@@ -228,7 +229,8 @@ function build(): { def: LayoutDef; meta: LayoutDesignMeta } {
 
   return b.build(
     'Open counter: both bank fronts face a shared clock-tower crossing that also holds the two large safes. Bank routes are short ' +
-      'straight diagonals across the open square, so the fight is about moving fast, guarding the door, or stripping the bank first. ' +
+      'straight diagonals across the open square (the south bank is the near one for both teams), so the fight is about moving fast, ' +
+      'guarding the door, or stripping the bank first. ' +
       'Terraced side blocks give small-safe alleys and back-door lanes.',
   );
 }

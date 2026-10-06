@@ -350,11 +350,30 @@ export function stringLights(spans: readonly { a: THREE.Vector3; b: THREE.Vector
   };
 }
 
+/** Pop sky look: sunburst rays, ink-outlined toy clouds and stars on top of the gradient. */
+export interface SkyStyle {
+  /** Sunburst ray colour (null = no rays). */
+  rays?: string | null;
+  /** Ray strength 0..1 (default 0.35). */
+  rayStrength?: number;
+  /** Number of ray pairs around the burst (default 14). */
+  rayCount?: number;
+  /** Height of the burst centre above the horizon (default 0.05). */
+  rayCenterY?: number;
+  /** Puffy cloud fill colour (null = no clouds). Clouds get the ink outline. */
+  clouds?: string | null;
+  /** Height band of the cloud centres above the horizon (default [0.1, 0.38]). */
+  cloudY?: readonly [number, number];
+  /** Star amount 0..1 (default 1). */
+  stars?: number;
+}
+
 /**
- * Gradient sky dome (dusk): deep violet at the top, warm peach at the horizon and twinkling
- * stars. One draw call. `colors` = [zenith, mid, horizon].
+ * Gradient sky dome: [zenith, mid, horizon] gradient with optional sunburst rays (slowly
+ * turning, toy-box poster style), a ring of ink-outlined puffy clouds and twinkling stars.
+ * One draw call.
  */
-export function skyDome(colors: readonly [string, string, string] = ['#2B1F5C', '#7A4A9E', '#FFB38A'], radius = 120): THREE.Mesh {
+export function skyDome(colors: readonly [string, string, string] = ['#2B1F5C', '#7A4A9E', '#FFB38A'], radius = 120, style: SkyStyle = {}): THREE.Mesh {
   const geo = new THREE.SphereGeometry(radius, 32, 16);
   const mat = new THREE.ShaderMaterial({
     side: THREE.BackSide,
@@ -364,6 +383,15 @@ export function skyDome(colors: readonly [string, string, string] = ['#2B1F5C', 
       uTop: { value: new THREE.Color(colors[0]) },
       uMid: { value: new THREE.Color(colors[1]) },
       uBot: { value: new THREE.Color(colors[2]) },
+      uRay: { value: new THREE.Color(style.rays ?? '#FFFFFF') },
+      uRayK: { value: style.rays ? (style.rayStrength ?? 0.35) : 0 },
+      uRayN: { value: style.rayCount ?? 14 },
+      uRayY: { value: style.rayCenterY ?? 0.05 },
+      uCloud: { value: new THREE.Color(style.clouds ?? '#FFFFFF') },
+      uCloudK: { value: style.clouds ? 1 : 0 },
+      uCloudY: { value: new THREE.Vector2(style.cloudY?.[0] ?? 0.1, style.cloudY?.[1] ?? 0.38) },
+      uInk: { value: new THREE.Color(POP.ink) },
+      uStars: { value: style.stars ?? 1 },
       uTime: { value: 0 },
     },
     vertexShader: /* glsl */ `
@@ -375,19 +403,62 @@ export function skyDome(colors: readonly [string, string, string] = ['#2B1F5C', 
       }`,
     fragmentShader: /* glsl */ `
       uniform vec3 uTop; uniform vec3 uMid; uniform vec3 uBot; uniform float uTime;
+      uniform vec3 uRay; uniform float uRayK; uniform float uRayN; uniform float uRayY;
+      uniform vec3 uCloud; uniform float uCloudK; uniform vec2 uCloudY; uniform vec3 uInk; uniform float uStars;
       varying vec3 vDir;
       float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       void main() {
         float h = clamp(vDir.y, -0.3, 1.0);
-        vec3 c = mix(uBot, uMid, smoothstep(-0.12, 0.12, h));
-        c = mix(c, uTop, smoothstep(0.1, 0.5, h));
-        vec2 uv = vec2(atan(vDir.z, vDir.x) * 38.0, asin(clamp(vDir.y, -1.0, 1.0)) * 38.0);
+        vec3 c = mix(uBot, uMid, smoothstep(-0.12, 0.16, h));
+        c = mix(c, uTop, smoothstep(0.12, 0.6, h));
+        // azimuth: 0 straight ahead of the menu cameras (-Z)
+        float az = atan(vDir.x, -vDir.z);
+        // sunburst rays fanning out from a point just above the horizon
+        if (uRayK > 0.0) {
+          vec2 q = vec2(az, h - uRayY);
+          float ang = atan(q.y, q.x) / 6.2831853;
+          float band = fract(ang * uRayN * 2.0 + uTime * 0.012);
+          float edge = smoothstep(0.0, 0.03, band) * (1.0 - smoothstep(0.47, 0.5, band));
+          float fall = (1.0 - smoothstep(0.05, 1.6, length(q * vec2(0.8, 1.6)))) * smoothstep(-0.06, 0.02, h);
+          c = mix(c, uRay, edge * fall * uRayK);
+          // soft sun glow at the burst centre
+          c = mix(c, uRay, (1.0 - smoothstep(0.0, 0.42, length(q * vec2(1.0, 1.8)))) * uRayK * 0.9);
+        }
+        // stars (only where the sky is high)
+        vec2 uv = vec2(az * 38.0, asin(clamp(vDir.y, -1.0, 1.0)) * 38.0);
         vec2 cell = floor(uv);
         float r = hash(cell);
         vec2 f = fract(uv) - 0.5 - (vec2(hash(cell + 3.1), hash(cell + 7.7)) - 0.5) * 0.6;
-        float star = step(0.93, r) * smoothstep(0.09, 0.0, length(f)) * smoothstep(0.08, 0.35, h);
+        float star = step(0.94, r) * (1.0 - smoothstep(0.0, 0.09, length(f))) * smoothstep(0.3, 0.6, h) * uStars;
         star *= 0.55 + 0.45 * sin(uTime * (1.5 + r * 3.0) + r * 40.0);
         c += vec3(1.0, 0.95, 0.85) * star;
+        // toy clouds: clusters of round puffs with a flat bottom and an ink outline, drifting
+        if (uCloudK > 0.0) {
+          float x = az * 6.0 + uTime * 0.02;
+          float id = floor(x);
+          float best = 1e3;
+          float cyShade = 0.0;
+          for (int k = -1; k <= 1; k++) {
+            float cid = id + float(k);
+            float present = step(0.45, hash(vec2(cid, 1.7)));
+            float cx = cid + 0.5 + (hash(vec2(cid, 4.2)) - 0.5) * 0.4;
+            float cy = mix(uCloudY.x, uCloudY.y, hash(vec2(cid, 9.1)));
+            float w = 0.075 + hash(vec2(cid, 2.3)) * 0.05;
+            vec2 d = vec2((x - cx) / 6.0, h - cy);
+            // three puffs + flat base
+            float s = length(d - vec2(-w * 0.45, 0.0)) - w * 0.42;
+            s = min(s, length(d - vec2(0.0, w * 0.25)) - w * 0.55);
+            s = min(s, length(d - vec2(w * 0.5, 0.02)) - w * 0.38);
+            s = max(s, -(d.y + w * 0.18));
+            s = mix(1e3, s, present);
+            if (s < best) { best = s; cyShade = cy - w * 0.05; }
+          }
+          float fill = 1.0 - smoothstep(-0.0015, 0.0015, best);
+          float line = (1.0 - smoothstep(0.006, 0.0085, best)) * (1.0 - fill);
+          vec3 cc = mix(uCloud * 0.88, uCloud, smoothstep(cyShade - 0.02, cyShade + 0.03, h));
+          c = mix(c, cc, fill * uCloudK);
+          c = mix(c, uInk, line * uCloudK * 0.85);
+        }
         gl_FragColor = vec4(c, 1.0);
         #include <colorspace_fragment>
       }`,
@@ -509,9 +580,87 @@ export function setGlow(m: THREE.Mesh, opacity: number): void {
 export function disposeOwnedMesh(m: THREE.Mesh): void {
   m.geometry.dispose();
   const mat = m.material;
-  if (Array.isArray(mat)) mat.forEach((x) => x.dispose());
-  else mat.dispose();
+  const one = (x: THREE.Material): void => {
+    (x as THREE.MeshBasicMaterial).map?.dispose();
+    x.dispose();
+  };
+  if (Array.isArray(mat)) mat.forEach(one);
+  else one(mat);
   m.removeFromParent();
+}
+
+/**
+ * Painted mirror glass (one unlit textured quad): a sky-blue reflection gradient with a warm
+ * horizon glow, two diagonal shine streaks and a little star sticker in the corner, so a mirror
+ * reads as a mirror instead of a blank slab. Rounded corners are cut by alpha. Faces +Z.
+ */
+export function mirrorGlass(w: number, h: number, o: { top?: string; bottom?: string; glow?: string; sticker?: string } = {}): THREE.Mesh {
+  const W = 128;
+  const H = Math.max(32, Math.round((128 * h) / w));
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const g = c.getContext('2d');
+  if (g) {
+    const rad = Math.min(W, H) * 0.22;
+    g.beginPath();
+    g.moveTo(rad, 0);
+    g.arcTo(W, 0, W, H, rad);
+    g.arcTo(W, H, 0, H, rad);
+    g.arcTo(0, H, 0, 0, rad);
+    g.arcTo(0, 0, W, 0, rad);
+    g.closePath();
+    g.save();
+    g.clip();
+    const grad = g.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, o.top ?? '#8FD0FF');
+    grad.addColorStop(0.62, o.bottom ?? '#E3F5FF');
+    grad.addColorStop(0.78, o.glow ?? '#FFD9B8');
+    grad.addColorStop(1, o.bottom ?? '#E3F5FF');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, W, H);
+    // diagonal shine streaks
+    g.fillStyle = 'rgba(255,255,255,0.78)';
+    const streak = (x0: number, wd: number): void => {
+      g.beginPath();
+      g.moveTo(x0, H);
+      g.lineTo(x0 + wd, H);
+      g.lineTo(x0 + wd + H * 0.55, 0);
+      g.lineTo(x0 + H * 0.55, 0);
+      g.closePath();
+      g.fill();
+    };
+    streak(-H * 0.32 + W * 0.18, W * 0.16);
+    g.fillStyle = 'rgba(255,255,255,0.5)';
+    streak(-H * 0.32 + W * 0.42, W * 0.06);
+    g.restore();
+    // star sticker (bottom-right corner) with an ink rim
+    const sx = W * 0.8;
+    const sy = H - W * 0.2;
+    const R = W * 0.1;
+    g.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const a = -Math.PI / 2 + (i * Math.PI) / 5;
+      const rr = i % 2 ? R * 0.48 : R;
+      g.lineTo(sx + Math.cos(a) * rr, sy + Math.sin(a) * rr);
+    }
+    g.closePath();
+    g.fillStyle = o.sticker ?? POP.sun;
+    g.strokeStyle = POP.ink;
+    g.lineWidth = W * 0.022;
+    g.lineJoin = 'round';
+    g.fill();
+    g.stroke();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: false, alphaTest: 0.5, toneMapped: false, fog: false });
+  mat.name = 'menu3d:mirror';
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
+  m.name = 'menu3d:mirror';
+  m.userData.noBatch = true;
+  m.userData.noOutline = true;
+  return m;
 }
 
 /**

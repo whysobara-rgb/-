@@ -249,6 +249,8 @@ export interface HudStampOptions {
   x?: number;
   y?: number;
   params?: Readonly<Record<string, string | number>>;
+  /** How long it stays (ms); default ~1.6 s (2 s for the whole bank). */
+  durationMs?: number;
 }
 
 /** Portrait spec for a scoreboard face (the team's lead character). */

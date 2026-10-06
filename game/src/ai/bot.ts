@@ -173,6 +173,11 @@ export interface BotInternalOptions extends BotOptions {
   tuning?: Partial<DifficultyParams>;
 }
 
+/** The holding reflex acts this many ticks before my hit protection runs out. */
+const REFLEX_LEAD_TICKS = 6;
+/** Longest wait (x police awareness) with the hands off a load while an officer stands by. */
+const HOLDOFF_TICKS = 150;
+
 export class Bot implements BotController {
   readonly slot: number;
   readonly id: EntityId;
@@ -362,8 +367,9 @@ export class Bot implements BotController {
     else c = this.execute(sim);
     // police reflexes (public officers): let go and knock over an officer about to tackle me, or
     // the one about to tackle a carrying teammate
-    const pr = this.policeReflex(sim, me);
+    let pr = this.policeReflex(sim, me);
     if (pr) c = pr;
+    else if ((pr = this.grabGate(sim, me, c))) c = pr;
     // human proxy: a short lapse of attention now and then (never while holding something)
     if (this.isProxy && tick < this.lapseUntil && !me.grab && !pr) c = cmd({ x: 0, y: 0 }, false);
     // pinned: wedged (e.g. between a wall and an anchored safe in a narrow gap) the body does not
@@ -503,6 +509,21 @@ export class Bot implements BotController {
     return u !== undefined && u > tick;
   }
 
+  /**
+   * Left to an opponent after a tug of war (for 8-10 s) — unless the police just knocked them off
+   * it (then it is a free load again; the walls often hide whether they still hold a bank).
+   */
+  private tugBlocked(sim: Simulation, key: string, lootId: EntityId): boolean {
+    const u = this.tugBlock.get(key);
+    if (u === undefined) return false;
+    if (u <= sim.state.tick) {
+      this.tugBlock.delete(key);
+      return false;
+    }
+    return !this.chaos.has(lootId) || this.oppHolding(sim, lootId).length > 0;
+  }
+  private readonly tugBlock = new Map<string, number>();
+
   // =========================================================================
   // Events (public or own-team only)
   // =========================================================================
@@ -548,7 +569,14 @@ export class Bot implements BotController {
           this.path = null;
           break;
         case 'policeTackle':
-          if (e.hit) this.notePoliceTackle(sim, e.victimId, e.tick);
+          if (e.hit) {
+            if (e.victimId === this.id) {
+              this.tackledAt.push(e.tick);
+              const fr = this.forcedRelease.get(this.id);
+              if (fr && fr.tick === e.tick) this.addHeat(sim, fr.loot, e.tick);
+            }
+            this.notePoliceTackle(sim, e.victimId, e.tick);
+          }
           break;
         default:
           break;
@@ -559,6 +587,49 @@ export class Bot implements BotController {
 
   private finalPending = false;
   private readonly forcedRelease = new Map<EntityId, { loot: EntityId; tick: number }>();
+  /** Ticks this bot was tackled by an officer (recent police pressure on its hauls). */
+  private readonly tackledAt: number[] = [];
+
+  /**
+   * A player's sense of how long the officers will stay is rough: a per-wave estimate error of
+   * up to ±(1 - awareness) * 6 s on top of the public "arrival + fixed shift" clock.
+   */
+  private shiftGuess(sim: Simulation): number {
+    const w = sim.state.alarm.waves;
+    if (w !== this.guessWave) {
+      this.guessWave = w;
+      this.guessErr = (this.rng() * 2 - 1) * 6 * (1 - this.P.policeAwareness);
+    }
+    return this.guessErr;
+  }
+  private guessWave = -1;
+  private guessErr = 0;
+
+  /** Per bank: ticks this bot was tackled off it / had to keep its hands off it (police). */
+  private readonly bankHeat = new Map<EntityId, number[]>();
+
+  private addHeat(sim: Simulation, lootId: EntityId, tick: number): void {
+    const l = sim.getLoot(lootId);
+    const bankId = l ? (l.kind === 'bank' ? l.id : l.floorOf) : null;
+    if (bankId === null || bankId === undefined) return;
+    let a = this.bankHeat.get(bankId);
+    if (!a) this.bankHeat.set(bankId, (a = []));
+    a.push(tick);
+  }
+
+  /** How hard the officers have hounded my hauls of this bank in the last 20 s. */
+  private heatOf(bankId: EntityId, tick: number): number {
+    const a = this.bankHeat.get(bankId);
+    if (!a) return 0;
+    while (a.length && tick - a[0]! > 20 * TICK_RATE) a.shift();
+    return a.length;
+  }
+
+  /** Police tackles suffered in the last 20 s. */
+  private recentTackles(tick: number): number {
+    while (this.tackledAt.length && tick - this.tackledAt[0]! > 20 * TICK_RATE) this.tackledAt.shift();
+    return this.tackledAt.length;
+  }
 
   /**
    * An officer just tackled someone (public, but an opponent only counts when the team sees it):
@@ -944,7 +1015,7 @@ export class Bot implements BotController {
     for (const l of st.loot) {
       if (l.recovered || l.kind === 'bank') continue;
       const key = `collect:${l.id}`;
-      if (this.blacklisted(key, tick)) continue;
+      if (this.blacklisted(key, tick) || this.tugBlocked(sim, key, l.id)) continue;
       if (claimed.has(key)) continue;
       const holdingIt = myGrab === l.id;
       const mh = this.mateHolders(sim, l.id);
@@ -953,7 +1024,8 @@ export class Bot implements BotController {
       const oh = this.oppHolding(sim, l.id);
       if (oh.length > 0 && !holdingIt) continue; // intercept instead
       // still on the move with an opponent last seen holding it: they carry it out of sight
-      if (!holdingIt && !l.anchored && l.floorOf === null && Math.hypot(l.vel.x, l.vel.y) > 0.4 && this.oppSeenHolding(sim, l.id, 90)) continue;
+      // (unless the police just knocked it out of their hands: then it is up for grabs)
+      if (!holdingIt && !l.anchored && l.floorOf === null && Math.hypot(l.vel.x, l.vel.y) > 0.4 && this.oppSeenHolding(sim, l.id, 90) && !this.chaos.has(l.id)) continue;
       // inside a bank floor?
       let strip = false;
       let bankMoving = false;
@@ -1113,7 +1185,11 @@ export class Bot implements BotController {
         const exp = this.ps.exposure(t, b.anchored);
         tPol += exp * BOT_TUNING.bankPoliceDrag * (nAfter >= 2 ? 0.55 : 1) * aw * (holdingIt ? 0.5 : 1);
         // officers on the field right now and staying a while: start it once they walk back
-        if (!holdingIt && !committed && this.ps.onField() && this.ps.shiftLeft() > 12) wave = 1 - BOT_TUNING.waveDefer * aw;
+        if (!holdingIt && !committed && this.ps.onField() && this.ps.shiftLeft() + this.shiftGuess(sim) > 12) wave = 1 - BOT_TUNING.waveDefer * aw;
+        // tackled again and again on this haul: let the bank be for now (the officers hound
+        // whoever drags it), score elsewhere and come back when they leave
+        const hounded = this.ps.onField() ? this.heatOf(b.id, tick) : 0;
+        if (hounded >= 2 && nAfter < 2) wave *= 1 / (1 + BOT_TUNING.houndedDrop * (hounded - 1) * aw);
       }
       let rate = (value / tPol) * feas * wave;
       if (isAssist) {
@@ -1127,7 +1203,7 @@ export class Bot implements BotController {
         out.push(this.mk('assistHaul', key, b.id, u, value, t, { bankId: b.id, mateId: mh[0]?.id }));
       } else {
         const key = `haul:${b.id}`;
-        if (claimed.has(key) || this.blacklisted(key, tick)) continue;
+        if (claimed.has(key) || this.blacklisted(key, tick) || this.tugBlocked(sim, key, b.id)) continue;
         const contents = (value - 500) / 100;
         let w = W.bank * this.style.bank * (1 + W.bankContents * contents) * (contents > 0 ? BOT_TUNING.wholeBank : 1);
         // an empty-handed opponent closer to this bank will contest it: prefer the other one
@@ -1214,6 +1290,8 @@ export class Bot implements BotController {
         const decisive = depth > 0 && scoreDiff > 0 && lateGame && b !== undefined && b.estimatedValue >= scoreDiff;
         if (!b || b.recovered || b.anchored || (b.estimatedValue < 600 && !tieBreak && !decisive)) continue;
         if (!tieBreak && !decisive && !(depth >= 1 && W.aggression > 0.6)) continue;
+        // an officer is already on that hauler: the police do the knocking (strip it instead)
+        if (this.ps.chasers(o.id).length > 0) continue;
         const key = `intercept:${o.id}`;
         if (claimed.has(key) || this.blacklisted(key, tick)) continue;
         const d = V.dist(me.pos, o.last.pos) * 1.2;
@@ -1601,6 +1679,9 @@ export class Bot implements BotController {
           const b = l && l.floorOf !== null ? sim.getLoot(l.floorOf) : undefined;
           return !!b && !b.anchored && Math.hypot(b.vel.x, b.vel.y) > 0.25;
         })();
+        // (already next to it and still not holding it after a few seconds: the spots do not
+        // work from here — give up sooner instead of shuffling between two faces)
+        if (d < 2.5 && !moving) return 4.5 * s;
         return Math.max((moving ? 6 : 9) * s, ((d * 2.2) / WALK + (moving ? 2 : 5)) * s);
       }
       case 'grab':
@@ -1730,6 +1811,23 @@ export class Bot implements BotController {
     }
     dir = this.avoid(sim, dir, cls, opts.carrying === true, dGoal > 0.9);
     let move = V.scale(dir, mag);
+    // slow progress check: oscillating in front of a gap (steer in, back off, steer in) keeps
+    // resetting the short watchdog; no net approach to the same goal over 3 s -> mark the spot
+    // ahead costly and re-plan
+    if (!this.progGoal || V.dist(this.progGoal, goal) > 1.0 || me.straining || (this.goal !== null && this.goal.key.startsWith('copguard:'))) {
+      this.progGoal = { ...goal };
+      this.progD = dGoal;
+      this.progTick = tick;
+    } else if (dGoal < this.progD - 1.0) {
+      this.progD = dGoal;
+      this.progTick = tick;
+    } else if (tick - this.progTick > 3 * TICK_RATE) {
+      this.progD = dGoal;
+      this.progTick = tick;
+      this.stats.stuckRepaths++;
+      this.avoidSpots.push({ x: me.pos.x + dir.x * 0.9, y: me.pos.y + dir.y * 0.9, r: 1.3, cost: 8, until: tick + 360 });
+      this.path = null;
+    }
     // watchdog
     const w = this.watchdog(sim, move);
     if (w.nudge) move = w.nudge;
@@ -1745,9 +1843,10 @@ export class Bot implements BotController {
     const me = this.me(sim);
     const tick = sim.state.tick;
     this.avoidSpots = this.avoidSpots.filter((a) => a.until > tick);
+    const avoid = [...this.avoidSpots, ...this.pathBlockers(sim, me)];
     const res = this.nav.findPath(me.pos, goal, cls, {
       discount: this.trail && this.trail.length ? this.trail : null,
-      avoid: this.avoidSpots.length ? this.avoidSpots : undefined,
+      avoid: avoid.length ? avoid : undefined,
       maxExpand: 30000,
     });
     this.stats.repaths++;
@@ -1756,6 +1855,36 @@ export class Bot implements BotController {
       return;
     }
     this.path = { goal: { ...goal }, cls, pts: res.points, idx: 1, tick, dynVersion: this.nav.dynVersion, partial: res.partial };
+  }
+
+  /**
+   * Movable things the nav grid does not stamp that can still seal a lane for a walker:
+   *  - an officer standing in a narrow passage (an empty-handed raccoon cannot get past its
+   *    body, and a patrolling officer may stay there for its whole shift);
+   *  - a loose safe lying next to a wall / lamp, leaving a gap narrower than a body.
+   * They become cost circles, so the plan goes around when another way exists (never a hard
+   * block: with no other way the path still goes through and local avoidance / pushing work).
+   */
+  private pathBlockers(sim: Simulation, me: CharacterState): { x: number; y: number; r: number; cost: number; until: number }[] {
+    const out: { x: number; y: number; r: number; cost: number; until: number }[] = [];
+    const tick = sim.state.tick;
+    if (me.grab) return out;
+    // (a guard wants to stand right at the officer)
+    const guarding = this.goal !== null && this.goal.key.startsWith('copguard:');
+    for (const c of guarding ? [] : this.ps.cops) {
+      if (V.dist(c.pos, me.pos) > 25 || this.nav.clearanceAt(c.pos.x, c.pos.y) >= 0.95) continue;
+      out.push({ x: c.pos.x, y: c.pos.y, r: 1.4, cost: 20, until: tick + 120 });
+    }
+    const goalTarget = this.goal ? this.goal.targetId : null;
+    for (const l of sim.state.loot) {
+      if (l.recovered || l.anchored || l.kind === 'bank' || l.id === goalTarget || l.floorOf !== null) continue;
+      if (Math.abs(l.pos.x - me.pos.x) > 12 || Math.abs(l.pos.y - me.pos.y) > 12) continue;
+      const rad = Math.hypot(l.half.x, l.half.y);
+      // (a gap narrower than a body between the safe and a static obstacle)
+      if (this.nav.clearanceAt(l.pos.x, l.pos.y) > rad + CHARACTER.radius * 2 + 0.1) continue;
+      out.push({ x: l.pos.x, y: l.pos.y, r: rad + 0.7, cost: 6, until: tick + 120 });
+    }
+    return out;
   }
 
   /**
@@ -1791,6 +1920,9 @@ export class Bot implements BotController {
     }
     return false;
   }
+  private progGoal: Vec2 | null = null;
+  private progD = 0;
+  private progTick = 0;
   private backoffUntil = -1;
   private backoffWindow = 0;
   private backoffCount = 0;
@@ -1880,6 +2012,9 @@ export class Bot implements BotController {
     this.watchLevel++;
     this.stats.stuckRepaths++;
     this.avoidSpots.push({ x: me.pos.x + move.x * 0.8, y: me.pos.y + move.y * 0.8, r: 1.4, cost: 3, until: tick + 240 });
+    // an officer is what blocks the way (it never yields to an empty-handed raccoon): go around
+    const cop = this.ps.onField() ? this.ps.nearest(me.pos) : null;
+    if (cop && cop.d < 1.8) this.avoidSpots.push({ x: cop.cop.pos.x, y: cop.cop.pos.y, r: 1.6, cost: 25, until: tick + 300 });
     this.path = null;
     const perp = { x: -move.y, y: move.x };
     const sgn = this.watchLevel % 2 === 0 ? 1 : -1;
@@ -2150,7 +2285,8 @@ export class Bot implements BotController {
       g.tugTicks = (g.tugTicks ?? 0) + 1;
       g.tugPatience ??= Math.round((1.2 + this.rng() * 2.0) * TICK_RATE);
       if (g.tugTicks > g.tugPatience) {
-        this.endGoal(sim, 'tug of war (safe)', 8 * TICK_RATE);
+        this.tugBlock.set(g.key, sim.state.tick + 8 * TICK_RATE);
+        this.endGoal(sim, 'tug of war (safe)');
         return cmd({ x: 0, y: 0 }, false);
       }
     } else if (g.tugTicks) g.tugTicks = Math.max(0, g.tugTicks - 2);
@@ -2432,7 +2568,7 @@ export class Bot implements BotController {
       if (me.dashCooldown === 0 && me.protectTicks === 0 && chase.d < 3.2 && V.dot(V.norm(move), away) > 0.2 && this.rngCheck(aw * this.P.carryBoost, 6)) dash = true;
     }
     // carry boost on straight stretches when no threat is near
-    if (!dash && me.dashCooldown === 0 && straight > 5 && this.rngCheck(this.P.carryBoost, 20) && !this.threatNear(sim, me.pos, 10) && !(chase && chase.d < 9)) dash = true;
+    if (!dash && me.dashCooldown === 0 && straight > 5 && this.rngCheck(this.P.carryBoost, 20) && !this.threatNear(sim, me.pos, 10) && !(chase && chase.d < 9) && !this.saveDashForCops(me)) dash = true;
     return cmd(move, true, null, dash);
   }
 
@@ -2587,7 +2723,10 @@ export class Bot implements BotController {
         g.tugTicks = (g.tugTicks ?? 0) + 1;
         g.tugPatience ??= Math.round((1.5 + this.rng() * 2.2) * TICK_RATE);
         if (g.tugTicks > g.tugPatience && !human && mates.length === 0) {
-          this.endGoal(sim, 'tug of war', 10 * TICK_RATE);
+          // (leave it to them — but only while they hold it: an officer or a dash that knocks
+          // them off makes it a free bank again)
+          this.tugBlock.set(g.key, sim.state.tick + 10 * TICK_RATE);
+          this.endGoal(sim, 'tug of war');
           return cmd({ x: 0, y: 0 }, false);
         }
       } else g.tugTicks = Math.max(0, (g.tugTicks ?? 0) - 2);
@@ -2696,7 +2835,7 @@ export class Bot implements BotController {
       }
       // carry boost on long straight stretches
       let dash = false;
-      if (me.dashCooldown === 0 && remaining > 6 && this.rngCheck(this.P.carryBoost * 0.6, 30) && !this.threatNear(sim, me.pos, 9)) dash = true;
+      if (me.dashCooldown === 0 && remaining > 6 && this.rngCheck(this.P.carryBoost * 0.6, 30) && !this.threatNear(sim, me.pos, 9) && !this.saveDashForCops(me)) dash = true;
       return cmd(move, true, null, dash);
     }
     // --- approach a face ---
@@ -2955,12 +3094,14 @@ export class Bot implements BotController {
       }
     }
     if (me.dashCooldown > 0 || me.knockdownTicks > 0) return null;
-    if (me.grab && me.protectTicks === 0 && !me.straining) {
+    // (after a tackle the officer waits right beside the victim and lunges on the very tick its
+    // protection runs out: act a few ticks before, not on the tick it is already too late)
+    if (me.grab && me.protectTicks <= REFLEX_LEAD_TICKS && !me.straining) {
       const l = sim.getLoot(me.grab.targetId);
       // (a load already dwelling in our zone scores whatever happens to me)
       if (l && !l.recovered && !(l.recovery && l.recovery.team === this.team)) {
         for (const cop of ps.chasers(this.id)) {
-          if (!this.copAboutToTackle(cop, me.pos, 2.4) || ps.stunImmune(cop.id)) continue;
+          if (!this.copAboutToTackle(cop, me.pos, 2.4) || ps.stunImmune(cop.id) || cop.busyTicks > me.protectTicks + REFLEX_LEAD_TICKS) continue;
           if (!this.rngCheck(aw, 3)) continue;
           this.stunPlan = { copId: cop.id, until: tick + 24 };
           this.log1(sim, `lets go of ${l.id} to stun officer ${cop.id}`);
@@ -2986,6 +3127,65 @@ export class Bot implements BotController {
     }
     return null;
   }
+
+  /**
+   * Officers on duty that could go for me once I hold something: not stunned / stepping out,
+   * not busy chasing someone else, within `r`.
+   */
+  private idleCopNear(me: CharacterState, r: number): { cop: CopView; d: number } | null {
+    let best: { cop: CopView; d: number } | null = null;
+    for (const cop of this.ps.cops) {
+      if (cop.phase === 'stunned' || cop.phase === 'arriving') continue;
+      if (cop.target !== null && cop.target !== this.id) continue;
+      const d = V.dist(cop.pos, me.pos);
+      if (d <= r && (!best || d < best.d)) best = { cop, d };
+    }
+    return best;
+  }
+
+  /**
+   * Keep the dash for knocking an officer over instead of spending it on a carry boost while
+   * one is close (the boost never outruns an officer with a bank; the stun buys seconds).
+   */
+  private saveDashForCops(me: CharacterState): boolean {
+    if (!this.ps.onField()) return false;
+    const near = this.idleCopNear(me, 10);
+    return near !== null && this.rng() < 0.3 + 0.7 * this.P.policeAwareness;
+  }
+
+  /**
+   * About to take hold of a load with an officer right here (it lunges at whoever holds loot):
+   * knock it over first when the dash is ready; without the dash, keep the hands off for a
+   * moment rather than hand it a tackle (bounded: the budget drains and refills, so the bot
+   * never stands frozen — after it runs out it grabs anyway, and the bank gets "hot").
+   */
+  private grabGate(sim: Simulation, me: CharacterState, c: Command): Command | null {
+    if (this.holdoff > 0 && !(c.grab && !me.grab)) this.holdoff = Math.max(0, this.holdoff - 0.5);
+    if (!c.grab || me.grab || !this.ps.onField() || me.knockdownTicks > 0) return null;
+    const near = this.idleCopNear(me, 3.6);
+    if (!near) return null;
+    const aw = this.P.policeAwareness;
+    if (me.dashCooldown === 0 && !this.ps.stunImmune(near.cop.id) && this.rngCheck(aw, 2)) {
+      const s = this.dashAtCop(sim, me, near.cop);
+      if (s) {
+        this.stats.policeStunTries++;
+        return s;
+      }
+    }
+    const budget = HOLDOFF_TICKS * aw;
+    if (near.d < 2.6 && me.protectTicks < 30 && near.cop.busyTicks < 30 && this.holdoff < budget) {
+      this.holdoff++;
+      if (this.holdoff >= budget && this.goal?.targetId != null) {
+        this.addHeat(sim, this.goal.targetId, sim.state.tick);
+        this.urgent = true;
+      }
+      const away = V.norm(V.sub(me.pos, near.cop.pos));
+      return cmd(near.d < 1.6 ? V.scale(away, 0.5) : { x: 0, y: 0 }, false, V.sub(near.cop.pos, me.pos));
+    }
+    return null;
+  }
+
+  private holdoff = 0;
 
   /**
    * Body-block: stand on the line from the officer chasing a carrying teammate to that teammate
@@ -3061,23 +3261,7 @@ export class Bot implements BotController {
         return cmd({ x: 0, y: 0 }, false);
       }
       if (l && !l.recovered && l.kind === 'bank') {
-        // knocked the hauler off: go for the most valuable safe still on that bank
-        let best: LootState | null = null;
-        for (const sid of l.loadedSafes) {
-          const sl = sim.getLoot(sid);
-          if (sl && !sl.recovered && (!best || sl.baseValue > best.baseValue)) best = sl;
-        }
-        if (best) {
-          this.startGoal(sim, this.mk('stripBank', `collect:${best.id}`, best.id, g.utility, best.baseValue, 10, { chained: true, strip: true, bankId: l.id }));
-          return cmd({ x: 0, y: 0 }, false);
-        }
-        // an empty bank: take the haul over while its hauler is down (if it can still finish)
-        this.takeover = { id: l.id, until: tick + 3 * TICK_RATE };
-        const haul = this.candidates(sim).find((c) => c.key === `haul:${l.id}`);
-        if (haul) {
-          this.startGoal(sim, { ...haul, chained: true });
-          return cmd({ x: 0, y: 0 }, false);
-        }
+        if (this.afterHaulerDown(sim, g, l)) return cmd({ x: 0, y: 0 }, false);
         this.endGoal(sim, 'knocked hauler, bank empty');
         return cmd({ x: 0, y: 0 }, false);
       }
@@ -3089,6 +3273,19 @@ export class Bot implements BotController {
       return cmd({ x: 0, y: 0 }, false);
     }
     if (o.last.holdingId === null && o.visible) {
+      // they dropped it (an officer's tackle, a dash, a stall): it lies right here — take it
+      const lootId = g.chasedLoot ?? null;
+      const l = lootId !== null ? sim.getLoot(lootId) : undefined;
+      if (l && !l.recovered && l.kind !== 'bank' && V.dist(l.pos, me.pos) < 8 && this.oppHolding(sim, l.id).length === 0) {
+        this.startGoal(sim, this.mk(l.floorOf !== null ? 'stripBank' : 'collectSafe', `collect:${l.id}`, l.id, g.utility, l.baseValue, 8, { chained: true, strip: l.floorOf !== null, bankId: l.floorOf }));
+        return cmd({ x: 0, y: 0 }, false);
+      }
+      // their hauler is down (an officer got them): strip it or take the haul over
+      if (l && !l.recovered && l.kind === 'bank' && V.dist(l.pos, me.pos) < 10 && this.oppHolding(sim, l.id).length === 0 && this.afterHaulerDown(sim, g, l)) {
+        return cmd({ x: 0, y: 0 }, false);
+      }
+      // (a short pause before chasing them again: no flip-flopping while they pick it up)
+      this.blacklist.set(g.key, tick + 2 * TICK_RATE);
       this.endGoal(sim, 'target dropped loot');
       return cmd({ x: 0, y: 0 }, false);
     }
@@ -3118,6 +3315,31 @@ export class Bot implements BotController {
     }
     const m = this.moveTo(sim, tgt, 'walk', 0.8);
     return cmd(m.move, false);
+  }
+
+  /**
+   * The other team's bank hauler was knocked off (by this bot or by an officer): go for the most
+   * valuable safe still on it, or take an empty bank's haul over while they are down. Returns
+   * false when neither is worth it.
+   */
+  private afterHaulerDown(sim: Simulation, g: Goal, l: LootState): boolean {
+    const tick = sim.state.tick;
+    let best: LootState | null = null;
+    for (const sid of l.loadedSafes) {
+      const sl = sim.getLoot(sid);
+      if (sl && !sl.recovered && (!best || sl.baseValue > best.baseValue)) best = sl;
+    }
+    if (best) {
+      this.startGoal(sim, this.mk('stripBank', `collect:${best.id}`, best.id, g.utility, best.baseValue, 10, { chained: true, strip: true, bankId: l.id }));
+      return true;
+    }
+    this.takeover = { id: l.id, until: tick + 3 * TICK_RATE };
+    const haul = this.candidates(sim).find((c) => c.key === `haul:${l.id}`);
+    if (haul) {
+      this.startGoal(sim, { ...haul, chained: true });
+      return true;
+    }
+    return false;
   }
 
   private lastSeenHolding(oppId: EntityId): EntityId | null {

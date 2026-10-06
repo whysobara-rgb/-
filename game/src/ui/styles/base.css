@@ -67,6 +67,8 @@
   translate: none !important;
 }
 .uh-measuring [data-nav]::after { display: none !important; }
+/* Decorations that deliberately hang outside their box (logo roots, sparkles) never force a shrink. */
+.uh-measuring .uh-deco { display: none !important; }
 
 /* 16:9 safe frame centred in any aspect ratio (21:9 gets side margins, 16:10 extra height). */
 .uh-frame {

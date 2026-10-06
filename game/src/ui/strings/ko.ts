@@ -556,6 +556,17 @@ export const ko = {
   'preview.theirVan': '상대 차',
   'preview.tagBankParts': '건물 + 금고',
   'preview.policeEntry': '경찰 진입',
+  // --- police / presentation captions (mirrors src/audio/captions.ts fallbacks) ---
+  'caption.uprootPop': '[뽕! 뽑히는 소리]',
+  'caption.policeSiren': '[경찰 사이렌]',
+  'caption.alarmBell': '[은행 경보]',
+  'caption.policeSkid': '[끼익! 경찰차 도착]',
+  'caption.policeWhistle': '[호루라기]',
+  'caption.policeBark': '[경찰: 멈춰!]',
+  'caption.tackle': '[와락! 태클]',
+  'caption.tackleMiss': '[휙! 태클 빗나감]',
+  'caption.policeStun': '[뾰옹~ 경찰이 넘어짐]',
+  'caption.policePhew': '[휴~ 경찰차가 떠남]',
 } as const;
 
 export type StringKey = keyof typeof ko;

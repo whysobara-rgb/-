@@ -100,6 +100,7 @@ export class ResultsScreen extends UiScreen<ResultsScreenProps> {
     for (const id of this.timers) window.clearTimeout(id);
     this.timers = [];
     window.clearInterval(this.confettiTimer);
+    for (const r of this.rollers) r?.stop();
   }
 
   protected render(): void {
@@ -169,7 +170,7 @@ export class ResultsScreen extends UiScreen<ResultsScreenProps> {
 
     const buttons = h(
       'div',
-      { class: 'uh-res__buttons' },
+      { class: 'uh-res__buttons', 'data-paw-mode': 'top' },
       button({ id: 'res:menu', label: 'results.menu', icon: 'home', variant: 'night', onActivate: () => this.leave(p.onMenu) }),
       p.actions.rematch
         ? button({
@@ -203,7 +204,7 @@ export class ResultsScreen extends UiScreen<ResultsScreenProps> {
             p.reason ? chip(`results.reason.${p.reason}`, 'night', p.reason === 'time' ? 'clock' : 'flag') : null,
           ),
         ),
-        h('div', { class: 'uh-res__scores' }, scoreCard(0), h('div', { class: 'uh-res__vs' }, chunky(':', { tone: 'cream' })), scoreCard(1)),
+        h('div', { class: 'uh-res__scores' }, scoreCard(0), h('div', { class: 'uh-res__vs', 'aria-hidden': 'true' }, h('i'), h('i')), scoreCard(1)),
         h('div', { class: 'uh-res__mid' }, eventCard, seriesStrip, reward),
         buttons,
         promptBar([
@@ -232,7 +233,7 @@ export class ResultsScreen extends UiScreen<ResultsScreenProps> {
       }
       this.timers.push(
         window.setTimeout(() => {
-          r.set(target);
+          r.countTo(target, 650 + Math.min(700, target / 4));
           if (target > 0) {
             uiSound('coin', { pitch: team === this.props.myTeam ? 1.12 : 1 });
             const fx = this.el.querySelector<HTMLElement>('.uh-res__fx');

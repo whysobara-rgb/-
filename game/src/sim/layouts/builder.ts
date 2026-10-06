@@ -344,7 +344,10 @@ export class LayoutBuilder {
       decor: this.decorList,
       groundStyle: this.opts.groundStyle,
     };
-    if (this.policeList.length > 0) def.policeEntries = this.policeList;
+    if (this.policeList.length > 0) {
+      def.policeEntries = this.policeList;
+      def.policeDispatch = 'nearestAlarm';
+    }
     return { def, meta: { paths: this.pathList, intent } };
   }
 }

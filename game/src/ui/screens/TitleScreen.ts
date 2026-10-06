@@ -63,11 +63,12 @@ export class TitleScreen extends UiScreen<TitleScreenProps> {
     const [first, ...rest] = title.split(' ');
     const logo = h(
       'div',
-      { class: 'uh-logo', role: 'img', 'aria-label': title },
-      h('div', { class: 'uh-logo__line uh-logo__line--a' }, word(first, 'sun', 260, 0), svgFromMarkup(ROOTS_SVG, 'uh-logo__roots')),
+      // Short titles (Korean: 3 + 3 syllables) get bigger letters so both languages fill the sky.
+      { class: ['uh-logo', Math.max(first.length, rest.join(' ').length) <= 4 ? 'uh-logo--short' : ''], role: 'img', 'aria-label': title },
+      h('div', { class: 'uh-logo__line uh-logo__line--a' }, word(first, 'sun', 260, 0), svgFromMarkup(ROOTS_SVG, 'uh-logo__roots uh-deco')),
       h('div', { class: 'uh-logo__line uh-logo__line--b' }, word(rest.join(' '), 'cream', 560, 3)),
       h('div', { class: 'uh-logo__ribbon' }, h('span', null, t('game.titleEn'))),
-      [0, 1, 2, 3].map((i) => h('span', { class: `uh-logo__spark uh-logo__spark--${i}` }, svgFromMarkup(SPARK))),
+      [0, 1, 2, 3].map((i) => h('span', { class: `uh-logo__spark uh-logo__spark--${i} uh-deco` }, svgFromMarkup(SPARK))),
     );
     this.el.append(
       h(

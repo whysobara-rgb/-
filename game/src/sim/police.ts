@@ -10,7 +10,8 @@
  * Wave: the car (kinematic, non-colliding, visual) drives from entry.from to entry.park over
  * POLICE.arriveTicks. Layouts park it at the curb OUTSIDE the arena edge (it never covers a
  * lane); officers then hop in over the fence just inside the edge (west/east of the car's line,
- * mirror-symmetric). Entries alternate north/south by wave. Officers are dynamic circle bodies
+ * mirror-symmetric). Entries alternate by wave; on layouts with policeDispatch 'nearestAlarm' (all
+ * authored arenas) the car parks at the curb nearest the oldest bank still ringing instead. Officers are dynamic circle bodies
  * with the character drive + drag model; they collide with everything solid, never grab and
  * cannot be grabbed. At the end of a shift they walk back and board only at their car (any of
  * its step-in spots, or the fence beside it); their bodies are then removed from physics.
@@ -1020,13 +1021,43 @@ export class PoliceSystem {
     for (const car of [...this.cars]) this.updateCar(car, tick);
   }
 
+  /**
+   * Entry of a wave. Default: entries alternate by wave. (balance pass) Layouts with
+   * policeDispatch 'nearestAlarm': the car answers the alarm — it parks at the curb nearest the
+   * oldest bank still ringing (where that bank is now); nothing ringing (a getaway wave) or an
+   * exact tie: alternate. Banks and entries sit on the mirror axis, so both teams always face the
+   * same rule. (Before: wave 1 always used entry 0 — on a layout with one bank nearer the zones,
+   * whoever won the race for that bank hauled it police-free while the loser's bank got the car.)
+   */
+  private entryForWave(wave: number): number {
+    const n = this.entries.length;
+    const alt = (wave - 1) % n;
+    if (this.ctx.layout.policeDispatch !== 'nearestAlarm') return alt;
+    const ringId = this.ctx.state.alarm.ringing[0];
+    const bank = ringId !== undefined ? lootById(this.ctx, ringId)?.state : undefined;
+    if (!bank) return alt;
+    let best = alt;
+    let bestD = Infinity;
+    let tie = false;
+    for (let i = 0; i < n; i++) {
+      const p = this.entries[i]!.park;
+      const d = Math.hypot(p.x - bank.pos.x, p.y - bank.pos.y);
+      if (d < bestD - 1e-6) {
+        best = i;
+        bestD = d;
+        tie = false;
+      } else if (Math.abs(d - bestD) <= 1e-6) tie = true;
+    }
+    return tie ? alt : best;
+  }
+
   private dispatch(tick: number, officers = 0): void {
     const ctx = this.ctx;
     const st = ctx.state;
     const alarm = st.alarm;
     alarm.dispatchTick = null;
     const wave = ++alarm.waves;
-    const entryIndex = (wave - 1) % this.entries.length;
+    const entryIndex = this.entryForWave(wave);
     const entry = this.entries[entryIndex]!;
     const per = POLICE.officersPerWave;
     const count = officers > 0 ? officers : Math.max(1, per[Math.min(wave - 1, per.length - 1)] ?? 2);

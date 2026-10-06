@@ -37,13 +37,16 @@ export const POLICE = {
   arriveTicks: secondsToTicks(2),
   /** Officers per car in each wave. */
   officersPerWave: [2, 2] as readonly number[],
-  /** How long a wave's officers stay before walking back to the car. */
-  shiftTicks: secondsToTicks(40),
-  /** Minimum gap between the end of one wave and the next dispatch. */
-  restTicks: secondsToTicks(15),
+  /** How long a wave's officers stay before walking back to the car. (balance pass: 40 -> 45 s) */
+  shiftTicks: secondsToTicks(45),
+  /** Minimum gap between the end of one wave and the next dispatch. (balance pass: 15 -> 12 s) */
+  restTicks: secondsToTicks(12),
   /** The final countdown ("도주 준비") always calls a wave if none is on the field. */
   getawayWave: true,
-  /** (balance pass) Officers stepping out of the getaway wave's car (0 = officersPerWave). */
+  /**
+   * (balance pass) Officers stepping out of the getaway wave's car (0 = officersPerWave): the
+   * final 30 s are a scramble past four officers, so a tied field is rarely swept clean.
+   */
   getawayOfficers: 0,
   radius: 0.42,
   mass: 70,

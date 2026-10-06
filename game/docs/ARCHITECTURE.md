@@ -75,6 +75,11 @@ Implementation notes (finished sim):
   means grabbing its outer wall (doc §4).
 - Fences push back with `FENCE.resistForce`; a slowly pushed bank still breaks them after `FENCE.pressTicks`.
 - Bank interior is mirror-symmetric: large safe at the center, small safes at local (±2.8, 0).
+- Stall rescue (`STALL_RESCUE`): a raccoon steering with real input that has not moved for ~0.6 s
+  while wedged (overlapping geometry, jammed by two opposing contacts in a sub-body-width gap, or
+  boxed into a pocket) is moved to the nearest free spot a thin probe reaches in a straight line
+  (`unstuck` event; never through walls, fences or safes; holders/riders/dashers excluded). Layout
+  validation also forbids anchored outdoor safes leaving a 0–1 m pocket against any solid (`pocket`).
 - Tutorial: the fence closes the bank's lane; the practice prompt should say to push the bank from
   behind ("은행 뒤에서 밀어요") — pulling from the front stalls because the puller reaches the fence first.
 
@@ -109,6 +114,15 @@ function createBot(sim: Simulation, opts: BotOptions): BotController
 class RivalObserver { constructor(sim: Simulation, humanTeam: TeamId); observe(sim: Simulation, events: SimEvent[]): void; summary(): ObservationSummary }
 function chooseAdaptation(summary: ObservationSummary, layout: LayoutDef, rival: RivalId): Adaptation | null
 ```
+
+Police awareness (owner addition): bots read the public police state (`src/ai/policeSense.ts`:
+officers, whom they run at, the alarm / dispatch clock). Carriers route around officers and burst
+away; a carrier about to be tackled lets go and dash-stuns the officer, then picks the load up
+again; teammates (incl. the human's bot mate) body-block and dash-stun an officer chasing a
+carrying ally; bank hauls are deferred while a fresh wave is on the field; 눈치왕 cashes in on
+police chaos (loot an opponent just lost to a tackle, carriers/hauls with an officer on them).
+How much a bot does this is `DifficultyParams.policeAwareness` (novice 0.3 < normal 0.75 <
+challenge 1). Shared balance knobs live in `BOT_TUNING` (src/ai/params.ts).
 
 A bot on the human's team behaves as a teammate (doc §11 동료 봇) automatically, and reads
 `state.pings` of its team. Bots read only public info: loot positions/values/state,
@@ -201,11 +215,15 @@ tutorial and the first match after practice keep it off). Implemented inside the
   The final countdown calls a wave immediately when none is on the field.
 - Cars park at the curb just outside the north/south edge on the mirror axis (`policeEntries`,
   `POLICE_CAR`); officers hop in at `officerStepOutSpot(entry, k)`. Entries alternate by wave.
-- Officers (ids from `POLICE_ID_BASE + 1`) chase the visible carrier with the highest held estimate,
+- Officers (ids from `POLICE_ID_BASE + 1`) chase the visible carrier with the highest held estimate
+  (a raccoon dragging a bank whose alarm rings is also heard within `POLICE.hearRadius`),
   split targets between officers, and lunge (`policeTackle`) when close: a hit equals an opposing
   dash hit (forced release + knockdown + protection). Empty-handed raccoons are never tackled, so
   body-blocking is a real tactic. A raccoon dash stuns an officer (`policeStunned`).
-- After `shiftTicks` officers walk back and the car leaves (`policeLeaving` → `policeGone`).
+- After `shiftTicks` officers walk back and the car leaves (`policeLeaving` → `policeGone`). An
+  officer sealed off from its car (no step closer for 8 s, e.g. a bank shoved against the gate)
+  squeezes past dynamic bodies (never walls) and still boards only at its car. The getaway wave
+  brings `POLICE.getawayOfficers` officers.
 - Police never change scores, loot ownership or recovery; the 3200 invariant is fuzz-tested with
   police on. Mirror-fairness tests check team 0 and team 1 get mirrored outcomes.
 - Render: `src/render/police.ts` + `models/police.ts` (puppy cops, police car with strobe light,

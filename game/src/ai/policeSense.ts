@@ -26,7 +26,11 @@ export interface CopView {
   target: EntityId | null;
   /** Ticks until it can lunge again (stunned / tired / stepping out), 0 = ready. */
   busyTicks: number;
-  /** Seconds left of its shift (it walks back to the car afterwards). */
+  /**
+   * Estimated seconds left of its shift: the fixed shift length counted from the moment the
+   * officer appeared on the field (public: the car's arrival is seen and announced), whole
+   * seconds — what an attentive player can work out, never the sim's own shift counter.
+   */
   shiftLeft: number;
 }
 
@@ -56,6 +60,8 @@ export class PoliceSense {
   /** Tick the last officer stun ended, per officer (1 s re-stun immunity is visible: it just got up). */
   private readonly stunEnded = new Map<EntityId, number>();
   private readonly lastPhase = new Map<EntityId, PolicePhase>();
+  /** Tick each officer was first seen on the field. */
+  private readonly firstSeen = new Map<EntityId, number>();
 
   private constructor(sim: Simulation) {
     this.enabled = sim.rules.police;
@@ -69,6 +75,7 @@ export class PoliceSense {
     this.leaving = 0;
     if (!this.enabled) return;
     for (const o of st.police) {
+      if (!this.firstSeen.has(o.id)) this.firstSeen.set(o.id, st.tick);
       const prev = this.lastPhase.get(o.id);
       if (prev === 'stunned' && o.phase !== 'stunned') this.stunEnded.set(o.id, st.tick);
       this.lastPhase.set(o.id, o.phase);
@@ -85,7 +92,7 @@ export class PoliceSense {
         phase: o.phase,
         target: o.phase === 'chase' || o.phase === 'tackle' || o.phase === 'tired' ? o.targetCharId : null,
         busyTicks: busy,
-        shiftLeft: Math.max(0, (POLICE.shiftTicks - o.activeTicks) / TICK_RATE),
+        shiftLeft: Math.max(0, Math.floor((POLICE.shiftTicks - (st.tick - this.firstSeen.get(o.id)!)) / TICK_RATE)),
       });
     }
     this.dispatchTick = st.alarm.dispatchTick;

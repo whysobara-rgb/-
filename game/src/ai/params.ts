@@ -274,26 +274,51 @@ export function humanProxyWeights(rng: () => number): PersonalityWeights {
  * for experiments; the values here are the measured defaults, see the balance report).
  */
 export const BOT_TUNING = {
-  /** Extra value for stripping a safe out of a bank nobody hauls yet (denial of a future haul). */
-  stripAnchoredBonus: 1,
-  /** Police drag on a planned solo bank haul, per second of expected police presence. */
-  bankPoliceDrag: 0.45,
+  /**
+   * Extra value for stripping a safe out of a bank nobody hauls yet (denial of a future haul).
+   * Measured: 1 -> 0.5 keeps more banks whole (bank contents 9 % -> 11-15 % of points).
+   */
+  stripAnchoredBonus: 0.5,
+  /**
+   * Police drag on a planned solo bank haul, per second of expected police presence (x
+   * awareness). Measured haul speed with officers on duty: ~75 % of free, ~70 % while chased;
+   * 1.0 made bots haul banks last (the field swept clean -> allRecovered ties), 0.3 keeps banks
+   * in the mid-game.
+   */
+  bankPoliceDrag: 0.3,
   /** Utility cut for starting a bank while a fresh wave is on the field (x awareness). */
-  waveDefer: 0.6,
+  waveDefer: 0.9,
   /** Whole-bank preference: multiplier on hauling a bank that still holds safes. */
-  wholeBank: 1,
+  wholeBank: 1.15,
   /** Per-match style spread of a rival's priorities (± fraction; the rival stays recognisable). */
   styleSpread: 0.22,
   /** Per-item taste spread (± fraction) so two bots of one personality do not mirror each other. */
   tasteSpread: 0.07,
-  /** Last-bank timing (it starts the 30 s getaway): lock a lead in, never trigger it while behind. */
-  lastBankTiming: 1,
+  /**
+   * Last-bank timing (it starts the 30 s getaway): lock a lead in, avoid triggering it while
+   * behind. Measured: no gain in draws or length (it pushes the last bank to the very end) -> off.
+   */
+  lastBankTiming: 0,
   /** Multiplier on intercepting a carrier (contest instead of parallel collecting). */
   intercept: 1,
-  /** Utility kept for a safe an empty-handed opponent is clearly closer to (contest avoidance). */
-  yieldSafe: 0.5,
-  /** ... for a bank an empty-handed opponent is clearly closer to. */
-  yieldBank: 0.55,
-  /** Bank race: once they haul a bank, our weight on the other one (x counter-play depth). */
-  bankRace: 0.6,
+  /**
+   * Utility kept for a safe / a bank an empty-handed opponent is clearly closer to (contest
+   * avoidance). Measured: yielding (0.5 / 0.55) made mirrored bots split the field evenly
+   * (parallel collection -> ties); 1 = go for it anyway (tug patience still ends deadlocks).
+   */
+  yieldSafe: 1,
+  yieldBank: 1,
+  /**
+   * Bank race: once they haul a bank, our weight on the other one (x counter-play depth).
+   * Measured: 0.6 made both banks go at once (final countdown before 120 s in ~55 % of 1v1s);
+   * 0 leaves the second bank for the mid/late game.
+   */
+  bankRace: 0,
+  /**
+   * A solo bank hauler tackled n >= 2 times in 20 s while officers are on duty divides the haul's
+   * value by 1 + houndedDrop * (n - 1) * awareness (it collects safes until the wave leaves).
+   * Measured: without it a hounded tongkeun crawled ~45 s under two officers (~20 tackles) and
+   * scored 0 in 8 % of mirror games on counter.
+   */
+  houndedDrop: 0.5,
 };

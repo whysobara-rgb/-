@@ -219,6 +219,12 @@ export interface LayoutDef {
    * middle of the north and south arena edges.
    */
   policeEntries?: PoliceEntryDef[];
+  /**
+   * (balance pass) Which curb a police car uses: 'nearestAlarm' = the entry nearest the oldest
+   * bank still ringing (the car answers the alarm; alternate on a tie / nothing ringing),
+   * 'alternate' (default) = entries in turn by wave. The authored layouts use 'nearestAlarm'.
+   */
+  policeDispatch?: 'alternate' | 'nearestAlarm';
 }
 
 // ---------------------------------------------------------------------------

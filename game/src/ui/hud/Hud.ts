@@ -181,7 +181,7 @@ export class Hud {
       this.fxEl,
     );
     this.el.hidden = true;
-    this.worldEl = h('div', { class: 'uh-world' }, this.labels.el, this.arrows.el, this.popups.el);
+    this.worldEl = h('div', { class: 'uh-world' }, this.labels.el, this.arrows.el, this.popups.el, this.stamps.worldEl);
     this.worldEl.hidden = true;
     root.layer('hud').appendChild(this.el);
     root.layer('world').appendChild(this.worldEl);
@@ -302,7 +302,12 @@ export class Hud {
           const grew = v !== null && typeof prev === 'number' && v > prev;
           this.cScores[id] = v;
           const panel = this.teams[id]!;
-          panel.score.set(v, prev === undefined);
+          // Gains tally up (no zero-padded strips); anything else (reset, "–") snaps.
+          if (grew) panel.score.countTo(v, 520);
+          else {
+            panel.score.stop();
+            panel.score.set(v, prev === undefined);
+          }
           if (grew) this.gain(panel.root, id === m.myTeam, v - (prev as number));
         }
       }
@@ -311,7 +316,11 @@ export class Hud {
       const prev = this.cScores[m.myTeam];
       if (v !== prev) {
         this.cScores[m.myTeam] = v;
-        this.practiceScore.set(v, prev === undefined);
+        if (v !== null && typeof prev === 'number' && v > prev) this.practiceScore.countTo(v, 520);
+        else {
+          this.practiceScore.stop();
+          this.practiceScore.set(v, prev === undefined);
+        }
         if (v !== null && typeof prev === 'number' && v > prev) {
           const panel = this.top.querySelector<HTMLElement>('.uh-practice');
           if (panel) this.gain(panel, true, v - prev);

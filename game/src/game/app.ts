@@ -419,8 +419,14 @@ export class App {
   // ------------------------------------------------------------------------------------------
 
   private setState(s: AppState): void {
+    const prev = this.stateValue;
     this.stateValue = s;
     document.documentElement.dataset.appState = s;
+    // Leaving live play for a menu (pause, results, intermission...): hand input to the menu
+    // consumer right now, not on the next frame. Otherwise a press made between the screen
+    // appearing and that frame (one slow frame can take a second on software GL) would land
+    // before the consumer switch and be dropped as stale.
+    if (prev === 'match' && s !== 'match') this.d.input.pollMenu();
   }
 
   private show<T extends UiScreen<object>>(screen: T, state: AppState): T {
@@ -919,6 +925,9 @@ export class App {
         return;
       }
       ctl.load();
+      // Warm GameView (shaders, scenery) behind the loading screen: with the 3D menus owning the
+      // screen it has not drawn since boot, and the preview below uses the menu stage.
+      if (this.stage) this.d.view.render(ctl.sim, 1, 0, ctl.focus());
       if (cfg.kind === 'tutorial') {
         ctl.attachScript(new TutorialDirector(ctl.sim, ctl.meId, this.d.hud, { autopilot: this.d.params.autotest }));
       }
@@ -962,7 +971,7 @@ export class App {
       if (this.stateValue === 'preview' && this.match === ctl) this.beginMatch();
     };
     const police = sim.rules.police === true;
-    this.scene3d(PreviewScene, () => new PreviewScene({ layout: sim.layout, police, policeEntries: police ? policeEntriesFor(sim.layout) : [], myTeam: 0 }), false);
+    const pscene = this.scene3d(PreviewScene, () => new PreviewScene({ layout: sim.layout, police, policeEntries: police ? policeEntriesFor(sim.layout) : [], myTeam: 0 }), false);
     const preview = new LayoutPreview({
       layout: sim.layout,
       context: opts.context ?? null,
@@ -983,6 +992,10 @@ export class App {
         : undefined,
     });
     this.show(preview, 'preview');
+    // The miniature frames itself between the title card and the team cards, and its price
+    // tags keep clear of them.
+    pscene?.setSafeArea(() => preview.safeArea());
+    this.stage?.labels.setAvoid(() => preview.keepOut());
     this.d.view.setMode('preview');
     this.previewGo = go;
     this.armPreview();

@@ -550,4 +550,15 @@ export const en: Record<StringKey, string> = {
   'preview.theirVan': 'Their van',
   'preview.tagBankParts': 'building + safes',
   'preview.policeEntry': 'Police entry',
+  // --- police / presentation captions (mirrors src/audio/captions.ts fallbacks) ---
+  'caption.uprootPop': '[Pop! Uprooted]',
+  'caption.policeSiren': '[Police siren]',
+  'caption.alarmBell': '[Bank alarm]',
+  'caption.policeSkid': '[Screech! Police car pulls up]',
+  'caption.policeWhistle': '[Whistle]',
+  'caption.policeBark': '[Officer: "Stop!"]',
+  'caption.tackle': '[Tackle!]',
+  'caption.tackleMiss': '[Whoosh! Tackle misses]',
+  'caption.policeStun': '[Boing! Officer knocked over]',
+  'caption.policePhew': '[Phew! Police drive off]',
 };

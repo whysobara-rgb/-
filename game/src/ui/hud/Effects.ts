@@ -111,7 +111,7 @@ export class Banners {
     );
     this.el.appendChild(el);
     this.current = el;
-    animateEl(el, [{ transform: 'scale(1.9) rotate(-6deg)', opacity: 0 }, { transform: 'scale(0.92, 1.08) rotate(1deg)', opacity: 1, offset: 0.55 }, { transform: 'scale(1) rotate(-1.5deg)', opacity: 1 }], {
+    animateEl(el, [{ transform: 'scale(1.9) rotate(-6deg)', opacity: 0 }, { transform: 'scale(1.6) rotate(-4.5deg)', opacity: 1, offset: 0.1 }, { transform: 'scale(0.92, 1.08) rotate(1deg)', opacity: 1, offset: 0.55 }, { transform: 'scale(1) rotate(-1.5deg)', opacity: 1 }], {
       duration: 460,
       easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)',
     });
@@ -130,7 +130,9 @@ export class Banners {
     const el = h('div', { class: 'uh-banner uh-banner--count', 'data-n': String(n) }, chunky(String(n), { cls: 'uh-banner__count', tone: n === 1 ? 'tomato' : n === 2 ? 'sun' : 'mint' }));
     this.el.appendChild(el);
     this.current = el;
-    animateEl(el, [{ transform: 'scale(2.6) rotate(-14deg)', opacity: 0 }, { transform: 'scale(0.86, 1.12) rotate(4deg)', opacity: 1, offset: 0.55 }, { transform: 'scale(1) rotate(0)', opacity: 1 }], {
+    // Opacity snaps in over the first few frames only: a slow fade of thick outlined digits
+    // reads as a grey ghost.
+    animateEl(el, [{ transform: 'scale(2.6) rotate(-14deg)', opacity: 0 }, { transform: 'scale(2.1) rotate(-10deg)', opacity: 1, offset: 0.1 }, { transform: 'scale(0.86, 1.12) rotate(4deg)', opacity: 1, offset: 0.55 }, { transform: 'scale(1) rotate(0)', opacity: 1 }], {
       duration: 380,
       easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)',
     });
@@ -160,13 +162,17 @@ const STAMP: Record<HudStampKind, { key: string; icon: IconName; tone: StampTone
 };
 
 export class Stamps {
+  /** Column under the scoreboard (stamps without a screen anchor). */
   readonly el: HTMLDivElement;
+  /** Full-screen layer for world-anchored stamps (no transformed ancestors: px = viewport px). */
+  readonly worldEl: HTMLDivElement;
   private live: HTMLElement[] = [];
   private lastKey = '';
   private lastAt = 0;
 
   constructor() {
     this.el = h('div', { class: 'uh-stamps', 'aria-live': 'polite' });
+    this.worldEl = h('div', { class: 'uh-stamps-world', 'aria-live': 'polite' });
   }
 
   show(kind: HudStampKind, o: HudStampOptions, myTeam: TeamId): void {
@@ -189,17 +195,18 @@ export class Stamps {
       o.team !== undefined && o.team !== null ? h('span', { class: 'uh-callout__team' }, teamEmblem(o.team, 'uh-emblem', 'light')) : null,
     );
     const rot = [-8, 6, -4, 9, -6][Math.floor(now / 97) % 5]!;
-    if (o.x !== undefined && o.y !== undefined && Number.isFinite(o.x) && Number.isFinite(o.y)) {
+    const world = o.x !== undefined && o.y !== undefined && Number.isFinite(o.x) && Number.isFinite(o.y);
+    if (world) {
       el.classList.add('is-world');
       el.style.left = `${o.x}px`;
       el.style.top = `${o.y}px`;
     }
     // Keep at most two on screen.
     while (this.live.length >= 2) this.live.shift()?.remove();
-    this.el.appendChild(el);
+    (world ? this.worldEl : this.el).appendChild(el);
     this.live.push(el);
     slamIn(el, 0, rot);
-    const life = kind === 'bankWhole' ? 2000 : 1600;
+    const life = o.durationMs ?? (kind === 'bankWhole' ? 2000 : 1600);
     window.setTimeout(() => {
       el.classList.add('is-leaving');
       window.setTimeout(() => {
@@ -211,6 +218,7 @@ export class Stamps {
 
   clear(): void {
     this.el.replaceChildren();
+    this.worldEl.replaceChildren();
     this.live = [];
   }
 }

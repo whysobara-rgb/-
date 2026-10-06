@@ -49,7 +49,7 @@ export class TournamentScene extends MenuScene {
   private confettiTimer = 0;
 
   constructor(o: TournamentSceneOptions) {
-    super({ sky: ['#140E36', '#2C1C58', '#3A2466'], shadowRadius: 12 });
+    super({ sky: ['#2A0E1E', '#45162C', '#5A1E34'], hemi: ['#FFD9D0', '#FFC9A8'], shadowRadius: 12 });
     this.baseFov = 30;
     this.focus = o.focus ?? null;
     this.closeup = o.closeup ?? null;
@@ -63,7 +63,7 @@ export class TournamentScene extends MenuScene {
     b.add(roundBox(20, 0.9, 8.5, 0.12), POP.wood, [0, -0.45, -0.6]);
     for (let i = 0; i < 14; i++) b.add(roundBox(20 / 14 - 0.05, 0.04, 8.4, 0.02), i % 2 ? POP.woodLight : POP.wood, [-10 + (i + 0.5) * (20 / 14), 0.01, -0.6]);
     b.add(roundBox(20.4, 0.35, 0.5, 0.1), POP.sun, [0, -0.15, 3.55]);
-    b.add(roundBox(20.6, 0.6, 1.2, 0.14), '#5A2E5E', [0, -1.15, 4.0]);
+    b.add(roundBox(20.6, 0.6, 1.2, 0.14), POP.velvetDark, [0, -1.15, 4.0]);
     // back curtain: soft folds
     for (let i = 0; i < 34; i++) {
       const x = -11 + i * 0.66;
@@ -132,8 +132,8 @@ export class TournamentScene extends MenuScene {
     });
 
     // The rivals stand in the upper half: the UI cards fill the lower half of the screen.
-    this.camPos.set(0, 2.6, 21);
-    this.camLook.set(0, 0.55, 0);
+    this.camPos.set(0, 2.9, 18.6);
+    this.camLook.set(0, 1.3, 0);
     this.lighting.setFocus(new THREE.Vector3(0, 0, 0));
   }
 
@@ -166,9 +166,9 @@ export class TournamentScene extends MenuScene {
       s.puppet.setAct(act);
       s.puppet.expression = s.state === 'cleared' && !focused ? 'dizzy' : null;
       s.puppet.update(dt, t, rm);
-      const want = s.state === 'locked' ? (focused ? 0.35 : 0.12) : focused ? 1 : this.focus || this.closeup ? 0.35 : 0.6;
+      const want = s.state === 'locked' ? (focused ? 0.35 : 0.12) : this.closeup ? (focused ? 0.45 : 0.1) : focused ? 1 : this.focus ? 0.35 : 0.6;
       s.glow += (want - s.glow) * damp(6, dt);
-      setGlow(s.cone, 0.13 * s.glow);
+      setGlow(s.cone, 0.085 * s.glow);
       setGlow(s.pool, 0.5 * s.glow);
     }
     // a little confetti rain over a highlighted cleared rival
@@ -184,12 +184,15 @@ export class TournamentScene extends MenuScene {
 
     // camera: full stage, or a dolly toward the close-up rival
     const ci = this.closeup ? this.slots.findIndex((x) => x.rival === this.closeup) : -1;
-    const goalPos = new THREE.Vector3(0, 2.6, 21);
-    const goalLook = new THREE.Vector3(0, 0.55, 0);
+    // The round cards cover the lower third: look a little low so the pedestals and rivals sit
+    // in the upper two thirds, close enough that each rival reads as a character.
+    const goalPos = new THREE.Vector3(0, 2.9, 18.6);
+    const goalLook = new THREE.Vector3(0, 1.3, 0);
     if (ci >= 0) {
       const x = PEDESTAL_X[ci] ?? 0;
-      goalPos.set(x * 0.75 - 2.2, 3.4, 9.2);
-      goalLook.set(x * 0.85 - 1.1, 2.5, 0);
+      // The rival stands in the left third; the intermission card fills the right.
+      goalPos.set(x + 2.2, 3.3, 11.5);
+      goalLook.set(x + 3.1, 1.9, 0);
     } else if (!rm) {
       goalPos.x += Math.sin(t * 0.25) * 0.4;
     }

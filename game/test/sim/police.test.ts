@@ -773,7 +773,9 @@ describe('police: mirror-canonical navigation', () => {
 describe('police: sealed off from the car', () => {
   it('officers whose gate is sealed by a bank squeeze past it and still board at their car in time', () => {
     // counter: the north bank shoved 2 m north against the on-axis police gate (found by the fuzz)
-    const sim = new Simulation(makeSetup(LAYOUTS.counter, [0, 0, 1, 1], { police: true, matchTicks: 30000 }));
+    // (wave 1 must use the north curb while the south bank rings: alternate-entry dispatch)
+    const layout = { ...LAYOUTS.counter, policeDispatch: 'alternate' as const };
+    const sim = new Simulation(makeSetup(layout, [0, 0, 1, 1], { police: true, matchTicks: 30000 }));
     const banks = sim.state.loot.filter((l) => l.kind === 'bank');
     const north = banks.find((b) => b.pos.y < sim.layout.size.y / 2)!;
     const south = banks.find((b) => b !== north)!;

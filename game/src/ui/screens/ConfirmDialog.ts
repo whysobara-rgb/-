@@ -59,7 +59,7 @@ export class ConfirmDialog extends UiScreen<ConfirmDialogProps> {
           p.bodyKey ? h('p', { class: 'uh-dialog__body' }, t(p.bodyKey, p.params)) : null,
           h(
             'div',
-            { class: 'uh-dialog__buttons' },
+            { class: 'uh-dialog__buttons', 'data-paw-mode': 'top' },
             button({ id: 'dlg:cancel', label: p.cancelKey ?? 'common.cancel', onActivate: () => this.leave(p.onCancel) }),
             button({ id: 'dlg:confirm', label: p.confirmKey ?? 'common.confirm', variant: p.danger ? 'danger' : 'primary', onActivate: () => this.leave(p.onConfirm) }),
           ),

@@ -14,7 +14,7 @@ import type { LayoutDef, TeamId, Vec2 } from '../../sim/types';
 import { BANK_MODEL, SCORE } from '../../sim/config';
 import { TEAM_STYLES } from '../../shared/teams';
 import { createBank, createSafe, createVan, placeOnSim, type BankRig, type SafeRig, type VanRig } from '../../render/models';
-import { fmtScore, lootIcon, t, teamEmblem } from '../../ui';
+import { fmtScore, icon, lootIcon, t, teamEmblem } from '../../ui';
 import { MenuScene, damp, easeOutBack } from '../scene';
 import { POP, PropBuilder, ball, cyl, disposeProp, disposeTablecloth, roundBox, tablecloth } from '../kit';
 
@@ -78,7 +78,7 @@ export class PreviewScene extends MenuScene {
   private readonly cloth: THREE.Mesh;
 
   constructor(o: PreviewSceneOptions) {
-    super({ sky: ['#24165A', '#4A2C86', '#3A2574'], shadowRadius: 40 });
+    super({ sky: ['#3C9BEA', '#8ED0FF', '#D9F1FF'], skyStyle: { clouds: '#FFF6E6', stars: 0 }, shadowRadius: 40 });
     this.baseFov = 30;
     this.layout = o.layout;
     const L = o.layout;
@@ -88,7 +88,7 @@ export class PreviewScene extends MenuScene {
     this.scene.fog = null;
     this.scene.add(this.table);
     // The toy board sits on a gingham tablecloth (static: only the board swings).
-    this.cloth = tablecloth(Math.max(W, H) * 6, '#4B2F86', '#6A48AE', 22);
+    this.cloth = tablecloth(Math.max(W, H) * 6, '#2FA27C', '#C9F5E2', 22);
     this.cloth.position.y = -4.15;
     this.scene.add(this.cloth);
     // The diorama is authored in sim space centred on the layout middle.
@@ -99,7 +99,7 @@ export class PreviewScene extends MenuScene {
     const bb = new PropBuilder();
     // Board box: a thick wooden tray with a sunny rim and bulbs, on a small dark turntable.
     const R = Math.min(W, H) * 0.42;
-    bb.add(cyl(R, R * 1.04, 1.4, 64), '#4A3A72', [0, -3.4, 0]);
+    bb.add(cyl(R, R * 1.04, 1.4, 64), POP.woodDark, [0, -3.4, 0]);
     bb.add(cyl(R * 1.06, R * 1.06, 0.4, 64), POP.tomato, [0, -2.6, 0]);
     bb.add(roundBox(W + 6, 2.2, H + 6, 0.6), POP.wood, [0, -1.45, 0]);
     bb.add(roundBox(W + 6.4, 0.5, H + 6.4, 0.25), POP.sun, [0, -0.5, 0]);
@@ -268,7 +268,7 @@ export class PreviewScene extends MenuScene {
       const tag = document.createElement('div');
       tag.className = `uh-m3d-tag uh-m3d-tag--team uh-m3d-tag--t${z.team}`;
       tag.append(teamEmblem(z.team), document.createTextNode(t(mine ? 'preview.ourVan' : 'preview.theirVan')));
-      this.pending.push({ id: `van${z.team}`, el: tag, target: van.root, dy: 3.2 });
+      this.pending.push({ id: `van${z.team}`, el: tag, target: van.root, dy: 3.2, prio: 1 });
     }
 
     // --- banks with their safes, outdoor safes -----------------------------------------------------
@@ -298,7 +298,7 @@ export class PreviewScene extends MenuScene {
       const tag = document.createElement('div');
       tag.className = 'uh-m3d-tag uh-m3d-tag--bank';
       tag.append(lootIcon('bank', 'uh-loot-icon'), spanText(fmtScore(value), 'uh-m3d-tag__num'), spanText(t('preview.tagBankParts'), 'uh-m3d-tag__sub'));
-      this.pending.push({ id: `bank${i}`, el: tag, target: bank.root, dy: (BANK_MODEL.roofHeight + 2.2) * BANK_SCALE });
+      this.pending.push({ id: `bank${i}`, el: tag, target: bank.root, dy: (BANK_MODEL.roofHeight + 1.2) * BANK_SCALE, prio: 0 });
     });
     L.safes.forEach((sp, i) => {
       const rig = createSafe(sp.kind);
@@ -313,7 +313,7 @@ export class PreviewScene extends MenuScene {
       const tag = document.createElement('div');
       tag.className = `uh-m3d-tag uh-m3d-tag--${sp.kind}`;
       tag.append(lootIcon(sp.kind, 'uh-loot-icon'), spanText(fmtScore(sp.kind === 'smallSafe' ? SCORE.smallSafe : SCORE.largeSafe), 'uh-m3d-tag__num'));
-      this.pending.push({ id: `safe${i}`, el: tag, target: rig.root, dy: (sp.kind === 'largeSafe' ? 1.6 : 1.1) * SAFE_SCALE });
+      this.pending.push({ id: `safe${i}`, el: tag, target: rig.root, dy: (sp.kind === 'largeSafe' ? 1.6 : 1.1) * SAFE_SCALE, prio: 2 });
     });
 
     // --- police entry points ----------------------------------------------------------------------
@@ -333,9 +333,11 @@ export class PreviewScene extends MenuScene {
         this.batcher.add(car);
         this.cops.push(car);
         const tag = document.createElement('div');
+        // Icon-only badge (the legend names it): keeps the board readable around the banks.
         tag.className = 'uh-m3d-tag uh-m3d-tag--police';
-        tag.append(spanText(t('preview.policeEntry'), 'uh-m3d-tag__sub'));
-        this.pending.push({ id: `cop${i}`, el: tag, target: car, dy: 2.9 });
+        tag.title = t('preview.policeEntry');
+        tag.append(icon('police'));
+        this.pending.push({ id: `cop${i}`, el: tag, target: car, dy: 2.9, prio: 3 });
       }
     }
 
@@ -344,12 +346,28 @@ export class PreviewScene extends MenuScene {
     this.camPos.set(0, 70, 92);
   }
 
-  private readonly pending: { id: string; el: HTMLElement; target: THREE.Object3D; dy: number }[] = [];
+  private readonly pending: { id: string; el: HTMLElement; target: THREE.Object3D; dy: number; prio: number }[] = [];
+  /** Free screen area (0..1 fractions) between the preview's header and footer cards. */
+  private safeSrc: (() => SafeArea | null) | null = null;
+  private safe: SafeArea | null = null;
+  private safePolled = -1;
+  private distMul = 1;
+  private lookZ = 1.2;
+  private readonly corner = new THREE.Vector3();
+
+  /**
+   * Fit the board into the screen area the HTML leaves free (polled twice a second). The camera
+   * eases its distance and aim until the board's projected bounds sit inside it.
+   */
+  setSafeArea(src: (() => SafeArea | null) | null): void {
+    this.safeSrc = src;
+    this.safePolled = -1;
+  }
 
   protected override onAttach(): void {
     const labels = this.env?.labels;
     if (!labels) return;
-    for (const p of this.pending) labels.pin(p.id, p.el, p.target, p.dy);
+    for (const p of this.pending) labels.pin(p.id, p.el, p.target, p.dy, p.prio);
   }
 
   /** The coin label on top of a safe faces the camera via a render hook: the HTML tag replaces it. */
@@ -372,10 +390,58 @@ export class PreviewScene extends MenuScene {
     for (const v of this.vans) v.update(dt);
     for (const f of this.flags) f.rotation.y = Math.sin(t * 2.2 + f.position.x) * 0.25 - 0.2;
     const W = this.layout.size.x;
-    const dist = W * 1.25 + 14;
-    const goalPos = new THREE.Vector3(0, dist * 0.82, dist * 0.82);
+    if (this.safeSrc && t - this.safePolled > 0.5) {
+      this.safePolled = t;
+      try {
+        this.safe = this.safeSrc();
+      } catch {
+        this.safe = null;
+      }
+    }
+    if (this.safe) this.fitToSafe(rm ? 1 : Math.min(1, dt * 4));
+    // Pulled back a little so the title card (top-left) and the team cards (bottom) frame the
+    // board instead of covering its edges.
+    const dist = (W * 1.38 + 16) * this.distMul;
+    const goalPos = new THREE.Vector3(0, dist * 0.84, this.lookZ - 1.2 + dist * 0.8);
     this.camPos.lerp(goalPos, rm ? 1 : damp(2.2, dt));
-    this.camLook.set(0, -2, 3);
+    this.camLook.set(0, -2.5, this.lookZ);
+  }
+
+  /** One easing step of the board-into-safe-area fit (uses last frame's camera). */
+  private fitToSafe(gain: number): void {
+    const sa = this.safe!;
+    const cam = this.camera;
+    if (sa.r - sa.l < 0.1 || sa.b - sa.t < 0.1) return;
+    const hx = this.layout.size.x / 2 + 1.5;
+    const hz = this.layout.size.y / 2 + 1.5;
+    let x0 = Infinity;
+    let x1 = -Infinity;
+    let y0 = Infinity;
+    let y1 = -Infinity;
+    this.table.updateMatrixWorld();
+    for (const sx of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        for (const y of [0, 3.5]) {
+          this.corner.set(sx * hx, y, sz * hz).applyMatrix4(this.table.matrixWorld).project(cam);
+          x0 = Math.min(x0, this.corner.x);
+          x1 = Math.max(x1, this.corner.x);
+          y0 = Math.min(y0, this.corner.y);
+          y1 = Math.max(y1, this.corner.y);
+        }
+      }
+    }
+    if (!Number.isFinite(x0 + x1 + y0 + y1)) return;
+    // Safe area in NDC (y up).
+    const sx0 = sa.l * 2 - 1;
+    const sx1 = sa.r * 2 - 1;
+    const sy0 = 1 - sa.b * 2;
+    const sy1 = 1 - sa.t * 2;
+    const k = Math.max((x1 - x0) / (sx1 - sx0), (y1 - y0) / (sy1 - sy0));
+    if (k > 0.05 && Number.isFinite(k)) this.distMul = Math.min(2.6, Math.max(0.55, this.distMul * Math.pow(k, gain * 0.8)));
+    const dist = (this.layout.size.x * 1.38 + 16) * this.distMul;
+    const cy = (y0 + y1) / 2;
+    const scy = (sy0 + sy1) / 2;
+    this.lookZ = Math.min(40, Math.max(-40, this.lookZ + (scy - cy) * dist * 0.35 * gain));
   }
 
   protected override onDispose(): void {
@@ -388,6 +454,14 @@ export class PreviewScene extends MenuScene {
     disposeProp(this.base);
     disposeTablecloth(this.cloth);
   }
+}
+
+/** Screen rect as 0..1 fractions of the viewport. */
+export interface SafeArea {
+  l: number;
+  t: number;
+  r: number;
+  b: number;
 }
 
 function spanText(text: string, cls: string): HTMLElement {

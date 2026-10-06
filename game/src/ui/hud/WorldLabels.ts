@@ -4,6 +4,9 @@
  *   recovery progress rings, ping markers ('같이 잡자' / '이쪽으로'), name tags.
  * - Elements are reused by (kind, id); positions use translate3d only; text/attributes are
  *   written only when they change. Unused entries are hidden and recycled.
+ * - Labels never pile up: after positioning, overlapping tags are nudged apart (bank estimate
+ *   first, then pings, focused tags, value tags, names), each moving the shorter way up or
+ *   down. Sizes are measured only when a label's content changes.
  */
 import type { TeamId } from '../../sim/types';
 import { t, trName, type TextRef } from '../i18n';
@@ -11,6 +14,7 @@ import { h, setClass, setText } from '../core/dom';
 import { lootIcon, teamEmblem } from '../core/icons';
 import { clamp01, fmtScore, finiteOrNull } from '../core/format';
 import type { WorldLabelModel } from './types';
+import { placeLabel, type Box } from '../core/declutter';
 
 type Kind = WorldLabelModel['kind'];
 
@@ -20,8 +24,18 @@ const RING_C = 2 * Math.PI * RING_R;
 interface Entry {
   kind: Kind;
   el: HTMLElement;
+  inner: HTMLElement;
+  /** Written transform position. */
   x: number;
   y: number;
+  /** Anchor this frame (before de-overlap). */
+  ax: number;
+  ay: number;
+  /** Measured tag size (px, incl. focus scale); 0 = unknown. */
+  w: number;
+  h: number;
+  dirty: boolean;
+  prio: number;
   shown: boolean;
   seen: boolean;
   /** Cached kind-specific state (strings / numbers) to diff against. */
@@ -42,9 +56,29 @@ function refKey(r: TextRef): string {
   return r.params ? `${r.key}\u0002${JSON.stringify(r.params)}` : r.key;
 }
 
+/** Lower = placed first (keeps its spot). Recovery rings sit on the ground and never move. */
+function priority(m: WorldLabelModel): number {
+  switch (m.kind) {
+    case 'bank':
+      return 0;
+    case 'ping':
+      return 1;
+    case 'value':
+      return m.focus ? 2 : 3;
+    case 'name':
+      return 4;
+    default:
+      return -1;
+  }
+}
+
+const GAP = 3;
+
 export class WorldLabels {
   readonly el: HTMLDivElement;
   private readonly active = new Map<string, Entry>();
+  private readonly order: Entry[] = [];
+  private readonly placed: Box[] = [];
   private readonly free: Record<Kind, Entry[]> = { value: [], bank: [], recovery: [], ping: [], name: [] };
 
   constructor() {
@@ -73,6 +107,39 @@ export class WorldLabels {
       if (e.seen) continue;
       this.active.delete(key);
       this.release(e);
+    }
+    this.layout();
+  }
+
+  /** De-overlap pass: place labels by priority, nudging later ones up or down. */
+  private layout(): void {
+    const order = this.order;
+    order.length = 0;
+    for (const e of this.active.values()) {
+      if (e.dirty && e.prio >= 0) {
+        const k = e.el.classList.contains('is-focus') ? (e.kind === 'bank' ? 1.12 : 1.2) : 1;
+        e.w = e.inner.offsetWidth * k;
+        e.h = e.inner.offsetHeight * k;
+        // HUD not laid out yet (hidden): try again next frame.
+        e.dirty = e.w <= 0;
+      }
+      if (e.prio < 0 || e.w <= 0) this.place(e, e.ax, e.ay);
+      else order.push(e);
+    }
+    order.sort((a, b) => a.prio - b.prio || a.ay - b.ay);
+    const placed = this.placed;
+    placed.length = 0;
+    for (const e of order) this.place(e, e.ax, (window as unknown as { __noDeclutter?: boolean }).__noDeclutter ? e.ay : placeLabel(placed, e.ax, e.ay, e.w, e.h, GAP));
+  }
+
+  private place(e: Entry, ax: number, ay: number): void {
+    // Position snapped to 0.5 px: no write when the camera moved less than that.
+    const x = Math.round(ax * 2) / 2;
+    const y = Math.round(ay * 2) / 2;
+    if (x !== e.x || y !== e.y) {
+      e.x = x;
+      e.y = y;
+      e.el.style.transform = `translate3d(${x}px,${y}px,0)`;
     }
   }
 
@@ -107,9 +174,9 @@ export class WorldLabels {
   }
 
   private create(kind: Kind): Entry {
-    const base: Entry = { kind, el: h('div', { class: `uh-wl uh-wl--${kind}` }), x: NaN, y: NaN, shown: false, seen: false, a: null, b: null, c: null };
-    base.el.hidden = true;
     const inner = h('div', { class: 'uh-wl__in' });
+    const base: Entry = { kind, el: h('div', { class: `uh-wl uh-wl--${kind}` }), inner, x: NaN, y: NaN, ax: 0, ay: 0, w: 0, h: 0, dirty: true, prio: -1, shown: false, seen: false, a: null, b: null, c: null };
+    base.el.hidden = true;
     base.el.appendChild(inner);
     switch (kind) {
       case 'value': {
@@ -165,18 +232,24 @@ export class WorldLabels {
   }
 
   private apply(e: Entry, m: WorldLabelModel): void {
-    // Position snapped to 0.5 px: no write when the camera moved less than that.
-    const x = Math.round(m.x * 2) / 2;
-    const y = Math.round(m.y * 2) / 2;
-    if (x !== e.x || y !== e.y) {
-      e.x = x;
-      e.y = y;
-      e.el.style.transform = `translate3d(${x}px,${y}px,0)`;
-    }
+    e.ax = m.x;
+    e.ay = m.y;
+    e.prio = priority(m);
     if (!e.shown) {
       e.el.hidden = false;
       e.shown = true;
+      e.dirty = true;
     }
+    // Any content / flag change below can change the tag size: re-measure once.
+    const a0 = e.a;
+    const b0 = e.b;
+    const c0 = e.c;
+    this.applyContent(e, m);
+    // Recovery rings never move (fixed size): no re-measure for their progress ticks.
+    if (e.prio >= 0 && (e.a !== a0 || e.b !== b0 || e.c !== c0)) e.dirty = true;
+  }
+
+  private applyContent(e: Entry, m: WorldLabelModel): void {
     switch (m.kind) {
       case 'value': {
         if (e.a !== m.loot) {

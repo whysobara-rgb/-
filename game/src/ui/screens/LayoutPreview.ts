@@ -189,6 +189,36 @@ export class LayoutPreview extends UiScreen<LayoutPreviewProps> {
     return true; // swallow everything else: the preview has no menu
   }
 
+  /**
+   * The screen area the cards leave free for the 3D miniature (0..1 viewport fractions), so the
+   * board can be framed inside it. Null while hidden.
+   */
+  safeArea(): { l: number; t: number; r: number; b: number } | null {
+    if (!this.isVisible) return null;
+    const head = this.el.querySelector<HTMLElement>('.uh-preview__head');
+    const foot = this.el.querySelector<HTMLElement>('.uh-preview__foot');
+    const frame = this.el.querySelector<HTMLElement>('.uh-frame');
+    if (!head || !foot || !frame) return null;
+    const vw = window.innerWidth || 1;
+    const vh = window.innerHeight || 1;
+    const fr = frame.getBoundingClientRect();
+    const desc = this.el.querySelector<HTMLElement>('.uh-preview__desc')?.getBoundingClientRect();
+    const top = Math.max(head.getBoundingClientRect().bottom, desc?.bottom ?? 0) + 8;
+    // The VS / legend column sits lowest in the middle; the team cards are on the sides.
+    const footTop = Math.min(...Array.from(foot.children).map((c) => c.getBoundingClientRect().top)) - 8;
+    return { l: Math.max(0, fr.left / vw + 0.02), t: top / vh, r: Math.min(1, fr.right / vw - 0.02), b: footTop / vh };
+  }
+
+  /** Cards the 3D price tags must not slide under (viewport px). */
+  keepOut(): { l: number; t: number; r: number; b: number }[] {
+    if (!this.isVisible) return [];
+    const sel = '.uh-preview__titleCard > *, .uh-preview__total, .uh-preview__team, .uh-preview__vs, .uh-preview__legendCard, .uh-preview__fuse, .uh-promptbar';
+    return Array.from(this.el.querySelectorAll<HTMLElement>(sel)).map((e) => {
+      const r = e.getBoundingClientRect();
+      return { l: r.left, t: r.top, r: r.right, b: r.bottom };
+    });
+  }
+
   /** Start 3-2-1-출발! now (idempotent). */
   startCountdown(from = this.props.countdownFrom ?? 3): void {
     if (this.counting || this.finished || this.isLeaving) return;

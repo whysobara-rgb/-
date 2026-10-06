@@ -74,17 +74,17 @@ function skylineMarkup(seed: number): string {
   const bx = center - 190;
   const bank = `
     <g>
-      <path d="M${bx - 20} 150L${center} 70L${bx + 400} 150Z" fill="#3A2758"/>
-      <rect x="${bx - 6}" y="148" width="392" height="28" rx="6" fill="#3A2758"/>
-      ${[0, 1, 2, 3, 4, 5].map((i) => `<rect x="${bx + 18 + i * 66}" y="176" width="26" height="120" rx="4" fill="#3A2758"/>`).join('')}
-      <rect x="${bx - 20}" y="292" width="420" height="30" rx="6" fill="#3A2758"/>
+      <path d="M${bx - 20} 150L${center} 70L${bx + 400} 150Z" fill="#E07A5F"/>
+      <rect x="${bx - 6}" y="148" width="392" height="28" rx="6" fill="#E07A5F"/>
+      ${[0, 1, 2, 3, 4, 5].map((i) => `<rect x="${bx + 18 + i * 66}" y="176" width="26" height="120" rx="4" fill="#E07A5F"/>`).join('')}
+      <rect x="${bx - 20}" y="292" width="420" height="30" rx="6" fill="#E07A5F"/>
       <circle cx="${center}" cy="120" r="16" fill="#FFD98A" opacity=".9"/>
       <rect x="${center - 60}" y="200" width="120" height="96" rx="10" fill="#FFD98A" opacity=".5"/>
       <path d="M${bx + 10} 322c-20 18-34 20-52 34M${bx + 80} 322c-6 16-2 24-16 38M${bx + 330} 322c10 16 24 22 44 32M${bx + 380} 322c22 8 30 18 46 30M${center} 322c4 14-4 24 2 38" stroke="#3A2758" stroke-width="9" fill="none" stroke-linecap="round"/>
     </g>`;
   return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMax slice" xmlns="http://www.w3.org/2000/svg">
-    <g fill="#5A3A7E" opacity=".75">${far.join('')}</g>
-    <g fill="#2E1F4D">${near.join('')}</g>
+    <g fill="#3FA58A" opacity=".75">${far.join('')}</g>
+    <g fill="#3E78C8">${near.join('')}</g>
     ${bank}
     <g>${windows.join('')}</g>
   </svg>`;

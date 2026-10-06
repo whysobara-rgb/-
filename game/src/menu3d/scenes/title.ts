@@ -49,7 +49,12 @@ export class TitleScene extends MenuScene {
   private dustTimer = 0;
 
   constructor(o: TitleSceneOptions) {
-    super({ sky: ['#1E1650', '#7A47A8', '#FFB08A'], shadowRadius: 13 });
+    super({
+      sky: ['#2F86E0', '#86CCFF', '#FFD08A'],
+      skyStyle: { rays: '#FFF4CF', rayStrength: 0.32, rayCount: 13, rayCenterY: -0.02, clouds: '#FFF6E6', cloudY: [0.05, 0.15], stars: 0 },
+      fog: '#FFD7A8',
+      shadowRadius: 13,
+    });
     this.baseFov = 30;
 
     // --- island + hand-placed crates (one baked prop) -------------------------------------------
@@ -74,6 +79,10 @@ export class TitleScene extends MenuScene {
     this.bank = createBank();
     this.bank.root.position.copy(BANK_POS);
     this.bank.root.rotation.y = BANK_YAW;
+    // Draw-call diet: interior wall art is hidden behind the roof from this camera.
+    this.bank.root.traverse((o) => {
+      if (o.name === 'bank:portraits' || o.name === 'bank:posters') o.visible = false;
+    });
     this.scene.add(this.bank.root);
     this.batcher.add(this.bank.root);
     for (const [kind, x] of [
@@ -84,6 +93,11 @@ export class TitleScene extends MenuScene {
       const s = createSafe(kind);
       s.root.position.set(x, 0, 0);
       s.root.rotation.y = Math.PI / 2;
+      // No floating value coins on the title (one draw each); blob shadows share a batch.
+      s.root.traverse((o) => {
+        if (/coin/i.test(o.name)) o.visible = false;
+      });
+      this.batchDecals(s.root);
       this.bank.root.add(s.root);
       this.batcher.add(s.root);
       this.safes.push(s);
@@ -142,11 +156,8 @@ export class TitleScene extends MenuScene {
     ]);
     this.scene.add(this.lights.group);
     this.batcher.add(this.lights.group);
-    for (const [x, z, r, c, a] of [
-      [-2.6, -6.2, 2.8, '#FFC873', 0.3],
-      [5.6, -1.4, 2.8, '#FFC873', 0.3],
-      [-3.6, 1.2, 4.6, '#FF9E7A', 0.24],
-    ] as const) {
+    // The lamp models carry their own light pools; one warm glow under the crew is enough.
+    for (const [x, z, r, c, a] of [[-3.6, 1.2, 4.6, '#FF9E7A', 0.24]] as const) {
       const g = glowDisc(r, c, a);
       g.position.set(x, 0.03, z);
       this.scene.add(g);
@@ -162,7 +173,7 @@ export class TitleScene extends MenuScene {
     this.addShadow(this.scene, 2.4, 2.4, [7.0, 0, -4.4], 0.3);
 
     this.camPos.set(4, 8, 27);
-    this.camLook.set(0.5, 3.6, 0);
+    this.camLook.set(0.5, 5.1, 0);
   }
 
   /** World position of the rope knot on the bank wall (follows the hop). */
@@ -275,7 +286,7 @@ export class TitleScene extends MenuScene {
     const push = effort * 1.6;
     const r = 25 - push;
     this.camPos.set(Math.sin(sway) * r, 7.4 - push * 0.2, Math.cos(sway) * r);
-    this.camLook.set(-0.3, 3.4 - push * 0.15, 0);
+    this.camLook.set(-0.3, 4.9 - push * 0.15, 0);
   }
 
   protected override onDispose(): void {

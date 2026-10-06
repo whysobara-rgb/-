@@ -104,7 +104,7 @@ export class SeriesIntermission extends UiScreen<SeriesIntermissionProps> {
         ),
         h(
           'div',
-          { class: 'uh-inter__buttons' },
+          { class: 'uh-inter__buttons', 'data-paw-mode': 'top' },
           button({ id: 'inter:quit', label: 'intermission.quit', variant: 'night', onActivate: () => this.leave(p.onQuit) }),
           button({ id: 'inter:next', label: 'intermission.next', variant: 'primary', size: 'lg', glyph: 'confirm', onActivate: () => this.leave(p.onContinue) }),
         ),

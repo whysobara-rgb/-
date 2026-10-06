@@ -17,7 +17,7 @@ import type { HatId } from '../../sim/types';
 import { createSafe, type SafeRig } from '../../render/models';
 import { MenuScene, damp, easeOutBack } from '../scene';
 import { Puppet, type Act } from '../puppet';
-import { POP, PropBuilder, addCrate, addGift, ball, cyl, disposeProp, glowDisc, disposeOwnedMesh, rng, roundBox, stringLights, wrench, type StringLights } from '../kit';
+import { POP, PropBuilder, addCrate, addGift, ball, cyl, disposeProp, glowDisc, disposeOwnedMesh, mirrorGlass, rng, roundBox, stringLights, wrench, type StringLights } from '../kit';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 export type HideoutFocus = 'practice' | 'quickMatch' | 'tournament' | 'wardrobe' | 'settings' | 'quit' | null;
@@ -33,7 +33,7 @@ const TRY_HATS: HatId[] = ['teamCapA', 'tongkeunHat', 'hodadakBand', 'nunchiMask
 
 const FRAMES: Record<HideoutFraming, { pos: [number, number, number]; look: [number, number, number] }> = {
   menu: { pos: [-1.6, 4.7, 12.6], look: [1.0, 1.65, -0.9] },
-  left: { pos: [3.2, 3.6, 9.5], look: [4.2, 1.5, 0] },
+  left: { pos: [4.4, 4.4, 12.6], look: [5.6, 1.2, 0] },
   right: { pos: [-1.0, 5.0, 13.0], look: [0.4, 1.6, -0.4] },
   center: { pos: [1.2, 5.6, 15.5], look: [1.6, 1.7, -0.6] },
 };
@@ -51,6 +51,7 @@ export class HideoutScene extends MenuScene {
   private readonly wrench: THREE.Group;
   private readonly props: THREE.Object3D[] = [];
   private readonly glows: THREE.Mesh[] = [];
+  private readonly mirror: THREE.Mesh;
   private focus: HideoutFocus = null;
   private framing: HideoutFraming;
   private hat: HatId;
@@ -60,7 +61,12 @@ export class HideoutScene extends MenuScene {
   private focusT = 0;
 
   constructor(o: HideoutOptions) {
-    super({ sky: ['#1C1450', '#6E3F9E', '#FF9F86'], shadowRadius: 10 });
+    super({
+      sky: ['#2D63C4', '#FF9F7E', '#FFD48A'],
+      skyStyle: { rays: '#FFE7B0', rayStrength: 0.22, rayCount: 16, rayCenterY: 0.0, clouds: '#FFE4D6', cloudY: [0.14, 0.3], stars: 0.5 },
+      hemi: ['#D6E2FF', '#FFD2B4'],
+      shadowRadius: 10,
+    });
     this.baseFov = 34;
     this.hat = o.hat;
     this.framing = o.framing ?? 'menu';
@@ -68,9 +74,9 @@ export class HideoutScene extends MenuScene {
 
     // --- rooftop: slab, parapet, tar patches, vents, water tower, awning --------------------------
     const b = new PropBuilder();
-    b.add(roundBox(15, 0.6, 9.5, 0.08), '#8E7FA8', [0, -0.3, -0.6]);
-    b.add(roundBox(14.4, 0.06, 8.9, 0.03), '#B6A6C9', [0, 0.02, -0.6]);
-    for (let i = 0; i < 9; i++) b.add(roundBox(1 + r() * 1.2, 0.03, 0.8 + r() * 0.9, 0.02), '#A595BC', [-6 + r() * 12, 0.06, -4 + r() * 6], { rot: [0, r() * 0.6, 0] });
+    b.add(roundBox(15, 0.6, 9.5, 0.08), '#B9967E', [0, -0.3, -0.6]);
+    b.add(roundBox(14.4, 0.06, 8.9, 0.03), '#DDB997', [0, 0.02, -0.6]);
+    for (let i = 0; i < 9; i++) b.add(roundBox(1 + r() * 1.2, 0.03, 0.8 + r() * 0.9, 0.02), '#CFA683', [-6 + r() * 12, 0.06, -4 + r() * 6], { rot: [0, r() * 0.6, 0] });
     // parapet (back + sides; the front edge stays open toward the camera)
     b.add(roundBox(15.2, 0.9, 0.4, 0.06), POP.brick, [0, 0.45, -5.3]);
     b.add(roundBox(15.4, 0.14, 0.55, 0.04), '#E3C9B6', [0, 0.95, -5.3]);
@@ -116,11 +122,18 @@ export class HideoutScene extends MenuScene {
       b.add(roundBox(3.8 / 8 + 0.01, 0.08, 1.7, 0.02), i % 2 ? POP.cream : POP.tomato, [x, 2.85, -2.3], { rot: [0.32, 0, 0] });
       b.add(roundBox(3.8 / 8 - 0.04, 0.32, 0.06, 0.02), i % 2 ? POP.cream : POP.tomato, [x, 2.55, -1.52]);
     }
-    b.add(roundBox(3.2, 0.42, 0.9, 0.12), POP.grape, [-2.7, 0.21, -3.9]);
-    b.add(roundBox(3.2, 0.6, 0.3, 0.12), '#7A57D8', [-2.7, 0.6, -4.3]);
+    b.add(roundBox(3.2, 0.42, 0.9, 0.12), POP.mint, [-2.7, 0.21, -3.9]);
+    b.add(roundBox(3.2, 0.6, 0.3, 0.12), POP.mintDark, [-2.7, 0.6, -4.3]);
+    for (const [x, c] of [[-3.7, POP.sun], [-1.8, POP.pink]] as const) b.add(roundBox(0.62, 0.5, 0.2, 0.1), c, [x, 0.65, -4.05], { rot: [-0.25, 0, 0.12] });
     // standing mirror (wardrobe corner) + a hat box
-    b.add(roundBox(0.95, 1.6, 0.1, 0.42), POP.grape, [-0.3, 1.2, 0.4], { rot: [0, 0.75, 0] });
-    b.add(roundBox(0.76, 1.38, 0.04, 0.36), '#CFEFFF', [-0.26, 1.2, 0.44], { rot: [0, 0.75, 0] });
+    b.add(roundBox(0.95, 1.6, 0.1, 0.42), POP.sun, [-0.3, 1.2, 0.4], { rot: [0, 0.75, 0] });
+    for (let k = 0; k < 7; k++) {
+      // little bulbs around the frame (dressing-room mirror)
+      const a = (k / 6) * Math.PI;
+      const lx = Math.cos(a) * 0.5;
+      const ly = 1.2 + 0.35 + Math.sin(a) * 0.48;
+      b.add(ball(0.06, 6), k % 2 ? POP.cream : POP.tomato, [-0.3 + lx * Math.cos(0.75) + 0.07 * Math.sin(0.75), ly, 0.4 - lx * Math.sin(0.75) + 0.07 * Math.cos(0.75)]);
+    }
     b.add(roundBox(0.3, 0.42, 0.3, 0.05), POP.woodDark, [-0.34, 0.21, 0.36]);
     addGift(b, 0.55, POP.pink, POP.sun, [-1.2, 0, 1.4]);
     // toolbox by the safe
@@ -137,6 +150,10 @@ export class HideoutScene extends MenuScene {
     this.roof = b.build('prop:roof');
     this.scene.add(this.roof);
     this.batcher.add(this.roof);
+    this.mirror = mirrorGlass(0.74, 1.36);
+    this.mirror.position.set(-0.3 + Math.sin(0.75) * 0.058, 1.2, 0.4 + Math.cos(0.75) * 0.058);
+    this.mirror.rotation.y = 0.75;
+    this.scene.add(this.mirror);
 
     // snacks on the safe table
     const snack = new PropBuilder();
@@ -153,7 +170,7 @@ export class HideoutScene extends MenuScene {
     // --- the city below and around (one unlit window mesh) --------------------------------------
     const cb = new PropBuilder();
     const winGeos: THREE.BufferGeometry[] = [];
-    const cols = ['#4B3A78', '#57418A', '#3E3068', '#644A92'];
+    const cols = ['#3E78C8', '#E07A5F', '#3FA58A', '#E8A94A', '#6A62C8', '#D9667E'];
     for (let i = 0; i < 26; i++) {
       const a = -Math.PI * 0.95 + (i / 25) * Math.PI * 0.9;
       const dist = 26 + r() * 16;
@@ -162,8 +179,19 @@ export class HideoutScene extends MenuScene {
       const x = Math.cos(a) * dist;
       const z = Math.sin(a) * dist - 4;
       const top = -6 + h;
-      cb.add(roundBox(w, h, w * 0.8, 0.2), cols[i % 4]!, [x, -6 + h / 2, z], { rot: [0, -a, 0] });
-      if (r() < 0.35) cb.add(roundBox(w * 0.3, 1.5, w * 0.3, 0.1), cols[(i + 1) % 4]!, [x, top + 0.75, z], { rot: [0, -a, 0] });
+      const col = cols[(i * 5) % cols.length]!;
+      cb.add(roundBox(w, h, w * 0.8, 0.2), col, [x, -6 + h / 2, z], { rot: [0, -a, 0] });
+      // roof trim + a rooftop story: water tank, sign board or a little shed
+      cb.add(roundBox(w + 0.3, 0.35, w * 0.8 + 0.3, 0.1), new THREE.Color(col).lerp(new THREE.Color('#FFF6E6'), 0.45), [x, top + 0.17, z], { rot: [0, -a, 0] });
+      const kind = Math.floor(r() * 4);
+      if (kind === 0) {
+        cb.add(cyl(0.9, 0.9, 1.4, 12), POP.wood, [x, top + 1.25, z]);
+        cb.add(cyl(0.05, 1.0, 0.6, 12), POP.tomato, [x, top + 2.2, z]);
+      } else if (kind === 1) {
+        cb.add(roundBox(w * 0.7, 1.3, 0.15, 0.08), [POP.sun, POP.mint, POP.pink, POP.cream][i % 4]!, [x, top + 1.3, z], { rot: [0, -a + Math.PI / 2, 0] });
+      } else if (kind === 2) {
+        cb.add(roundBox(w * 0.35, 1.2, w * 0.3, 0.1), new THREE.Color(col).multiplyScalar(0.8), [x, top + 0.95, z], { rot: [0, -a, 0] });
+      }
       // windows facing the rooftop
       const nx = -Math.cos(a);
       const nz = -Math.sin(a);
@@ -175,7 +203,8 @@ export class HideoutScene extends MenuScene {
           const g = new THREE.PlaneGeometry(0.7, 0.9).toNonIndexed();
           g.deleteAttribute('uv');
           g.lookAt(new THREE.Vector3(nx, 0, nz));
-          g.translate(x + nx * (w * 0.4 + 0.05) + tx * k * w * 0.28, wy, z + nz * (w * 0.4 + 0.05) + tz * k * w * 0.28);
+          // local +X of the rotated box points away from the roof, so the near face is w/2 in
+          g.translate(x + nx * (w * 0.5 + 0.06) + tx * k * w * 0.24, wy, z + nz * (w * 0.5 + 0.06) + tz * k * w * 0.24);
           const c = new THREE.Color(r() < 0.8 ? '#FFD98A' : '#FFB3A0').multiplyScalar(0.75 + r() * 0.35);
           const n = g.attributes.position.count;
           const ca = new Float32Array(n * 3);
@@ -195,7 +224,7 @@ export class HideoutScene extends MenuScene {
     this.cityWindows.name = 'menu3d:windows';
     this.cityWindows.userData.noBatch = true;
     this.scene.add(this.cityWindows);
-    this.scene.fog = new THREE.Fog('#7A4E9E', 24, 70);
+    this.scene.fog = new THREE.Fog('#F4AE8E', 26, 78);
 
     // --- live props: the safe table, string lights, glows -----------------------------------------
     this.safe = createSafe('largeSafe');
@@ -213,7 +242,7 @@ export class HideoutScene extends MenuScene {
     this.batcher.add(this.lights.group);
     for (const [x, z, rad, c, a] of [
       [2.8, 0.8, 5.5, '#FFB26E', 0.26],
-      [-2.6, -2.8, 3.0, '#C9A2FF', 0.2],
+      [-2.6, -2.8, 3.0, '#FFD27A', 0.2],
     ] as const) {
       const g = glowDisc(rad, c, a);
       g.position.set(x, 0.07, z);
@@ -367,6 +396,7 @@ export class HideoutScene extends MenuScene {
     this.safe.dispose();
     disposeProp(this.wrench);
     for (const g of this.glows) disposeOwnedMesh(g);
+    disposeOwnedMesh(this.mirror);
     for (const p of this.props) {
       (p.userData.dispose as (() => void) | undefined)?.();
       disposeProp(p);

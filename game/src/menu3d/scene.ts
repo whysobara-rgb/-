@@ -10,7 +10,7 @@
 import * as THREE from 'three';
 import { FxSystem, createDuskLighting, type DuskLighting } from '../render/models';
 import { MeshBatcher } from './batcher';
-import { contactShadow, contactShadowMaterial, skyDome } from './kit';
+import { contactShadow, contactShadowMaterial, skyDome, type SkyStyle } from './kit';
 import { allowTransparentBatching } from './batcher';
 import type { LabelLayer } from './labels';
 
@@ -71,13 +71,20 @@ export abstract class MenuScene {
   private aspect = 16 / 9;
   private disposed = false;
 
-  protected constructor(o: { sky?: readonly [string, string, string]; shadowRadius?: number } = {}) {
+  protected constructor(
+    o: { sky?: readonly [string, string, string]; skyStyle?: SkyStyle; fog?: string; hemi?: readonly [string, string]; shadowRadius?: number } = {},
+  ) {
     this.scene.name = 'menu3d';
     this.lighting = createDuskLighting({ shadowRadius: o.shadowRadius ?? 12, quality: 'low' });
     this.scene.add(this.lighting.group);
-    this.sky = skyDome(o.sky);
+    // Menus use a brighter, warmer sky fill than the in-match dusk so shade reads sunny, not lavender.
+    const [hs, hg] = o.hemi ?? ['#D3E4FF', '#FFD9BC'];
+    this.lighting.hemi.color.set(hs);
+    this.lighting.hemi.groundColor.set(hg);
+    this.lighting.fill.color.set('#FFF0DC');
+    this.sky = skyDome(o.sky, 120, o.skyStyle);
     this.scene.add(this.sky);
-    this.scene.fog = new THREE.Fog('#B98AB8', 60, 160);
+    this.scene.fog = new THREE.Fog(o.fog ?? '#F2B49A', 60, 160);
     this.fx = new FxSystem({ dust: 120, confetti: 260, stars: 48, coins: 60, rings: 6, chunks: 90 });
     this.scene.add(this.fx.root);
     this.scene.add(this.batcher.root);

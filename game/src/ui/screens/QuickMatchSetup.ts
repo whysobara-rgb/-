@@ -139,7 +139,7 @@ export class QuickMatchSetup extends UiScreen<QuickMatchSetupProps> {
           h(
             'div',
             { class: 'uh-quick__panel uh-panel' },
-            h('div', { class: 'uh-quick__scroll uh-scroll' }, rows),
+            rows,
             this.cards,
             h('div', { class: 'uh-quick__startWrap' }, h('p', { class: 'uh-quick__note' }, t('difficulty.note')), start),
           ),

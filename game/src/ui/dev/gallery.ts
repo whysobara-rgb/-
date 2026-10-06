@@ -170,6 +170,9 @@ const ROUTES = [
   'hud',
   'hud-final',
   'hud-bank',
+  'hud-police',
+  'hud-alarm',
+  'hud-stamps',
   'hud-practice',
   'perf',
 ] as const;
@@ -261,7 +264,7 @@ async function main(): Promise<void> {
         layouts: layoutChoices,
         value:
           route === 'quick'
-            ? { mode: '1v1', layout: 'plaza', rival: 'tongkeun', difficulty: 'normal' }
+            ? { mode: /[?&]mode=2v2/.test(location.hash) ? '2v2' : '1v1', layout: 'plaza', rival: 'tongkeun', difficulty: 'normal' }
             : { mode: '2v2', layout: 'random', rival: 'random', difficulty: 'challenge' },
         onChange: (v) => devLog(`onChange ${JSON.stringify(v)}`),
         onStart: (v) => {
@@ -457,8 +460,12 @@ async function main(): Promise<void> {
     case 'hud':
     case 'hud-final':
     case 'hud-bank':
+    case 'hud-police':
+    case 'hud-alarm':
+    case 'hud-stamps':
     case 'hud-practice': {
-      const variant = route === 'hud' ? 'match' : (route.replace('hud-', '') as 'final' | 'bank' | 'practice');
+      const police = route === 'hud-police' || route === 'hud-alarm';
+      const variant = route === 'hud' || police || route === 'hud-stamps' ? 'match' : (route.replace('hud-', '') as 'final' | 'bank' | 'practice');
       const L = variant === 'practice' ? layouts.tutorial! : plaza;
       document.body.appendChild(fakeScene(L));
       const hud = new Hud(root);
@@ -473,8 +480,19 @@ async function main(): Promise<void> {
         { id: 'zone', x: -300, y: hh * 0.55, kind: 'zone', team: 0 },
         { id: 'ping', x: w + 200, y: hh * 0.2, kind: 'bank', team: 0, value: 1000 },
       ];
+      hud.setTeamFaces(variant === 'practice' ? null : [{ hat: 'teamCapA' }, { rival: 'hodadak' }]);
+      if (route === 'hud-alarm') model.police = { dispatchInSec: 7.4, officers: 0, alarms: 1 };
+      if (route === 'hud-police') model.police = { dispatchInSec: null, officers: 2, alarms: 1 };
       hud.update(model);
-      if (variant === 'match') {
+      if (route === 'hud-police') {
+        hud.banner('policeArrived', undefined, 60000);
+        hud.caption('caption.policeSiren', { side: 'left' });
+      } else if (route === 'hud-alarm') {
+        hud.banner('policeDispatched', undefined, 60000);
+      } else if (route === 'hud-stamps') {
+        hud.stamp('bankWhole', { team: 0, durationMs: 60000 });
+        hud.stamp('steal', { team: 1, x: w * 0.7, y: hh * 0.55, durationMs: 60000 });
+      } else if (variant === 'match') {
         hud.caption('caption.unanchorBank', { side: 'right' });
         hud.caption('caption.dashHit');
         hud.popScore({ team: 0, kind: 'largeSafe', value: 300 });
@@ -492,6 +510,14 @@ async function main(): Promise<void> {
       if (variant !== 'practice') {
         const tick = (): void => {
           model.minimap = mockMinimap(L, performance.now());
+          if (police && model.minimap) {
+            const t = performance.now() / 1000;
+            model.minimap.police = [
+              { id: 900, x: 30 + Math.sin(t) * 3, y: 20, hunting: true },
+              { id: 901, x: 44, y: 34 + Math.cos(t) * 2, stunned: true },
+            ];
+            model.minimap.policeCars = [{ id: 1, x: 6, y: 4, angle: 0.4, siren: true }];
+          }
           hud.update(model);
           requestAnimationFrame(tick);
         };
@@ -546,6 +572,15 @@ async function runPerf(root: UiRoot, layout: LayoutDef): Promise<void> {
     model.dashCooldown = (f % 240) / 240;
     model.scores = [900 + Math.floor(f / 300) * 100, 600];
     model.minimap = mockMinimap(layout, tt);
+    // Police on: alarm countdown chip, then officers + a car on the minimap.
+    model.police = f < 300 ? { dispatchInSec: 10 - f / 60, officers: 0, alarms: 1 } : { dispatchInSec: null, officers: 2, alarms: 1 };
+    if (f >= 300) {
+      model.minimap.police = [
+        { id: 900, x: 30 + Math.sin(tt / 400) * 3, y: 20, hunting: true },
+        { id: 901, x: 44, y: 34, stunned: f % 120 < 60 },
+      ];
+      model.minimap.policeCars = [{ id: 1, x: 6, y: 4, angle: 0.4, siren: true }];
+    }
     model.labels = [
       ...baseLabels.map((l) => ({ ...l, x: l.x + Math.sin(tt / 500 + Number(l.id)) * 20, y: l.y + Math.cos(tt / 700) * 10 })),
       ...extra.map((l, i) => ({ ...l, x: 200 + i * 120 + Math.sin(tt / 400 + i) * 30, y: 300 + Math.cos(tt / 300 + i) * 40 })),

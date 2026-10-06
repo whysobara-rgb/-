@@ -49,28 +49,43 @@ describe('police-aware bots', () => {
     expect(DIFFICULTY_PARAMS.normal.policeAwareness).toBeGreaterThan(DIFFICULTY_PARAMS.novice.policeAwareness);
   });
 
-  it('a carrier evades officers: far fewer tackles than the same bot blind to police', () => {
-    const tackles = (aw: number): number => {
-      let n = 0;
-      for (const seed of [1, 2, 3, 4]) {
+  it('a carrier evades officers: far fewer tackles on its safe carries than the same bot blind to police', () => {
+    // scripted errands (collect every outdoor safe in turn) with a wave on the field: only the
+    // police awareness differs (same physics, same targets)
+    const run = (aw: number): { tackles: number; recovered: number } => {
+      let tackles = 0;
+      let recovered = 0;
+      for (const seed of [1, 2, 3, 4, 5, 6]) {
         const { sim, bots } = setup('plaza', [{ team: 0, bot: { p: 'hodadak', d: 'challenge', awareness: aw } }, { team: 1 }], seed);
+        // both alarms ring (a wave is called), then the banks settle back on their foundations
         ringBothAlarms(sim);
-        step(sim, bots, 60 * TICK_RATE, (ev) => {
-          for (const e of ev) if (e.type === 'policeTackle' && e.hit && e.victimId === 1) n++;
-        });
+        step(sim, [null, null], 1);
+        for (const b of sim.state.loot.filter((l) => l.kind === 'bank')) sim.debug.setAnchored(b.id, true);
+        const bot = bots[0]!;
+        const queue = sim.state.loot.filter((l) => l.kind !== 'bank' && l.floorOf === null).map((l) => l.id);
+        for (let t = 0; t < 90 * TICK_RATE && !sim.state.over; t++) {
+          if (!(bot.debug() as { goal: unknown }).goal && queue.length) bot.assignTask(sim, { kind: 'collect', targetId: queue.shift()! });
+          const ev = sim.step([bot.update(sim), EMPTY_COMMAND]);
+          for (const e of ev) {
+            if (e.type === 'policeTackle' && e.hit && e.victimId === 1) tackles++;
+            if (e.type === 'recovered') recovered += e.value;
+          }
+        }
       }
-      return n;
+      return { tackles, recovered };
     };
-    const aware = tackles(1);
-    const blind = tackles(0);
-    expect(blind).toBeGreaterThan(8);
-    expect(aware).toBeLessThan(blind * 0.5);
+    const aware = run(1);
+    const blind = run(0);
+    expect(blind.tackles).toBeGreaterThan(8);
+    expect(aware.tackles).toBeLessThan(blind.tackles * 0.5);
+    expect(aware.recovered).toBeGreaterThanOrEqual(blind.recovered * 0.9);
   });
 
   it('a teammate body-blocks the officer chasing a carrying ally and dash-stuns it before the tackle', () => {
     let blockTicks = 0;
     let between = 0;
     let mateStuns = 0;
+    let chasedTicks = 0;
     for (const seed of [1, 2, 3, 4, 5, 6]) {
       const { sim, bots } = setup(
         'plaza',
@@ -96,6 +111,7 @@ describe('police-aware bots', () => {
           const mate = sim.getCharacter(Number(d.goal.key.split(':')[1]))!;
           const cop = sim.state.police.find((o) => o.targetCharId === mate.id);
           if (!cop) continue;
+          chasedTicks++;
           // covering the ally: right next to it, on the officer's side
           const me = sim.characterBySlot(b!.slot).pos;
           const dMeMate = Math.hypot(me.x - mate.pos.x, me.y - mate.pos.y);
@@ -107,43 +123,53 @@ describe('police-aware bots', () => {
       });
     }
     expect(blockTicks).toBeGreaterThan(60);
-    expect(between / Math.max(1, blockTicks)).toBeGreaterThan(0.25);
+    // (measured over the block ticks with an officer actually chasing the ally: since carriers let
+    // go / stun before a tackle, many block ticks have no chaser at all — the guard keeps covering
+    // for a moment — and those say nothing about where it stands)
+    expect(chasedTicks).toBeGreaterThan(60);
+    expect(between / Math.max(1, chasedTicks)).toBeGreaterThan(0.35);
     expect(mateStuns).toBeGreaterThanOrEqual(1);
   });
 
-  it('dash-stuns an officer about to tackle an ally (scripted chase)', () => {
-    // a human carrier (slot 0) drags a small safe; the bot teammate (slot 1) stands by. As soon
-    // as an officer runs at the carrier within dash reach of the bot, the bot knocks it over.
-    let stunsByBot = 0;
-    let tacklesOnHuman = 0;
-    for (const seed of [11, 12, 13]) {
-      const { sim, bots } = setup('plaza', [{ team: 0 }, { team: 0, bot: { p: 'nunchi', d: 'challenge' } }], seed);
-      ringBothAlarms(sim);
-      const safe = sim.state.loot.filter((l) => l.kind === 'smallSafe' && l.floorOf === null).sort((a, b) => a.pos.y - b.pos.y || a.pos.x - b.pos.x)[0]!;
-      sim.debug.setAnchored(safe.id, false);
-      // wait for the officers to step out and walk into the square
-      step(sim, [null, null], POLICE.dispatchDelayTicks + POLICE.arriveTicks + 5 * TICK_RATE);
-      expect(sim.state.police.length).toBeGreaterThan(0);
-      // the human grabs the safe in the open a few meters from the first officer and walks slowly away
-      const cop = sim.state.police[0]!;
-      const spot = findSpot(sim, cop.pos, 5, 8, (p) => sim.isFree(p, 1.8) && sim.lineOfSight(cop.pos, p));
-      expect(spot).not.toBeNull();
-      sim.debug.teleport(safe.id, spot!);
-      const s = sim.getLoot(safe.id)!;
-      sim.debug.teleport(1, { x: s.pos.x + 0.4 + 0.56, y: s.pos.y });
-      sim.debug.teleport(2, { x: s.pos.x + 1.0, y: s.pos.y - 1.6 });
-      for (let t = 0; t < 8 * TICK_RATE && !sim.state.over; t++) {
-        const h = sim.characterBySlot(0);
-        const cmd = h.grab ? { ...EMPTY_COMMAND, grab: true, move: { x: 0.35, y: 0.0 } } : { ...EMPTY_COMMAND, grab: t % 2 === 0, aim: { x: -1, y: 0 } };
-        const ev = sim.step([cmd, bots[1]!.update(sim)]);
-        for (const e of ev) {
-          if (e.type === 'policeStunned' && e.byCharId === 2) stunsByBot++;
-          if (e.type === 'policeTackle' && e.hit && e.victimId === 1) tacklesOnHuman++;
+  it('dash-stuns an officer about to tackle an ally (scripted chase): fewer tackles on the ally than with a blind mate', () => {
+    // a human carrier (slot 0) drags a small safe slowly through the open; the bot teammate
+    // (slot 1) starts next to it. Officers only ever tackle carriers, so the mate's dash is the
+    // ally's protection.
+    const run = (aw: number): { stuns: number; tackles: number } => {
+      let stuns = 0;
+      let tackles = 0;
+      for (const seed of [11, 12, 13, 14, 15, 16]) {
+        const { sim, bots } = setup('plaza', [{ team: 0 }, { team: 0, bot: { p: 'nunchi', d: 'challenge', awareness: aw } }], seed);
+        ringBothAlarms(sim);
+        const safe = sim.state.loot.filter((l) => l.kind === 'smallSafe' && l.floorOf === null).sort((a, b) => a.pos.y - b.pos.y || a.pos.x - b.pos.x)[0]!;
+        sim.debug.setAnchored(safe.id, false);
+        // wait for the officers to step out and walk into the square
+        step(sim, [null, null], POLICE.dispatchDelayTicks + POLICE.arriveTicks + 5 * TICK_RATE);
+        expect(sim.state.police.length).toBeGreaterThan(0);
+        const cop = sim.state.police[0]!;
+        const spot = findSpot(sim, cop.pos, 5, 8, (p) => sim.isFree(p, 1.8) && sim.lineOfSight(cop.pos, p));
+        expect(spot).not.toBeNull();
+        sim.debug.teleport(safe.id, spot!);
+        const s = sim.getLoot(safe.id)!;
+        sim.debug.teleport(1, { x: s.pos.x + 0.4 + 0.56, y: s.pos.y });
+        sim.debug.teleport(2, { x: s.pos.x + 1.0, y: s.pos.y - 1.6 });
+        for (let t = 0; t < 10 * TICK_RATE && !sim.state.over; t++) {
+          const h = sim.characterBySlot(0);
+          const cmd = h.grab ? { ...EMPTY_COMMAND, grab: true, move: { x: 0.35, y: 0.0 } } : { ...EMPTY_COMMAND, grab: t % 2 === 0, aim: { x: -1, y: 0 } };
+          const ev = sim.step([cmd, bots[1]!.update(sim)]);
+          for (const e of ev) {
+            if (e.type === 'policeStunned' && e.byCharId === 2) stuns++;
+            if (e.type === 'policeTackle' && e.hit && e.victimId === 1) tackles++;
+          }
         }
       }
-    }
-    expect(stunsByBot).toBeGreaterThanOrEqual(2);
-    expect(stunsByBot).toBeGreaterThan(tacklesOnHuman);
+      return { stuns, tackles };
+    };
+    const aware = run(1);
+    const blind = run(0);
+    expect(aware.stuns).toBeGreaterThanOrEqual(3);
+    expect(blind.stuns).toBeLessThan(aware.stuns);
+    expect(aware.tackles).toBeLessThan(blind.tackles);
   });
 
   it('defers a bank haul while a wave is on the field and hauls once the officers leave', () => {
@@ -178,7 +204,7 @@ describe('police-aware bots', () => {
       const start = w.sim.state.tick;
       let firstGrab = -1;
       let bankGrab = -1;
-      step(w.sim, w.bots, 50 * TICK_RATE, (ev) => {
+      step(w.sim, w.bots, 75 * TICK_RATE, (ev) => {
         for (const e of ev) {
           if (e.type !== 'grab' || e.charId !== 1) continue;
           if (firstGrab < 0) firstGrab = e.tick;

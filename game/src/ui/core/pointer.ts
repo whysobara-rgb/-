@@ -2,6 +2,10 @@
  * The paw pointer: one bouncing paw that hops (spring + overshoot) to whatever the top screen
  * has focused — the game's focus indicator instead of a browser-ish ring. Items can ask for the
  * paw on top (`data-paw="top"`, grid cards) or none (`data-paw="none"`).
+ *
+ * Otherwise the paw picks a side that is free: left of the item, then right, above, below.
+ * A side is free when the paw would not cover another control or a line of text, so it never
+ * hides the label it points at (button rows, a note beside the start button, cards).
  */
 import { h, svgFromMarkup } from './dom';
 import { navRouter } from './nav';
@@ -27,6 +31,75 @@ const PAW_SVG = `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
 
 interface Target {
   focusedElement?: () => HTMLElement | null;
+  el?: HTMLElement;
+}
+
+type PawMode = 'left' | 'right' | 'top' | 'bottom';
+const SIDES: PawMode[] = ['left', 'right', 'top', 'bottom'];
+/** How often the side is re-checked while the target stays the same (layout can move). */
+const RECHECK_MS = 600;
+
+interface Box {
+  l: number;
+  t: number;
+  r: number;
+  b: number;
+}
+
+/** Paw anchor (gx, gy) and its drawn box for a side, in viewport px. */
+function placement(mode: PawMode, r: DOMRect, rem: number): { gx: number; gy: number; box: Box } {
+  const s = 3.75 * rem;
+  switch (mode) {
+    case 'right': {
+      const gx = r.right + 0.6 * rem;
+      const gy = r.top + r.height / 2;
+      return { gx, gy, box: { l: gx - 0.15 * rem, t: gy - s / 2, r: gx - 0.15 * rem + s, b: gy + s / 2 } };
+    }
+    case 'top': {
+      const gx = r.left + r.width / 2;
+      const gy = r.top - 0.4 * rem;
+      return { gx, gy, box: { l: gx - s / 2, t: gy - 3.4 * rem, r: gx + s / 2, b: gy - 3.4 * rem + s } };
+    }
+    case 'bottom': {
+      const gx = r.left + r.width / 2;
+      const gy = r.bottom + 0.4 * rem;
+      return { gx, gy, box: { l: gx - s / 2, t: gy - 0.35 * rem, r: gx + s / 2, b: gy - 0.35 * rem + s } };
+    }
+    default: {
+      const gx = r.left - 0.6 * rem;
+      const gy = r.top + r.height / 2;
+      return { gx, gy, box: { l: gx - 3.6 * rem, t: gy - s / 2, r: gx - 3.6 * rem + s, b: gy + s / 2 } };
+    }
+  }
+}
+
+function overlap(a: Box, b: Box): number {
+  const w = Math.min(a.r, b.r) - Math.max(a.l, b.l);
+  const h = Math.min(a.b, b.b) - Math.max(a.t, b.t);
+  return w > 0 && h > 0 ? w * h : 0;
+}
+
+/** Things the paw must not cover: other controls and lines of text in the top screen. */
+function obstacles(root: ParentNode, target: HTMLElement): Box[] {
+  const out: Box[] = [];
+  const push = (e: Element): void => {
+    if (e === target || target.contains(e) || e.contains(target)) return;
+    const r = e.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) return;
+    out.push({ l: r.left, t: r.top, r: r.right, b: r.bottom });
+  };
+  root.querySelectorAll('[data-nav]').forEach(push);
+  // Text leaves: elements that directly hold visible text (labels, notes, card copy).
+  const walker = document.createTreeWalker(root as Node, NodeFilter.SHOW_TEXT);
+  const seen = new Set<Element>();
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    if (!n.nodeValue || !n.nodeValue.trim()) continue;
+    const p = n.parentElement;
+    if (!p || seen.has(p) || p.closest('[hidden],[aria-hidden="true"]')) continue;
+    seen.add(p);
+    push(p);
+  }
+  return out;
 }
 
 class PawPointer {
@@ -36,7 +109,8 @@ class PawPointer {
   private y = -100;
   private vx = 0;
   private vy = 0;
-  private mode: 'left' | 'top' = 'left';
+  private mode: PawMode = 'left';
+  private checkedAt = 0;
   private target: HTMLElement | null = null;
   private last = 0;
   private visible = false;
@@ -77,10 +151,21 @@ class PawPointer {
       return;
     }
     const pr = el.parentElement!.getBoundingClientRect();
-    const mode = t!.getAttribute('data-paw') === 'top' || t!.closest('[data-paw-mode="top"]') ? 'top' : 'left';
     const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-    const gx = mode === 'top' ? r.left + r.width / 2 - pr.left : r.left - pr.left - 0.6 * rem;
-    const gy = mode === 'top' ? r.top - pr.top - 0.4 * rem : r.top + r.height / 2 - pr.top;
+    const now = performance.now();
+    if (t !== this.target || !this.visible || now - this.checkedAt > RECHECK_MS) {
+      this.checkedAt = now;
+      const forced = t!.getAttribute('data-paw') === 'top' || t!.closest('[data-paw-mode="top"]') ? 'top' : null;
+      const next = forced ?? this.pickSide(t!, r, rem, (top as Target).el ?? document.body);
+      if (t === this.target && next !== this.mode) {
+        el.dataset.mode = next;
+      }
+      this.mode = next;
+    }
+    const mode = this.mode;
+    const p0 = placement(mode, r, rem);
+    const gx = p0.gx - pr.left;
+    const gy = p0.gy - pr.top;
     const reduced = document.documentElement.classList.contains('uh-reduced-motion');
     if (t !== this.target || !this.visible) {
       if (!this.visible || reduced) {
@@ -90,7 +175,6 @@ class PawPointer {
         this.vy = 0;
       }
       this.target = t;
-      this.mode = mode;
       el.dataset.mode = mode;
       if (!reduced) {
         el.classList.remove('is-hop');
@@ -112,6 +196,27 @@ class PawPointer {
     }
     this.setVisible(true);
     el.style.transform = `translate3d(${this.x.toFixed(1)}px, ${this.y.toFixed(1)}px, 0)`;
+  }
+
+  /** First side (left, right, top, bottom) where the paw covers nothing; else the least covered. */
+  private pickSide(t: HTMLElement, r: DOMRect, rem: number, root: ParentNode): PawMode {
+    const obs = obstacles(root, t);
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    let best: PawMode = 'left';
+    let bestCost = Infinity;
+    for (const side of SIDES) {
+      const { box } = placement(side, r, rem);
+      if (box.l < 0 || box.t < 0 || box.r > vw || box.b > vh) continue;
+      let cost = 0;
+      for (const o of obs) cost += overlap(box, o);
+      if (cost < 1) return side;
+      if (cost < bestCost) {
+        bestCost = cost;
+        best = side;
+      }
+    }
+    return best;
   }
 
   private setVisible(on: boolean): void {

@@ -500,6 +500,8 @@
 }
 .uh-roll__d { display: block; height: 1em; line-height: 1; text-align: center; }
 .uh-roll__sep { display: inline-block; height: 1em; }
+.uh-roll.is-pop { animation: uh-roll-pop 0.38s var(--uh-ease-bounce) 1; }
+@keyframes uh-roll-pop { 0% { scale: 1; } 40% { scale: 1.18 0.88; } 100% { scale: 1; } }
 
 /* ======================================================================================== */
 /* DOM particles                                                                             */
@@ -535,9 +537,14 @@
 .uh-paw__bob { position: absolute; width: 3.75rem; height: 3.75rem; left: -3.6rem; top: -1.875rem; animation: uh-paw-poke 0.9s ease-in-out infinite; }
 .uh-paw__svg { width: 100%; height: 100%; display: block; filter: drop-shadow(0.15rem 0.2rem 0 rgba(42, 33, 49, 0.55)); }
 .uh-paw[data-mode='top'] .uh-paw__bob { left: -1.875rem; top: -3.4rem; rotate: 90deg; animation-name: uh-paw-poke-down; }
+.uh-paw[data-mode='right'] .uh-paw__bob { left: -0.15rem; animation-name: uh-paw-poke-right; }
+.uh-paw[data-mode='right'] .uh-paw__svg { transform: scaleX(-1); filter: drop-shadow(-0.15rem 0.2rem 0 rgba(42, 33, 49, 0.55)); }
+.uh-paw[data-mode='bottom'] .uh-paw__bob { left: -1.875rem; top: -0.35rem; rotate: -90deg; animation-name: uh-paw-poke-up; }
 .uh-paw.is-hop .uh-paw__svg { animation: uh-paw-hop 0.32s var(--uh-ease-bounce) 1; }
 @keyframes uh-paw-poke { 0%, 100% { translate: -0.45rem 0; } 50% { translate: 0.25rem 0; } }
 @keyframes uh-paw-poke-down { 0%, 100% { translate: 0 -0.45rem; } 50% { translate: 0 0.25rem; } }
+@keyframes uh-paw-poke-right { 0%, 100% { translate: 0.45rem 0; } 50% { translate: -0.25rem 0; } }
+@keyframes uh-paw-poke-up { 0%, 100% { translate: 0 0.45rem; } 50% { translate: 0 -0.25rem; } }
 @keyframes uh-paw-hop { 0% { scale: 1.35 0.7; } 60% { scale: 0.9 1.15; } 100% { scale: 1; } }
 
 /* ======================================================================================== */
@@ -563,7 +570,7 @@
 .uh-wipe[hidden] { display: none; }
 .uh-wipe[data-shape='moon'] { background-color: var(--pop-sky); }
 .uh-wipe[data-shape='star'] { background-color: var(--pop-sun); }
-.uh-wipe[data-shape='raccoon'] { background-color: var(--pop-grape); }
+.uh-wipe[data-shape='raccoon'] { background-color: var(--pop-mint); }
 .uh-wipe__badge { position: absolute; left: 50%; top: 50%; width: 9rem; height: 9rem; translate: -50% -50%; opacity: 0; }
 
 /* ======================================================================================== */
@@ -575,7 +582,7 @@
   inset: 0;
   display: grid;
   place-items: center;
-  background: rgba(30, 18, 60, 0.6);
+  background: rgba(42, 33, 49, 0.55);
   background-image: repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.04) 0 1.25rem, transparent 1.25rem 2.5rem);
   animation: uh-fade-in var(--uh-dur) ease both;
 }

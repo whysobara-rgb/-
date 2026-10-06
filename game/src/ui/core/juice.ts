@@ -79,6 +79,7 @@ export class RollingNumber {
   private value: number | null = null;
   private text = '';
   private readonly cols: (HTMLElement | null)[] = [];
+  private tween = 0;
 
   constructor(cls = '', initial: number | null = 0) {
     this.el = h('span', { class: `uh-roll ${cls}`, 'aria-live': 'off' });
@@ -87,6 +88,44 @@ export class RollingNumber {
 
   get current(): number | null {
     return this.value;
+  }
+
+  /**
+   * Count up (or down) to `target` over `ms` like a score tally: the shown number ticks through
+   * real values (never zero-padded strips), eases out, then pops. Reduced motion: instant.
+   */
+  countTo(target: number, ms = 900, onDone?: () => void): void {
+    cancelAnimationFrame(this.tween);
+    const from = this.value ?? 0;
+    if (isReducedMotion() || ms <= 0 || from === target || typeof requestAnimationFrame !== 'function') {
+      this.set(target, true);
+      onDone?.();
+      return;
+    }
+    const t0 = performance.now();
+    const q = Math.abs(target - from) >= 200 ? 10 : 1;
+    const tick = (now: number): void => {
+      const k = Math.min(1, (now - t0) / ms);
+      const e = 1 - Math.pow(1 - k, 3);
+      const v = k >= 1 ? target : Math.round((from + (target - from) * e) / q) * q;
+      this.set(v, true);
+      if (k < 1) {
+        this.tween = requestAnimationFrame(tick);
+        return;
+      }
+      this.tween = 0;
+      this.el.classList.remove('is-pop');
+      void this.el.offsetWidth;
+      this.el.classList.add('is-pop');
+      onDone?.();
+    };
+    this.tween = requestAnimationFrame(tick);
+  }
+
+  /** Stop a running countTo (the number stays where it is). */
+  stop(): void {
+    cancelAnimationFrame(this.tween);
+    this.tween = 0;
   }
 
   /** Show `v` (null = "–"). `instant` skips the roll. */
