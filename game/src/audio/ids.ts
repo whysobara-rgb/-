@@ -42,11 +42,33 @@ export const SFX_IDS = [
   'uiTab',
   'uiAdjust',
   'popup',
+  // --- uproot presentation (synced with src/render/uproot.ts) ---
+  'uprootLand',
+  'bankLand',
+  // --- callout stingers (HUD "뽑았다!" / "은행째!" / "가로채기!" / "태클 피했다!") ---
+  'calloutUproot',
+  'calloutBank',
+  'calloutSteal',
+  'calloutDodge',
+  // --- police (owner addition beyond doc v0.5) ---
+  'policeSkid',
+  'carDoor',
+  'carVroom',
+  'policeWhistle',
+  'policeBark',
+  'tackleWhoosh',
+  'tackleHit',
+  'tackleMiss',
+  'policeStun',
+  'policePhew',
 ] as const;
 export type SfxId = (typeof SFX_IDS)[number];
 
-/** Continuous sounds driven every frame with an intensity 0..1 (0 = silent). */
-export const LOOP_IDS = ['drag', 'bankRumble', 'strain', 'sirenLoop'] as const;
+/**
+ * Continuous sounds driven every frame with an intensity 0..1 (0 = silent).
+ * `policeSiren` (one per police car) and `alarmBell` (one per ringing bank) are police additions.
+ */
+export const LOOP_IDS = ['drag', 'bankRumble', 'strain', 'sirenLoop', 'policeSiren', 'alarmBell'] as const;
 export type LoopId = (typeof LOOP_IDS)[number];
 
 /** Music tracks. 'none' fades the current track out. */
@@ -57,6 +79,12 @@ export const TRACK_IDS: readonly TrackId[] = ['title', 'match', 'final', 'result
 
 /** Mixer bus a sound is routed to (each has its own volume slider). */
 export type BusId = 'sfx' | 'ui' | 'music';
+
+/**
+ * Loops that are "ambience" (sirens, alarm bells): they run through a sub-bus of the sfx bus that
+ * scoring sounds duck, so a ringing bank or a parked police car never masks the coins.
+ */
+export const AMBIENCE_LOOPS: readonly LoopId[] = ['sirenLoop', 'policeSiren', 'alarmBell'];
 
 /** Menu sound kinds emitted by the UI layer (`src/ui/core/nav.ts` UiSoundKind). */
 export const UI_SOUND_SFX: Readonly<Record<'move' | 'confirm' | 'back' | 'error' | 'tab' | 'adjust', SfxId>> = {

@@ -5,15 +5,24 @@
  *   music reverb return ───────┘      ▲      │
  *   jingles ──────────────────────────┘      ├─► world ─► muffle LPF ─┐
  *   sfx voices / loops ─► sfxVol ────────────┘                        ├─► master ─► DC block
- *   sfx reverb return ───┘                                            │      ─► glue comp ─► limiter
- *   ui sounds ─► uiVol ───────────────────────────────────────────────┘      ─► safety clip ─► out
+ *   ambience ─► ambDuck ─┘                                            │      ─► glue comp ─► limiter
+ *   sfx reverb return ───┘  ▲                                         │      ─► safety clip ─► out
+ *   ambience reverb send ─► ambRevDuck ─► sfx reverb                  │
+ *   ui sounds ─► uiVol ───────────────────────────────────────────────┘
+ *
+ * Two duckers: scoring / big moments push the music down (musicDuck), and scoring sounds push the
+ * "ambience" down so it never masks the coins (ambDuck, and the same duck on the ambience's reverb
+ * send): the police sirens, bank alarm bells and getaway wail loops plus the police chatter
+ * one-shots (whistles, "멈춰!", car noises). Overlapping ducks merge: the deeper one wins and the
+ * later end holds.
  *
  * Bus gains are calibrated at the shipped default slider positions (DEFAULT_VOLUMES): untouched
  * settings give exactly the measured balance, and each slider scales around its default.
  *
- * The safety clipper is a WaveShaper that is the identity below 0.7 and saturates smoothly to a
- * hard ceiling just under -1 dBFS, so nothing the game does can ever clip the output even if the
- * limiter (a DynamicsCompressor, not a true brickwall) lets a transient through.
+ * The safety clipper is a WaveShaper (oversampled 2x) that is the identity below 0.7 and saturates
+ * smoothly to a hard ceiling at -1.4 dBFS, so nothing the game does can ever clip the output, not
+ * even between samples, even if the limiter (a DynamicsCompressor, not a true brickwall) lets a
+ * transient through.
  */
 import { impulseResponse } from './dsp';
 import type { BusId } from './ids';
@@ -33,8 +42,13 @@ export interface Volumes {
  */
 export const DEFAULT_VOLUMES: Readonly<Volumes> = { master: 0.8, music: 0.7, sfx: 0.9, ui: 0.8 };
 
-/** Output ceiling of the safety clipper (linear). 0.875 = -1.16 dBFS. */
-export const OUTPUT_CEILING = 0.875;
+/**
+ * Output ceiling of the safety clipper (linear). 0.85 = -1.41 dBFS; with the clipper oversampled
+ * 2x the inter-sample (true) peak stays under -1 dBTP even at max volume, where the limiter's
+ * automatic makeup gain keeps the clipper shaping the densest moments (measured on full bot
+ * matches: -1.2 / -1.3 dBTP at max sliders; at the defaults it only touches big moments).
+ */
+export const OUTPUT_CEILING = 0.85;
 
 /** Settings slider 0..1 -> linear gain. Square law approximates perceived loudness. */
 export function volumeToGain(v: number): number {
@@ -82,19 +96,50 @@ export function busGains(v: Volumes): { master: number } & Record<BusId, number>
 
 export interface Mixer {
   readonly ctx: BaseAudioContext;
-  /** Inputs per bus. `music` = song tracks (ducked), `jingle` = victory/defeat/draw stingers. */
-  readonly inputs: Readonly<Record<BusId | 'jingle', AudioNode>>;
-  /** Reverb send inputs. */
+  /**
+   * Inputs per bus. `music` = song tracks (ducked), `jingle` = victory/defeat/draw stingers,
+   * `ambience` = sirens and alarm bells (part of the sfx bus, ducked under scoring sounds).
+   */
+  readonly inputs: Readonly<Record<BusId | 'jingle' | 'ambience', AudioNode>>;
+  /** Reverb send inputs (`ambienceReverb` feeds the sfx reverb, ducked with the ambience). */
   readonly musicReverb: AudioNode;
   readonly sfxReverb: AudioNode;
+  readonly ambienceReverb: AudioNode;
   /** Last node before the destination (attach analysers here). */
   readonly output: AudioNode;
   setVolumes(v: Volumes, smooth?: boolean): void;
   /** Lower the music by `db` (negative) for `hold` seconds starting at `t`, then recover. */
   duckMusic(t: number, db: number, hold: number, release?: number): void;
+  /** Lower the ambience (sirens, alarm bells, police chatter) the same way. */
+  duckAmbience(t: number, db: number, hold: number, release?: number): void;
   /** Pause-menu muffle: lowpass + slight attenuation of the game world (music + sfx). */
   setMuffle(on: boolean): void;
   disconnect(): void;
+}
+
+/**
+ * A duck on one or more gain params (moved together). Overlapping requests merge: while a duck is
+ * held, a new one can only deepen it or hold it longer (a shallow duck never lifts a deep one early).
+ */
+export function makeDucker(ctx: BaseAudioContext, ...params: AudioParam[]): (t: number, db: number, hold: number, release?: number) => void {
+  let until = -Infinity;
+  let depth = 1;
+  return (t, db, hold, release = 0.6) => {
+    const target = Math.pow(10, Math.min(0, Number.isFinite(db) ? db : 0) / 20);
+    const start = Math.max(t, ctx.currentTime);
+    const end = start + Math.max(0.05, Number.isFinite(hold) ? hold : 0);
+    const active = start < until;
+    const nextDepth = active ? Math.min(depth, target) : target;
+    const nextUntil = active ? Math.max(until, end) : end;
+    if (active && nextDepth === depth && nextUntil === until) return;
+    for (const p of params) {
+      p.cancelScheduledValues(start);
+      p.setTargetAtTime(nextDepth, start, 0.03);
+      p.setTargetAtTime(1, nextUntil, Math.max(0.05, release / 3));
+    }
+    depth = nextDepth;
+    until = nextUntil;
+  };
 }
 
 function softClipCurve(ceiling: number, knee: number): Float32Array<ArrayBuffer> {
@@ -124,12 +169,16 @@ export function createMixer(ctx: BaseAudioContext, destination: AudioNode = ctx.
   const musicVol = gain();
   const sfxIn = gain();
   const sfxVol = gain();
+  const ambIn = gain();
+  const ambDuck = gain();
   const uiIn = gain();
   const uiVol = gain();
   musicIn.connect(musicDuck);
   musicDuck.connect(musicVol);
   jingleIn.connect(musicVol);
   sfxIn.connect(sfxVol);
+  ambIn.connect(ambDuck);
+  ambDuck.connect(sfxVol);
   uiIn.connect(uiVol);
 
   // --- reverbs (procedural IRs) -------------------------------------------------------------
@@ -146,6 +195,8 @@ export function createMixer(ctx: BaseAudioContext, destination: AudioNode = ctx.
   sfxConv.buffer = impulseResponse(ctx, 1.1, 0.9, 'sfx');
   sfxReverb.connect(sfxConv);
   sfxConv.connect(sfxVol);
+  const ambienceReverb = gain();
+  ambienceReverb.connect(sfxReverb);
 
   // --- world (muffle-able) + master chain ---------------------------------------------------
   const world = gain();
@@ -184,7 +235,8 @@ export function createMixer(ctx: BaseAudioContext, destination: AudioNode = ctx.
 
   const clip = ctx.createWaveShaper();
   clip.curve = softClipCurve(OUTPUT_CEILING, 0.7);
-  clip.oversample = 'none';
+  // 2x: the saturated harmonics are band-limited, so no inter-sample overs between samples.
+  clip.oversample = '2x';
 
   master.connect(dcBlock);
   dcBlock.connect(glue);
@@ -205,12 +257,15 @@ export function createMixer(ctx: BaseAudioContext, destination: AudioNode = ctx.
   };
 
   let muffled = false;
+  const musicDucker = makeDucker(ctx, musicDuck.gain);
+  const ambDucker = makeDucker(ctx, ambDuck.gain, ambienceReverb.gain);
 
   return {
     ctx,
-    inputs: { music: musicIn, jingle: jingleIn, sfx: sfxIn, ui: uiIn },
+    inputs: { music: musicIn, jingle: jingleIn, sfx: sfxIn, ui: uiIn, ambience: ambIn },
     musicReverb,
     sfxReverb,
+    ambienceReverb,
     output: clip,
     setVolumes(v: Volumes, smooth = true): void {
       const g = busGains(v);
@@ -220,12 +275,10 @@ export function createMixer(ctx: BaseAudioContext, destination: AudioNode = ctx.
       setGain(uiVol.gain, g.ui, smooth);
     },
     duckMusic(t: number, db: number, hold: number, release = 0.6): void {
-      const target = Math.pow(10, Math.min(0, db) / 20);
-      const p = musicDuck.gain;
-      const start = Math.max(t, now());
-      p.cancelScheduledValues(start);
-      p.setTargetAtTime(target, start, 0.03);
-      p.setTargetAtTime(1, start + Math.max(0.05, hold), Math.max(0.05, release / 3));
+      musicDucker(t, db, hold, release);
+    },
+    duckAmbience(t: number, db: number, hold: number, release = 0.8): void {
+      ambDucker(t, db, hold, release);
     },
     setMuffle(on: boolean): void {
       if (on === muffled) return;

@@ -88,9 +88,12 @@ export class PoliceNav {
   }
   level(k: number): number {
     const a = this.stat[k]!;
+    if (this.staticOnly) return a;
     const b = this.dyn[k]!;
     return a > b ? a : b;
   }
+  /** While true, searches and line checks see only the static layer (a ghosting officer). */
+  staticOnly = false;
   /** True if the cell containing (x, y) is hard-blocked (or outside the arena). */
   blockedAt(x: number, y: number): boolean {
     const s = this.ctx.layout.size;

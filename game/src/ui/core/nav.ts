@@ -42,6 +42,8 @@ export interface NavTarget {
   handleNav(action: NavAction): boolean;
   /** Called for `MenuNav.any` frames that carried no specific action. */
   handleAnyInput?(): boolean;
+  /** The element the paw pointer should point at (screens: the focused item). */
+  focusedElement?(): HTMLElement | null;
   /**
    * This target became the top of the stack again because something above it (a dialog, a
    * sub-screen) was removed. Screens use it to re-arm their one-shot actions.
@@ -53,21 +55,35 @@ export interface NavTarget {
 // UI feedback sounds (wired to the audio module by game flow).
 // ---------------------------------------------------------------------------------------------
 
-export type UiSoundKind = 'move' | 'confirm' | 'back' | 'error' | 'tab' | 'adjust';
-let soundHandler: ((kind: UiSoundKind) => void) | null = null;
+export type UiSoundKind = 'move' | 'confirm' | 'back' | 'error' | 'tab' | 'adjust' | 'pop' | 'whoosh' | 'stamp' | 'coin' | 'tick' | 'sparkle';
 
-/** Install a handler that plays menu sounds (e.g. audio.play('uiMove')). */
-export function setUiSoundHandler(fn: ((kind: UiSoundKind) => void) | null): void {
+export interface UiSoundOptions {
+  /** Playback rate multiplier (musical steps: 2^(semitones/12)). */
+  pitch?: number;
+  volume?: number;
+}
+
+let soundHandler: ((kind: UiSoundKind, o?: UiSoundOptions) => void) | null = null;
+
+/** Install a handler that plays menu sounds (e.g. audio.play('uiMove', { pitch })). */
+export function setUiSoundHandler(fn: ((kind: UiSoundKind, o?: UiSoundOptions) => void) | null): void {
   soundHandler = fn;
 }
 
-export function uiSound(kind: UiSoundKind): void {
+export function uiSound(kind: UiSoundKind, o?: UiSoundOptions): void {
   if (!soundHandler) return;
   try {
-    soundHandler(kind);
+    soundHandler(kind, o);
   } catch (err) {
     console.error('[ui] sound handler failed', err);
   }
+}
+
+/** Major-pentatonic steps: moving down a list climbs a little tune instead of one blip. */
+const PENTA = [0, 2, 4, 7, 9, 12, 14, 16];
+export function noteFor(index: number): number {
+  const i = ((index % PENTA.length) + PENTA.length) % PENTA.length;
+  return Math.pow(2, PENTA[i]! / 12);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -307,7 +323,7 @@ export class FocusScope {
     el.setAttribute('aria-selected', 'true');
     if (o.scroll !== false) this.scrollTo(el);
     if (changed) {
-      if (o.sound !== false) uiSound('move');
+      if (o.sound !== false) uiSound('move', { pitch: noteFor(this.items().indexOf(el)) });
       if (!o.pointer) handlers.get(el)?.onFocus?.();
       this.opts.onFocusChange?.(el);
     }

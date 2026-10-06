@@ -43,6 +43,8 @@ export const POLICE = {
   restTicks: secondsToTicks(15),
   /** The final countdown ("도주 준비") always calls a wave if none is on the field. */
   getawayWave: true,
+  /** (balance pass) Officers stepping out of the getaway wave's car (0 = officersPerWave). */
+  getawayOfficers: 0,
   radius: 0.42,
   mass: 70,
   /** Chase speed (m/s) — between a carrier (<= 4) and a free raccoon (5). */
@@ -50,6 +52,12 @@ export const POLICE = {
   patrolSpeed: 2.6,
   /** Officers notice carriers within this radius with line of sight. */
   sightRadius: 16,
+  /**
+   * (balance pass) An uprooted bank's alarm bell gives its haulers away: officers within this
+   * radius know who is dragging a ringing bank even when its walls hide the hauler (they still
+   * need line of sight to lunge). 0 = sight only.
+   */
+  hearRadius: 18,
   /** Lunge when the target is within this distance and roughly ahead. */
   tackleRange: 1.5,
   tackleTicks: secondsToTicks(0.22),
@@ -230,6 +238,32 @@ export const PING = {
 export const UNSTUCK = {
   penetration: 0.25,
   ticks: secondsToTicks(0.5),
+} as const;
+
+/**
+ * (sim addition) Stall rescue: a character steering with real input (|move| >= minInput) that has
+ * not moved more than maxMove for `ticks` while wedged in geometry gets nudged to the nearest free
+ * spot ('unstuck' event). "Wedged" = its own spot overlaps geometry, the way it steers is free
+ * but the contact solver jams it (two opposing contacts in a gap narrower than the body, where the
+ * overlap stays below UNSTUCK.penetration), or it is boxed in (no free spot boxProbe away in any
+ * direction: a pocket closed by sub-body gaps that only a shove could get it into). Holders, riders of a moving floor, knocked-down and
+ * dashing characters are never nudged; walking into a wall or another character never triggers it.
+ * The nudge only goes where a thin probe (probeRadius) can travel in a straight line from the
+ * current spot (no clipping through walls, fences or safes), at most maxNudge away.
+ */
+export const STALL_RESCUE = {
+  ticks: secondsToTicks(0.6),
+  minInput: 0.5,
+  maxMove: 0.05,
+  /** Overlap tolerance (m) when testing whether a spot is wedged / free. */
+  tolerance: 0.01,
+  /** How far ahead (m) the steering direction is probed. */
+  probe: 0.1,
+  probeRadius: 0.2,
+  /** Boxed-in test: no free body spot this far away (m) in any of 16 directions. */
+  boxProbe: 0.35,
+  maxNudge: 1.5,
+  searchStep: 0.1,
 } as const;
 
 /** Bot perception (doc §11: public loot info + observed opponents only). */

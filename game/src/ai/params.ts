@@ -175,6 +175,12 @@ export interface DifficultyParams {
    * and values a bit, so it sometimes commits to a decent-but-not-best target.
    */
   estimateNoise: number;
+  /**
+   * How much the bot plays around the (public) police event, 0..1: evading officers with a
+   * carry, body-blocking / dash-stunning officers chasing a teammate, timing bank hauls around
+   * the waves. Same physics for everyone — only how often and how well it reads the officers.
+   */
+  policeAwareness: number;
 }
 
 export const DIFFICULTY_PARAMS: Readonly<Record<Difficulty, DifficultyParams>> = {
@@ -190,6 +196,7 @@ export const DIFFICULTY_PARAMS: Readonly<Record<Difficulty, DifficultyParams>> =
     telegraphTicks: 30,
     carryBoost: 0.05,
     estimateNoise: 0.35,
+    policeAwareness: 0.3,
   },
   normal: {
     decisionInterval: 36,
@@ -203,6 +210,7 @@ export const DIFFICULTY_PARAMS: Readonly<Record<Difficulty, DifficultyParams>> =
     telegraphTicks: 18,
     carryBoost: 0.75,
     estimateNoise: 0.07,
+    policeAwareness: 0.75,
   },
   challenge: {
     decisionInterval: 18,
@@ -216,5 +224,76 @@ export const DIFFICULTY_PARAMS: Readonly<Record<Difficulty, DifficultyParams>> =
     telegraphTicks: 7,
     carryBoost: 1,
     estimateNoise: 0,
+    policeAwareness: 1,
   },
+};
+
+/**
+ * Scripted stand-in for a human player (tools / balance only, never shipped as a rival): reacts
+ * like an attentive person (~0.3 s), sometimes picks a merely decent option, does not telegraph,
+ * reads the police half the time. Its priorities are a per-match random blend of the three
+ * rivals' (humanProxyWeights), so it does not mirror any one bot.
+ */
+export const HUMAN_PROXY_PARAMS: DifficultyParams = {
+  decisionInterval: 40,
+  reactionDelay: 18,
+  bestChoiceProb: 0.72,
+  decentRatio: 0.72,
+  threatResponse: 0.65,
+  dashUse: 0.6,
+  leadQuality: 0.6,
+  counterDepth: 0.85,
+  telegraphTicks: 0,
+  carryBoost: 0.55,
+  estimateNoise: 0.18,
+  policeAwareness: 0.55,
+};
+
+/**
+ * Per-match human-proxy priorities. A person plays with a plan of their own rather than an
+ * average of the rivals: one archetype (bank hauler / collector / opportunist) leads (~70 %),
+ * the other two flavour it, and every weight is jittered ±20 %.
+ */
+export function humanProxyWeights(rng: () => number): PersonalityWeights {
+  const ids: RivalId[] = ['hodadak', 'tongkeun', 'nunchi'];
+  const lead = Math.min(2, Math.floor(rng() * 3));
+  const raw = ids.map((_, i) => (i === lead ? 0.7 : 0.15) * (0.75 + 0.5 * rng()));
+  const sum = raw.reduce((a, b) => a + b, 0);
+  const out = {} as Record<keyof PersonalityWeights, number>;
+  for (const k of Object.keys(PERSONALITY.hodadak) as (keyof PersonalityWeights)[]) {
+    let v = 0;
+    ids.forEach((id, i) => (v += (PERSONALITY[id][k] * raw[i]!) / sum));
+    out[k] = v * (0.8 + 0.4 * rng());
+  }
+  out.routeReuse = Math.min(0.4, out.routeReuse);
+  return out as PersonalityWeights;
+}
+
+/**
+ * Shared balance knobs of the bot brain (tools/balance-report.ts --tune key=value overrides them
+ * for experiments; the values here are the measured defaults, see the balance report).
+ */
+export const BOT_TUNING = {
+  /** Extra value for stripping a safe out of a bank nobody hauls yet (denial of a future haul). */
+  stripAnchoredBonus: 1,
+  /** Police drag on a planned solo bank haul, per second of expected police presence. */
+  bankPoliceDrag: 0.45,
+  /** Utility cut for starting a bank while a fresh wave is on the field (x awareness). */
+  waveDefer: 0.6,
+  /** Whole-bank preference: multiplier on hauling a bank that still holds safes. */
+  wholeBank: 1,
+  /** Per-match style spread of a rival's priorities (± fraction; the rival stays recognisable). */
+  styleSpread: 0.22,
+  /** Per-item taste spread (± fraction) so two bots of one personality do not mirror each other. */
+  tasteSpread: 0.07,
+  /** Last-bank timing (it starts the 30 s getaway): lock a lead in, never trigger it while behind. */
+  lastBankTiming: 1,
+  /** Multiplier on intercepting a carrier (contest instead of parallel collecting). */
+  intercept: 1,
+  /** Utility kept for a safe an empty-handed opponent is clearly closer to (contest avoidance). */
+  yieldSafe: 0.5,
+  /** ... for a bank an empty-handed opponent is clearly closer to. */
+  yieldBank: 0.55,
+  /** Bank race: once they haul a bank, our weight on the other one (x counter-play depth). */
+  bankRace: 0.6,
 };

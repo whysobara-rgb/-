@@ -1,30 +1,35 @@
 /**
- * In-match HUD (doc §4, §8, §10).
+ * In-match HUD (doc §4, §8, §10) — chunky sticker style.
  *
  *   const hud = new Hud(); hud.setLayout(sim.layout); hud.show();
  *   every frame: hud.update(model)            // diffed; DOM touched only on change
  *   on events:   hud.popScore(...), hud.banner('escape', { sec: 30 }), hud.countdown(3),
- *                hud.caption('caption.siren'), hud.setTutorialPrompt(...)
+ *                hud.stamp('uproot', { team, x, y }), hud.caption('caption.siren'), ...
  *
- * Layout (16:9 safe area): scoreboard top-center (both confirmed scores with emblem + name +
- * '확정', one mm:ss timer, two bank icons), carry estimate '운반 중' + grab prompt
- * bottom-center (position + label distinguish it from confirmed scores), minimap bottom-left,
- * dash cooldown ring bottom-right, tutorial card left, banners center, captions above the
- * carry panel. World labels / arrows / popups live on the full-size 'world' layer.
+ * Layout (16:9 safe area): scoreboard top-center (team stickers with the lead's 3D portrait,
+ * rolling '확정' scores with a coin burst on gain, a timer bubble that wobbles in the final 30 s,
+ * two bank icons), police chip under it, stamp callouts, the '운반 중' luggage tag + grab
+ * prompt with the target's 3D card bottom-center (position + label distinguish it from the
+ * confirmed scores), minimap bottom-left, dash button bottom-right, tutorial card left,
+ * banners center, captions above the carry tag. World labels / arrows / popups live on the
+ * full-size 'world' layer.
  */
 import type { LayoutDef, LootKind, TeamId } from '../../sim/types';
 import { TEAM_STYLES } from '../../shared/teams';
 import { onLanguageChange, t, tr, type TextRef, type TParams } from '../i18n';
 import { animateEl, h, setChildren, setClass, setText } from '../core/dom';
 import { icon, lootIcon, teamEmblem } from '../core/icons';
+import { objectPortrait, portrait } from '../core/portrait';
 import { clamp01, fmtClock, fmtScore, finiteOrNull } from '../core/format';
 import { glyphChip, type PromptAction } from '../core/prompts';
 import { getUiRoot, type UiRoot } from '../core/root';
+import { RollingNumber, burst } from '../core/juice';
+import { uiSound } from '../core/nav';
 import { Minimap } from './Minimap';
 import { WorldLabels } from './WorldLabels';
 import { OffscreenArrows } from './OffscreenArrows';
-import { Banners, Captions, ScorePopups } from './Effects';
-import type { BannerKind, CaptionOptions, HudBank, HudModel, ScorePopupOptions, TutorialPromptModel } from './types';
+import { Banners, Captions, ScorePopups, Stamps } from './Effects';
+import type { BannerKind, CaptionOptions, HudBank, HudFace, HudModel, HudStampKind, HudStampOptions, ScorePopupOptions, TutorialPromptModel } from './types';
 
 const DASH_R = 26;
 const DASH_C = 2 * Math.PI * DASH_R;
@@ -41,8 +46,9 @@ const ACTION_HINT: Partial<Record<PromptAction, string>> = {
 
 interface TeamPanel {
   root: HTMLElement;
-  score: HTMLElement;
+  score: RollingNumber;
   name: HTMLElement;
+  face: HTMLElement;
 }
 
 interface BankIcon {
@@ -60,16 +66,19 @@ export class Hud {
   readonly popups: ScorePopups;
   readonly banners: Banners;
   readonly captions: Captions;
+  readonly stamps: Stamps;
 
   private readonly root: UiRoot;
   private readonly top: HTMLElement;
   private readonly lastBankEl: HTMLElement;
+  private readonly policeEl: HTMLElement;
   private readonly tutorialEl: HTMLElement;
   private readonly carryEl: HTMLElement;
   private readonly grabEl: HTMLElement;
   private readonly dashEl: HTMLElement;
   private readonly dashRing: SVGCircleElement;
   private readonly dashLabel: HTMLElement;
+  private readonly fxEl: HTMLElement;
   private readonly ro: ResizeObserver | null;
   private readonly unsubLang: () => void;
 
@@ -79,9 +88,10 @@ export class Hud {
   private banksEl: HTMLElement | null = null;
   private banksCountEl: HTMLElement | null = null;
   private bankIcons: BankIcon[] = [];
-  private practiceScore: HTMLElement | null = null;
+  private practiceScore: RollingNumber | null = null;
 
   private teamLabels: readonly [TextRef | null, TextRef | null] = [null, null];
+  private faces: readonly [HudFace | null, HudFace | null] = [null, null];
   private tutorial: TutorialPromptModel | null = null;
   private remPx = 16;
 
@@ -96,6 +106,7 @@ export class Hud {
   private cBanksDone = -1;
   private cTimed: boolean | null = null;
   private cLastBank: boolean | null = null;
+  private cPolice = '';
   private cCarry = '';
   private cCarryProg = -1;
   private cGrab = '';
@@ -112,16 +123,20 @@ export class Hud {
     this.popups = new ScorePopups();
     this.banners = new Banners();
     this.captions = new Captions();
+    this.stamps = new Stamps();
 
     this.top = h('div', { class: 'uh-hud__top' });
     this.lastBankEl = h('div', { class: 'uh-lastbank', role: 'status' });
     this.lastBankEl.hidden = true;
+    this.policeEl = h('div', { class: 'uh-police', role: 'status' });
+    this.policeEl.hidden = true;
     this.tutorialEl = h('div', { class: 'uh-tut' });
     this.tutorialEl.hidden = true;
     this.carryEl = h('div', { class: 'uh-carry' });
     this.carryEl.hidden = true;
     this.grabEl = h('div', { class: 'uh-grab' });
     this.grabEl.hidden = true;
+    this.fxEl = h('div', { class: 'uh-hud__fx', 'aria-hidden': 'true' });
 
     const svgNS = 'http://www.w3.org/2000/svg';
     const ringSvg = document.createElementNS(svgNS, 'svg');
@@ -155,13 +170,15 @@ export class Hud {
       h(
         'div',
         { class: 'uh-hud__safe' },
-        h('div', { class: 'uh-hud__topWrap' }, this.top, this.lastBankEl),
+        h('div', { class: 'uh-hud__topWrap' }, this.top, this.lastBankEl, this.policeEl),
+        this.stamps.el,
         h('div', { class: 'uh-hud__left' }, this.tutorialEl),
         h('div', { class: 'uh-hud__bl' }, this.minimap.el),
         h('div', { class: 'uh-hud__bc' }, this.captions.el, this.carryEl, this.grabEl),
         h('div', { class: 'uh-hud__br' }, actions),
         this.banners.el,
       ),
+      this.fxEl,
     );
     this.el.hidden = true;
     this.worldEl = h('div', { class: 'uh-world' }, this.labels.el, this.arrows.el, this.popups.el);
@@ -195,10 +212,13 @@ export class Hud {
     this.popups.clear();
     this.banners.dismiss();
     this.captions.clear();
+    this.stamps.clear();
     this.labels.clear();
     this.arrows.update(undefined, this.remPx);
     this.setTutorialPrompt(null);
+    this.fxEl.replaceChildren();
     this.cMode = null;
+    this.cPolice = '';
     this.model = null;
   }
 
@@ -223,6 +243,12 @@ export class Hud {
     }
   }
 
+  /** The lead character of each team for the scoreboard portraits (3D snapshots). */
+  setTeamFaces(faces: readonly [HudFace | null, HudFace | null] | null): void {
+    this.faces = faces ?? [null, null];
+    this.cMode = null;
+  }
+
   setCaptionsEnabled(on: boolean): void {
     this.captions.setEnabled(on);
   }
@@ -240,6 +266,11 @@ export class Hud {
   /** 3, 2, 1, then 0 = '출발!'. */
   countdown(n: number): void {
     this.banners.countdown(n);
+  }
+
+  /** Stamp callout for a big moment ("뽑았다!", "가로채기!", "은행째!", "태클 피했다!", "경찰이다!"). */
+  stamp(kind: HudStampKind, o: HudStampOptions = {}): void {
+    this.stamps.show(kind, o, this.model?.myTeam ?? 0);
   }
 
   caption(key: string, o?: CaptionOptions): void {
@@ -270,17 +301,21 @@ export class Hud {
         if (v !== prev) {
           const grew = v !== null && typeof prev === 'number' && v > prev;
           this.cScores[id] = v;
-          const el = this.teams[id].score;
-          setText(el, v === null ? fmtScore(NaN) : fmtScore(v));
-          if (grew) animateEl(el, [{ transform: 'scale(1.35)' }, { transform: 'scale(1)' }], { duration: 380, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' });
+          const panel = this.teams[id]!;
+          panel.score.set(v, prev === undefined);
+          if (grew) this.gain(panel.root, id === m.myTeam, v - (prev as number));
         }
       }
     } else if (this.practiceScore) {
       const v = finiteOrNull(m.scores[m.myTeam]);
-      if (v !== this.cScores[m.myTeam]) {
+      const prev = this.cScores[m.myTeam];
+      if (v !== prev) {
         this.cScores[m.myTeam] = v;
-        setText(this.practiceScore, v === null ? fmtScore(NaN) : fmtScore(v));
-        animateEl(this.practiceScore, [{ transform: 'scale(1.3)' }, { transform: 'scale(1)' }], 360);
+        this.practiceScore.set(v, prev === undefined);
+        if (v !== null && typeof prev === 'number' && v > prev) {
+          const panel = this.top.querySelector<HTMLElement>('.uh-practice');
+          if (panel) this.gain(panel, true, v - prev);
+        }
       }
     }
 
@@ -293,7 +328,8 @@ export class Hud {
         this.cClock = clock;
         setText(this.timerText, clock);
         if (state === 'urgent' || state === 'final') {
-          animateEl(this.timerEl, [{ transform: 'scale(1.12)' }, { transform: 'scale(1)' }], { duration: 300, easing: 'ease-out' });
+          animateEl(this.timerEl, [{ scale: '1.18' }, { scale: '0.94', offset: 0.5 }, { scale: '1' }], { duration: 360, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' });
+          if (sec !== null && sec <= 10 && sec > 0) uiSound('tick', { pitch: 1 + (10 - sec) * 0.03, volume: 0.6 });
         }
       }
       if (state !== this.cTimerState) {
@@ -305,7 +341,7 @@ export class Hud {
     // Banks (doc §8: the recovered count is always readable — icons + "회수 n/2")
     let done = 0;
     for (let i = 0; i < this.bankIcons.length; i++) {
-      this.paintBank(this.bankIcons[i], m.banks[i]);
+      this.paintBank(this.bankIcons[i]!, m.banks[i]);
       if (m.banks[i]?.recovered) done++;
     }
     if (done !== this.cBanksDone && this.banksCountEl && this.banksEl) {
@@ -319,6 +355,7 @@ export class Hud {
       this.lastBankEl.hidden = !m.lastBankWarning;
     }
 
+    this.paintPolice(m);
     this.paintCarry(m);
     this.paintGrab(m);
 
@@ -331,7 +368,7 @@ export class Hud {
       const ready = d === 0;
       setClass(this.dashEl, 'is-ready', ready);
       setText(this.dashLabel, ready ? t('hud.dashReady') : t('hud.dash'));
-      if (ready && !wasReady) animateEl(this.dashEl, [{ transform: 'scale(1.2)' }, { transform: 'scale(1)' }], { duration: 300, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' });
+      if (ready && !wasReady) animateEl(this.dashEl, [{ scale: '1.25' }, { scale: '0.92', offset: 0.5 }, { scale: '1' }], { duration: 380, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' });
     }
 
     const now = performance.now();
@@ -347,6 +384,14 @@ export class Hud {
 
   // --- internals -------------------------------------------------------------------------------
 
+  /** Score went up: the sticker bounces and coins burst out of it. */
+  private gain(panel: HTMLElement, mine: boolean, amount: number): void {
+    animateEl(panel, [{ scale: '1' }, { scale: '1.16 0.88', offset: 0.25 }, { scale: '0.95 1.06', offset: 0.55 }, { scale: '1' }], { duration: 520, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' });
+    const host = this.fxEl.getBoundingClientRect();
+    const r = panel.getBoundingClientRect();
+    burst(this.fxEl, r.left - host.left + r.width / 2, r.top - host.top + r.height * 0.6, { kind: 'coins', count: Math.min(16, 3 + Math.round(amount / 100)), power: mine ? 1 : 0.8, spread: 2.8, up: 1 });
+  }
+
   private measure(): void {
     this.remPx = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
     this.arrows.setViewport(this.root.el.clientWidth, this.root.el.clientHeight);
@@ -355,6 +400,12 @@ export class Hud {
   private teamName(id: TeamId): string {
     const o = this.teamLabels[id];
     return o ? tr(o) : t(TEAM_STYLES[id].nameKey);
+  }
+
+  private faceFor(id: TeamId): HTMLElement {
+    const f = this.faces[id];
+    if (!f) return h('div', { class: 'uh-sb__face uh-sb__face--emblem' }, teamEmblem(id, 'uh-emblem', 'light'));
+    return h('div', { class: 'uh-sb__face' }, portrait({ hat: f.hat ?? TEAM_STYLES[id].hat, rival: f.rival ?? null, team: id }, 'uh-sb__portrait'), h('span', { class: 'uh-sb__badge' }, teamEmblem(id, 'uh-emblem', 'light')));
   }
 
   private buildTop(m: HudModel): void {
@@ -384,16 +435,11 @@ export class Hud {
     });
     this.cBanksDone = -1;
     this.banksCountEl = h('span', { class: 'uh-banks__count uh-num' });
-    this.banksEl = h(
-      'div',
-      { class: 'uh-banks', title: t('hud.banks') },
-      h('span', { class: 'uh-banks__icons' }, this.bankIcons.map((b) => b.root)),
-      this.banksCountEl,
-    );
+    this.banksEl = h('div', { class: 'uh-banks', title: t('hud.banks') }, h('span', { class: 'uh-banks__icons' }, this.bankIcons.map((b) => b.root)), this.banksCountEl);
     const center = h('div', { class: 'uh-sb__center' }, this.timerEl, this.bankIcons.length ? this.banksEl : null);
 
     if (m.mode === 'practice') {
-      this.practiceScore = h('span', { class: 'uh-practice__score uh-num' }, '0');
+      this.practiceScore = new RollingNumber('uh-practice__score uh-num', 0);
       const panel = h(
         'div',
         { class: 'uh-sb uh-sb--practice' },
@@ -401,12 +447,7 @@ export class Hud {
           'div',
           { class: 'uh-practice' },
           h('span', { class: 'uh-practice__ribbon' }, icon('practice'), t('hud.practice')),
-          h(
-            'div',
-            { class: 'uh-practice__body' },
-            h('span', { class: 'uh-practice__label' }, t('hud.practiceScore')),
-            this.practiceScore,
-          ),
+          h('div', { class: 'uh-practice__body' }, h('span', { class: 'uh-practice__label' }, t('hud.practiceScore')), this.practiceScore.el),
           h('span', { class: 'uh-practice__note' }, t('hud.practiceNote')),
         ),
         !this.cTimed ? (this.bankIcons.length ? h('div', { class: 'uh-sb__center' }, this.banksEl) : null) : center,
@@ -418,17 +459,18 @@ export class Hud {
       this.top.replaceChildren(panel);
     } else {
       const team = (id: TeamId): HTMLElement => {
-        const score = h('span', { class: 'uh-sb__score uh-num' }, '0');
+        const score = new RollingNumber('uh-sb__score uh-num', 0);
         const name = h('span', { class: 'uh-sb__name' }, this.teamName(id));
+        const face = this.faceFor(id);
         const root = h(
           'div',
           { class: ['uh-sb__team', `uh-sb__team--${id}`, id === m.myTeam ? 'is-mine' : ''] },
-          h('span', { class: 'uh-sb__emblem' }, teamEmblem(id, 'uh-emblem', 'light')),
+          face,
           h('span', { class: 'uh-sb__info' }, name, h('span', { class: 'uh-sb__tag' }, icon('check'), t('hud.confirmed'))),
-          score,
+          score.el,
           id === m.myTeam ? h('span', { class: 'uh-sb__mine' }, t('hud.ours')) : null,
         );
-        this.teams[id] = { root, score, name };
+        this.teams[id] = { root, score, name, face };
         return root;
       };
       this.top.replaceChildren(h('div', { class: 'uh-sb' }, team(0), center, team(1)));
@@ -448,7 +490,7 @@ export class Hud {
       b.root.dataset.team = String(s.recoveredBy);
       b.badge.replaceChildren(teamEmblem(s.recoveredBy));
       b.root.title = t('hud.bankTaken', { team: this.teamName(s.recoveredBy) });
-      if (!wasRecovered) animateEl(b.root, [{ transform: 'scale(1.6) rotate(-12deg)' }, { transform: 'scale(1) rotate(0)' }], { duration: 480, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' });
+      if (!wasRecovered) animateEl(b.root, [{ transform: 'scale(1.9) rotate(-16deg)' }, { transform: 'scale(0.9) rotate(4deg)', offset: 0.6 }, { transform: 'scale(1) rotate(0)' }], { duration: 560, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' });
     } else if (s?.carriedBy !== null && s?.carriedBy !== undefined) {
       b.root.dataset.team = String(s.carriedBy);
       b.badge.replaceChildren(teamEmblem(s.carriedBy));
@@ -460,10 +502,35 @@ export class Hud {
     }
   }
 
+  /** "경찰 출동까지 N초" while a dispatch is pending; "경찰 N명 출동 중" while officers roam. */
+  private paintPolice(m: HudModel): void {
+    const p = m.police ?? null;
+    const sec = p && p.dispatchInSec !== null ? Math.ceil(p.dispatchInSec) : null;
+    const key = p ? `${sec ?? '-'}|${p.officers}|${p.alarms}` : '';
+    if (key === this.cPolice) return;
+    const was = this.cPolice;
+    this.cPolice = key;
+    if (!p || (sec === null && p.officers === 0)) {
+      this.policeEl.hidden = true;
+      return;
+    }
+    this.policeEl.hidden = false;
+    const pending = sec !== null;
+    this.policeEl.dataset.state = pending ? 'pending' : 'active';
+    setChildren(
+      this.policeEl,
+      h('span', { class: 'uh-police__lights', 'aria-hidden': 'true' }, h('i'), h('i')),
+      h('span', { class: 'uh-police__icon' }, icon(pending ? 'siren' : 'police')),
+      h('span', { class: 'uh-police__text' }, pending ? t('hud.policeIn', { sec: Math.max(0, sec!) }) : t('hud.policeOn', { n: p.officers })),
+    );
+    if (!was) animateEl(this.policeEl, [{ transform: 'translateY(-1rem) scale(0.6)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 380, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' });
+  }
+
   private paintCarry(m: HudModel): void {
     const c = m.carry;
     const key = c ? `${c.kind}|${c.value}|${c.building ?? ''}|${c.safes ?? ''}` : '';
     if (key !== this.cCarry) {
+      const before = this.cCarry;
       this.cCarry = key;
       this.cCarryProg = -1;
       if (!c) {
@@ -473,11 +540,12 @@ export class Hud {
         this.carryEl.dataset.kind = c.kind;
         const showBreakdown = c.kind === 'bank' && c.building !== undefined;
         this.carryEl.replaceChildren(
+          h('span', { class: 'uh-carry__hole', 'aria-hidden': 'true' }),
           h('span', { class: 'uh-carry__tag' }, icon('hand'), t('hud.carrying')),
           h(
             'div',
             { class: 'uh-carry__main' },
-            lootIcon(c.kind as LootKind, 'uh-loot-icon uh-carry__icon'),
+            objectPortrait(c.kind as LootKind, 'uh-carry__art'),
             h(
               'div',
               { class: 'uh-carry__text' },
@@ -489,6 +557,8 @@ export class Hud {
           ),
           h('div', { class: 'uh-carry__foot' }, h('span', { class: 'uh-carry__note' }, t('hud.carryNote')), h('div', { class: 'uh-carry__bar' }, h('i'))),
         );
+        if (!before) animateEl(this.carryEl, [{ transform: 'translateY(2rem) rotate(-14deg) scale(0.6)', opacity: 0 }, { transform: 'rotate(-3deg)', opacity: 1 }], { duration: 420, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' });
+        else animateEl(this.carryEl, [{ scale: '1.08' }, { scale: '1' }], { duration: 260, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' });
       }
     }
     if (c) {
@@ -508,6 +578,7 @@ export class Hud {
     const g = m.grab;
     const key = g ? `${g.action}|${g.target}|${g.value}|${g.anchored ? 1 : 0}|${g.unanchorSec ?? ''}` : '';
     if (key !== this.cGrab) {
+      const before = this.cGrab;
       this.cGrab = key;
       this.cGrabProg = -1;
       if (!g) {
@@ -517,13 +588,14 @@ export class Hud {
         this.grabEl.dataset.action = g.action;
         const lootKind: LootKind = g.target === 'bankWall' ? 'bank' : g.target;
         const name = g.target === 'bankWall' ? t('loot.bankWall') : t(`loot.${g.target}.name`);
-        setChildren(this.grabEl,
+        setChildren(
+          this.grabEl,
           h(
             'div',
             { class: 'uh-grab__main' },
             glyphChip('grab'),
             h('span', { class: 'uh-grab__verb' }, t(g.action === 'grab' ? 'hud.grab' : 'hud.release')),
-            lootIcon(lootKind, 'uh-loot-icon uh-grab__icon'),
+            objectPortrait(lootKind, 'uh-grab__art'),
             h('span', { class: 'uh-grab__name' }, name),
             h('span', { class: 'uh-grab__value uh-num' }, fmtScore(g.value)),
           ),
@@ -531,6 +603,7 @@ export class Hud {
             ? h('span', { class: 'uh-grab__anchor' }, h('span', { class: 'uh-grab__anchorText' }, t('hud.anchored', { sec: g.unanchorSec ?? 1 })), h('span', { class: 'uh-grab__anchorBar' }, h('i')))
             : null,
         );
+        if (!before) animateEl(this.grabEl, [{ transform: 'translateY(1rem) scale(0.7)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 300, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' });
       }
     }
     if (g && g.anchored) {
@@ -555,7 +628,8 @@ export class Hud {
     }
     this.tutorialEl.hidden = false;
     setClass(this.tutorialEl, 'is-done', !!p.done);
-    setChildren(this.tutorialEl,
+    setChildren(
+      this.tutorialEl,
       h(
         'div',
         { class: 'uh-tut__head' },
@@ -569,7 +643,7 @@ export class Hud {
         : null,
       p.skipAction ? h('div', { class: 'uh-tut__skip' }, glyphChip(p.skipAction), t('tutorial.skip')) : null,
     );
-    animateEl(this.tutorialEl, [{ transform: 'translateX(-1.5rem)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 320, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' });
+    animateEl(this.tutorialEl, [{ transform: 'translateX(-2rem) rotate(-4deg)', opacity: 0 }, { transform: 'rotate(-1deg)', opacity: 1 }], { duration: 380, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' });
   }
 
   /** Language changed: rebuild labels and force a full refresh on the next update. */
@@ -577,6 +651,7 @@ export class Hud {
     this.cMode = null;
     this.cCarry = '';
     this.cGrab = '';
+    this.cPolice = '';
     this.cDash = -1;
     this.labels.invalidate();
     this.paintTutorial();

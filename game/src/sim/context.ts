@@ -22,6 +22,10 @@ export interface CharRuntime {
   /** Last pose known to be finite and inside the arena (NaN guard). */
   lastX: number;
   lastY: number;
+  /** Stall rescue (STALL_RESCUE): ticks steering without moving, and where the window started. */
+  stallTicks: number;
+  stallX: number;
+  stallY: number;
   /** Sanitised command of the current tick. */
   cmd: Command;
 }

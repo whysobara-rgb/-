@@ -15,14 +15,15 @@
  *   match in progress always asks first (PauseMenu confirm dialogs).
  */
 import { RIVALS, type ObservationSummary, type RivalId } from '../ai';
-import { UI_SOUND_SFX, type AudioEngine } from '../audio';
-import { Simulation } from '../sim';
+import { UI_SOUND_SFX, isSfxId, type AudioEngine, type SfxId } from '../audio';
+import { Simulation, policeEntriesFor } from '../sim';
 import { MATCH_LAYOUT_IDS, getLayout } from '../sim/layouts';
-import type { HatId, LayoutId, RosterEntry } from '../sim/types';
+import type { HatId, LayoutDef, LayoutId, RosterEntry } from '../sim/types';
 import type { GameView } from '../render';
 import { type InputManager } from '../platform/input';
 import { applyMatchStats, unlockHat, newHats, type SaveManager } from '../platform/save';
 import { cloneSettings, type Settings } from '../platform/settings';
+import { HideoutScene, MenuStage, PreviewScene, TitleScene, TournamentScene, WardrobeScene, type HideoutFraming, type MenuCue, type MenuScene } from '../menu3d';
 import { isDesktopBuild, isFullscreen, quitApp, setFullscreen } from '../platform/native';
 import { unlockAchievement } from '../platform/steam';
 import { summarizeMatchStats } from '../platform/progress';
@@ -40,7 +41,9 @@ import {
   TitleScreen,
   TournamentScreen,
   WardrobeScreen,
+  irisWipe,
   navRouter,
+  setPortraitProvider,
   setLanguage,
   setUiSoundHandler,
   uiSound,
@@ -53,6 +56,9 @@ import {
   type UiScreen,
   type UiSettings,
   type BindingRow,
+  type UiSoundKind,
+  type UiSoundOptions,
+  type WipeShape,
 } from '../ui';
 import { tournamentAchievements, wardrobeAchievement } from './achievements';
 import { MatchController, type MatchSummary } from './match';
@@ -118,6 +124,29 @@ interface LaunchOpts {
 /** Preview hold before the in-world countdown (ms); confirm skips it. */
 const PREVIEW_HOLD_MS = 3400;
 
+/** UI sounds beyond the six base kinds, voiced with existing SFX (pitch / volume shaped). */
+const UI_EXTRA_SFX: Readonly<Record<Exclude<UiSoundKind, keyof typeof UI_SOUND_SFX>, { id: SfxId; volume: number; pitch: number }>> = {
+  pop: { id: 'popup', volume: 0.7, pitch: 1 },
+  whoosh: { id: 'tackleWhoosh', volume: 0.4, pitch: 1.25 },
+  stamp: { id: 'bump', volume: 0.75, pitch: 0.85 },
+  coin: { id: 'scoreSmall', volume: 0.4, pitch: 1.3 },
+  tick: { id: 'countdownBeep', volume: 0.3, pitch: 1.5 },
+  sparkle: { id: 'popup', volume: 0.45, pitch: 1.6 },
+};
+
+/** 3D menu scene cues -> existing SFX (kept quiet: they loop under the menu music). */
+const MENU_CUE_SFX: Readonly<Record<MenuCue, { id: string; volume: number; pitch?: number }>> = {
+  pop: { id: 'unanchorBank', volume: 0.32 },
+  thud: { id: 'bankLand', volume: 0.3 },
+  strain: { id: 'bankRumble', volume: 0.18 },
+  cheer: { id: 'popup', volume: 0.3, pitch: 1.2 },
+  sparkle: { id: 'popup', volume: 0.35, pitch: 1.6 },
+  boing: { id: 'policeStun', volume: 0.3, pitch: 1.2 },
+  whoosh: { id: 'tackleWhoosh', volume: 0.3, pitch: 1.2 },
+  stamp: { id: 'bump', volume: 0.5, pitch: 0.9 },
+  tick: { id: 'countdownBeep', volume: 0.25, pitch: 1.4 },
+};
+
 const nextFrame = (): Promise<void> => new Promise((r) => requestAnimationFrame(() => r()));
 
 export class App {
@@ -143,6 +172,8 @@ export class App {
   private awayValue = false;
   private settingsReturn: (() => void) | null = null;
   private transitionToken = 0;
+  /** Live 3D menus (null when WebGL for a second context failed: GameView backdrop fallback). */
+  private stage: MenuStage | null = null;
 
   constructor(private readonly d: AppDeps) {
     this.baseSeed = d.params.seed ?? (Math.floor(Math.random() * 0xffffffff) >>> 0);
@@ -151,7 +182,96 @@ export class App {
     if (d.params.rival) this.quickOpts.rival = d.params.rival;
     if (d.params.difficulty) this.quickOpts.difficulty = d.params.difficulty;
     this.titleSim = this.buildTitleSim();
-    setUiSoundHandler((kind) => d.audio.play(UI_SOUND_SFX[kind]));
+    setUiSoundHandler((kind, o) => this.playUiSound(kind, o));
+    this.createStage();
+  }
+
+  private playUiSound(kind: UiSoundKind, o?: UiSoundOptions): void {
+    const base = (UI_SOUND_SFX as Readonly<Record<string, SfxId>>)[kind];
+    if (base) {
+      this.d.audio.play(base, { pitch: o?.pitch, volume: o?.volume });
+      return;
+    }
+    const x = UI_EXTRA_SFX[kind as keyof typeof UI_EXTRA_SFX];
+    if (!x) return;
+    this.d.audio.play(x.id, { pitch: x.pitch * (o?.pitch ?? 1), volume: x.volume * (o?.volume ?? 1) });
+  }
+
+  /** Second WebGL context for the live 3D menus + the portrait snapshots (both optional). */
+  private createStage(): void {
+    const s = this.d.save.data.settings;
+    try {
+      const stage = new MenuStage(this.d.ui.container, this.d.ui.el, {
+        quality: this.d.params.quality ?? s.quality,
+        reducedMotion: s.reducedMotion,
+        renderEvery: this.d.params.renderEvery,
+      });
+      this.stage = stage;
+      const pc = stage.portraits;
+      setPortraitProvider({
+        raccoon: (spec) => pc.raccoon(spec),
+        object: (kind) => pc.object(kind),
+        layout: (layout: LayoutDef) => pc.layout(layout),
+      });
+    } catch (err) {
+      this.stage = null;
+      this.d.log('warn', `[app] 3D menus unavailable, using the plaza backdrop: ${String(err)}`);
+    }
+  }
+
+  /**
+   * Make a 3D menu scene current. Reuses the current scene when it is already of that class
+   * (`reuse`), else builds one with `make`. Returns null without the stage (fallback backdrop).
+   */
+  private scene3d<T extends MenuScene>(ctor: new (...args: never[]) => T, make: () => T, reuse = true): T | null {
+    const st = this.stage;
+    if (!st) return null;
+    const cur = st.scene;
+    if (reuse && cur instanceof ctor) return cur;
+    try {
+      const scene = st.setScene(make());
+      scene.onCue = (c) => this.playCue(c);
+      return scene;
+    } catch (err) {
+      this.d.log('warn', `[app] 3D menu scene failed: ${String(err)}`);
+      st.setScene(null);
+      return null;
+    }
+  }
+
+  /** Menus no longer own the screen (loading, match, results): GameView draws again. */
+  private hideStage(): void {
+    this.stage?.setScene(null);
+  }
+
+  private playCue(c: MenuCue): void {
+    const m = MENU_CUE_SFX[c];
+    if (!m || !isSfxId(m.id)) return;
+    this.d.audio.play(m.id, { volume: m.volume, pitch: m.pitch });
+  }
+
+  private hideout(framing: HideoutFraming): HideoutScene | null {
+    const hat = this.d.save.data.cosmetics.equipped;
+    const sc = this.scene3d(HideoutScene, () => new HideoutScene({ hat, framing }));
+    sc?.setFraming(framing);
+    return sc;
+  }
+
+  /** Screen change behind an iris wipe (the hole shaped like an emblem / raccoon head). */
+  private wipeTo(fn: () => void, shape: WipeShape = 'raccoon'): void {
+    const token = this.transitionToken;
+    try {
+      irisWipe().run(() => {
+        if (token === this.transitionToken) fn();
+      }, shape);
+    } catch {
+      fn();
+    }
+  }
+
+  /** Menu 3D stats (test hook). */
+  menuStats(): ReturnType<MenuStage['stats']> | null {
+    return this.stage ? this.stage.stats() : null;
   }
 
   get state(): AppState {
@@ -276,6 +396,12 @@ export class App {
   }
 
   private renderScene(dt: number): void {
+    if (this.stage?.active) {
+      // The 3D menu owns the screen: GameView is paused (not drawn) meanwhile.
+      this.sceneTime = 0;
+      this.stage.frame(dt);
+      return;
+    }
     const every = this.d.params.renderEvery;
     this.sceneTime += dt;
     if (every > 1 && this.frameNo % every !== 0) return;
@@ -347,7 +473,8 @@ export class App {
   toTitle(): void {
     if (this.match) this.toSceneTitle();
     this.d.audio.playMusic('title');
-    this.show(new TitleScreen({ version: this.d.version, onStart: () => this.toMenu() }), 'title');
+    this.scene3d(TitleScene, () => new TitleScene({ hat: this.d.save.data.cosmetics.equipped }));
+    this.show(new TitleScreen({ version: this.d.version, onStart: () => this.wipeTo(() => this.toMenu(), 'raccoon') }), 'title');
   }
 
   toMenu(focus?: MainMenuItem): void {
@@ -359,14 +486,18 @@ export class App {
     if (fresh) badges.practice = 'common.new';
     if (data.tournament.series) badges.tournament = { key: 'tournament.round', params: { n: ['hodadak', 'tongkeun', 'nunchi'].indexOf(data.tournament.series.rival) + 1 } };
     if (newHats(data.cosmetics).length) badges.wardrobe = 'common.new';
+    const first: MainMenuItem = focus ?? (fresh ? 'practice' : 'quickMatch');
+    const hide = this.hideout('menu');
+    hide?.setFocus(first);
     const menu = new MainMenu({
       onSelect: (item) => this.onMenuSelect(item),
-      onBack: () => this.toTitle(),
+      onFocusItem: (item) => hide?.setFocus(item),
+      onBack: () => this.wipeTo(() => this.toTitle(), 'raccoon'),
       showQuit: isDesktopBuild(),
       hat: data.cosmetics.equipped,
       team: 0,
       badges,
-      initialFocus: focus ?? (fresh ? 'practice' : 'quickMatch'),
+      initialFocus: first,
     });
     this.show(menu, 'menu');
     // First launch suggests the practice once per session (never forced).
@@ -400,10 +531,10 @@ export class App {
         this.toQuickSetup();
         break;
       case 'tournament':
-        this.toTournament();
+        this.wipeTo(() => this.toTournament(), 'star');
         break;
       case 'wardrobe':
-        this.toWardrobe();
+        this.wipeTo(() => this.toWardrobe(), 'moon');
         break;
       case 'settings':
         this.toSettings(() => this.toMenu('settings'));
@@ -440,6 +571,7 @@ export class App {
   // ------------------------------------------------------------------------------------------
 
   toQuickSetup(): void {
+    this.hideout('left')?.setFocus('quickMatch');
     const layouts = MATCH_LAYOUT_IDS.map((id) => {
       const l = getLayout(id);
       return { id, nameKey: l.nameKey, descKey: l.descKey, layout: l };
@@ -547,6 +679,7 @@ export class App {
 
   toTournament(focus?: RivalId): void {
     if (this.match) this.toSceneTitle();
+    this.d.audio.playMusic('title');
     const p = this.d.save.data.tournament;
     const cards = rivalCards(p).map((c) => ({
       rival: c.rival,
@@ -557,11 +690,17 @@ export class App {
       rewardHat: c.rewardHat,
       rewardOwned: this.d.save.data.cosmetics.unlocked.includes(c.rewardHat),
     }));
+    const stage3d = this.scene3d(
+      TournamentScene,
+      () => new TournamentScene({ rivals: cards.map((c) => ({ rival: c.rival, state: c.state })), focus: focus ?? null }),
+      false,
+    );
     const screen: TournamentScreen = this.show(
       new TournamentScreen({
         rivals: cards,
         complete: isComplete(p),
         initialFocus: focus,
+        onFocusRival: (r) => stage3d?.setFocus(r),
         onSelect: (r) => {
           if (!isSelectable(this.d.save.data.tournament, r) && !(this.d.save.data.tournament.series?.rival === r)) {
             uiSound('error');
@@ -592,7 +731,7 @@ export class App {
           }
           this.startTournamentGame(r, true);
         },
-        onBack: () => this.toMenu('tournament'),
+        onBack: () => this.wipeTo(() => this.toMenu('tournament'), 'raccoon'),
       }),
       'tournament',
     );
@@ -636,6 +775,7 @@ export class App {
     const hats = (['none', 'teamCapA', 'teamCapB', 'hodadakBand', 'tongkeunHat', 'nunchiMask'] as HatId[]).map((id) => ({ id, unlocked: data.cosmetics.unlocked.includes(id), isNew: fresh.has(id) }));
     // Viewing the wardrobe clears the NEW badges.
     if (fresh.size) this.d.save.update((s) => (s.cosmetics.seen = [...s.cosmetics.unlocked]));
+    const room = this.scene3d(WardrobeScene, () => new WardrobeScene({ hat: data.cosmetics.equipped, team: 0 }), false);
     const screen: WardrobeScreen = this.show(
       new WardrobeScreen({
         hats,
@@ -648,11 +788,14 @@ export class App {
           }
           this.d.save.update((s) => (s.cosmetics.equipped = hat));
           screen.update({ equipped: hat });
+          room?.showHat(hat, true);
+          room?.celebrate();
           for (const id of wardrobeAchievement(hat)) unlockAchievement(id);
           this.titleSim.state.characters[0]!.look.hat = hat;
-          this.d.view.load(this.titleSim);
+          if (!this.stage) this.d.view.load(this.titleSim);
         },
-        onBack: () => this.toMenu('wardrobe'),
+        onPreviewHat: (hat, unlocked) => room?.showHat(hat, unlocked),
+        onBack: () => this.wipeTo(() => this.toMenu('wardrobe'), 'raccoon'),
       }),
       'wardrobe',
     );
@@ -693,6 +836,7 @@ export class App {
         (next as unknown as Record<string, unknown>)[key] = value;
         if (key === 'language') setLanguage(value as Settings['language']);
         this.d.applySettings(next, key as keyof Settings);
+        if (key === 'quality' || key === 'reducedMotion') this.stage?.applySettings({ quality: this.d.params.quality ?? next.quality, reducedMotion: next.reducedMotion });
         if (key === 'fullscreen') setFullscreen(value === true);
         this.match?.applySettings(next);
       },
@@ -727,6 +871,7 @@ export class App {
       screen.show();
       return;
     }
+    this.hideout('right')?.setFocus('settings');
     this.show(screen, 'settings');
   }
 
@@ -743,6 +888,7 @@ export class App {
     this.loading?.destroy();
     this.loading = new LoadingScreen({ progress: null });
     this.loading.show();
+    this.hideStage();
     this.d.audio.playMusic('none');
     await nextFrame();
     await nextFrame();
@@ -815,18 +961,23 @@ export class App {
       window.clearTimeout(this.previewTimer);
       if (this.stateValue === 'preview' && this.match === ctl) this.beginMatch();
     };
+    const police = sim.rules.police === true;
+    this.scene3d(PreviewScene, () => new PreviewScene({ layout: sim.layout, police, policeEntries: police ? policeEntriesFor(sim.layout) : [], myTeam: 0 }), false);
     const preview = new LayoutPreview({
       layout: sim.layout,
       context: opts.context ?? null,
       myTeam: 0,
       teams: [team(0), team(1)],
       holdMs: 0,
+      autoStartMs: this.d.params.skipIntro ? 300 : PREVIEW_HOLD_MS,
+      police,
       onDone: go,
       onSkip: go,
       onBack: opts.back
         ? () => {
             window.clearTimeout(this.previewTimer);
             this.disposeMatch();
+            this.hideStage();
             opts.back!();
           }
         : undefined,
@@ -848,6 +999,7 @@ export class App {
     const m = this.match;
     if (!m) return;
     this.clearScreen();
+    this.hideStage();
     this.setState('match');
     m.beginCountdown();
   }
@@ -979,6 +1131,7 @@ export class App {
     const m = this.match;
     if (!m) return;
     this.d.hud.hide();
+    this.hideStage();
     this.d.view.setResultsFraming(0.19);
     this.d.view.setMode('results');
     window.setTimeout(() => {
@@ -994,8 +1147,9 @@ export class App {
       biggestEvent: toResultEventView(summary.biggest),
       actions: { rematch: true },
       playerHat: cfg.humanHat,
+      rival: cfg.rival,
       onRematch: () => this.rematch(),
-      onMenu: () => this.toMenu(),
+      onMenu: () => this.wipeTo(() => this.toMenu(), 'raccoon'),
     };
     if (cfg.kind === 'tournament' && record) {
       props.series = {
@@ -1008,18 +1162,18 @@ export class App {
       props.reward = record.rewardHat ? { hat: record.rewardHat } : null;
       if (record.seriesState === 'ongoing') {
         props.actions = { next: true };
-        props.onNext = () => this.toIntermission(record);
+        props.onNext = () => this.wipeTo(() => this.toIntermission(record), 'star');
       } else if (record.seriesState === 'won') {
         // The next press goes to the ladder (next rival), not to another game of this series.
         props.actions = { next: true };
         props.nextLabel = isComplete(this.d.save.data.tournament) ? 'results.toLadder' : 'results.nextRival';
-        props.onNext = () => this.toTournament(this.nextRivalFocus(record.rival));
+        props.onNext = () => this.wipeTo(() => this.toTournament(this.nextRivalFocus(record.rival)), 'star');
       } else {
         // A lost series retries that rival only (doc §12).
         props.actions = { rematch: true };
         props.onRematch = () => this.startTournamentGame(record.rival, true);
       }
-      props.onMenu = () => this.toTournament(record.rival);
+      props.onMenu = () => this.wipeTo(() => this.toTournament(record.rival), 'star');
     }
     this.show(new ResultsScreen(props), 'results');
   }
@@ -1048,6 +1202,8 @@ export class App {
       return;
     }
     const adaptation = seriesAdaptation(series);
+    const cards = rivalCards(this.d.save.data.tournament).map((c) => ({ rival: c.rival, state: c.state }));
+    this.scene3d(TournamentScene, () => new TournamentScene({ rivals: cards, focus: rec.rival, closeup: rec.rival }), false);
     this.show(
       new SeriesIntermission({
         rival: rec.rival,
@@ -1100,6 +1256,7 @@ export class App {
       record: this.lastRecord,
       tournament: this.d.save.data.tournament,
       tutorialDone: this.d.save.data.tutorialDone,
+      menu3d: this.stage ? this.stage.stats() : null,
       tutorialBeat: m && m.scriptRef && 'currentBeat' in m.scriptRef ? (m.scriptRef as TutorialDirector).currentBeat : null,
     };
   }

@@ -152,3 +152,23 @@ describe('sequencer math', () => {
     }
   });
 });
+
+describe('police chase layer', () => {
+  it("match composes the 'tension' layer only while tension > 0; other tracks never do", () => {
+    const rnd = makeRng(8);
+    for (let bar = 0; bar < 64; bar++) {
+      const off = SONGS.match.compose({ bar, intensity: 0.7, rnd });
+      expect(off.some((e) => e.layer === 'tension')).toBe(false);
+      const on = SONGS.match.compose({ bar, intensity: 0.7, tension: 1, rnd });
+      const t = on.filter((e) => e.layer === 'tension');
+      expect(t.length, `bar ${bar}`).toBeGreaterThan(3);
+      expect(t.some((e) => e.inst === 'tom')).toBe(true);
+      // Pitched chase notes stay in D minor / F major (+ the A7 leading tone and approaches).
+      for (const e of t) if (e.inst === 'tom') expect([2, 0, 9, 5]).toContain(e.midi % 12);
+    }
+    for (const id of TRACK_IDS) {
+      if (id === 'match') continue;
+      for (let bar = 0; bar < 16; bar++) expect(SONGS[id].compose({ bar, intensity: 1, tension: 1, rnd }).some((e) => e.layer === 'tension')).toBe(false);
+    }
+  });
+});

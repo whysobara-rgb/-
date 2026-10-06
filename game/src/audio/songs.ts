@@ -19,8 +19,14 @@ import type { InstId } from './instruments';
 import { chance, type Rng } from './rng';
 import { bassNote, chord, noteToMidi, pcAtOrAbove, voicing, type BassRole, type Chord } from './theory';
 
-export type LayerId = 'base' | 'drums' | 'lead' | 'extra';
-export const LAYERS: readonly LayerId[] = ['base', 'drums', 'lead', 'extra'];
+/**
+ * Layers of a track: four follow the music intensity (base -> drums -> lead -> extra); the
+ * 'tension' layer (police chase: low toms + pizzicato ostinato) follows setMusicTension instead.
+ */
+export type IntensityLayerId = 'base' | 'drums' | 'lead' | 'extra';
+export type LayerId = IntensityLayerId | 'tension';
+export const INTENSITY_LAYERS: readonly IntensityLayerId[] = ['base', 'drums', 'lead', 'extra'];
+export const LAYERS: readonly LayerId[] = [...INTENSITY_LAYERS, 'tension'];
 
 export interface NoteEvent {
   /** Position in 16th steps from the bar start (fractions allowed, swing applied later). */
@@ -38,6 +44,8 @@ export interface ComposeCtx {
   bar: number;
   /** Current music intensity 0..1 (dynamic tracks only). */
   intensity: number;
+  /** Police chase tension 0..1 (the 'tension' layer is only composed while it is > 0). */
+  tension?: number;
   rnd: Rng;
 }
 
@@ -350,6 +358,28 @@ const M_BASS_C: BassPattern = [
   [14, 'A', 2],
 ];
 
+/** Police chase layer: a pizzicato ostinato in staccato 8ths over the chord (tension). */
+const M_CHASE_OSTINATO: BassPattern = [
+  [0, 'R', 0.8],
+  [2, 'R', 0.8],
+  [4, '5', 0.8],
+  [6, 'R', 0.8],
+  [8, 'O', 0.8],
+  [10, 'R', 0.8],
+  [12, '5', 0.8],
+  [14, 'A', 0.8],
+];
+/** Chase toms (step, midi, vel): D3 / C3 / A2 / F2, a 3-3-2 push that ends in a pickup. */
+const M_CHASE_TOMS = [
+  [0, 50, 0.85],
+  [3, 45, 0.55],
+  [6, 45, 0.6],
+  [8, 48, 0.75],
+  [11, 45, 0.55],
+  [14, 41, 0.65],
+  [15, 45, 0.45],
+] as const;
+
 const match: SongDef = {
   id: 'match',
   bpm: 124,
@@ -377,7 +407,7 @@ const match: SongDef = {
     tom: { gain: 0.30, reverb: 0.2 },
     crash: { gain: 0.94, pan: 0.3, reverb: 0.2 },
   },
-  compose({ bar, intensity, rnd }) {
+  compose({ bar, intensity, rnd, tension = 0 }) {
     const out: NoteEvent[] = [];
     const i = bar % 32;
     const pass = Math.floor(bar / 32);
@@ -450,6 +480,26 @@ const match: SongDef = {
     }
     if (inSec === 7 && sec !== 'C') {
       [50, 47, 45, 43].forEach((m, k) => out.push({ step: 12 + k, inst: 'tom', midi: m, dur: 1, vel: 0.7, layer: 'extra' }));
+    }
+
+    // --- tension layer (police on the field): chase toms + pizzicato ostinato ---
+    if (tension > 0.01) {
+      if (sec === 'C') {
+        // Breakdown: keep the pulse, thinner.
+        for (const [st, m, v] of M_CHASE_TOMS) if (st === 0 || st === 8 || st === 14) out.push({ step: st, inst: 'tom', midi: m, dur: 1, vel: v * 0.8, layer: 'tension' });
+        bassLine(out, b, next, [[0, 'R', 0.8], [4, '5', 0.8], [8, 'O', 0.8], [12, '5', 0.8]], 'pizz', 50, 0.55, 'tension');
+      } else {
+        for (const [st, m, v] of M_CHASE_TOMS) out.push({ step: st, inst: 'tom', midi: m, dur: 1, vel: v * 1.35, layer: 'tension' });
+        bassLine(out, b, next, M_CHASE_OSTINATO, 'pizz', 50, 0.62, 'tension');
+        // Low brass chase stabs ("dun-dun!") on the root and fifth of the bar's chord.
+        const c0 = b[0].chord;
+        for (const [st, role] of [[3, 'R'], [6, '5']] as const) {
+          out.push({ step: st, inst: 'brass', midi: bassNote(c0, role, 45), dur: 0.8, vel: 0.6, layer: 'tension' });
+          out.push({ step: st, inst: 'brass', midi: bassNote(c0, role, 45) + 12, dur: 0.8, vel: 0.45, layer: 'tension' });
+        }
+        // A rising snare pickup into every 4th bar.
+        if (inSec % 4 === 3) hits(out, 'snare', [12, 13, 14, 15], (k) => 0.18 + k * 0.08, 'tension');
+      }
     }
     return out;
   },

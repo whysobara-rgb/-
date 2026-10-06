@@ -79,6 +79,8 @@ export interface MusicRenderOptions extends RenderVolumeOptions {
   sampleRate?: number;
   /** QA: render only these instruments. */
   only?: readonly string[];
+  /** Police chase layer level, constant or a function of time (s). */
+  tension?: number | ((t: number) => number);
 }
 
 export async function renderMusic(id: TrackId, seconds: number, o: MusicRenderOptions = {}): Promise<AudioBuffer> {
@@ -90,11 +92,15 @@ export async function renderMusic(id: TrackId, seconds: number, o: MusicRenderOp
   if (only) player.eventFilter = (ev) => only.includes(ev.inst);
   const inten = o.intensity ?? 0.75;
   const at = (t: number): number => (typeof inten === 'number' ? inten : inten(t));
+  const ten = o.tension ?? 0;
+  const tensionAt = (t: number): number => (typeof ten === 'number' ? ten : ten(t));
   player.setIntensity(at(0), PRE_ROLL);
+  player.setTension(tensionAt(0), PRE_ROLL);
   player.play(id, PRE_ROLL);
   // Schedule in slices exactly like the realtime pump so composition sees intensity changes.
   for (let t = 0; t < seconds; t += 0.25) {
     player.setIntensity(at(t), PRE_ROLL + t);
+    player.setTension(tensionAt(t), PRE_ROLL + t);
     player.schedule(PRE_ROLL + Math.min(seconds, t + 0.3), PRE_ROLL + t);
   }
   return ctx.startRendering();
@@ -105,6 +111,8 @@ export interface LoopRenderOptions extends RenderVolumeOptions {
   intensity: (t: number) => number;
   /** Position as a function of time (listener at origin). */
   pos?: (t: number) => Vec2 | undefined;
+  /** Pitch multiplier as a function of time (strain size, siren doppler). */
+  pitch?: (t: number) => number;
   /** Bar grid of an (imaginary) music track for rhythmic loops; default: none playing. */
   grid?: BarGrid | null;
   seed?: number;
@@ -118,6 +126,7 @@ export async function renderLoop(id: LoopId, seconds: number, o: LoopRenderOptio
   const origin = { x: 0, y: 0 };
   const l = spawnLoop(ctx, mixer, id, 0, makeRng(o.seed ?? 3), spatialMix(origin, o.pos?.(0)), o.grid);
   for (let t = 0; t < seconds; t += 1 / 30) {
+    if (o.pitch) l.voice.setPitch(o.pitch(t), t);
     l.voice.set(Math.max(0, Math.min(1, o.intensity(t))), t);
     updateLoopSpatial(ctx, l, spatialMix(origin, o.pos?.(t)), t);
   }

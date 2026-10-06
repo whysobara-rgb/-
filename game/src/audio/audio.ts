@@ -16,10 +16,11 @@
  * on unlock. Captions are reported even without audio (deaf / muted players).
  */
 import type { Vec2 } from '../sim/types';
-import { LOOP_CAPTION_KEYS, SFX_CAPTION_KEYS } from './captions';
+import { CAPTION_REPEAT_MS as CAPTION_REPEAT_BY_KEY, LOOP_CAPTION_KEYS, LOOP_CAPTION_ONSET, SFX_CAPTION_KEYS, installCaptionFallbacks } from './captions';
 import type { LoopId, MusicId, SfxId } from './ids';
 import { createMixer, DEFAULT_VOLUMES, type Mixer, type Volumes } from './mixer';
 import { makeRng, type Rng } from './rng';
+import { prewarmSteps } from './loops';
 import { MusicPlayer } from './sequencer';
 import { SFX_RECIPES, VariantPicker } from './sfx';
 import { captionSide, spatialMix, type SpatialMix } from './spatial';
@@ -28,7 +29,7 @@ import { disconnectAll, spawnLoop, spawnSfx, updateLoopSpatial, type SpawnedLoop
 
 export type { LoopId, MusicId, SfxId } from './ids';
 export { LOOP_IDS, MUSIC_IDS, SFX_IDS, UI_SOUND_SFX } from './ids';
-export { CAPTION_FALLBACK, LOOP_CAPTION_KEYS, SFX_CAPTION_KEYS, captionText } from './captions';
+export { CAPTION_FALLBACK, LOOP_CAPTION_KEYS, LOOP_CAPTION_ONSET, SFX_CAPTION_KEYS, captionText, installCaptionFallbacks } from './captions';
 export type { Volumes } from './mixer';
 
 export interface PlayOptions {
@@ -65,6 +66,11 @@ export interface AudioEngineOptions {
   autoPump?: boolean;
   /** Seed for variation randomness (default random). */
   seed?: number;
+  /**
+   * Build the loops' synthesized textures in idle time after unlock (loops.ts prewarmSteps), so
+   * their first use never stalls a frame. Default: same as `autoPump`.
+   */
+  prewarm?: boolean;
 }
 
 /** Global voice budget: low-priority sounds are dropped / stolen beyond this. */
@@ -82,6 +88,8 @@ const LOOP_CAPTION_REFRESH_MS = 2200;
 interface LoopState {
   spawned: SpawnedLoop | null;
   intensity: number;
+  /** Last pitch sent to the voice. */
+  pitch: number;
   silentSince: number;
   captionAt: number;
   /** Last spatial mix sent to the graph (updates below perceptual thresholds are skipped). */
@@ -120,12 +128,15 @@ export class AudioEngine {
   private listener: Vec2 = { x: 0, y: 0 };
   private wantedMusic: MusicId = 'none';
   private musicIntensity = 0.5;
+  private musicTension = 0;
   private muffled = false;
 
   private readonly voices: ActiveVoice[] = [];
   private readonly loops = new Map<string, LoopState>();
   private readonly lastPlay = new Map<SfxId, number>();
   private readonly lastCaption = new Map<string, number>();
+  /** Onset-captioned loops (LOOP_CAPTION_ONSET): caption key -> wall ms of its last caption. */
+  private readonly lastOnsetCaption = new Map<string, number>();
   private readonly picker = new VariantPicker();
   private readonly rnd: Rng;
   private readonly opts: AudioEngineOptions;
@@ -171,6 +182,7 @@ export class AudioEngine {
       if (this.muffled) this.mixer.setMuffle(true);
       this.music = new MusicPlayer({ ctx, input: this.mixer.inputs.music, reverb: this.mixer.musicReverb }, this.rnd() * 0xffffffff);
       this.music.setIntensity(this.musicIntensity, ctx.currentTime);
+      this.music.setTension(this.musicTension, ctx.currentTime);
     } catch (err) {
       console.error('[audio] failed to build the audio graph', err);
       this.ctx = null;
@@ -184,6 +196,7 @@ export class AudioEngine {
       return Promise.resolve();
     }
     if (this.opts.autoPump !== false) this.timer = setInterval(() => this.pump(), PUMP_MS);
+    if (this.opts.prewarm ?? this.opts.autoPump !== false) this.prewarm(ctx);
     this.unlocking = ctx
       .resume()
       .catch(() => undefined)
@@ -193,6 +206,34 @@ export class AudioEngine {
         this.pump();
       });
     return this.unlocking;
+  }
+
+  /**
+   * Build the loops' textures one step per idle slot (requestIdleCallback when available, else a
+   * short timeout), stopping if the engine is disposed. See AudioEngineOptions.prewarm.
+   */
+  private prewarm(ctx: BaseAudioContext): void {
+    const steps = prewarmSteps(ctx);
+    const g = globalThis as unknown as {
+      requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number;
+    };
+    const schedule = (): void => {
+      if (typeof g.requestIdleCallback === 'function') g.requestIdleCallback(run, { timeout: 2000 });
+      else setTimeout(run, 30);
+    };
+    const run = (): void => {
+      if (this.disposed || this.ctx !== ctx) return;
+      const step = steps.shift();
+      if (!step) return;
+      try {
+        step();
+      } catch (err) {
+        console.error('[audio] prewarm failed', err);
+        return;
+      }
+      if (steps.length > 0) schedule();
+    };
+    schedule();
   }
 
   /** Pause all audio processing (e.g. app minimized). */
@@ -272,9 +313,20 @@ export class AudioEngine {
     this.mixer?.setMuffle(on);
   }
 
-  /** Receive caption events (works without audio). Pass null to stop. */
+  /**
+   * Receive caption events (works without audio). Pass null to stop. Installing a listener also
+   * registers the fallback text of caption keys the UI string tables lack (captions.ts
+   * installCaptionFallbacks), so the HUD's `t(key)` never shows a raw key.
+   */
   setCaptionListener(fn: CaptionListener | null): void {
     this.captionFn = fn;
+    if (fn) {
+      try {
+        installCaptionFallbacks();
+      } catch (err) {
+        console.error('[audio] caption fallbacks failed', err);
+      }
+    }
   }
 
   // -------------------------------------------------------------------------------------------
@@ -378,27 +430,41 @@ export class AudioEngine {
 
   /**
    * Continuous sound with intensity 0..1 (0 = silent). Call every frame while it applies; the
-   * optional `key` (addition) runs several instances of the same loop, e.g. one per dragged safe.
+   * optional `key` (addition) runs several instances of the same loop, e.g. one per dragged safe,
+   * and the optional `pitch` (addition, default 1) bends it: the strain's object size, a police
+   * siren's doppler shift.
    */
-  setLoop(id: LoopId, intensity: number, pos?: Vec2, key: string | number = 0): void {
+  setLoop(id: LoopId, intensity: number, pos?: Vec2, key: string | number = 0, pitch = 1): void {
     if (this.disposed) return;
     const k = `${id}:${key}`;
     const i = clamp01(intensity);
+    const pt = Number.isFinite(pitch) && pitch > 0 ? Math.max(0.25, Math.min(4, pitch)) : 1;
     let l = this.loops.get(k);
     if (!l) {
       if (i <= 0) return;
-      l = { spawned: null, intensity: 0, silentSince: -Infinity, captionAt: -Infinity, sent: null };
+      l = { spawned: null, intensity: 0, pitch: 1, silentSince: -Infinity, captionAt: -Infinity, sent: null };
       this.loops.set(k, l);
     }
     const mix = spatialMix(this.listener, pos);
     const capKey = LOOP_CAPTION_KEYS[id];
+    const onsetMs = LOOP_CAPTION_ONSET[id];
     if (capKey && i > 0.05 && mix.gain > 0.08) {
       const ms = wallMs();
-      if (ms - l.captionAt > LOOP_CAPTION_REFRESH_MS) {
+      if (onsetMs !== undefined) {
+        // Sirens / alarm bells: once when audible, not refreshed (see LOOP_CAPTION_ONSET).
+        if (l.captionAt === -Infinity) {
+          l.captionAt = ms;
+          if (ms - (this.lastOnsetCaption.get(capKey) ?? -Infinity) >= onsetMs) {
+            this.lastOnsetCaption.set(capKey, ms);
+            this.caption(capKey, id, mix, true);
+          }
+        }
+      } else if (ms - l.captionAt > LOOP_CAPTION_REFRESH_MS) {
         l.captionAt = ms;
         this.caption(capKey, id, mix, true);
       }
-    } else if (i <= 0) {
+    } else if (i <= 0 || onsetMs !== undefined) {
+      // Silent (or, for onset loops, out of earshot): the next audible stretch captions again.
       l.captionAt = -Infinity;
     }
 
@@ -414,6 +480,8 @@ export class AudioEngine {
       if (i <= 0) return;
       try {
         l.spawned = spawnLoop(ctx, mixer, id, now, this.rnd, mix, this.music?.barGrid());
+        if (pt !== 1) l.spawned.voice.setPitch(pt, now);
+        l.pitch = pt;
         l.spawned.voice.set(i, now);
         l.sent = mix;
       } catch (err) {
@@ -422,6 +490,10 @@ export class AudioEngine {
       return;
     }
     if (Math.abs(i - prev) > 0.004 || (i === 0 && prev !== 0)) l.spawned.voice.set(i, now);
+    if (Math.abs(pt - l.pitch) > l.pitch * 0.0015) {
+      l.spawned.voice.setPitch(pt, now);
+      l.pitch = pt;
+    }
     const s = l.sent;
     if (!s || Math.abs(s.gain - mix.gain) > 0.01 || Math.abs(s.pan - mix.pan) > 0.01 || Math.abs(s.cutoff - mix.cutoff) > s.cutoff * 0.03) {
       updateLoopSpatial(ctx, l.spawned, mix, now);
@@ -459,6 +531,25 @@ export class AudioEngine {
     if (this.ctx && this.music) this.music.setIntensity(this.musicIntensity, this.ctx.currentTime);
   }
 
+  /**
+   * (addition) 0..1 level of the 'match' track's chase layer (low toms + a pizzicato ostinato)
+   * while police officers are on the field. Other tracks have no chase layer.
+   */
+  setMusicTension(x: number): void {
+    this.musicTension = clamp01(x);
+    if (this.ctx && this.music) this.music.setTension(this.musicTension, this.ctx.currentTime);
+  }
+
+  /**
+   * (addition) Briefly lower the music by `db` (negative) for `hold` seconds, e.g. when the player
+   * is tackled. Overlapping ducks merge (the deeper one wins). No-op before unlock.
+   */
+  duckMusic(db: number, hold: number, delay = 0): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.mixer || this.disposed) return;
+    this.mixer.duckMusic(ctx.currentTime + Math.max(0, Number.isFinite(delay) ? delay : 0), db, hold);
+  }
+
   get currentMusic(): MusicId {
     return this.music?.currentId ?? 'none';
   }
@@ -489,7 +580,7 @@ export class AudioEngine {
     const ms = wallMs();
     const side = captionSide(mix);
     const ck = `${key}|${side ?? ''}`;
-    if (!force && ms - (this.lastCaption.get(ck) ?? -Infinity) < CAPTION_REPEAT_MS) return;
+    if (!force && ms - (this.lastCaption.get(ck) ?? -Infinity) < (CAPTION_REPEAT_BY_KEY[key] ?? CAPTION_REPEAT_MS)) return;
     this.lastCaption.set(ck, ms);
     try {
       this.captionFn({ key, source, side, distance: mix.distance });

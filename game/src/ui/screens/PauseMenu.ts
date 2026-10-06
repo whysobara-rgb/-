@@ -7,6 +7,7 @@ import { t, type TextRef } from '../i18n';
 import { h } from '../core/dom';
 import { glyphChip } from '../core/prompts';
 import { UiScreen } from '../core/screen';
+import { chunky } from '../core/juice';
 import { button, chip, promptBar, stagger } from '../components/controls';
 import { ConfirmDialog } from './ConfirmDialog';
 import type { GrabMode } from '../types';
@@ -69,7 +70,7 @@ export class PauseMenu extends UiScreen<PauseMenuProps> {
     const hint = (action: 'move' | 'grab' | 'dash' | 'ping', key: string): HTMLElement =>
       h('span', { class: 'uh-pause__hint' }, glyphChip(action), t(key));
     this.el.append(
-      h('div', { class: 'uh-dim' }),
+      h('div', { class: 'uh-dim uh-dim--stripes' }),
       h(
         'div',
         { class: 'uh-frame uh-pause' },
@@ -77,7 +78,7 @@ export class PauseMenu extends UiScreen<PauseMenuProps> {
           'div',
           { class: 'uh-pause__card uh-panel' },
           h('div', { class: 'uh-pause__badge' }, h('span', { class: 'uh-pause__bars' })),
-          h('h1', { class: 'uh-pause__title' }, t('pause.title')),
+          chunky(t('pause.title'), { tag: 'h1', cls: 'uh-pause__title', tone: 'cream' }),
           p.context ? h('div', { class: 'uh-pause__context' }, chip(p.context, 'gold', 'map')) : null,
           buttons,
           h(

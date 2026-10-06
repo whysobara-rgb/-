@@ -100,7 +100,8 @@ export type IconName =
   | 'play' | 'back' | 'chevLeft' | 'chevRight' | 'hat' | 'speaker' | 'display' | 'gamepad'
   | 'keyboard' | 'globe' | 'siren' | 'flag' | 'map' | 'van' | 'ping' | 'clock' | 'dice'
   | 'trophy' | 'sparkle' | 'reset' | 'home' | 'pause' | 'arrow' | 'hand' | 'bolt' | 'door'
-  | 'swap' | 'alert';
+  | 'swap' | 'alert' | 'paw' | 'wrench' | 'coin' | 'police' | 'gift' | 'stretch' | 'wave' | 'star' | 'moon'
+  | 'megaphone' | 'shield';
 
 const LINE = 'fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"';
 
@@ -141,6 +142,17 @@ const ICONS: Record<IconName, string> = {
   door: `<path d="M5 21V4.5A1.5 1.5 0 0 1 6.5 3h11A1.5 1.5 0 0 1 19 4.5V21M3 21h18M15 12h.01" ${LINE}/>`,
   swap: `<path d="M4.5 8.5h14M15 5l3.5 3.5L15 12M19.5 15.5h-14M9 12l-3.5 3.5L9 19" ${LINE}/>`,
   alert: `<path d="M10.6 4.3a1.6 1.6 0 0 1 2.8 0l7.8 13.8a1.6 1.6 0 0 1-1.4 2.4H4.2a1.6 1.6 0 0 1-1.4-2.4z" ${LINE}/><path d="M12 9.5v4.5M12 17.2h.01" ${LINE} stroke-width="2.6"/>`,
+  paw: `<ellipse cx="12" cy="15.6" rx="4.6" ry="3.9" ${LINE}/><ellipse cx="5.6" cy="10.4" rx="1.8" ry="2.3" ${LINE}/><ellipse cx="9.4" cy="6.3" rx="1.9" ry="2.5" ${LINE}/><ellipse cx="14.6" cy="6.3" rx="1.9" ry="2.5" ${LINE}/><ellipse cx="18.4" cy="10.4" rx="1.8" ry="2.3" ${LINE}/>`,
+  wrench: `<path d="M14.7 3.6a4.6 4.6 0 0 0-4.4 6l-6.3 6.3a2.1 2.1 0 0 0 3 3l6.3-6.3a4.6 4.6 0 0 0 6-4.4l-2.6 2.6-2.8-.6-.6-2.8z" ${LINE}/>`,
+  coin: `<circle cx="12" cy="12" r="8.6" ${LINE}/><circle cx="12" cy="12" r="5.4" ${LINE}/><path d="M10.4 10.3h.01M13.6 10.3h.01M10.2 14c1 .9 2.6.9 3.6 0" ${LINE}/>`,
+  police: `<path d="M4 9.2c2.6-3.4 13.4-3.4 16 0l-1.6 2.4H5.6z" ${LINE}/><path d="M5.6 11.6c.4 5 2.9 8.4 6.4 8.4s6-3.4 6.4-8.4" ${LINE}/><path d="M12 5.6v-1.8M10.6 8.6h2.8" ${LINE}/><path d="M9.6 15.2h.01M14.4 15.2h.01" ${LINE} stroke-width="2.8"/>`,
+  gift: `<rect x="3.8" y="9" width="16.4" height="11.2" rx="2" ${LINE}/><path d="M3 9h18M12 9v11.2" ${LINE}/><path d="M12 9c-1.4-3.6-5.6-4.6-5.6-2.1C6.4 8.6 9.6 9 12 9zM12 9c1.4-3.6 5.6-4.6 5.6-2.1 0 1.7-3.2 2.1-5.6 2.1z" ${LINE}/>`,
+  stretch: `<circle cx="12" cy="4.8" r="2" ${LINE}/><path d="M5 3.5l4.6 5h4.8L19 3.5M12 8.5v6M12 14.5l-3.5 6M12 14.5l3.5 6" ${LINE}/>`,
+  wave: `<path d="M8.5 13V6a1.5 1.5 0 0 1 3 0v5.5M11.5 11V4.6a1.5 1.5 0 0 1 3 0V11M14.5 11V6.2a1.5 1.5 0 0 1 3 0V14c0 4-2.6 6.6-6 6.6-2.5 0-4-1.2-5.4-3.6l-2-3.6a1.5 1.5 0 0 1 2.5-1.6L8.5 14" ${LINE}/><path d="M3.4 6.2a5 5 0 0 1 2-3M20.6 3.4a5 5 0 0 1 1 3.2" ${LINE}/>`,
+  star: `<polygon points="${STAR_POINTS}" ${LINE}/>`,
+  moon: `<path d="${MOON_PATH}" ${LINE}/>`,
+  megaphone: `<path d="M3.5 10v4h3l8.5 4.5v-13L6.5 10z" ${LINE}/><path d="M6.5 14l1.4 5h2.4l-1-4.4M18 9.2a3.4 3.4 0 0 1 0 5.6" ${LINE}/>`,
+  shield: `<path d="M12 3l7.5 3v5.6c0 4.6-3.2 8-7.5 9.4-4.3-1.4-7.5-4.8-7.5-9.4V6z" ${LINE}/><path d="M8.8 12l2.2 2.2 4.2-4.4" ${LINE}/>`,
 };
 
 export function icon(name: IconName, className = 'uh-icon'): SVGSVGElement {

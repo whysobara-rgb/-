@@ -35,7 +35,9 @@
 .uh-layer--hud { z-index: 2; }
 .uh-layer--screens { z-index: 3; }
 .uh-layer--dialogs { z-index: 4; }
-.uh-layer--toasts { z-index: 5; }
+.uh-layer--pointer { z-index: 6; pointer-events: none; }
+.uh-layer--toasts { z-index: 7; }
+.uh-layer--wipe { z-index: 8; pointer-events: none; }
 
 /* Interactive screens opt back into pointer events. */
 .uh-screen {

@@ -15,13 +15,14 @@ import { installTheme } from './theme';
 import { handleMenuNav, type MenuNav } from './nav';
 import type { NavAction } from './prompts';
 import { clamp } from './format';
+import { pawPointer } from './pointer';
 
 /** Window event telling visible screens to re-check their fit (UI scale / font changes). */
 export const RELAYOUT_EVENT = 'uh-relayout';
 import { getLanguage, onLanguageChange } from '../i18n';
 
-export type UiLayerName = 'backdrop' | 'world' | 'hud' | 'screens' | 'dialogs' | 'toasts';
-const LAYERS: readonly UiLayerName[] = ['backdrop', 'world', 'hud', 'screens', 'dialogs', 'toasts'];
+export type UiLayerName = 'backdrop' | 'world' | 'hud' | 'screens' | 'dialogs' | 'pointer' | 'wipe' | 'toasts';
+const LAYERS: readonly UiLayerName[] = ['backdrop', 'world', 'hud', 'screens', 'dialogs', 'pointer', 'wipe', 'toasts'];
 
 export const UI_SCALE_MIN = 0.8;
 export const UI_SCALE_MAX = 1.4;
@@ -48,6 +49,7 @@ export class UiRoot {
       layers[name] = layer;
     }
     this.layers = layers;
+    pawPointer.attach(layers.pointer);
     if (getComputedStyle(container).position === 'static' && container !== document.body) {
       container.style.position = 'relative';
     }
@@ -91,6 +93,7 @@ export class UiRoot {
   };
 
   destroy(): void {
+    pawPointer.detach();
     document.fonts?.removeEventListener('loadingdone', this.onFontsLoaded);
     this.unsubLang();
     this.el.remove();

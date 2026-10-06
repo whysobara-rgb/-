@@ -174,6 +174,12 @@ export abstract class UiScreen<P extends object> implements NavTarget {
     return this.props;
   }
 
+  /** NavTarget hook for the paw pointer. */
+  focusedElement(): HTMLElement | null {
+    if (!this.visible || this.leaving) return null;
+    return this.focus.focused;
+  }
+
   /** Move focus to a nav id (e.g. game flow wants "rematch" focused). */
   focusItem(id: string): boolean {
     return this.focus.focus(id, { sound: false });

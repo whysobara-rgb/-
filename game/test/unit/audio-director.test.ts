@@ -18,6 +18,7 @@ interface Call {
   o?: PlayOptions;
   i?: number;
   key?: string | number;
+  pitch?: number;
 }
 
 class RecordingEngine {
@@ -29,14 +30,20 @@ class RecordingEngine {
   stop(id: SfxId, tag?: string | number): void {
     this.calls.push({ fn: 'stop', id, key: tag });
   }
-  setLoop(id: LoopId, i: number, _pos?: Vec2, key: string | number = 0): void {
-    this.calls.push({ fn: 'loop', id, i, key });
+  setLoop(id: LoopId, i: number, _pos?: Vec2, key: string | number = 0, pitch = 1): void {
+    this.calls.push({ fn: 'loop', id, i, key, pitch });
   }
   playMusic(id: MusicId): void {
     this.calls.push({ fn: 'music', id });
   }
   setMusicIntensity(x: number): void {
     this.calls.push({ fn: 'intensity', i: x });
+  }
+  setMusicTension(x: number): void {
+    this.calls.push({ fn: 'tension', i: x });
+  }
+  duckMusic(db: number, hold: number): void {
+    this.calls.push({ fn: 'duck', i: db, key: hold });
   }
   setListener(p: Vec2): void {
     this.listener = p;
@@ -89,7 +96,7 @@ describe('event mapping', () => {
       { type: 'ping', tick: 8, pingId: 2, team: 0, charId: 1, pos: { x: 0, y: 0 }, targetId: 10, kind: 'grabTogether' },
     ];
     dir.onEvents(ev, sim);
-    expect(eng.plays()).toEqual(['whistleStart', 'grab', 'dashHit', 'knockdown', 'unanchorBank', 'recoverStart', 'recoverCancel', 'ping']);
+    expect(eng.plays()).toEqual(['whistleStart', 'grab', 'dashHit', 'knockdown', 'unanchorBank', 'bankLand', 'calloutBank', 'recoverStart', 'recoverCancel', 'ping']);
     expect(eng.calls.find((c) => c.fn === 'music')?.id).toBe('match');
     expect(eng.calls.find((c) => c.fn === 'stop')).toMatchObject({ id: 'recoverStart', key: 10 });
     expect(eng.calls.find((c) => c.id === 'grab')?.o?.pos).toEqual({ x: 5, y: 5 });

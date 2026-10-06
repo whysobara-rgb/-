@@ -17,7 +17,8 @@
  *
  * Brain (fixed order: officers by id, characters by slot; perception on every 4th tick for all
  * officers at once so no team is ever "seen first"): targets are characters holding loot,
- * seen within POLICE.sightRadius with sim line of sight (remembered 3 s; the officer pursuing
+ * seen within POLICE.sightRadius with sim line of sight — or heard: holding the wall of a bank
+ * whose alarm rings, within POLICE.hearRadius (remembered 3 s; the officer pursuing
  * one keeps heading for its last known spot for up to 8 s). The highest held
  * estimatedValue goes first (bank-wall holders count the bank), ties -> nearer -> lower id, and
  * each carrier is handed to the nearest free officer of the car, so two officers split over two
@@ -81,6 +82,8 @@ const LEAVE_TIMEOUT_TICKS = secondsToTicks(60);
 const STEP_IN_DEPTH = 0.75;
 /** ... and this far either side of the car's center line (then 1 m deeper per extra pair). */
 const STEP_IN_SPREAD = 0.6;
+/** Walking back without getting closer to the car for this long = sealed off (see brain). */
+const SEALED_TICKS = secondsToTicks(8);
 /** Walking-back speed at the end of a shift (m/s). */
 const LEAVE_SPEED = (POLICE.patrolSpeed + POLICE.chaseSpeed) / 2;
 const PATROL_GOAL_TIMEOUT = secondsToTicks(15);
@@ -194,6 +197,9 @@ interface OfficerRt {
   /** Orbit post index around an uprooted bank (null = not circling). */
   orbitK: number | null;
   orbitBank: EntityId;
+  /** Walking back: best distance to the car's step-out spots so far, and when it was reached. */
+  leaveBest: number;
+  leaveBestTick: number;
 }
 
 const easeOut = (t: number): number => 1 - (1 - t) * (1 - t);
@@ -338,8 +344,22 @@ export class PoliceSystem {
       if (this.atCar(o) || o.leaveTicks > LEAVE_TIMEOUT_TICKS) return true;
       this.monitorProgress(o, tick);
       const spots = o.car.spots;
+      // sealed off (a bank shoved against the gate to the car, a wall of bodies): no step closer
+      // to the car for SEALED_TICKS -> the officer squeezes past dynamic bodies (never walls) and
+      // still boards only at its car
+      let dCar = Infinity;
+      for (const p of spots) dCar = Math.min(dCar, Math.hypot(b.x - p.x, b.y - p.y));
+      if (dCar < o.leaveBest - 0.75) {
+        o.leaveBest = dCar;
+        o.leaveBestTick = tick;
+      } else if (!b.ghost && tick - o.leaveBestTick > SEALED_TICKS) {
+        b.ghost = true;
+        o.path = null;
+      }
       const goal = spots[o.leaveSpot % spots.length]!;
+      this.nav.staticOnly = b.ghost;
       this.steer(o, goal.x, goal.y, LEAVE_SPEED, null, tick, true);
+      this.nav.staticOnly = false;
       return false;
     }
 
@@ -417,7 +437,9 @@ export class PoliceSystem {
       const cb = ctx.chars[i]!.body;
       const d = Math.hypot(cb.x - b.x, cb.y - b.y);
       let mem = o.memory.get(ch.id);
-      if (d <= POLICE.sightRadius && lineOfSight(ctx, here, { x: cb.x, y: cb.y })) {
+      // seen, or heard: dragging a bank whose alarm is ringing
+      const heard = d <= POLICE.hearRadius && ch.grab.part === 'bankWall' && ctx.state.alarm.ringing.includes(ch.grab.targetId);
+      if (heard || (d <= POLICE.sightRadius && lineOfSight(ctx, here, { x: cb.x, y: cb.y }))) {
         if (mem) {
           mem.tick = tick;
           mem.x = cb.x;
@@ -987,7 +1009,7 @@ export class PoliceSystem {
     // getaway wave
     if (st.finalCountdown && !this.countdownSeen) {
       this.countdownSeen = true;
-      if (POLICE.getawayWave && !this.activeWave()) this.dispatch(tick);
+      if (POLICE.getawayWave && !this.activeWave()) this.dispatch(tick, POLICE.getawayOfficers);
     }
     // scheduled wave
     if (alarm.dispatchTick !== null && tick >= alarm.dispatchTick) {
@@ -998,7 +1020,7 @@ export class PoliceSystem {
     for (const car of [...this.cars]) this.updateCar(car, tick);
   }
 
-  private dispatch(tick: number): void {
+  private dispatch(tick: number, officers = 0): void {
     const ctx = this.ctx;
     const st = ctx.state;
     const alarm = st.alarm;
@@ -1007,7 +1029,7 @@ export class PoliceSystem {
     const entryIndex = (wave - 1) % this.entries.length;
     const entry = this.entries[entryIndex]!;
     const per = POLICE.officersPerWave;
-    const count = Math.max(1, per[Math.min(wave - 1, per.length - 1)] ?? 2);
+    const count = officers > 0 ? officers : Math.max(1, per[Math.min(wave - 1, per.length - 1)] ?? 2);
     const officerIds: EntityId[] = [];
     for (let k = 0; k < count; k++) officerIds.push(POLICE_ID_BASE + this.nextOfficerSeq++);
     const heading = Math.atan2(entry.park.y - entry.from.y, entry.park.x - entry.from.x);
@@ -1155,6 +1177,8 @@ export class PoliceSystem {
         ignoreTicks: 0,
         orbitK: null,
         orbitBank: -1,
+        leaveBest: Infinity,
+        leaveBestTick: st.tick,
       };
       car.officers.push(o);
       this.officers.push(o);

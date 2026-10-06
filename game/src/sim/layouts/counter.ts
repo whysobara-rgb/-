@@ -31,7 +31,15 @@ const W = 68;
 const H = 48;
 const PI = Math.PI;
 const AX = W / 2;
-const ZONE = { x: 10, y: 24 };
+/**
+ * (balance pass) The zones sit 7 m south of the middle line: the south bank is the near,
+ * contested one for BOTH teams (~25 m) and the north bank the long haul (~32 m). With both banks
+ * equally far, mirrored bots and players hauled one bank each at the same moment (1v1 draws
+ * ~25 %, matches over in ~110 s); a near / far pair makes them race for one bank and leaves the
+ * other for the mid-game. Mirror symmetry (x) is untouched.
+ */
+const ZONE_DY = 7;
+const ZONE = { x: 10, y: 24 + ZONE_DY };
 /**
  * Bank centers sit 14 m from the middle: the front-door steps are then ~10 m from the clock
  * tower, the closest any spot gets to a door of both banks (doc §6: no easy one-spot defense).
@@ -54,9 +62,9 @@ function build(): { def: LayoutDef; meta: LayoutDesignMeta } {
   };
 
   // --- teams -----------------------------------------------------------------------
-  b.zone(ZONE, { x: 1.6, y: 24 }, -PI / 2);
-  b.spawn(6, 20.25, 0);
-  b.spawn(6, 27.75, 0);
+  b.zone(ZONE, { x: 1.6, y: ZONE.y }, -PI / 2);
+  b.spawn(6, ZONE.y - 3.75, 0);
+  b.spawn(6, ZONE.y + 3.75, 0);
 
   // --- banks: front doors face the central crossing ------------------------------------
   const bn = b.bank(AX, BANK_Y, 0);
@@ -94,29 +102,45 @@ function build(): { def: LayoutDef; meta: LayoutDesignMeta } {
     };
     // Row 0 along the outer edge; behind the bank, two on-axis blocks (post office / mall and a
     // police box) flank the 3 m police gate the officers hop in through (dead end at the edge).
-    shop('r0a', 0, 0, 8, 4.75, 5.5);
-    shop('r0b', 8, 0, 17, 4.75, 6);
-    shop('r0c', 17, 0, 26, 4.75, 6.5);
+    if (side === 'n') {
+      shop('r0a', 0, 0, 8, 4.75, 5.5);
+      shop('r0b', 8, 0, 17, 4.75, 6);
+      shop('r0c', 17, 0, 26, 4.75, 6.5);
+    } else {
+      // south edge row: four narrower shops (the corner shop by the zone moved out here)
+      shop('r0a', 0, 0, 6.5, 4.75, 5.5);
+      shop('r0b', 6.5, 0, 13, 4.75, 6);
+      shop('r0c', 13, 0, 19.5, 4.75, 6.5);
+      shop('r2', 19.5, 0, 26, 4.75, 5);
+    }
     b.rect(`axis.${side}`, 'building', 26, y(0), AX - POLICE_GATE_HALF, y(4.75), 7.5, {
       style: side === 'n' ? 'brick' : 'glass',
       signKey: side === 'n' ? 'sign.post' : 'sign.mall',
       east: { signKey: side === 'n' ? 'sign.policeBoxN' : 'sign.policeBoxS' },
     });
-    // Row 1 (between terrace lane A and B), split by the 1.1 m alley at x = 10.
-    shop('r1a', 2.5, 7.25, 9.45, 11, 5);
-    shop('r1b', 10.55, 7.25, 20.5, 11, 5.5);
-    // Row 2 (corner by the zone).
-    shop('r2', 2.5, 13.5, 10, 17, 5);
+    if (side === 'n') {
+      // Row 1 (between terrace lane A and B), split by the 1.1 m alley at x = 10.
+      shop('r1a', 2.5, 7.25, 9.45, 11, 5);
+      shop('r1b', 10.55, 7.25, 20.5, 11, 5.5);
+      // Row 2 (corner by the far end of the zone).
+      shop('r2', 2.5, 13.5, 10, 17, 5);
+      b.path(`edgeLane2.${side}`, 'medium', { x: 1.25, y: y(14) }, { x: 1.25, y: y(16.5) });
+      b.path(`laneB.${side}`, 'medium', { x: 3, y: y(12.25) }, { x: 9, y: y(12.25) });
+      b.circle(`lamp.${side}b`, 'lamp', 10.75, y(13.25), 0.15, 3.2);
+      b.path(`alley.${side}`, 'narrow', { x: 10, y: y(7.75) }, { x: 10, y: y(10.5) });
+    } else {
+      // South row 1 right behind the zone: shallower, and its east shop ends short of the
+      // south bank's diagonal sweep.
+      shop('r1a', 2.5, 7.25, 9.45, 10.0, 5);
+      shop('r1b', 10.55, 7.25, 15.5, 10.0, 5.5);
+      b.path(`alley.${side}`, 'narrow', { x: 10, y: y(7.75) }, { x: 10, y: y(9.75) });
+    }
     // Paths.
-    b.path(`edgeLane.${side}`, 'medium', { x: 1.25, y: y(8) }, { x: 1.25, y: y(10.5) });
-    b.path(`edgeLane2.${side}`, 'medium', { x: 1.25, y: y(14) }, { x: 1.25, y: y(16.5) });
+    b.path(`edgeLane.${side}`, 'medium', { x: 1.25, y: y(8) }, { x: 1.25, y: y(side === 'n' ? 10.5 : 9.75) });
     b.path(`laneA.${side}`, 'medium', { x: 3, y: y(6) }, { x: 9, y: y(6) });
-    b.path(`laneA2.${side}`, 'medium', { x: 11, y: y(6) }, { x: 20, y: y(6) });
-    b.path(`laneB.${side}`, 'medium', { x: 3, y: y(12.25) }, { x: 9, y: y(12.25) });
-    b.path(`alley.${side}`, 'narrow', { x: 10, y: y(7.75) }, { x: 10, y: y(10.5) });
+    b.path(`laneA2.${side}`, 'medium', { x: 11, y: y(6) }, { x: side === 'n' ? 20 : 15, y: y(6) });
     // Lamps on the terrace corners (outside the diagonal sweep).
     b.circle(`lamp.${side}a`, 'lamp', 21.0, y(7.0), 0.15, 3.2);
-    b.circle(`lamp.${side}b`, 'lamp', 10.75, y(13.25), 0.15, 3.2);
     b.circle(`tree.${side}a`, 'tree', 24.5, y(5.6), 0.6, 4.5);
   });
 
@@ -127,18 +151,20 @@ function build(): { def: LayoutDef; meta: LayoutDesignMeta } {
   b.circle('lamp.c2', 'lamp', 29.5, 27.0, 0.15, 3.2);
   // Tea kiosk at the square's west tip: splits the zone approach into two lanes and
   // breaks the long zone-to-zone sightline without touching the bank diagonals.
-  b.box('kiosk.tip', 'kiosk', 23.5, 24, 0.9, 0.9, 2.6, { style: 'tea' });
+  b.box('kiosk.tip', 'kiosk', 23.5, 27.9, 0.9, 0.9, 2.6, { style: 'tea' });
   ns((y, side) => {
     // Planter beds flanking the bank fronts and back yards (outside the diagonals).
     b.box(`bed.front.${side}`, 'planter', 26.2, y(5.25), 1.2, 0.5, 0.8);
-    b.circle(`tree.${side}b`, 'tree', 13.0, y(15.6), 0.5, 4);
+    if (side === 'n') b.circle(`tree.${side}b`, 'tree', 13.0, y(15.6), 0.5, 4);
   });
 
   // --- loot -------------------------------------------------------------------------------------
   b.safe('largeSafe', AX, 19.5); // in front of the north bank's door
   b.safe('largeSafe', AX, H - 19.5); // in front of the south bank's door
-  b.safe('smallSafe', 6, 12.25); // terrace lane B, a short walk from the van
-  b.safe('smallSafe', 6, H - 12.25);
+  // terrace lane B, a short walk from the van; flush against the north row (centered in the
+  // 2.5 m lane it left a 0.85 m pocket on each side, where a raccoon could wedge)
+  b.safe('smallSafe', 6, 11.46);
+  b.safe('smallSafe', 1.5, ZONE.y + 5.2); // edge nook below the van
   b.safe('smallSafe', 26, 24); // west edge of the square
   // --- chokepoints ------------------------------------------------------------------------------
   // Door-side watch spots: the counter in front of each bank (front door + its large safe)
@@ -153,37 +179,47 @@ function build(): { def: LayoutDef; meta: LayoutDesignMeta } {
   // --- decor --------------------------------------------------------------------------------------
   ns((y, side) => {
     const n = side === 'n';
-    b.decor('umbrella', 22.5, y(9.0), 0, { color: n ? '#F25C54' : '#7BDFF2', east: { color: '#F7B32B' } });
-    b.decor('flowers', 14.0, y(11.6), 0, { color: '#F28DB2' });
-    b.decor('flowers', 4.0, y(17.6), 0, { color: '#FFD166' });
-    b.decor('crate', 4.0, y(5.4), 0.2);
-    b.decor('trash', 19.5, y(5.4), 0);
-    b.decor('balloon', 28.0, y(6.0), 0, { color: '#FF6FA5', east: { color: '#7BDFF2' } });
-    b.decor('sign', 31.0, y(15.6), 0); // "창구" sign at the bank front
-    b.decor('puddle', 16.0, y(15.5), 0, { scale: 1.1 });
+    // (south side: the zones moved south, so dressing that would sit on their paint is left out)
+    const d = (kind: Parameters<typeof b.decor>[0], x: number, yy: number, a: number, o?: Parameters<typeof b.decor>[4]): void => {
+      if (!n && x > 3.4 && x < 16.6 && yy > ZONE.y - 7.6 && yy < ZONE.y + 7.6) return;
+      b.decor(kind, x, yy, a, o);
+    };
+    d('umbrella', 22.5, y(9.0), 0, { color: n ? '#F25C54' : '#7BDFF2', east: { color: '#F7B32B' } });
+    d('flowers', 14.0, y(11.6), 0, { color: '#F28DB2' });
+    d('flowers', 4.0, y(17.6), 0, { color: '#FFD166' });
+    d('crate', 4.0, y(5.4), 0.2);
+    d('trash', 19.5, y(5.4), 0);
+    d('balloon', 28.0, y(6.0), 0, { color: '#FF6FA5', east: { color: '#7BDFF2' } });
+    d('sign', 31.0, y(15.6), 0); // "창구" sign at the bank front
+    d('puddle', 16.0, y(15.5), 0, { scale: 1.1 });
   });
   ns((y, side) => {
     const n = side === 'n';
+    // (south side: the zones moved south, so dressing that would sit on their paint is left out)
+    const d = (kind: Parameters<typeof b.decor>[0], x: number, yy: number, a: number, o?: Parameters<typeof b.decor>[4]): void => {
+      if (!n && x > 3.4 && x < 16.6 && yy > ZONE.y - 7.6 && yy < ZONE.y + 7.6) return;
+      b.decor(kind, x, yy, a, o);
+    };
     // Terrace dressing: flower pots by the shops, a balloon cart by the toy store/arcade.
-    b.decor('flowers', 5.5, y(6.4), 0, { color: '#FFD166' });
-    b.decor('flowers', 13.0, y(6.4), 0, { color: '#F7B6D2' });
-    b.decor('balloon', 17.5, y(11.8), 0, { color: n ? '#FF6FA5' : '#7BDFF2', east: { color: '#FFD166' } });
-    b.decor('balloon', 18.3, y(12.0), 0, { color: '#C3A6F2' });
-    b.decor('umbrella', 7.5, y(18.0), 0, { color: n ? '#F7B32B' : '#4FB0C6', east: { color: '#F25C54' } });
-    b.decor('cone', 30.6, y(6.6), 0);
-    b.decor('cone', 37.4 - 4.8, y(5.3), 0);
-    b.decor('crate', 21.8, y(5.3), 0.4);
-    b.decor('flowers', 25.5, y(5.25), 0, { color: '#F28DB2' });
-    b.decor('flowers', 26.9, y(5.25), 0, { color: '#FFD166' });
+    d('flowers', 5.5, y(6.4), 0, { color: '#FFD166' });
+    d('flowers', 13.0, y(6.4), 0, { color: '#F7B6D2' });
+    d('balloon', 17.5, y(11.8), 0, { color: n ? '#FF6FA5' : '#7BDFF2', east: { color: '#FFD166' } });
+    d('balloon', 18.3, y(12.0), 0, { color: '#C3A6F2' });
+    d('umbrella', 7.5, y(18.0), 0, { color: n ? '#F7B32B' : '#4FB0C6', east: { color: '#F25C54' } });
+    d('cone', 30.6, y(6.6), 0);
+    d('cone', 37.4 - 4.8, y(5.3), 0);
+    d('crate', 21.8, y(5.3), 0.4);
+    d('flowers', 25.5, y(5.25), 0, { color: '#F28DB2' });
+    d('flowers', 26.9, y(5.25), 0, { color: '#FFD166' });
     // Cafe tables outside the bank fronts (the "counter" queue).
-    b.decor('umbrella', 30.0, y(16.6), 0, { color: n ? '#F25C54' : '#7BDFF2', east: { color: '#F7B32B' } });
-    b.decor('sign', 32.2, y(17.6), 0);
+    d('umbrella', 30.0, y(16.6), 0, { color: n ? '#F25C54' : '#7BDFF2', east: { color: '#F7B32B' } });
+    d('sign', 32.2, y(17.6), 0);
   });
   b.decor('flowers', 31.6, 22.0, 0, { color: '#C3A6F2' });
   b.decor('flowers', 31.6, 26.0, 0, { color: '#F7B6D2' });
-  b.decor('arrow', 18.0, 24.0, PI);
-  b.decor('arrow', 1.25, 19.0, PI / 2);
-  b.decor('arrow', 1.25, H - 19.0, -PI / 2);
+  b.decor('arrow', 18.0, ZONE.y, PI);
+  b.decor('arrow', 1.25, ZONE.y - 8.5, PI / 2);
+  b.decor('arrow', 1.25, ZONE.y + 3.6, -PI / 2);
 
   // --- police (owner addition) --------------------------------------------------------------
   // Cars pull up at the curb outside the north edge (wave 1) and the south edge (wave 2) on the

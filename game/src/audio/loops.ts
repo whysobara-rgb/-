@@ -3,13 +3,20 @@
  *
  *   drag       safe scraping over paving; intensity = drag speed (rate, brightness, level)
  *   bankRumble a whole building grinding along; intensity = bank speed
- *   strain     rising creak while pulling an anchored target; intensity = unanchor progress
+ *   strain     the uproot build-up while pulling an anchored target; intensity = unanchor progress
+ *              (pitch = size: small safe high, bank low). Creak and groan rise in pitch and grit,
+ *              taut roots start to quiver and snap past 40 %, the ground shakes past 80 %
+ *              (the stages of src/render/uproot.ts)
  *   sirenLoop  police wailing in the distance during "30초 뒤 출발!"; intensity = urgency
+ *   policeSiren a police car's cute two-tone "삐뽀" (red / blue strobe rhythm); intensity = level,
+ *              pitch = doppler bend while it drives in
+ *   alarmBell  an uprooted bank's old-fashioned clapper bell; intensity = level (the director
+ *              settles it after the first seconds and ducks it with distance)
  *
  * A LoopVoice owns long-running looped sources; the engine creates one per (id, key) on demand,
  * feeds it intensity changes and destroys it after it has been silent for a while.
  */
-import { creakBuffer, noiseBuffer, scrapeBuffer, type NoiseColor } from './dsp';
+import { alarmBellBuffer, crackleBuffer, creakBuffer, noiseBuffer, scrapeBuffer, type NoiseColor } from './dsp';
 import type { LoopId } from './ids';
 
 export interface LoopVoice {
@@ -18,6 +25,11 @@ export interface LoopVoice {
   readonly output: GainNode;
   /** Smoothly move towards the sound for this intensity (0 = silent). */
   set(intensity: number, t: number): void;
+  /**
+   * Pitch multiplier (1 = natural): the strain's size, the police siren's doppler bend, the
+   * bell's tuning. Loops without a pitch character ignore it.
+   */
+  setPitch(pitch: number, t: number): void;
   /** Stop every source at time t (after fading). */
   stop(t: number): void;
 }
@@ -78,7 +90,103 @@ export const LOOP_GAIN: Readonly<Record<LoopId, number>> = {
   bankRumble: 0.52,
   strain: 0.55,
   sirenLoop: 0.5,
+  policeSiren: 0.5,
+  alarmBell: 0.5,
 };
+
+/** Police two-tone: high D6 / low A5 (chord tones of the songs' D minor tonic), "삐-뽀". */
+export const POLICE_SIREN_HI_HZ = 1174.66;
+export const POLICE_SIREN_LO_HZ = 880;
+/** Hi-lo cycles per second: the light bar's red / blue strobe rate (src/render/models/police.ts). */
+export const POLICE_SIREN_RATE = 2.2;
+/** Police siren level (linear, before LOOP_GAIN) at a given intensity. */
+export const policeSirenLevel = (i: number): number => 0.3 * Math.pow(i, 1.3);
+/** Alarm bell level (linear, before LOOP_GAIN) at a given intensity. */
+export const alarmBellLevel = (i: number): number => 0.55 * Math.pow(i, 1.4);
+
+/**
+ * Control waveforms of the police siren, one period each: the frequency contour (Hz offsets from
+ * the mean: high tone then low tone, each with a quick upward scoop) and the amplitude contour
+ * (a short dip at every tone change, the "pi-po" articulation). Built as PeriodicWaves so the
+ * pattern runs sample-accurately on the audio clock (Lanczos-smoothed, no Gibbs ringing).
+ */
+function sirenContours(): { freq: Float32Array; amp: Float32Array; meanFreq: number; meanAmp: number } {
+  const N = 2048;
+  const P = 1 / POLICE_SIREN_RATE;
+  const freq = new Float32Array(N);
+  const amp = new Float32Array(N);
+  for (let n = 0; n < N; n++) {
+    const ph = n / N;
+    const hi = ph < 0.5;
+    const tau = (hi ? ph : ph - 0.5) * P;
+    const base = hi ? POLICE_SIREN_HI_HZ : POLICE_SIREN_LO_HZ;
+    // Scoop: starts 70 cents flat and snaps up within ~20 ms (a bouncy toy attack).
+    freq[n] = base * Math.pow(2, (-70 * Math.exp(-tau / 0.018)) / 1200);
+    // Dip around each tone change (+-14 ms raised cosine to 0.4).
+    const d = Math.min(Math.abs(ph - 0.5), ph, 1 - ph) * P;
+    amp[n] = d < 0.014 ? 1 - 0.6 * 0.5 * (1 + Math.cos((Math.PI * d) / 0.014)) : 1;
+  }
+  const mean = (x: Float32Array): number => x.reduce((a, b) => a + b, 0) / x.length;
+  return { freq, amp, meanFreq: mean(freq), meanAmp: mean(amp) };
+}
+
+const waveCache = new WeakMap<BaseAudioContext, { freq: PeriodicWave; amp: PeriodicWave; meanFreq: number; meanAmp: number }>();
+
+/** PeriodicWave whose output is exactly `x - mean(x)` over one period (H harmonics). */
+function periodicFrom(ctx: BaseAudioContext, x: Float32Array, H = 160): PeriodicWave {
+  const N = x.length;
+  const real = new Float32Array(H + 1);
+  const imag = new Float32Array(H + 1);
+  for (let k = 1; k <= H; k++) {
+    let re = 0;
+    let im = 0;
+    for (let n = 0; n < N; n++) {
+      const a = (2 * Math.PI * k * n) / N;
+      re += x[n] * Math.cos(a);
+      im += x[n] * Math.sin(a);
+    }
+    // Lanczos sigma factor tames the overshoot at the tone steps.
+    const z = (Math.PI * k) / (H + 1);
+    const sigma = Math.sin(z) / z;
+    real[k] = ((2 * re) / N) * sigma;
+    imag[k] = ((2 * im) / N) * sigma;
+  }
+  return ctx.createPeriodicWave(real, imag, { disableNormalization: true });
+}
+
+function sirenWaves(ctx: BaseAudioContext): { freq: PeriodicWave; amp: PeriodicWave; meanFreq: number; meanAmp: number } {
+  let w = waveCache.get(ctx);
+  if (!w) {
+    const c = sirenContours();
+    w = { freq: periodicFrom(ctx, c.freq), amp: periodicFrom(ctx, c.amp), meanFreq: c.meanFreq, meanAmp: c.meanAmp };
+    waveCache.set(ctx, w);
+  }
+  return w;
+}
+
+/**
+ * The synthesized material the loops (and many one-shots) build lazily on first use, as separate
+ * steps: noise colors, the scrape / creak / root-crackle textures, the police siren's wave tables
+ * and the alarm bell (the heaviest, ~25 ms). The engine runs one step per idle slot after unlock,
+ * so the first police car or bank alarm (which lands right on the bank-uproot slam) never stalls a
+ * frame building them. Every step is cached per context: running it again is free.
+ */
+export function prewarmSteps(ctx: BaseAudioContext): (() => void)[] {
+  const colors: NoiseColor[] = ['white', 'pink', 'brown'];
+  return [
+    ...colors.map((c) => (): void => void noiseBuffer(ctx, c)),
+    (): void => void scrapeBuffer(ctx),
+    (): void => void creakBuffer(ctx),
+    (): void => void crackleBuffer(ctx),
+    (): void => void sirenWaves(ctx),
+    (): void => void alarmBellBuffer(ctx),
+  ];
+}
+
+/** tanh saturation curve with makeup so a driven signal keeps roughly the same peak. */
+function gritCurve(): Float32Array<ArrayBuffer> {
+  return shaperCurve((x) => Math.tanh(2.5 * x) / Math.tanh(2.5));
+}
 
 interface Graph {
   ctx: BaseAudioContext;
@@ -128,6 +236,7 @@ function noiseLoop(g: Graph, color: NoiseColor, t: number, rnd: () => number): A
 export function createLoop(ctx: BaseAudioContext, id: LoopId, t: number, rnd: () => number, grid?: BarGrid | null): LoopVoice {
   const g: Graph = { ctx, out: gainNode(ctx, LOOP_GAIN[id]), sources: [] };
   let set: (i: number, t: number) => void;
+  let setPitch: (p: number, t: number) => void = () => undefined;
 
   switch (id) {
     case 'drag': {
@@ -190,26 +299,90 @@ export function createLoop(ctx: BaseAudioContext, id: LoopId, t: number, rnd: ()
       break;
     }
     case 'strain': {
+      // The uproot build-up (src/render/uproot.ts): 0-40 % creak + groan, 40-80 % the roots
+      // stretch (a quivering taut whine, first fibre snaps), 80-100 % violent shake (dense snaps,
+      // a trembling low rumble). Pitch and grit rise with progress; `pitch` is the object's size.
+      let pitch = 1;
+      let last = 0;
       const creak = loopSource(g, creakBuffer(ctx), t, rnd);
       const bp = filter(ctx, 'bandpass', 600, 1.6);
       const lvl = gainNode(ctx);
       chain(creak, bp, lvl, g.out);
+      // Groan: a saw driven into a tanh shaper harder and harder (grit) through a lowpass.
       const saw = ctx.createOscillator();
       saw.type = 'sawtooth';
       saw.frequency.value = 64;
+      const drive = gainNode(ctx, 1);
+      const grit = ctx.createWaveShaper();
+      grit.curve = gritCurve();
       const lp = filter(ctx, 'lowpass', 420, 2);
       const sawLvl = gainNode(ctx);
-      chain(saw, lp, sawLvl, g.out);
-      saw.start(t);
-      g.sources.push(saw);
-      set = (i, at) => {
+      chain(saw, drive, grit, lp, sawLvl, g.out);
+      // Taut roots: a thin whine whose quiver gets faster and wider.
+      const whine = ctx.createOscillator();
+      whine.type = 'triangle';
+      whine.frequency.value = 200;
+      const quiver = ctx.createOscillator();
+      quiver.frequency.value = 7;
+      const quiverDepth = gainNode(ctx, 0);
+      chain(quiver, quiverDepth);
+      quiverDepth.connect(whine.detune);
+      const whineBp = filter(ctx, 'bandpass', 400, 2.5);
+      const whineLvl = gainNode(ctx);
+      chain(whine, whineBp, whineLvl, g.out);
+      // Fibres snapping.
+      const snaps = loopSource(g, crackleBuffer(ctx), t, rnd);
+      const snapBp = filter(ctx, 'bandpass', 1900, 0.7);
+      const snapLvl = gainNode(ctx);
+      chain(snaps, snapBp, snapLvl, g.out);
+      // Ground shaking: low rumble with a fast tremolo.
+      const rumble = noiseLoop(g, 'brown', t, rnd);
+      const rumbleLp = filter(ctx, 'lowpass', 150, 0.8);
+      const trem = gainNode(ctx, 0.6);
+      const tremOsc = ctx.createOscillator();
+      tremOsc.type = 'triangle';
+      tremOsc.frequency.value = 11;
+      const tremDepth = gainNode(ctx, 0.4);
+      chain(tremOsc, tremDepth);
+      tremDepth.connect(trem.gain);
+      const rumbleLvl = gainNode(ctx);
+      chain(rumble, rumbleLp, trem, rumbleLvl, g.out);
+      for (const o of [saw, whine, quiver, tremOsc]) {
+        o.start(t);
+        g.sources.push(o);
+      }
+      const apply = (i: number, at: number): void => {
         const tau = 0.1;
         const on = i > 0.001;
-        to(creak.playbackRate, 0.55 + 1.1 * i, at, tau);
-        to(bp.frequency, 550 + 900 * i, at, tau);
-        to(lvl.gain, on ? 0.45 + 0.4 * i : 0, at, tau);
-        to(saw.frequency, 62 + 36 * i, at, tau);
-        to(sawLvl.gain, on ? 0.035 + 0.045 * i : 0, at, tau);
+        const p = pitch;
+        const stretch = smoothstep(0.45, 1, i);
+        const shake = smoothstep(0.8, 0.98, i);
+        to(creak.playbackRate, (0.5 + 1.35 * i) * p, at, tau);
+        to(bp.frequency, (520 + 1250 * i) * p, at, tau);
+        to(lvl.gain, on ? 0.42 + 0.33 * i : 0, at, tau);
+        to(saw.frequency, (56 + 50 * Math.pow(i, 1.3)) * p, at, tau);
+        to(drive.gain, 0.6 + 5 * i * i, at, tau);
+        to(lp.frequency, (300 + 900 * i) * Math.sqrt(p), at, tau);
+        to(sawLvl.gain, on ? 0.03 + 0.04 * i : 0, at, tau);
+        to(whine.frequency, (190 + 300 * stretch) * p, at, tau);
+        to(whineBp.frequency, (380 + 600 * stretch) * p, at, tau);
+        to(quiver.frequency, 6 + 9 * i, at, tau);
+        to(quiverDepth.gain, 6 + 45 * stretch, at, tau);
+        to(whineLvl.gain, on ? 0.07 * stretch : 0, at, tau);
+        to(snaps.playbackRate, (0.6 + 1.0 * i) * Math.sqrt(p), at, tau);
+        to(snapBp.frequency, 1900 * p, at, tau);
+        to(snapLvl.gain, on ? 0.75 * smoothstep(0.4, 0.95, i) : 0, at, tau);
+        to(rumbleLp.frequency, 150 * Math.sqrt(p), at, tau);
+        to(tremOsc.frequency, 9 + 4 * shake, at, tau);
+        to(rumbleLvl.gain, on ? 0.9 * shake * (1.4 - 0.4 * p) : 0, at, tau);
+      };
+      set = (i, at) => {
+        last = i;
+        apply(i, at);
+      };
+      setPitch = (p, at) => {
+        pitch = p;
+        apply(last, at);
       };
       break;
     }
@@ -279,12 +452,89 @@ export function createLoop(ctx: BaseAudioContext, id: LoopId, t: number, rnd: ()
       };
       break;
     }
+    case 'policeSiren': {
+      // A toy police car "삐뽀삐뽀": high / low tone in the light bar's red / blue rhythm, a
+      // bouncy scoop into each tone and a tiny gap between them. One PeriodicWave oscillator
+      // drives the pitch, another the articulation; doppler bends the carriers' detune.
+      const w = sirenWaves(ctx);
+      const contour = ctx.createOscillator();
+      contour.setPeriodicWave(w.freq);
+      contour.frequency.value = POLICE_SIREN_RATE;
+      const articulation = ctx.createOscillator();
+      articulation.setPeriodicWave(w.amp);
+      articulation.frequency.value = POLICE_SIREN_RATE;
+      const sq = ctx.createOscillator();
+      sq.type = 'square';
+      const tri = ctx.createOscillator();
+      tri.type = 'triangle';
+      const shine = ctx.createOscillator();
+      const vib = ctx.createOscillator();
+      vib.frequency.value = 8.5;
+      const vibDepth = gainNode(ctx, 9);
+      chain(vib, vibDepth);
+      for (const o of [sq, tri]) {
+        o.frequency.value = w.meanFreq;
+        contour.connect(o.frequency);
+        vibDepth.connect(o.detune);
+      }
+      // The sparkle partial follows at double the contour.
+      const twice = gainNode(ctx, 2);
+      contour.connect(twice);
+      shine.frequency.value = w.meanFreq * 2;
+      twice.connect(shine.frequency);
+      vibDepth.connect(shine.detune);
+      const sqLp = filter(ctx, 'lowpass', 2600, 1.4);
+      const sqLvl = gainNode(ctx, 0.22);
+      chain(sq, sqLp, sqLvl);
+      const triLvl = gainNode(ctx, 0.8);
+      tri.connect(triLvl);
+      const shineLvl = gainNode(ctx, 0.07);
+      shine.connect(shineLvl);
+      const artic = gainNode(ctx, w.meanAmp);
+      articulation.connect(artic.gain);
+      for (const n of [sqLvl, triLvl, shineLvl]) n.connect(artic);
+      const tone = filter(ctx, 'lowpass', 4000, 0.6);
+      const lvl = gainNode(ctx);
+      chain(artic, tone, lvl, g.out);
+      // Every police car starts at the top of the high tone: the two oscillators stay locked.
+      for (const o of [contour, articulation, sq, tri, shine, vib]) {
+        o.start(t);
+        g.sources.push(o);
+      }
+      set = (i, at) => {
+        const tau = 0.12;
+        to(lvl.gain, policeSirenLevel(i), at, tau);
+        to(tone.frequency, 1800 + 5200 * i, at, tau);
+      };
+      setPitch = (p, at) => {
+        const cents = 1200 * Math.log2(Math.max(0.5, Math.min(2, p)));
+        for (const o of [sq, tri, shine]) to(o.detune, cents, at, 0.06);
+      };
+      break;
+    }
+    case 'alarmBell': {
+      // Old-fashioned clapper bell, one seamless pre-rendered ring (./dsp.ts alarmBellBuffer).
+      // Lower intensity = further away / settled: quieter and duller.
+      const ring = loopSource(g, alarmBellBuffer(ctx), t, rnd);
+      const hp = filter(ctx, 'highpass', 260, 0.7);
+      const tone = filter(ctx, 'lowpass', 6000, 0.6);
+      const lvl = gainNode(ctx);
+      chain(ring, hp, tone, lvl, g.out);
+      set = (i, at) => {
+        const tau = 0.15;
+        to(lvl.gain, alarmBellLevel(i), at, tau);
+        to(tone.frequency, 1600 + 7000 * i, at, tau);
+      };
+      setPitch = (p, at) => to(ring.playbackRate, Math.max(0.5, Math.min(2, p)), at, 0.1);
+      break;
+    }
   }
 
   return {
     id,
     output: g.out,
     set: (i, at) => set(Math.max(0, Math.min(1, i)), at),
+    setPitch: (p, at) => setPitch(Number.isFinite(p) && p > 0 ? p : 1, at),
     stop(at: number): void {
       for (const s of g.sources) {
         try {

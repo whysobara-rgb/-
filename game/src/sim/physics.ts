@@ -126,6 +126,11 @@ export class Body {
   /** Viscous ground drag coefficient (1/s); angular drag uses the same coefficient. */
   linDrag = 0;
   fixedRotation = false;
+  /**
+   * Passes through other dynamic bodies (still collides with statics). Only used for a police
+   * officer whose way back to its car is sealed off by a bank / bodies (police.ts).
+   */
+  ghost = false;
   /** Drive force applied this tick (world space, N). */
   fx = 0;
   fy = 0;
@@ -847,6 +852,7 @@ export class PhysicsWorld {
         if (b.maxY < a.minY || b.minY > a.maxY) continue;
         if (a.motion !== 'dynamic' && b.motion !== 'dynamic') continue;
         if (a.weldParent === b || b.weldParent === a) continue;
+        if (a.ghost || b.ghost) continue;
         // keep pair order canonical by body index (determinism independent of sort position)
         if (a.index < b.index) this.bodyPair(a, b);
         else this.bodyPair(b, a);

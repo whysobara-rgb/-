@@ -69,6 +69,14 @@ export const INTERIOR_FAIRNESS_TOL = 0.75;
 export const FENCE_DETOUR_FACTOR = 1.15;
 export const BYPASS_SAMPLE_STEP = 2.5;
 export const ROUTE_SAMPLE_STEP = 0.2;
+/**
+ * Wall pockets (stall bug fix): an anchored outdoor safe must sit either flush against a solid
+ * (gap <= POCKET_FLUSH) or at least POCKET_MIN_GAP away from every solid, other safe, bank and
+ * the arena edge. A gap in between is narrower than a raccoon (0.9 m) plus a margin: a body
+ * shoved into it wedges between two opposing contacts.
+ */
+export const POCKET_MIN_GAP = 1.0;
+export const POCKET_FLUSH = 0.08;
 /** Character center may be this far from a safe's surface and still grab it. */
 const GRAB_RANGE = CHARACTER.radius + CHARACTER.reach;
 
@@ -163,6 +171,46 @@ type Shape =
 
 function shapeSd(s: Shape, p: Vec2): number {
   return s.type === 'box' ? sdOBB(s.obb, p) : sdCircle(s.center, s.radius, p);
+}
+
+/** Exact distance between two disjoint convex shapes (<= 0 when they touch or overlap). */
+function obbGap(o: OBB, s: Shape): number {
+  if (s.type === 'circle') return sdOBB(o, s.center) - s.radius;
+  let d = Infinity;
+  for (const v of obbCorners(o)) d = Math.min(d, sdOBB(s.obb, v));
+  for (const v of obbCorners(s.obb)) d = Math.min(d, sdOBB(o, v));
+  return d;
+}
+
+export interface SafePocket {
+  safe: number;
+  gap: number;
+  against: string;
+}
+
+/**
+ * Smallest gap between each outdoor safe (start pose) and any other solid: statics, circles,
+ * vans, intact fences, banks at their start pose, other outdoor safes and the arena edge.
+ */
+export function safeGaps(def: LayoutDef): SafePocket[] {
+  const shapes = obstacles(def, { fences: 'all', banksAtStart: true });
+  const obbs = def.safes.map(safeOBB);
+  return obbs.map((o, i) => {
+    let best: SafePocket = { safe: i, gap: Infinity, against: '' };
+    const take = (gap: number, against: string): void => {
+      if (gap < best.gap) best = { safe: i, gap, against };
+    };
+    for (const sh of shapes) {
+      const a = shapeAabb(sh);
+      if (a.minX > o.center.x + 4 || a.maxX < o.center.x - 4 || a.minY > o.center.y + 4 || a.maxY < o.center.y - 4) continue;
+      take(obbGap(o, sh), `${sh.solidKind} ${sh.id}`);
+    }
+    obbs.forEach((q, j) => {
+      if (j !== i) take(obbGap(o, { type: 'box', id: `safe${j}`, obb: q, solidKind: 'safe' }), `safe ${j}`);
+    });
+    for (const v of obbCorners(o)) take(Math.min(v.x, v.y, def.size.x - v.x, def.size.y - v.y), 'arena edge');
+    return best;
+  });
 }
 
 function shapeAabb(s: Shape): { minX: number; minY: number; maxX: number; maxY: number } {
@@ -665,6 +713,12 @@ export function validateLayout(def: LayoutDef, meta: LayoutDesignMeta, opts: Val
     });
     for (let j = i + 1; j < safeObbs.length; j++) if (obbOverlap(so, safeObbs[j], 0.3)) err('safe', `safes ${i} and ${j} overlap`);
   });
+  // wall pockets: a safe is flush with a solid or leaves a raccoon-wide gap (never in between)
+  for (const pk of safeGaps(def)) {
+    if (pk.gap > POCKET_FLUSH && pk.gap < POCKET_MIN_GAP) {
+      err('pocket', `safe ${pk.safe} leaves a ${fmt(pk.gap, 2)} m pocket against ${pk.against} (flush or >= ${POCKET_MIN_GAP} m)`);
+    }
+  }
   bankObbs.forEach((bo, b) => {
     if (!obbInside(bo, arena, 1)) err('bank', `bank ${b} too close to the arena edge`);
     for (const sh of staticShapes) {

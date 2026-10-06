@@ -14,7 +14,7 @@
  *      Officer brains run right before physics (after commands) and their lunges / dash stuns
  *      resolve after every substep, after character dash hits.
  */
-import { BANK_MODEL, CHARACTER, DT, FENCE, UNSTUCK } from './config';
+import { BANK_MODEL, CHARACTER, DT, FENCE, STALL_RESCUE, UNSTUCK } from './config';
 import { emit, lootById, type SimContext } from './context';
 import {
   bankFloor,
@@ -307,6 +307,7 @@ export class Simulation {
         }
       }
     }
+    this.stallRescue();
     // anti-pin: free safes
     for (let i = 0; i < st.loot.length; i++) {
       const l = st.loot[i]!;
@@ -347,6 +348,86 @@ export class Simulation {
       rt.lastX = rt.body.x;
       rt.lastY = rt.body.y;
       rt.lastA = rt.body.a;
+    }
+  }
+
+  /**
+   * Stall rescue (STALL_RESCUE, doc §16/§20 영구 끼임): a character steering with real input that
+   * has not moved for ~0.6 s while wedged in geometry is moved to the nearest free spot that a
+   * thin probe reaches in a straight line from where it stands (never through a wall, fence or
+   * safe). Deterministic; the search order is mirrored for the east half of the arena so mirrored
+   * situations get mirrored outcomes.
+   */
+  private stallRescue(): void {
+    const ctx = this.ctx;
+    const st = this.state;
+    const R = CHARACTER.radius;
+    const S = STALL_RESCUE;
+    const police = ctx.police;
+    const geomFree = (p: Vec2, r: number): boolean => isFreeCircle(ctx, p, r);
+    const bodyFree = (p: Vec2, r: number, id: EntityId): boolean =>
+      isFreeCircle(ctx, p, r, { characters: true, ignoreCharId: id }) && (!police || police.isFreeOfOfficers(p, r));
+    for (let i = 0; i < st.characters.length; i++) {
+      const ch = st.characters[i]!;
+      const rt = ctx.chars[i]!;
+      const b = rt.body;
+      const mv = rt.cmd.move;
+      const ml = Math.hypot(mv.x, mv.y);
+      const eligible = ml >= S.minInput && !ch.grab && !ch.straining && ch.knockdownTicks <= 0 && ch.dashTicks <= 0 && ch.boostTicks <= 0 && ch.floorOf === null && !b.floor;
+      if (!eligible || Math.hypot(b.x - rt.stallX, b.y - rt.stallY) > S.maxMove) {
+        rt.stallTicks = 0;
+        rt.stallX = b.x;
+        rt.stallY = b.y;
+        continue;
+      }
+      if (++rt.stallTicks < S.ticks) continue;
+      rt.stallTicks = 0;
+      const here = { x: b.x, y: b.y };
+      const tightR = R - S.tolerance;
+      const ahead = { x: b.x + (mv.x / ml) * S.probe, y: b.y + (mv.y / ml) * S.probe };
+      // boxed in: no body-sized free spot a short step away in any direction (a pocket closed by
+      // gaps narrower than the body, e.g. a wall, a bench and a tree; only a shove gets one in)
+      const boxedIn = (p: Vec2): boolean => {
+        for (let k = 0; k < 16; k++) {
+          const a = (k / 16) * Math.PI * 2;
+          if (geomFree({ x: p.x + Math.cos(a) * S.boxProbe, y: p.y + Math.sin(a) * S.boxProbe }, tightR)) return false;
+        }
+        return true;
+      };
+      // wedged: overlapping geometry right here, the steered way is open yet nothing moves, or
+      // boxed in. (Walking into a wall or a raccoon is none of these.)
+      const wedged = !geomFree(here, tightR) || bodyFree(ahead, tightR, ch.id) || boxedIn(here);
+      if (!wedged) continue;
+      const side = b.x > this.layout.size.x / 2 ? -1 : 1;
+      const reachable = (p: Vec2): boolean => {
+        const d = Math.hypot(p.x - here.x, p.y - here.y);
+        const n = Math.max(1, Math.ceil(d / 0.05));
+        for (let k = 1; k <= n; k++) {
+          const t = k / n;
+          if (!geomFree({ x: here.x + (p.x - here.x) * t, y: here.y + (p.y - here.y) * t }, S.probeRadius)) return false;
+        }
+        return true;
+      };
+      let spot: Vec2 | null = null;
+      for (let r = S.searchStep; r <= S.maxNudge + 1e-9 && !spot; r += S.searchStep) {
+        const n = Math.max(8, Math.ceil((2 * Math.PI * r) / S.searchStep));
+        for (let k = 0; k < n; k++) {
+          const a = (k / n) * Math.PI * 2;
+          const p = { x: here.x + side * Math.cos(a) * r, y: here.y + Math.sin(a) * r };
+          if (!bodyFree(p, R + S.tolerance, ch.id) || !reachable(p) || boxedIn(p)) continue;
+          spot = p;
+          break;
+        }
+      }
+      if (!spot) continue;
+      b.x = spot.x;
+      b.y = spot.y;
+      b.vx = 0;
+      b.vy = 0;
+      b.updateShapes(0);
+      rt.stallX = spot.x;
+      rt.stallY = spot.y;
+      emit(ctx, { type: 'unstuck', tick: st.tick, entityId: ch.id, pos: { ...spot } });
     }
   }
 
@@ -518,6 +599,9 @@ export class Simulation {
         b.vy = 0;
         if (angle !== undefined) ch.facing = angle;
         rt.stuckTicks = 0;
+        rt.stallTicks = 0;
+        rt.stallX = pos.x;
+        rt.stallY = pos.y;
         b.updateShapes(0);
         return;
       }

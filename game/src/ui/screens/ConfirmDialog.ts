@@ -7,6 +7,8 @@
 import { t, type TParams } from '../i18n';
 import { h } from '../core/dom';
 import { UiScreen } from '../core/screen';
+import { chunky } from '../core/juice';
+import { icon } from '../core/icons';
 import { button } from '../components/controls';
 
 export interface ConfirmDialogProps {
@@ -51,8 +53,9 @@ export class ConfirmDialog extends UiScreen<ConfirmDialogProps> {
         },
         h(
           'div',
-          { class: 'uh-dialog uh-panel' },
-          h('h2', { class: 'uh-dialog__title' }, t(p.titleKey, p.params)),
+          { class: ['uh-dialog', 'uh-panel', p.danger ? 'uh-dialog--danger' : ''] },
+          h('div', { class: 'uh-dialog__badge', 'aria-hidden': 'true' }, icon(p.danger ? 'alert' : 'paw')),
+          chunky(t(p.titleKey, p.params), { tag: 'h2', cls: 'uh-dialog__title', tone: 'cream' }),
           p.bodyKey ? h('p', { class: 'uh-dialog__body' }, t(p.bodyKey, p.params)) : null,
           h(
             'div',

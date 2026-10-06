@@ -1,12 +1,14 @@
 /**
  * Quick match setup (doc §12: everything open from the start, no unlock gates).
  * Rows: 모드 (1:1 / 2:2) · 배치 (layouts + 무작위) · 상대 성향 (3 rivals + 무작위) · 난이도.
- * Right column previews the chosen layout map and the rival's habit / weak spot.
+ * A big tilted sticker panel on the right (the gang keeps hanging out on the rooftop to the left),
+ * with a 3D snapshot of the chosen layout and the chosen rival's 3D portrait + habit / weak spot.
  */
 import type { LayoutDef, LayoutId } from '../../sim/types';
 import { t, tr, type TextRef } from '../i18n';
 import { h } from '../core/dom';
-import { icon, raccoon, teamEmblem } from '../core/icons';
+import { icon, teamEmblem } from '../core/icons';
+import { portrait, layoutPortrait } from '../core/portrait';
 import { UiScreen } from '../core/screen';
 import { button, chip, cyclerRow, promptBar, screenHeader, stagger, type CyclerOption } from '../components/controls';
 import { LayoutMap } from '../components/layoutMap';
@@ -23,7 +25,7 @@ export interface QuickLayoutChoice {
   id: LayoutId;
   nameKey: string;
   descKey: string;
-  /** Full layout for the thumbnail map (optional). */
+  /** Full layout for the thumbnail (optional). */
   layout?: LayoutDef | null;
 }
 
@@ -37,8 +39,8 @@ export interface QuickMatchSetupProps {
 
 export class QuickMatchSetup extends UiScreen<QuickMatchSetupProps> {
   private value: QuickMatchOptions;
+  private cards: HTMLElement | null = null;
   private map: LayoutMap | null = null;
-  private side: HTMLElement | null = null;
 
   constructor(props: QuickMatchSetupProps) {
     super(props, { name: 'quick' });
@@ -67,7 +69,7 @@ export class QuickMatchSetup extends UiScreen<QuickMatchSetupProps> {
   private set<K extends keyof QuickMatchOptions>(key: K, v: QuickMatchOptions[K]): void {
     this.value = { ...this.value, [key]: v };
     this.props.onChange?.(this.getValue());
-    this.paintSide();
+    this.paintCards(true);
   }
 
   protected render(): void {
@@ -124,20 +126,23 @@ export class QuickMatchSetup extends UiScreen<QuickMatchSetupProps> {
       onActivate: () => this.leave(() => this.props.onStart(this.getValue())),
     });
 
-    this.side = h('aside', { class: 'uh-quick__side' });
-    this.map = new LayoutMap(null, { compact: true });
-    this.own(() => this.map?.destroy());
-
+    this.cards = h('div', { class: 'uh-quick__cards' });
     this.el.append(
       h(
         'div',
         { class: 'uh-frame uh-quick' },
-        screenHeader('quick.title', 'quick.subtitle', 'quick'),
+        screenHeader('quick.title', 'quick.subtitle', 'quick', null, 'sun'),
         h(
           'div',
           { class: 'uh-quick__body' },
-          h('div', { class: 'uh-quick__main uh-panel' }, h('div', { class: 'uh-quick__scroll uh-scroll' }, rows), h('div', { class: 'uh-quick__startWrap' }, h('p', { class: 'uh-quick__note' }, t('difficulty.note')), start)),
-          this.side,
+          h('div', { class: 'uh-quick__gang', 'aria-hidden': 'true' }),
+          h(
+            'div',
+            { class: 'uh-quick__panel uh-panel' },
+            h('div', { class: 'uh-quick__scroll uh-scroll' }, rows),
+            this.cards,
+            h('div', { class: 'uh-quick__startWrap' }, h('p', { class: 'uh-quick__note' }, t('difficulty.note')), start),
+          ),
         ),
         promptBar([
           { action: 'adjust', label: 'prompt.adjust' },
@@ -146,64 +151,55 @@ export class QuickMatchSetup extends UiScreen<QuickMatchSetupProps> {
         ]),
       ),
     );
-    this.paintSide();
+    this.paintCards(false);
   }
 
-  private paintSide(): void {
-    const side = this.side;
-    if (!side || !this.map) return;
+  protected override onDestroy(): void {
+    this.map?.destroy();
+  }
+
+  private paintCards(animate: boolean): void {
+    const box = this.cards;
+    if (!box) return;
     const v = this.value;
     const choice = v.layout === 'random' ? null : this.props.layouts.find((l) => l.id === v.layout) ?? null;
 
-    // Layout card
-    const mapBox = h('div', { class: 'uh-quick__mapBox' });
+    // Layout card: a 3D snapshot of the miniature (2D map when no renderer is around).
+    let art: HTMLElement;
     if (choice?.layout) {
-      this.map.setLayout(choice.layout);
-      mapBox.appendChild(this.map.el);
-      requestAnimationFrame(() => this.map?.draw());
-    } else {
-      mapBox.appendChild(h('div', { class: 'uh-quick__mystery' }, icon('dice'), h('span', null, '?')));
-    }
+      const snap = layoutPortrait(choice.layout, 'uh-quick__snap');
+      if (snap) art = snap;
+      else {
+        this.map?.destroy();
+        this.map = new LayoutMap(choice.layout, { compact: true });
+        art = h('div', { class: 'uh-quick__mapBox' }, this.map.el);
+        requestAnimationFrame(() => this.map?.draw());
+      }
+    } else art = h('div', { class: 'uh-quick__mystery' }, icon('dice'), h('span', null, '?'));
     const layoutCard = h(
       'section',
-      { class: 'uh-quick__card uh-panel' },
-      mapBox,
-      h(
-        'div',
-        { class: 'uh-quick__cardText' },
-        h('h3', { class: 'uh-quick__cardTitle' }, choice ? t(choice.nameKey) : t('quick.randomLayout')),
-        h('p', { class: 'uh-quick__cardDesc' }, choice ? t(choice.descKey) : t('quick.randomLayout.desc')),
-      ),
+      { class: 'uh-quick__card uh-quick__card--layout' },
+      h('div', { class: 'uh-quick__art' }, art),
+      h('div', { class: 'uh-quick__cardText' }, h('h3', { class: 'uh-quick__cardTitle' }, choice ? t(choice.nameKey) : t('quick.randomLayout')), h('p', { class: 'uh-quick__cardDesc' }, choice ? t(choice.descKey) : t('quick.randomLayout.desc'))),
     );
 
-    // Rival card
     const rival = v.rival;
     const rivalCard =
       rival === 'random'
         ? h(
             'section',
-            { class: 'uh-quick__rival uh-panel' },
-            h('div', { class: 'uh-quick__portrait is-mystery' }, raccoon({ silhouette: true, expression: 'smug' })),
-            h(
-              'div',
-              { class: 'uh-quick__rivalText' },
-              h('h3', { class: 'uh-quick__cardTitle' }, t('quick.randomRival')),
-              h('p', { class: 'uh-quick__cardDesc' }, t('quick.randomRival.desc')),
-            ),
+            { class: 'uh-quick__card uh-quick__card--rival is-mystery' },
+            h('div', { class: 'uh-quick__face' }, portrait({ silhouette: true, rival: 'nunchi', expression: 'smug' }, 'uh-quick__portrait')),
+            h('div', { class: 'uh-quick__cardText' }, h('h3', { class: 'uh-quick__cardTitle' }, t('quick.randomRival')), h('p', { class: 'uh-quick__cardDesc' }, t('quick.randomRival.desc'))),
           )
         : h(
             'section',
-            { class: 'uh-quick__rival uh-panel' },
-            h('div', { class: 'uh-quick__portrait' }, raccoon({ rival, team: 1 })),
+            { class: `uh-quick__card uh-quick__card--rival uh-quick__card--${rival}` },
+            h('div', { class: 'uh-quick__face' }, portrait({ rival, team: 1, frame: 'bust' }, 'uh-quick__portrait')),
             h(
               'div',
-              { class: 'uh-quick__rivalText' },
-              h(
-                'h3',
-                { class: 'uh-quick__cardTitle' },
-                t(`rival.${rival}.name`),
-                h('span', { class: 'uh-quick__rivalTitle' }, t(`rival.${rival}.title`)),
-              ),
+              { class: 'uh-quick__cardText' },
+              h('h3', { class: 'uh-quick__cardTitle' }, t(`rival.${rival}.name`), h('span', { class: 'uh-quick__rivalTitle' }, t(`rival.${rival}.title`))),
               this.factLine('quick.habit', `rival.${rival}.personality`),
               this.factLine('quick.weakness', `rival.${rival}.weakness`),
             ),
@@ -213,11 +209,15 @@ export class QuickMatchSetup extends UiScreen<QuickMatchSetupProps> {
       'div',
       { class: 'uh-quick__vsline' },
       chip(`mode.${v.mode}`, 'gold'),
-      h('span', { class: 'uh-quick__vsText' }, t(`mode.${v.mode}.desc`)),
       h('span', { class: 'uh-quick__emblems' }, teamEmblem(0), h('b', null, t('common.vs')), teamEmblem(1)),
-      chip(`difficulty.${v.difficulty}`, 'night'),
+      chip(`difficulty.${v.difficulty}`, 'grape'),
     );
-    side.replaceChildren(layoutCard, rivalCard, vs);
+    box.replaceChildren(layoutCard, rivalCard, vs);
+    if (animate) {
+      box.classList.remove('is-pop');
+      void box.offsetWidth;
+      box.classList.add('is-pop');
+    }
   }
 
   private factLine(label: TextRef, body: TextRef): HTMLElement {

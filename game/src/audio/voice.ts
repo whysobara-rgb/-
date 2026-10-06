@@ -5,7 +5,7 @@
  *   recipe nodes ─► voice gain (volume x trim x distance) ─► [air lowpass] ─► [pan] ─► bus
  *                         └─► reverb send ─► bus reverb
  */
-import type { LoopId } from './ids';
+import { AMBIENCE_LOOPS, type LoopId } from './ids';
 import { createLoop, type BarGrid, type LoopVoice } from './loops';
 import type { Mixer } from './mixer';
 import type { Rng } from './rng';
@@ -71,16 +71,19 @@ export function spawnSfx(ctx: BaseAudioContext, mixer: Mixer, id: SfxId, o: Spaw
   out.gain.value = Math.max(0, o.volume * r.gain * o.mix.gain);
   const nodes: AudioNode[] = [out];
   const { head } = attachSpatial(ctx, out, o.mix, nodes);
-  head.connect(r.bus === 'music' ? mixer.inputs.jingle : mixer.inputs[r.bus]);
+  // Police chatter goes through the ambience sub-bus (dry and reverb send both ducked under scoring).
+  const amb = r.ambience === true && r.bus === 'sfx';
+  head.connect(r.bus === 'music' ? mixer.inputs.jingle : amb ? mixer.inputs.ambience : mixer.inputs[r.bus]);
   if (r.reverb && r.bus !== 'ui') {
     const send = ctx.createGain();
     send.gain.value = r.reverb;
     out.connect(send);
-    send.connect(r.bus === 'music' ? mixer.musicReverb : mixer.sfxReverb);
+    send.connect(r.bus === 'music' ? mixer.musicReverb : amb ? mixer.ambienceReverb : mixer.sfxReverb);
     nodes.push(send);
   }
   const dur = r.play({ ctx, out, t: o.t, rnd: o.rnd, variant: o.variant, pitch: o.pitch, key: o.key, step: o.step });
   if (r.duck) mixer.duckMusic(o.t, r.duck.db, Math.max(r.duck.hold, dur * 0.8));
+  if (r.duckAmbience) mixer.duckAmbience(o.t, r.duckAmbience.db, Math.max(r.duckAmbience.hold, dur * 0.6));
   return { id, out, nodes, start: o.t, end: o.t + Math.max(dur, r.length) + 0.05, priority: r.priority };
 }
 
@@ -117,14 +120,17 @@ export function spawnLoop(
   gain.connect(lp);
   let pan: StereoPannerNode | null = null;
   const nodes: AudioNode[] = [voice.output, gain, lp];
+  // Sirens and alarm bells go through the ambience sub-bus (ducked under scoring sounds).
+  // (Loops have no reverb send.)
+  const bus = AMBIENCE_LOOPS.includes(id) ? mixer.inputs.ambience : mixer.inputs.sfx;
   if (typeof ctx.createStereoPanner === 'function') {
     pan = ctx.createStereoPanner();
     pan.pan.value = mix.pan;
     lp.connect(pan);
-    pan.connect(mixer.inputs.sfx);
+    pan.connect(bus);
     nodes.push(pan);
   } else {
-    lp.connect(mixer.inputs.sfx);
+    lp.connect(bus);
   }
   return { id, voice, gain, lp, pan, nodes };
 }

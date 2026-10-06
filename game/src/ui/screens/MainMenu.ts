@@ -1,14 +1,17 @@
 /**
- * Main menu: 연습 · 빠른 대전 · 라이벌 대회 · 옷장 · 설정 · 종료.
- * Left: chunky item list. Right: description card for the focused item + the player's
- * raccoon in the equipped hat.
+ * Main menu: 연습 · 빠른 대전 · 라이벌 대회 · 옷장 · 설정 · 종료 as chunky sticker signboards
+ * nailed up on the left (each tilted a little differently, each its own pop colour), over the live
+ * rooftop hideout where the gang reacts to the highlighted sign (game flow forwards
+ * `onFocusItem` to the 3D scene). The focused sign's description pops up as a speech bubble
+ * from the gang.
  */
 import type { HatId, TeamId } from '../../sim/types';
 import { t, tr, type TextRef } from '../i18n';
 import { h, setText } from '../core/dom';
-import { icon, raccoon, type IconName } from '../core/icons';
+import { icon, type IconName } from '../core/icons';
 import { navigable } from '../core/nav';
 import { UiScreen } from '../core/screen';
+import { chunky } from '../core/juice';
 import { chip, promptBar, stagger } from '../components/controls';
 
 export type MainMenuItem = 'practice' | 'quickMatch' | 'tournament' | 'wardrobe' | 'settings' | 'quit';
@@ -19,22 +22,24 @@ export interface MainMenuProps {
   onBack?: () => void;
   /** Hide 종료 (e.g. browser builds). Default true. */
   showQuit?: boolean;
-  /** Player look for the mascot card. */
+  /** Player look (kept for callers; the 3D hideout shows the raccoon). */
   hat?: HatId;
   team?: TeamId;
   /** Small badge per item, e.g. { tournament: { key: 'tournament.round', params: { n: 2 } } } or 'common.new'. */
   badges?: Partial<Record<MainMenuItem, TextRef>>;
   /** Focus on first show (default 'quickMatch' — the fastest way into a match). */
   initialFocus?: MainMenuItem;
+  /** The highlighted sign changed (the 3D gang reacts). */
+  onFocusItem?: (item: MainMenuItem) => void;
 }
 
-const ITEMS: readonly { id: MainMenuItem; icon: IconName; tone: string }[] = [
-  { id: 'practice', icon: 'practice', tone: 'mint' },
-  { id: 'quickMatch', icon: 'quick', tone: 'gold' },
-  { id: 'tournament', icon: 'tournament', tone: 'coral' },
-  { id: 'wardrobe', icon: 'wardrobe', tone: 'lilac' },
-  { id: 'settings', icon: 'settings', tone: 'sky' },
-  { id: 'quit', icon: 'quit', tone: 'ash' },
+const ITEMS: readonly { id: MainMenuItem; icon: IconName; tone: string; tilt: number }[] = [
+  { id: 'practice', icon: 'practice', tone: 'mint', tilt: -2.2 },
+  { id: 'quickMatch', icon: 'quick', tone: 'sun', tilt: 1.6 },
+  { id: 'tournament', icon: 'tournament', tone: 'tomato', tilt: -1.4 },
+  { id: 'wardrobe', icon: 'wardrobe', tone: 'grape', tilt: 2.2 },
+  { id: 'settings', icon: 'settings', tone: 'sky', tilt: -1.8 },
+  { id: 'quit', icon: 'quit', tone: 'ash', tilt: 1.2 },
 ];
 
 const LABEL: Record<MainMenuItem, string> = {
@@ -47,9 +52,10 @@ const LABEL: Record<MainMenuItem, string> = {
 };
 
 export class MainMenu extends UiScreen<MainMenuProps> {
-  private descTitle: HTMLElement | null = null;
-  private descBody: HTMLElement | null = null;
-  private descIcon: HTMLElement | null = null;
+  private bubble: HTMLElement | null = null;
+  private bubbleTitle: HTMLElement | null = null;
+  private bubbleBody: HTMLElement | null = null;
+  private lastItem: MainMenuItem | null = null;
 
   constructor(props: MainMenuProps) {
     super(props, { name: 'menu' });
@@ -64,15 +70,16 @@ export class MainMenu extends UiScreen<MainMenuProps> {
     const list = h(
       'nav',
       { class: 'uh-menu__list' },
-      items.map((it) => {
+      items.map((it, i) => {
         const badge = this.props.badges?.[it.id];
         const el = h(
           'div',
-          { class: ['uh-menuitem', `uh-menuitem--${it.tone}`, it.id === 'quit' ? 'uh-menuitem--quit' : ''], role: 'button' },
-          h('span', { class: 'uh-menuitem__tile' }, icon(it.icon)),
-          h('span', { class: 'uh-menuitem__label' }, t(LABEL[it.id])),
-          badge ? h('span', { class: 'uh-menuitem__badge' }, chip(badge, 'gold')) : null,
-          h('span', { class: 'uh-menuitem__paw', 'aria-hidden': 'true' }, icon('chevRight')),
+          { class: ['uh-sign', `uh-sign--${it.tone}`, it.id === 'quit' ? 'uh-sign--small' : ''], role: 'button', style: { '--tilt': `${it.tilt}deg`, '--i': String(i) } },
+          h('span', { class: 'uh-sign__nail uh-sign__nail--l', 'aria-hidden': 'true' }),
+          h('span', { class: 'uh-sign__nail uh-sign__nail--r', 'aria-hidden': 'true' }),
+          h('span', { class: 'uh-sign__icon' }, icon(it.icon)),
+          h('span', { class: 'uh-sign__label' }, t(LABEL[it.id])),
+          badge ? h('span', { class: 'uh-sign__badge' }, chip(badge, 'tomato')) : null,
         );
         return navigable(el, `menu:${it.id}`, {
           // One-shot: re-armed when this menu is shown again or a screen/dialog above it closes.
@@ -82,15 +89,9 @@ export class MainMenu extends UiScreen<MainMenuProps> {
     );
     stagger(list);
 
-    this.descIcon = h('div', { class: 'uh-menu__descIcon' });
-    this.descTitle = h('h2', { class: 'uh-menu__descTitle' });
-    this.descBody = h('p', { class: 'uh-menu__descBody' });
-    const mascot = h(
-      'div',
-      { class: 'uh-menu__mascot' },
-      raccoon({ hat: this.props.hat ?? 'teamCapA', team: this.props.team ?? 0, expression: 'happy' }),
-    );
-    const card = h('aside', { class: 'uh-menu__card uh-panel' }, this.descIcon, this.descTitle, this.descBody);
+    this.bubbleTitle = h('div', { class: 'uh-menu__bubbleTitle' });
+    this.bubbleBody = h('p', { class: 'uh-menu__bubbleBody' });
+    this.bubble = h('aside', { class: 'uh-menu__bubble uh-bubble' }, this.bubbleTitle, this.bubbleBody);
 
     this.el.append(
       h(
@@ -99,17 +100,18 @@ export class MainMenu extends UiScreen<MainMenuProps> {
         h(
           'div',
           { class: 'uh-menu__brand' },
-          h('span', { class: 'uh-menu__logo uh-outline-text' }, t('game.title')),
+          chunky(t('game.title'), { cls: 'uh-menu__logo', tone: 'sun', seed: 1 }),
           h('span', { class: 'uh-menu__logoEn' }, t('game.titleEn')),
         ),
-        h('div', { class: 'uh-menu__body' }, list, h('div', { class: 'uh-menu__side' }, card, mascot)),
+        h('div', { class: 'uh-menu__body' }, list),
+        this.bubble,
         promptBar([
           { action: 'navigate', label: 'prompt.navigate' },
           { action: 'confirm', label: 'prompt.select' },
         ]),
       ),
     );
-    this.paintDesc(this.focus.focusedId ?? this.defaultFocus());
+    this.paintDesc(this.focus.focusedId ?? this.defaultFocus(), false);
   }
 
   protected override onBack(): boolean {
@@ -122,21 +124,29 @@ export class MainMenu extends UiScreen<MainMenuProps> {
   }
 
   protected override onShow(): void {
-    this.paintDesc(this.focus.focusedId);
+    this.paintDesc(this.focus.focusedId, false);
   }
 
   protected override onFocusChanged(el: HTMLElement | null): void {
-    this.paintDesc(el?.dataset.nav ?? null);
+    this.paintDesc(el?.dataset.nav ?? null, true);
   }
 
-  private paintDesc(navId: string | null): void {
-    if (!navId || !this.descTitle || !this.descBody || !this.descIcon) return;
+  private paintDesc(navId: string | null, animate: boolean): void {
+    if (!navId || !this.bubbleTitle || !this.bubbleBody || !this.bubble) return;
     const id = navId.replace('menu:', '') as MainMenuItem;
     const spec = ITEMS.find((i) => i.id === id);
     if (!spec) return;
-    setText(this.descTitle, t(LABEL[id]));
-    setText(this.descBody, tr(`${LABEL[id]}.desc`));
-    this.descIcon.className = `uh-menu__descIcon uh-menuitem--${spec.tone}`;
-    this.descIcon.replaceChildren(icon(spec.icon));
+    setText(this.bubbleTitle, t(LABEL[id]));
+    setText(this.bubbleBody, tr(`${LABEL[id]}.desc`));
+    this.bubble.dataset.tone = spec.tone;
+    if (animate && id !== this.lastItem) {
+      this.bubble.classList.remove('is-pop');
+      void this.bubble.offsetWidth;
+      this.bubble.classList.add('is-pop');
+    }
+    if (id !== this.lastItem) {
+      this.lastItem = id;
+      this.props.onFocusItem?.(id);
+    }
   }
 }

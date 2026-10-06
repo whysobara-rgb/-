@@ -3,13 +3,16 @@
  * Runs in Node: without WebAudio everything must be a safe no-op; with the strict mock context
  * every recipe, loop and track must build a valid graph (finite automation, legal starts/stops).
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   AudioEngine,
   CAPTION_FALLBACK,
   LOOP_CAPTION_KEYS,
+  LOOP_CAPTION_ONSET,
+  installCaptionFallbacks,
   LOOP_IDS,
   MUSIC_IDS,
+  POLICE_CAPTION_KEYS,
   SFX_CAPTION_KEYS,
   SFX_IDS,
   getAudioEngine,
@@ -18,17 +21,34 @@ import {
 } from '../../src/audio';
 import { MockAudioContext, MockGain, graphFingerprint, mockContext } from '../../src/audio/dev/mockAudioContext';
 import { JINGLES, type JingleNote } from '../../src/audio/jingles';
-import { LOOP_GAIN, SIREN_PHRASE_BARS, createLoop, sirenGapFill, sirenLevel, sirenPhraseStart } from '../../src/audio/loops';
-import { BUS_TRIM, DEFAULT_VOLUMES, MASTER_TRIM, busGains, createMixer, sliderGain, volumeToGain } from '../../src/audio/mixer';
+import {
+  LOOP_GAIN,
+  POLICE_SIREN_HI_HZ,
+  POLICE_SIREN_LO_HZ,
+  POLICE_SIREN_RATE,
+  SIREN_HIGH_HZ,
+  SIREN_PHRASE_BARS,
+  alarmBellLevel,
+  createLoop,
+  policeSirenLevel,
+  sirenGapFill,
+  sirenLevel,
+  sirenPhraseStart,
+} from '../../src/audio/loops';
+import { BUS_TRIM, DEFAULT_VOLUMES, MASTER_TRIM, busGains, createMixer, makeDucker, sliderGain, volumeToGain } from '../../src/audio/mixer';
+import { ALARM_STRIKE_HZ, ALARM_SWELL_SECONDS, alarmBellBuffer, crackleBuffer } from '../../src/audio/dsp';
+import { AMBIENCE_LOOPS } from '../../src/audio/ids';
 import { makeRng } from '../../src/audio/rng';
 import { MusicPlayer } from '../../src/audio/sequencer';
-import { SFX_RECIPES, RECOVERY_SECONDS, VariantPicker } from '../../src/audio/sfx';
+import { CLIMB_LIFT_DB, SFX_RECIPES, RECOVERY_SECONDS, VariantPicker } from '../../src/audio/sfx';
 import { SONGS, barSeconds } from '../../src/audio/songs';
 import { chord } from '../../src/audio/theory';
 import { DEFAULT_SETTINGS } from '../../src/platform/settings';
 import { spatialMix } from '../../src/audio/spatial';
-import { spawnSfx } from '../../src/audio/voice';
+import { spawnLoop, spawnSfx } from '../../src/audio/voice';
+import { POLICE_AUDIO } from '../../src/audio/director';
 import { DEFAULT_RULES, TICK_RATE } from '../../src/sim/config';
+import { configureI18n, getLanguage, setLanguage, t } from '../../src/ui/i18n';
 import { ko } from '../../src/ui/strings/ko';
 import { en } from '../../src/ui/strings/en';
 
@@ -81,7 +101,7 @@ describe('without WebAudio (Node)', () => {
 });
 
 describe('captions', () => {
-  it('every caption key has fallback text and exists in the UI string tables', () => {
+  it('every caption key has fallback text, and the HUD (i18n t) shows text for it, never a raw key', () => {
     const keys = [...Object.values(SFX_CAPTION_KEYS), ...Object.values(LOOP_CAPTION_KEYS)] as string[];
     expect(keys.length).toBeGreaterThan(10);
     const ui = { ko: ko as Record<string, string>, en: en as Record<string, string> };
@@ -89,12 +109,41 @@ describe('captions', () => {
       expect(k.startsWith('caption.')).toBe(true);
       expect(CAPTION_FALLBACK.ko[k], k).toBeTruthy();
       expect(CAPTION_FALLBACK.en[k], k).toBeTruthy();
-      expect(ui.ko[k], `ui ko ${k}`).toBeTruthy();
-      expect(ui.en[k], `ui en ${k}`).toBeTruthy();
     }
-    for (const k of ['caption.siren', 'caption.unanchorBank', 'caption.fenceBreak', 'caption.scoreBank', 'caption.dashHit', 'caption.unanchorSafe', 'caption.whistleStart', 'caption.hornEnd']) {
+    // The HUD resolves captions with the UI's t(key) (src/ui/hud/Effects.ts). Installing a caption
+    // listener registers the fallback of every key the UI tables lack, so even before the UI merges
+    // new keys no raw "caption.xxx" (or the dev marker) ever reaches the screen.
+    configureI18n({ dev: true });
+    const lang = getLanguage();
+    try {
+      new AudioEngine({ seed: 1 }).setCaptionListener(() => undefined);
+      for (const l of ['ko', 'en'] as const) {
+        setLanguage(l);
+        for (const k of keys) {
+          const shown = t(k);
+          expect(shown, `${l} ${k}`).toBe(ui[l][k] ?? CAPTION_FALLBACK[l][k]);
+          expect(shown).not.toContain('caption.');
+        }
+      }
+      // UI strings are never overridden: registering again adds nothing.
+      expect(installCaptionFallbacks()).toEqual({ ko: [], en: [] });
+    } finally {
+      setLanguage(lang);
+      configureI18n({ dev: false });
+    }
+    for (const k of ['caption.siren', 'caption.unanchorBank', 'caption.fenceBreak', 'caption.scoreBank', 'caption.dashHit', 'caption.uprootPop', 'caption.whistleStart', 'caption.hornEnd']) {
       expect(keys).toContain(k);
     }
+    // Police / presentation captions (doc §13): siren, whistle, alarm bell, tackle, uproot pop.
+    for (const k of ['caption.policeSiren', 'caption.policeWhistle', 'caption.alarmBell', 'caption.tackle', 'caption.uprootPop']) {
+      expect(keys).toContain(k);
+      expect(POLICE_CAPTION_KEYS).toContain(k);
+    }
+    expect(CAPTION_FALLBACK.ko['caption.policeSiren']).toBe('[경찰 사이렌]');
+    expect(CAPTION_FALLBACK.ko['caption.policeWhistle']).toBe('[호루라기]');
+    expect(CAPTION_FALLBACK.ko['caption.alarmBell']).toBe('[은행 경보]');
+    // Every new key is actually used by a sound (no orphan strings for the UI to merge).
+    for (const k of POLICE_CAPTION_KEYS) expect(keys, k).toContain(k);
   });
 });
 
@@ -444,6 +493,250 @@ describe('variation picker', () => {
         prev = k;
       }
       expect(seen.size).toBe(SFX_RECIPES[id].variants);
+    }
+  });
+});
+
+describe('police / presentation plumbing', () => {
+  it('ducks merge: a shallow duck never lifts a deeper one early', () => {
+    const ctx = mockContext();
+    const g = ctx.createGain() as unknown as MockGain;
+    const duck = makeDucker(ctx, g.gain as unknown as AudioParam);
+    ctx.currentTime = 1;
+    duck(1, -10, 2);
+    const n = g.gain.events.length;
+    duck(1.2, -3, 0.5); // inside the deep duck: nothing changes
+    expect(g.gain.events.length).toBe(n);
+    duck(1.5, -14, 0.3); // deeper: re-targets, keeps the later end
+    const targets = g.gain.events.slice(n).filter((e) => e.kind === 'target');
+    expect(targets[0].value).toBeCloseTo(Math.pow(10, -14 / 20), 6);
+    expect(targets[1]).toMatchObject({ value: 1, time: 3 });
+    // After it ended a new shallow duck applies normally.
+    duck(5, -3, 0.5);
+    expect(g.gain.events.at(-2)?.value).toBeCloseTo(Math.pow(10, -3 / 20), 6);
+  });
+
+  it('sirens and alarm bells run through the ambience bus; scoring sounds duck it', () => {
+    const ctx = mockContext();
+    const m = ctx as unknown as MockAudioContext;
+    const mixer = createMixer(ctx);
+    for (const id of LOOP_IDS) {
+      const l = spawnLoop(ctx, mixer, id, 0.5, makeRng(1), spatialMix({ x: 0, y: 0 }, { x: 3, y: 0 }));
+      const last = l.nodes.at(-1) as unknown as MockGain;
+      const ambience = AMBIENCE_LOOPS.includes(id);
+      expect(last.outputs.includes(mixer.inputs.ambience as unknown as MockGain), id).toBe(ambience);
+      expect(last.outputs.includes(mixer.inputs.sfx as unknown as MockGain), id).toBe(!ambience);
+    }
+    for (const id of ['scoreSmall', 'scoreLarge', 'scoreBank'] as SfxId[]) expect(SFX_RECIPES[id].duckAmbience?.db, id).toBeLessThanOrEqual(-6);
+    // The biggest moments duck the music.
+    for (const id of ['unanchorBank', 'scoreBank'] as SfxId[]) expect(SFX_RECIPES[id].duck?.db, id).toBeLessThanOrEqual(-8);
+    void m;
+  });
+
+  it('police chatter one-shots run through the ambience bus (dry and reverb send); tackles stay on sfx', () => {
+    const ctx = mockContext();
+    const mixer = createMixer(ctx);
+    const chatter: SfxId[] = ['policeWhistle', 'policeBark', 'policeSkid', 'carDoor', 'carVroom'];
+    const feedback: SfxId[] = ['tackleHit', 'tackleMiss', 'tackleWhoosh', 'policeStun', 'scoreSmall', 'dashHit'];
+    for (const id of [...chatter, ...feedback]) {
+      const before = (ctx as unknown as MockAudioContext).nodes.length;
+      const v = spawnSfx(ctx, mixer, id, { t: 0.5, mix: spatialMix({ x: 0, y: 0 }, { x: 4, y: 0 }), volume: 1, pitch: 1, variant: 0, step: 0, key: 65, rnd: makeRng(1) });
+      const own = (ctx as unknown as MockAudioContext).nodes.slice(before) as unknown as MockGain[];
+      const reaches = (dest: AudioNode): boolean => own.some((n) => n.outputs.includes(dest as unknown as MockGain));
+      const amb = chatter.includes(id);
+      expect(reaches(mixer.inputs.ambience), id).toBe(amb);
+      expect(reaches(mixer.inputs.sfx), id).toBe(!amb);
+      if (SFX_RECIPES[id].reverb) {
+        expect(reaches(mixer.ambienceReverb), `${id} reverb`).toBe(amb);
+        expect(reaches(mixer.sfxReverb), `${id} reverb`).toBe(!amb);
+      }
+      void v;
+    }
+    // The ambience duck moves the ambience reverb send with it.
+    const m = ctx as unknown as MockAudioContext;
+    const ambRev = mixer.ambienceReverb as unknown as MockGain;
+    const n = ambRev.gain.events.length;
+    m.currentTime = 2;
+    mixer.duckAmbience(2, -8, 1);
+    expect(ambRev.gain.events.length).toBeGreaterThan(n);
+    expect(ambRev.gain.events[n].value).toBeCloseTo(Math.pow(10, -8 / 20), 6);
+  });
+
+  it('prewarm builds the loop textures in idle steps after unlock, so a first alarm bell is cheap', async () => {
+    vi.useFakeTimers();
+    try {
+      const ctx = mockContext();
+      let buffers = 0;
+      let waves = 0;
+      const createBuffer = ctx.createBuffer.bind(ctx);
+      const createWave = ctx.createPeriodicWave.bind(ctx);
+      ctx.createBuffer = ((...a: Parameters<typeof createBuffer>) => (buffers++, createBuffer(...a))) as typeof ctx.createBuffer;
+      ctx.createPeriodicWave = ((...a: Parameters<typeof createWave>) => (waves++, createWave(...a))) as typeof ctx.createPeriodicWave;
+      const engine = new AudioEngine({ createContext: () => ctx, autoPump: false, prewarm: true, seed: 1 });
+      void engine.unlock();
+      const afterUnlock = buffers;
+      // One step per idle slot (no requestIdleCallback in Node: short timeouts).
+      await vi.advanceTimersByTimeAsync(31);
+      expect(buffers).toBe(afterUnlock + 1);
+      await vi.advanceTimersByTimeAsync(2000);
+      const warmed = buffers;
+      expect(warmed - afterUnlock).toBe(7); // 3 noise colors, scrape, creak, crackle, alarm bell
+      expect(waves).toBeGreaterThanOrEqual(2); // the siren's two wave tables
+      const w = waves;
+      for (const id of ['alarmBell', 'policeSiren', 'strain', 'drag', 'bankRumble'] as const) createLoop(ctx, id, 1, makeRng(2)).stop(2);
+      expect(buffers).toBe(warmed);
+      expect(waves).toBe(w);
+      engine.dispose();
+      // Off by default for manual-pump engines (tests, offline renders).
+      const ctx2 = mockContext();
+      let b2 = 0;
+      const cb2 = ctx2.createBuffer.bind(ctx2);
+      ctx2.createBuffer = ((...a: Parameters<typeof cb2>) => (b2++, cb2(...a))) as typeof ctx2.createBuffer;
+      const e2 = new AudioEngine({ createContext: () => ctx2, autoPump: false, seed: 1 });
+      void e2.unlock();
+      const b2u = b2;
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(b2).toBe(b2u);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('the combo climb is lifted step by step (higher coins read softer; measured offline)', () => {
+    expect(CLIMB_LIFT_DB.length).toBeGreaterThanOrEqual(7);
+    expect(CLIMB_LIFT_DB[0]).toBe(0);
+    for (let i = 1; i < CLIMB_LIFT_DB.length; i++) expect(CLIMB_LIFT_DB[i]).toBeGreaterThan(CLIMB_LIFT_DB[i - 1]);
+    // Step 6 stays a small-safe sound: under ~+5 dB (a large-safe recovery is ~3 LU louder).
+    expect(CLIMB_LIFT_DB.at(-1)!).toBeLessThan(5);
+  });
+
+  it('setLoop pitch reaches the voice (doppler / size) and the engine exposes duckMusic + tension', async () => {
+    const { engine, ctx } = engineWithMock();
+    await engine.unlock();
+    ctx.currentTime = 1;
+    const before = ctx.nodes.length;
+    engine.setLoop('policeSiren', 1, { x: 3, y: 0 }, 'car1', 1.06);
+    const oscs = ctx.nodes.slice(before).filter((n) => n.constructor.name === 'MockOscillator') as unknown as { detune: { events: { value: number }[] } }[];
+    const bent = oscs.filter((o) => o.detune.events.some((e) => Math.abs(e.value - 1200 * Math.log2(1.06)) < 0.01));
+    expect(bent.length).toBe(3);
+    // Unchanged pitch is not re-sent; a new one is.
+    const count = (): number => oscs.reduce((a, o) => a + o.detune.events.length, 0);
+    const c0 = count();
+    engine.setLoop('policeSiren', 1, { x: 3, y: 0 }, 'car1', 1.06);
+    expect(count()).toBe(c0);
+    engine.setLoop('policeSiren', 1, { x: 3, y: 0 }, 'car1', 1.0);
+    expect(count()).toBe(c0 + 3);
+    engine.duckMusic(-8, 0.8);
+    engine.setMusicTension(0.7);
+    engine.playMusic('match');
+    for (let i = 0; i < 100; i++) {
+      ctx.currentTime += 0.04;
+      engine.pump();
+    }
+  });
+
+  it('police siren tones are chord tones of the D minor tonic, in the light-bar rhythm', () => {
+    const pc = (hz: number): number => ((Math.round(12 * Math.log2(hz / 440)) % 12) + 12 + 9) % 12;
+    expect(pc(POLICE_SIREN_HI_HZ)).toBe(2); // D
+    expect(pc(POLICE_SIREN_LO_HZ)).toBe(9); // A
+    expect(POLICE_SIREN_RATE).toBeCloseTo(2.2, 6);
+    // Clearly different from the getaway wail (which sweeps A4..A5).
+    expect(POLICE_SIREN_HI_HZ).toBeGreaterThan(SIREN_HIGH_HZ);
+    // Loop ceilings (measured offline at 0 m, default volumes: siren -20.6 LUFS, bell -24.9 LUFS
+    // momentary max, both under the scoring sounds); the director runs them well below 1.
+    expect(policeSirenLevel(1) * LOOP_GAIN.policeSiren).toBeLessThan(0.2);
+    expect(alarmBellLevel(1) * LOOP_GAIN.alarmBell).toBeLessThan(0.3);
+    expect(policeSirenLevel(POLICE_AUDIO.sirenParkedLevel)).toBeLessThan(policeSirenLevel(1) * 0.25);
+    expect(alarmBellLevel(POLICE_AUDIO.alarmSettledLevel)).toBeLessThan(alarmBellLevel(1) * 0.5);
+  });
+
+  it('alarm bell and crackle textures are finite, bounded and loop without a seam', () => {
+    const ctx = mockContext();
+    for (const make of [alarmBellBuffer, crackleBuffer]) {
+      const b = make(ctx);
+      const d = b.getChannelData(0);
+      let peak = 0;
+      for (const x of d) {
+        expect(Number.isFinite(x)).toBe(true);
+        peak = Math.max(peak, Math.abs(x));
+      }
+      expect(peak).toBeLessThanOrEqual(0.9 + 1e-6);
+      expect(peak).toBeGreaterThan(0.5);
+      // The wrap-around step is no bigger than a typical sample-to-sample step.
+      let maxStep = 0;
+      for (let i = 1; i < d.length; i++) maxStep = Math.max(maxStep, Math.abs(d[i] - d[i - 1]));
+      expect(Math.abs(d[0] - d[d.length - 1])).toBeLessThanOrEqual(maxStep);
+    }
+    // The bell rings for 2 swells (~4 s) at the clapper rate.
+    expect(alarmBellBuffer(ctx).duration).toBeCloseTo(ALARM_SWELL_SECONDS * 2, 2);
+    expect(ALARM_STRIKE_HZ).toBeGreaterThan(8);
+  });
+});
+
+describe('police captions', () => {
+  it('whistles / barks keep a long per-key throttle; other captions keep the normal one', () => {
+    let ms = 1000;
+    const spy = vi.spyOn(performance, 'now').mockImplementation(() => ms);
+    try {
+      const a = new AudioEngine({ seed: 3 });
+      const got: CaptionEvent[] = [];
+      a.setCaptionListener((e) => got.push(e));
+      a.setListener({ x: 0, y: 0 });
+      // Whistles in quick succession from the same side: one caption.
+      for (let i = 0; i < 5; i++) a.play('policeWhistle', { pos: { x: 1, y: 0 } });
+      a.play('tackleHit', { pos: { x: 1, y: 0 } });
+      expect(got.map((e) => e.key)).toEqual(['caption.policeWhistle', 'caption.tackle']);
+      ms += 3000;
+      a.play('policeWhistle', { pos: { x: 1, y: 0 } });
+      a.play('tackleHit', { pos: { x: 1, y: 0 } });
+      expect(got.map((e) => e.key)).toEqual(['caption.policeWhistle', 'caption.tackle', 'caption.tackle']);
+      ms += 3100;
+      a.play('policeWhistle', { pos: { x: 1, y: 0 } });
+      expect(got.at(-1)?.key).toBe('caption.policeWhistle');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('sirens and alarm bells caption once when they become audible, not for as long as they ring', () => {
+    let ms = 1000;
+    const spy = vi.spyOn(performance, 'now').mockImplementation(() => ms);
+    try {
+      const a = new AudioEngine({ seed: 3 });
+      const got: CaptionEvent[] = [];
+      a.setCaptionListener((e) => got.push(e));
+      a.setListener({ x: 0, y: 0 });
+      a.setLoop('policeSiren', 1, { x: -8, y: 0 }, 'car1');
+      a.setLoop('alarmBell', 1, { x: 8, y: 0 }, 'bank20');
+      expect(got.map((e) => [e.key, e.side])).toEqual([
+        ['caption.policeSiren', 'left'],
+        ['caption.alarmBell', 'right'],
+      ]);
+      // A minute of ringing (frames every 50 ms), plus a second bank and a second car: nothing more.
+      for (let i = 0; i < 1200; i++) {
+        ms += 50;
+        a.setLoop('policeSiren', 1, { x: -8, y: 0 }, 'car1');
+        a.setLoop('alarmBell', 1, { x: 8, y: 0 }, 'bank20');
+        if (i === 100) {
+          a.setLoop('alarmBell', 1, { x: -6, y: 0 }, 'bank21');
+          a.setLoop('policeSiren', 1, { x: 6, y: 0 }, 'car2');
+        }
+      }
+      expect(got.length).toBe(2);
+      // The bell goes out of earshot and comes back: captioned again (LOOP_CAPTION_ONSET apart).
+      a.setLoop('alarmBell', 1, { x: 80, y: 0 }, 'bank20');
+      ms += 200;
+      a.setLoop('alarmBell', 1, { x: 8, y: 0 }, 'bank20');
+      expect(got.at(-1)?.key).toBe('caption.alarmBell');
+      expect(got.length).toBe(3);
+      // A hauled bank's rumble still refreshes while it moves (continuous information).
+      a.setLoop('bankRumble', 0.8, { x: 3, y: 0 }, 21);
+      ms += 2300;
+      a.setLoop('bankRumble', 0.8, { x: 3, y: 0 }, 21);
+      expect(got.filter((e) => e.key === 'caption.bankRumble').length).toBe(2);
+      expect(LOOP_CAPTION_ONSET.alarmBell).toBeGreaterThanOrEqual(10000);
+    } finally {
+      spy.mockRestore();
     }
   });
 });

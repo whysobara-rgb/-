@@ -5,7 +5,8 @@
 import type { HatId } from '../../sim/types';
 import { tr, type TextRef } from '../i18n';
 import { h } from '../core/dom';
-import { icon, raccoon, type IconName } from '../core/icons';
+import { icon, type IconName } from '../core/icons';
+import { portrait } from '../core/portrait';
 import { getUiRoot } from '../core/root';
 
 export interface ToastOptions {
@@ -46,7 +47,7 @@ export class Toasts {
       kicker: 'toast.hat',
       title: `hat.${hat}.name`,
       body: 'toast.hat.body',
-      art: () => raccoon({ hat, expression: 'happy' }),
+      art: () => portrait({ hat, expression: 'happy' }, 'uh-toast__portrait'),
       durationMs,
     });
   }
@@ -68,7 +69,7 @@ export class Toasts {
       this.visible++;
       const el = h(
         'div',
-        { class: 'uh-toast', role: 'status' },
+        { class: 'uh-toast', role: 'status', style: { '--tilt': `${[-1.5, 1.2, -0.6][this.visible % 3]}deg` } },
         h('div', { class: 'uh-toast__art' }, o.art ? o.art() : icon(o.icon ?? 'sparkle')),
         h(
           'div',

@@ -9,6 +9,9 @@
  * production graph with OfflineAudioContext and returns base64 WAV data.
  */
 import { AudioEngine, type CaptionEvent } from '../audio';
+import { MatchAudioDirector, POLICE_AUDIO, STRAIN_PITCH } from '../director';
+import { renderDirectedScene } from './directorRender';
+import { SCENES, type SceneId, type ScriptedScene } from './scenes';
 import { captionText } from '../captions';
 import { LOOP_IDS, SFX_IDS, TRACK_IDS, type LoopId, type MusicId, type SfxId, type TrackId } from '../ids';
 import { DEFAULT_VOLUMES, type Volumes } from '../mixer';
@@ -167,35 +170,70 @@ const padSection = section('Spatial (listener at center; rings = 6 m / 24 m / 40
 
 // ---- SFX -------------------------------------------------------------------------------------
 let comboStep = 0;
+let rivalFlavor = false;
+/** Per-id play options the game uses (size pitches, combo, rival flavor of the callouts). */
+function playOpts(id: SfxId): { step: number; pitch: number } {
+  if (id.startsWith('score')) return { step: comboStep, pitch: 1 };
+  if (id.startsWith('callout')) return { step: rivalFlavor ? -1 : 0, pitch: 1 };
+  if (id === 'uprootLand') return { step: 0, pitch: sizeIsLarge ? 0.85 : 1.15 };
+  if (id === 'unanchorSafe') return { step: 0, pitch: sizeIsLarge ? 0.85 : 1 };
+  return { step: 0, pitch: 1 };
+}
+let sizeIsLarge = false;
+const NEW_SFX = new Set<SfxId>([
+  'uprootLand', 'bankLand', 'calloutUproot', 'calloutBank', 'calloutSteal', 'calloutDodge', 'policeSkid', 'carDoor', 'carVroom',
+  'policeWhistle', 'policeBark', 'tackleWhoosh', 'tackleHit', 'tackleMiss', 'policeStun', 'policePhew', 'unanchorSafe', 'unanchorBank',
+]);
 const sfxRows = SFX_IDS.map((id) => {
   const r = SFX_RECIPES[id];
   const play = el('button', {}, '▶ random');
   play.addEventListener('click', () => {
     void ensureUnlocked().then(() => {
-      engine.play(id, { pos: soundPos ?? undefined, step: id.startsWith('score') ? comboStep : 0 });
+      engine.play(id, { pos: soundPos ?? undefined, ...playOpts(id) });
     });
   });
   const variants = Array.from({ length: r.variants }, (_, k) => {
     const b = el('button', { class: 'small' }, `v${k}`);
-    b.addEventListener('click', () => void ensureUnlocked().then(() => engine.play(id, { pos: soundPos ?? undefined, variant: k })));
+    b.addEventListener('click', () => void ensureUnlocked().then(() => engine.play(id, { pos: soundPos ?? undefined, variant: k, ...playOpts(id) })));
     return b;
   });
-  return el('div', { class: 'sfx' }, el('span', { class: 'name' }, id), el('div', { class: 'row' }, play, ...variants, el('span', { class: 'hint' }, r.bus)));
+  const name = el('span', { class: 'name' }, id);
+  if (NEW_SFX.has(id)) name.classList.add('new');
+  return el('div', { class: 'sfx' }, name, el('div', { class: 'row' }, play, ...variants, el('span', { class: 'hint' }, r.bus)));
 });
 const comboBtn = el('button', {}, 'combo step: 0');
 comboBtn.addEventListener('click', () => {
   comboStep = (comboStep + 1) % 7;
   comboBtn.textContent = `combo step: ${comboStep}`;
 });
+const rivalBtn = el('button', {}, 'callouts: own team');
+rivalBtn.addEventListener('click', () => {
+  rivalFlavor = !rivalFlavor;
+  rivalBtn.classList.toggle('on', rivalFlavor);
+  rivalBtn.textContent = rivalFlavor ? 'callouts: rival flavor' : 'callouts: own team';
+});
+const sizeBtn = el('button', {}, 'safe size: small');
+sizeBtn.addEventListener('click', () => {
+  sizeIsLarge = !sizeIsLarge;
+  sizeBtn.textContent = sizeIsLarge ? 'safe size: large' : 'safe size: small';
+});
 const sfxSection = section(
   'Sound effects',
-  el('div', { class: 'row' }, comboBtn, el('span', { class: 'hint' }, 'score sounds climb the scale per step')),
+  el(
+    'div',
+    { class: 'row' },
+    comboBtn,
+    rivalBtn,
+    sizeBtn,
+    el('span', { class: 'hint' }, 'score sounds climb the scale per step; callouts have an own-team and a rival flavor; highlighted = police / presentation sounds'),
+  ),
   el('div', { class: 'sfx-list' }, ...sfxRows),
 );
 sfxSection.classList.add('wide');
 
 // ---- loops -----------------------------------------------------------------------------------
-const loopLevels: Record<LoopId, number> = { drag: 0, bankRumble: 0, strain: 0, sirenLoop: 0 };
+const loopLevels = Object.fromEntries(LOOP_IDS.map((id) => [id, 0])) as Record<LoopId, number>;
+let loopPitch = 1;
 const loopSection = section(
   'Loops (intensity)',
   ...LOOP_IDS.map(
@@ -205,13 +243,87 @@ const loopSection = section(
         void ensureUnlocked();
       }).el,
   ),
-  el('p', { class: 'hint' }, 'Loops follow the spatial pad position. Drag the strain slider up slowly to hear the rising creak. The siren phrases with the music playing (one wail per 4 bars); above 0.8 the gaps fill in.'),
+  slider('pitch', 0.5, (v) => {
+    loopPitch = 0.55 + 0.9 * v;
+  }).el,
+  el(
+    'p',
+    { class: 'hint' },
+    `Loops follow the spatial pad position. Drag the strain slider up slowly to hear the build-up (creak and groan rise in pitch and grit, roots quiver and snap past 40 %, the ground shakes past 80 %); pitch = size (small ${STRAIN_PITCH.smallSafe}, large ${STRAIN_PITCH.largeSafe}, bank ${STRAIN_PITCH.bank} ≈ slider ${((STRAIN_PITCH.bank - 0.55) / 0.9).toFixed(2)}). policeSiren: pitch = doppler (±${POLICE_AUDIO.dopplerMaxBend * 100} %). The getaway siren phrases with the music playing (one wail per 4 bars); above 0.8 the gaps fill in.`,
+  ),
 );
 function tickLoops(): void {
-  for (const id of LOOP_IDS) engine.setLoop(id, loopLevels[id], soundPos ?? undefined);
+  if (!sceneRunning) for (const id of LOOP_IDS) engine.setLoop(id, loopLevels[id], soundPos ?? undefined, 'gallery', loopPitch);
   requestAnimationFrame(tickLoops);
 }
 requestAnimationFrame(tickLoops);
+
+// ---- scenes (the real director on a scripted match) -----------------------------------------
+let sceneRunning = false;
+let sceneStop: (() => void) | null = null;
+const sceneStatus = el('span', { class: 'hint' }, 'idle');
+function runScene(id: SceneId): void {
+  sceneStop?.();
+  void ensureUnlocked().then(() => {
+    const scene: ScriptedScene = SCENES[id]();
+    const director = new MatchAudioDirector(engine, { localTeam: 0, listenerCharId: scene.listenerId });
+    if (engine.currentMusic === 'none') {
+      engine.setMusicIntensity(0.4);
+      engine.playMusic('match');
+      for (const [k, x] of musicBtns) x.classList.toggle('on', k === 'match');
+    }
+    sceneRunning = true;
+    let acc = 0;
+    let ticks = 0;
+    let last = performance.now();
+    let raf = 0;
+    const total = Math.round(scene.seconds * 60);
+    const stop = (): void => {
+      cancelAnimationFrame(raf);
+      director.stop();
+      sceneRunning = false;
+      sceneStop = null;
+      sceneStatus.textContent = 'idle';
+    };
+    sceneStop = stop;
+    const frame = (): void => {
+      const now = performance.now();
+      const dt = Math.min(0.1, (now - last) / 1000);
+      last = now;
+      acc += dt;
+      while (acc >= 1 / 60 && ticks < total) {
+        acc -= 1 / 60;
+        ticks++;
+        const ev = scene.step();
+        if (ev.length) director.onEvents(ev, scene.view);
+      }
+      director.update(scene.view, dt);
+      sceneStatus.textContent = `${scene.name}: ${(ticks / 60).toFixed(1)} / ${scene.seconds} s`;
+      if (ticks >= total) {
+        stop();
+        return;
+      }
+      raf = requestAnimationFrame(frame);
+    };
+    raf = requestAnimationFrame(frame);
+  });
+}
+const chaseBtn = el('button', {}, '▶ Police chase (20 s)');
+chaseBtn.addEventListener('click', () => runScene('policeChase'));
+const uprootBtn = el('button', {}, '▶ Uproot: small, large, bank (13 s)');
+uprootBtn.addEventListener('click', () => runScene('uproot'));
+const stopSceneBtn = el('button', {}, '■ Stop');
+stopSceneBtn.addEventListener('click', () => sceneStop?.());
+const sceneSection = section(
+  'Scenes (the real MatchAudioDirector on a scripted match)',
+  el('div', { class: 'row' }, chaseBtn, uprootBtn, stopSceneBtn),
+  sceneStatus,
+  el(
+    'p',
+    { class: 'hint' },
+    'Police chase: the car drives in with its two-tone siren (doppler), skids, doors; officers whistle and shout "멈춰!", the chase layer joins the music, a bank alarm rings nearby; coins stay clear (sirens and bells duck under scoring), a dodged tackle, a dash stuns an officer, a tackle lands (music ducks), a steal, the car leaves ("phew"). Uproot: strain build-up -> POP -> landing -> callout for each size; the bank ends with its alarm.',
+  ),
+);
 
 // ---- music -----------------------------------------------------------------------------------
 const musicBtns = new Map<MusicId, HTMLButtonElement>();
@@ -231,11 +343,16 @@ const musicSection = section(
   'Music',
   musicRow,
   slider('intensity', 0.5, (v) => engine.setMusicIntensity(v)).el,
-  el('p', { class: 'hint' }, "'match' layers: base (bass, clav, shaker) → drums ≥0.1 → lead ≥0.35 → extra ≥0.65. Tonal SFX are tuned to the track key."),
+  slider('chase', 0, (v) => engine.setMusicTension(v)).el,
+  el(
+    'p',
+    { class: 'hint' },
+    "'match' layers: base (bass, clav, shaker) → drums ≥0.1 → lead ≥0.35 → extra ≥0.65. 'chase' = the police tension layer (low toms + pizzicato ostinato) while officers are on the field. Tonal SFX are tuned to the track key.",
+  ),
 );
 engine.setMusicIntensity(0.5);
 
-app.append(volSection, musicSection, padSection, loopSection, sfxSection);
+app.append(volSection, musicSection, sceneSection, padSection, loopSection, sfxSection);
 
 // ---- meter -----------------------------------------------------------------------------------
 let analyser: AnalyserNode | null = null;
@@ -292,6 +409,10 @@ const qa = {
   async renderMusic(id: TrackId, seconds: number, intensity = 0.75, seed = 7, only?: string[], volumes?: Volumes): Promise<string> {
     return toBase64(encodeWav(await renderMusic(id, seconds, { intensity, seed, only, volumes }), 32));
   },
+  /** 'match' at a fixed intensity with the police chase layer off for the first half, on after. */
+  async renderMusicChase(seconds: number, intensity = 0.6, seed = 7, volumes?: Volumes): Promise<string> {
+    return toBase64(encodeWav(await renderMusic('match', seconds, { intensity, seed, volumes, tension: (t) => (t < seconds / 2 ? 0 : 1) }), 32));
+  },
   /** Intensity ramps 0 -> 1 over the first 80 % then holds (shows the whole range). */
   async renderMusicRamp(id: TrackId, seconds: number, seed = 7, volumes?: Volumes): Promise<string> {
     return toBase64(encodeWav(await renderMusic(id, seconds, { intensity: (t) => Math.min(1, t / (seconds * 0.8)), seed, volumes }), 32));
@@ -300,14 +421,35 @@ const qa = {
     return toBase64(encodeWav(await renderScene(seconds, o), 32));
   },
   /** 'ramp': 0 -> 1 over 85 % then silent; 'full': held at 1; 'urgency': 0.25 -> 1 (the director's siren). */
-  async renderLoop(id: LoopId, seconds: number, shape: 'ramp' | 'full' | 'urgency' = 'ramp', volumes?: Volumes): Promise<string> {
+  async renderLoop(id: LoopId, seconds: number, shape: 'ramp' | 'full' | 'urgency' = 'ramp', volumes?: Volumes, pitch = 1, pos?: { x: number; y: number }): Promise<string> {
     const intensity =
       shape === 'full'
         ? () => 1
         : shape === 'urgency'
           ? (t: number) => 0.25 + (0.75 * t) / seconds
           : (t: number) => (t < seconds * 0.85 ? t / (seconds * 0.85) : 0);
-    return toBase64(encodeWav(await renderLoop(id, seconds, { intensity, volumes }), 32));
+    return toBase64(encodeWav(await renderLoop(id, seconds, { intensity, volumes, pitch: () => pitch, pos: pos ? () => pos : undefined }), 32));
+  },
+  /**
+   * A police car driving in like the sim's (2 s ease-out from 26 m to 14 m north of the
+   * listener), doppler-bent like the director does, then parked with its siren settling.
+   */
+  async renderSirenDriveIn(seconds = 7, volumes?: Volumes): Promise<string> {
+    const y = (t: number): number => -26 + 12 * (1 - Math.pow(1 - Math.min(1, t / 2), 2));
+    const v = (t: number): number => (t < 2 ? 12 * 2 * (1 - t / 2) * 0.5 : 0); // dy/dt of the ease-out
+    const pitch = (t: number): number => 1 + Math.min(POLICE_AUDIO.dopplerMaxBend, (POLICE_AUDIO.dopplerScale * v(t)) / 343);
+    const intensity = (t: number): number => (t < 2 ? 1 : 1 + (POLICE_AUDIO.sirenParkedLevel - 1) * Math.min(1, (t - 2) / POLICE_AUDIO.sirenSettleSeconds));
+    return toBase64(encodeWav(await renderLoop('policeSiren', seconds, { intensity, pitch, pos: (t) => ({ x: 3, y: y(t) }), volumes }), 32));
+  },
+  /** Strain build-up of one object size over `seconds` (progress 0 -> 1, then silent). */
+  async renderStrain(kind: 'smallSafe' | 'largeSafe' | 'bank', seconds = 4, volumes?: Volumes): Promise<string> {
+    const T = seconds * 0.85;
+    const intensity = (t: number): number => (t < T ? 0.15 + 0.85 * (t / T) : 0);
+    return toBase64(encodeWav(await renderLoop('strain', seconds, { intensity, pitch: () => STRAIN_PITCH[kind], volumes }), 32));
+  },
+  /** A scripted scene through the real director + engine (see ./scenes.ts). */
+  async renderDirected(id: SceneId, volumes?: Volumes, music: TrackId | null = 'match'): Promise<string> {
+    return toBase64(encodeWav(await renderDirectedScene(SCENES[id](), { volumes, music }), 32));
   },
 };
 (window as unknown as { audioQA: typeof qa }).audioQA = qa;

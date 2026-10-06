@@ -502,3 +502,149 @@ export function impulseResponse(ctx: BaseAudioContext, seconds: number, damping:
     return b;
   });
 }
+
+function normalizePeak(data: Float32Array, peak: number): void {
+  let m = 0;
+  for (let i = 0; i < data.length; i++) m = Math.max(m, Math.abs(data[i]));
+  const k = m > 0 ? peak / m : 1;
+  for (let i = 0; i < data.length; i++) data[i] *= k;
+}
+
+/**
+ * Root fibres snapping under tension: a sparse, loopable train of tiny damped "tk" snaps (one
+ * random resonance each, mostly small, now and then a bigger crack). The strain loop plays it
+ * faster and louder as the roots stretch (src/render/uproot.ts stages 2-3).
+ */
+export function crackleBuffer(ctx: BaseAudioContext): AudioBuffer {
+  return cachedBuffer(ctx, 'tex:crackle', () => {
+    const sr = ctx.sampleRate;
+    const fade = Math.floor(sr * 0.03);
+    const len = Math.floor(sr * 1.7) + fade;
+    const rnd = makeRng(9191);
+    const d = new Float32Array(len);
+    let t = 0;
+    while (true) {
+      // Poisson-ish spacing, ~28 snaps per second.
+      t += -Math.log(1 - rnd() * 0.999) / 28;
+      const at = Math.floor(t * sr);
+      if (at >= len) break;
+      const f = 700 + Math.pow(rnd(), 1.6) * 3000;
+      const tau = 0.0012 + rnd() * 0.004;
+      const big = rnd() < 0.12;
+      const amp = (big ? 0.7 + rnd() * 0.3 : 0.12 + rnd() * 0.35) * (rnd() < 0.5 ? -1 : 1);
+      const w = (2 * Math.PI * f) / sr;
+      const k = Math.exp(-1 / (tau * sr));
+      const n = Math.min(len - at, Math.floor(sr * tau * 7));
+      let e = amp;
+      for (let i = 0; i < n; i++) {
+        // Noisy onset (fibre tearing) blending into the resonance.
+        const grit = i < sr * 0.0008 ? (rnd() * 2 - 1) * 0.8 : 0;
+        d[at + i] += e * (Math.sin(w * i) + grit);
+        e *= k;
+      }
+    }
+    const out = makeLoopable(d, fade);
+    normalizePeak(out, 0.9);
+    return monoBuffer(ctx, out);
+  });
+}
+
+/**
+ * The banks' alarm bell (old-fashioned electric bell): [ratio, amplitude, decay s] over a D5
+ * fundamental, so the clang sits in the songs' D minor / F major. Shared by the alarm loop and the
+ * clang when a bank slams down after its uproot hop.
+ */
+export const BANK_BELL_HZ = 587.33;
+export const BANK_BELL_PARTIALS: readonly (readonly [number, number, number])[] = [
+  [1, 0.5, 0.45],
+  [2.004, 0.24, 0.3],
+  [2.53, 0.36, 0.24],
+  [3.01, 0.13, 0.18],
+  [4.18, 0.1, 0.11],
+  [5.43, 0.06, 0.07],
+];
+/** Clapper strikes per second (the bell models swing at ~5.7 Hz, two strikes per swing). */
+export const ALARM_STRIKE_HZ = 11.6;
+/** Sustained ring level between clapper impacts (relative to the impact). */
+const ALARM_RING_FLOOR = 0.4;
+/** The ring swells and eases like the bells' swing amplitude in the bank model (~2 s). */
+export const ALARM_SWELL_SECONDS = 2.03;
+
+/**
+ * One seamless loop of the alarm bell ringing (two swell cycles): the clapper re-excites damped
+ * resonators (one per partial) at ALARM_STRIKE_HZ with jittered strength, plus a small clapper
+ * tick. The strike pattern is periodic in the buffer length and the buffer is taken from the
+ * second simulated period (the first one only fills the resonators: its start-up has decayed by
+ * ~80 dB a period later), so the ringing tails wrap around the loop point without a seam.
+ * Written as a tight scalar loop (~25 ms at 48 kHz); the engine also builds it ahead of time at
+ * unlock (loops.ts prewarmSteps) so the first bank alarm never stalls a frame.
+ */
+export function alarmBellBuffer(ctx: BaseAudioContext): AudioBuffer {
+  return cachedBuffer(ctx, 'tex:alarmBell', () => {
+    const sr = ctx.sampleRate;
+    const L = Math.round(sr * ALARM_SWELL_SECONDS * 2);
+    const strikes = Math.round((L / sr) * ALARM_STRIKE_HZ);
+    const rnd = makeRng(4711);
+    const strength = new Float64Array(strikes);
+    for (let j = 0; j < strikes; j++) {
+      const ph = j / strikes; // two swells per buffer
+      const swell = 0.42 + 0.58 * Math.pow(Math.max(0, Math.sin(ph * Math.PI * 4)), 0.8);
+      strength[j] = swell * (0.88 + rnd() * 0.24);
+    }
+    const P = BANK_BELL_PARTIALS.length;
+    const a1 = new Float64Array(P);
+    const a2 = new Float64Array(P);
+    const g = new Float64Array(P);
+    const y1 = new Float64Array(P);
+    const y2 = new Float64Array(P);
+    BANK_BELL_PARTIALS.forEach(([ratio, amp, tau], k) => {
+      const w = (2 * Math.PI * BANK_BELL_HZ * ratio) / sr;
+      const r = Math.exp(-1 / (tau * sr));
+      a1[k] = 2 * r * Math.cos(w);
+      a2[k] = r * r;
+      g[k] = amp * Math.sin(w);
+    });
+    const out = new Float32Array(L);
+    const tickLen = Math.floor(sr * 0.0015);
+    // Per-strike envelope factors, applied recursively (exp(-age / tau) without a call per sample).
+    const kImpact = Math.exp(-1 / (sr * 0.025));
+    const kAttack = Math.exp(-1 / (sr * 0.0007));
+    let hp = 0;
+    let lastIn = 0;
+    for (let period = 0; period < 2; period++) {
+      for (let j = 0; j < strikes; j++) {
+        const at = Math.ceil((j * L) / strikes);
+        const next = j + 1 < strikes ? Math.ceil(((j + 1) * L) / strikes) : L;
+        const st = strength[j];
+        let eImpact = 1;
+        let eAttack = 1;
+        for (let n = at; n < next; n++) {
+          const x = n === at ? st : 0;
+          let s = 0;
+          for (let k = 0; k < P; k++) {
+            const y = a1[k] * y1[k] - a2[k] * y2[k] + x * g[k];
+            y2[k] = y1[k];
+            y1[k] = y;
+            s += y;
+          }
+          const age = n - at;
+          // Clapper tick: a 1.5 ms burst of high-passed noise.
+          if (age < tickLen) {
+            const w = (rnd() * 2 - 1) * st * 0.5 * (1 - age / tickLen);
+            hp = 0.6 * (hp + w - lastIn);
+            lastIn = w;
+            s += hp;
+          }
+          // Each impact rings out louder than the sustained gong: the articulate "rrrring".
+          // (1 ms attack: an instant gain step would click down into the lows.)
+          s *= ALARM_RING_FLOOR + (1 - ALARM_RING_FLOOR) * (1 - eAttack) * eImpact;
+          eImpact *= kImpact;
+          eAttack *= kAttack;
+          if (period === 1) out[n] = s;
+        }
+      }
+    }
+    normalizePeak(out, 0.9);
+    return monoBuffer(ctx, out);
+  });
+}

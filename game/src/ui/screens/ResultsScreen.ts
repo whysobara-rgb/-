@@ -1,15 +1,18 @@
 /**
- * Results (doc §12): both confirmed scores, 승리/패배/무승부 headline, ONE biggest real event,
- * series context in the tournament, and 재대결 / 다음 판 / 메뉴 — the primary action is
- * focused so a rematch is a single confirm press. No reward popups: a hat earned is shown
- * inline (toasts are non-blocking).
+ * Results (doc §12): both confirmed scores, a big rubber stamp (승리! / 아쉽다! / 무승부), ONE
+ * biggest real event, series context in the tournament, and 재대결 / 다음 판 / 메뉴 — the primary
+ * action is focused so a rematch is a single confirm press. The GameView results scene (the
+ * raccoons at the van) stays live behind; this layer adds rolling score counters, coin bursts and
+ * confetti. No reward popups: a hat earned is shown inline (toasts are non-blocking).
  */
 import type { EndReason, HatId, LootKind, TeamId } from '../../sim/types';
 import { t, tr, type TextRef } from '../i18n';
 import { h, isReducedMotion } from '../core/dom';
-import { icon, lootIcon, raccoon, teamEmblem } from '../core/icons';
-import { fmtScore } from '../core/format';
+import { icon, teamEmblem } from '../core/icons';
+import { objectPortrait, portrait } from '../core/portrait';
+import { uiSound } from '../core/nav';
 import { UiScreen } from '../core/screen';
+import { RollingNumber, burst, chunky, slamIn, stamp } from '../core/juice';
 import { button, chip, promptBar, teamTag } from '../components/controls';
 import type { RivalId } from '../types';
 import { seriesPips } from './TournamentScreen';
@@ -50,6 +53,8 @@ export interface ResultsScreenProps {
   /** Focused on show. Default: 'next' when available, else 'rematch'. */
   primary?: 'rematch' | 'next' | 'menu';
   playerHat?: HatId;
+  /** Rival on team 1 (1:1) for its portrait; null = team emblem only. */
+  rival?: RivalId | null;
   onRematch?: () => void;
   onNext?: () => void;
   /** Label of the 'next' button (default 'results.next' = 다음 판), e.g. '다음 라이벌' after a won series. */
@@ -57,10 +62,12 @@ export interface ResultsScreenProps {
   onMenu: () => void;
 }
 
-const CONFETTI_COLORS = ['#FFD66B', '#FF8F78', '#7FD3B0', '#A9D4FF', '#FF9EC0', '#B58BE8'];
+const STAMP_TONE = { win: 'sun', lose: 'sky', draw: 'grape' } as const;
 
 export class ResultsScreen extends UiScreen<ResultsScreenProps> {
-  private raf = 0;
+  private timers: number[] = [];
+  private rollers: [RollingNumber | null, RollingNumber | null] = [null, null];
+  private confettiTimer = 0;
 
   constructor(props: ResultsScreenProps) {
     super(props, { name: 'results', wrapNav: false });
@@ -78,15 +85,21 @@ export class ResultsScreen extends UiScreen<ResultsScreenProps> {
   }
 
   protected override onShow(): void {
-    this.countUp();
+    this.play();
   }
 
   protected override onHide(): void {
-    cancelAnimationFrame(this.raf);
+    this.stop();
   }
 
   protected override onDestroy(): void {
-    cancelAnimationFrame(this.raf);
+    this.stop();
+  }
+
+  private stop(): void {
+    for (const id of this.timers) window.clearTimeout(id);
+    this.timers = [];
+    window.clearInterval(this.confettiTimer);
   }
 
   protected render(): void {
@@ -94,15 +107,27 @@ export class ResultsScreen extends UiScreen<ResultsScreenProps> {
     const mine = p.myTeam;
     const expr = p.outcome === 'win' ? 'happy' : p.outcome === 'lose' ? 'sad' : 'surprised';
 
-    const scoreCard = (team: TeamId): HTMLElement =>
-      h(
+    const scoreCard = (team: TeamId): HTMLElement => {
+      const winner = p.outcome !== 'draw' && (team === mine) === (p.outcome === 'win');
+      const roll = new RollingNumber('uh-res__score uh-num', isReducedMotion() ? p.scores[team] : 0);
+      roll.el.dataset.target = String(p.scores[team]);
+      this.rollers[team] = roll;
+      const face =
+        team === mine
+          ? portrait({ hat: p.playerHat ?? 'teamCapA', team, expression: expr }, 'uh-res__face')
+          : p.rival
+            ? portrait({ rival: p.rival, team, expression: p.outcome === 'win' ? 'sad' : p.outcome === 'lose' ? 'happy' : 'surprised' }, 'uh-res__face')
+            : h('div', { class: 'uh-res__face uh-res__face--emblem' }, teamEmblem(team));
+      return h(
         'div',
-        { class: ['uh-res__team', `uh-res__team--${team}`, team === mine ? 'is-mine' : '', p.outcome !== 'draw' && (team === mine) === (p.outcome === 'win') ? 'is-winner' : ''] },
+        { class: ['uh-res__team', `uh-res__team--${team}`, team === mine ? 'is-mine' : '', winner ? 'is-winner' : ''] },
+        face,
         h('div', { class: 'uh-res__teamHead' }, teamTag(team, p.teamLabels?.[team] ?? null), team === mine ? chip('team.mine', 'gold') : null),
-        h('div', { class: 'uh-res__score uh-num', 'data-target': String(p.scores[team]) }, fmtScore(p.scores[team])),
+        roll.el,
         h('div', { class: 'uh-res__confirmed' }, icon('check'), t('results.confirmed')),
-        h('div', { class: 'uh-res__emblemBg', 'aria-hidden': 'true' }, teamEmblem(team, 'uh-res__emblemBig')),
+        winner ? h('div', { class: 'uh-res__crown', 'aria-hidden': 'true' }, icon('trophy')) : null,
       );
+    };
 
     const ev = p.biggestEvent;
     const eventCard = h(
@@ -113,11 +138,7 @@ export class ResultsScreen extends UiScreen<ResultsScreenProps> {
         ? h(
             'div',
             { class: 'uh-res__eventBody' },
-            h(
-              'div',
-              { class: 'uh-res__eventArt' },
-              ev.kind === 'fence' ? icon('bolt') : ev.kind === 'time' ? icon('clock') : lootIcon(ev.kind ?? 'bank', 'uh-loot-icon uh-res__eventLoot'),
-            ),
+            h('div', { class: 'uh-res__eventArt' }, ev.kind === 'fence' ? icon('bolt') : ev.kind === 'time' ? icon('clock') : objectPortrait(ev.kind ?? 'bank', 'uh-res__eventLoot')),
             h('p', { class: 'uh-res__eventText' }, tr(ev.text)),
             ev.team !== null ? h('div', { class: 'uh-res__eventTeam' }, teamTag(ev.team, p.teamLabels?.[ev.team] ?? null)) : null,
           )
@@ -136,19 +157,14 @@ export class ResultsScreen extends UiScreen<ResultsScreenProps> {
             : s.state === 'lost'
               ? chip('series.lost', 'night')
               : s.playerWins === 1 || s.rivalWins === 1
-                ? chip('series.matchPoint', 'gold', 'sparkle')
+                ? chip('series.matchPoint', 'tomato', 'sparkle')
                 : null,
           p.outcome === 'draw' ? h('span', { class: 'uh-res__drawNote' }, t('results.drawReplay')) : null,
         )
       : null;
 
     const reward = p.reward
-      ? h(
-          'div',
-          { class: 'uh-res__reward' },
-          h('div', { class: 'uh-res__rewardArt' }, raccoon({ hat: p.reward.hat, expression: 'happy' })),
-          h('span', null, t('results.reward', { hat: t(`hat.${p.reward.hat}.name`) })),
-        )
+      ? h('div', { class: 'uh-res__reward' }, portrait({ hat: p.reward.hat, expression: 'happy' }, 'uh-res__rewardArt'), h('span', null, t('results.reward', { hat: t(`hat.${p.reward.hat}.name`) })))
       : null;
 
     const buttons = h(
@@ -171,49 +187,23 @@ export class ResultsScreen extends UiScreen<ResultsScreenProps> {
         : null,
     );
 
-    const confetti =
-      p.outcome === 'win'
-        ? h(
-            'div',
-            { class: 'uh-confetti', 'aria-hidden': 'true' },
-            Array.from({ length: 28 }, (_, i) =>
-              h('i', {
-                style: {
-                  left: `${(i * 37) % 100}%`,
-                  background: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
-                  '--d': `${(i % 7) * 0.18}s`,
-                  '--r': `${(i * 53) % 360}deg`,
-                  '--x': `${((i * 29) % 21) - 10}rem`,
-                },
-              }),
-            ),
-          )
-        : null;
-
     this.el.append(
-      confetti ?? '',
+      h('div', { class: 'uh-res__fx', 'aria-hidden': 'true' }),
       h(
         'div',
         { class: ['uh-frame', 'uh-res', `uh-res--${p.outcome}`] },
         h(
           'header',
           { class: 'uh-res__head' },
-          h('div', { class: 'uh-res__face' }, raccoon({ hat: p.playerHat ?? 'teamCapA', team: mine, expression: expr })),
+          stamp(t(`results.stamp.${p.outcome}`), STAMP_TONE[p.outcome], 'uh-res__stamp'),
           h(
             'div',
             { class: 'uh-res__headline' },
-            h('h1', { class: 'uh-res__title uh-outline-text' }, t(`results.${p.outcome}`)),
-            h('p', { class: 'uh-res__sub' }, t(`results.${p.outcome}.sub`)),
+            chunky(t(`results.${p.outcome}.sub`), { tag: 'p', cls: 'uh-res__sub', tone: 'cream' }),
             p.reason ? chip(`results.reason.${p.reason}`, 'night', p.reason === 'time' ? 'clock' : 'flag') : null,
           ),
         ),
-        h(
-          'div',
-          { class: 'uh-res__scores' },
-          scoreCard(0),
-          h('div', { class: 'uh-res__vs uh-outline-text' }, ':'),
-          scoreCard(1),
-        ),
+        h('div', { class: 'uh-res__scores' }, scoreCard(0), h('div', { class: 'uh-res__vs' }, chunky(':', { tone: 'cream' })), scoreCard(1)),
         h('div', { class: 'uh-res__mid' }, eventCard, seriesStrip, reward),
         buttons,
         promptBar([
@@ -224,23 +214,45 @@ export class ResultsScreen extends UiScreen<ResultsScreenProps> {
     );
   }
 
-  /** Quick, non-blocking count-up of the two scores. */
-  private countUp(): void {
-    cancelAnimationFrame(this.raf);
-    const els = Array.from(this.el.querySelectorAll<HTMLElement>('.uh-res__score'));
-    if (isReducedMotion() || !els.length) return;
-    const start = performance.now();
-    const dur = 700;
-    const tick = (now: number): void => {
-      const k = Math.min(1, (now - start) / dur);
-      const e = 1 - Math.pow(1 - k, 3);
-      for (const el of els) {
-        const target = Number(el.dataset.target ?? '0');
-        el.textContent = fmtScore(Math.round(target * e / 10) * 10);
+  /** Stamp slam, then the scores roll up with coin bursts; confetti rain on a win. */
+  private play(): void {
+    this.stop();
+    const st = this.el.querySelector<HTMLElement>('.uh-res__stamp');
+    const rot = this.props.outcome === 'win' ? -9 : this.props.outcome === 'lose' ? 7 : -4;
+    if (st) slamIn(st, 250, rot);
+    this.timers.push(window.setTimeout(() => uiSound('stamp'), 380));
+    const reduced = isReducedMotion();
+    for (const team of [0, 1] as const) {
+      const r = this.rollers[team];
+      if (!r) continue;
+      const target = this.props.scores[team];
+      if (reduced) {
+        r.set(target, true);
+        continue;
       }
-      if (k < 1) this.raf = requestAnimationFrame(tick);
-      else for (const el of els) el.textContent = fmtScore(Number(el.dataset.target ?? '0'));
-    };
-    this.raf = requestAnimationFrame(tick);
+      this.timers.push(
+        window.setTimeout(() => {
+          r.set(target);
+          if (target > 0) {
+            uiSound('coin', { pitch: team === this.props.myTeam ? 1.12 : 1 });
+            const fx = this.el.querySelector<HTMLElement>('.uh-res__fx');
+            const rect = r.el.getBoundingClientRect();
+            const host = fx?.getBoundingClientRect();
+            if (fx && host) burst(fx, rect.left - host.left + rect.width / 2, rect.top - host.top + rect.height / 2, { kind: 'coins', count: Math.min(18, 4 + Math.round(target / 150)), power: 1.1 });
+          }
+        }, 700 + team * 220),
+      );
+    }
+    if (this.props.outcome === 'win' && !reduced) {
+      const rain = (): void => {
+        const fx = this.el.querySelector<HTMLElement>('.uh-res__fx');
+        if (!fx) return;
+        const w = fx.clientWidth;
+        for (let i = 0; i < 3; i++) burst(fx, Math.random() * w, -20, { kind: 'confetti', count: 6, power: 0.5, spread: 3, up: -6 });
+      };
+      this.timers.push(window.setTimeout(rain, 300));
+      this.confettiTimer = window.setInterval(rain, 420);
+      this.timers.push(window.setTimeout(() => window.clearInterval(this.confettiTimer), 9000));
+    }
   }
 }

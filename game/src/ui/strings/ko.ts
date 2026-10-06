@@ -535,6 +535,27 @@ export const ko = {
   'police.dispatched.kicker': '경보가 울렸어요!',
   'police.dispatched.title': '경찰 출동!',
   'police.dispatched.body': '금고나 은행을 든 너구리를 쫓아와요. 대시로 넘어뜨릴 수 있어요.',
+  // --- UI overhaul: stamps, police HUD, 3D preview tags -------------------------
+  'tournament.caught': '잡았다!',
+  'results.stamp.win': '승리!',
+  'results.stamp.lose': '아쉽다!',
+  'results.stamp.draw': '무승부',
+  'stamp.uproot': '뽑았다!',
+  'stamp.steal': '가로채기!',
+  'stamp.bankWhole': '은행째!',
+  'stamp.dodge': '태클 피했다!',
+  'stamp.police': '경찰이다!',
+  'hud.policeIn': '경찰 출동까지 {sec}초',
+  'hud.policeOn': '경찰 출동 중 · {n}명',
+  'banner.policeDispatched': '경찰 출동!',
+  'banner.policeDispatched.sub': '경찰차가 와요. 전리품을 든 너구리를 쫓아요!',
+  'banner.policeArrived': '경찰 도착!',
+  'banner.policeArrived.sub': '돌진으로 경찰을 넘어뜨릴 수 있어요!',
+  'preview.legend.police': '경찰 진입로',
+  'preview.ourVan': '우리 차',
+  'preview.theirVan': '상대 차',
+  'preview.tagBankParts': '건물 + 금고',
+  'preview.policeEntry': '경찰 진입',
 } as const;
 
 export type StringKey = keyof typeof ko;

@@ -8,7 +8,7 @@
  * team). They never use sim.debug.
  */
 import type { Simulation } from '../sim/sim';
-import { BANK_MODEL, DASH, TICK_RATE, UNANCHOR_TICKS, VISION } from '../sim/config';
+import { BANK_MODEL, CHARACTER, DASH, POLICE, TICK_RATE, UNANCHOR_TICKS, VISION } from '../sim/config';
 import { createRng } from '../sim/math';
 import type { CharacterState, Command, EntityId, LootState, OBB, PingState, TeamId, Vec2 } from '../sim/types';
 import { TeamBoard } from './board';
@@ -27,7 +27,8 @@ import {
   type GrabSpot,
 } from './geom';
 import { ASTAR_TICK_BUDGET, NAV_CELL, NavGrid, pointAtArc, type FieldJob, polylineLength, projectOnPolyline, type NavClass } from './nav';
-import { DIFFICULTY_PARAMS, PERSONALITY, type DifficultyParams, type PersonalityWeights } from './params';
+import { BOT_TUNING, DIFFICULTY_PARAMS, HUMAN_PROXY_PARAMS, PERSONALITY, humanProxyWeights, type DifficultyParams, type PersonalityWeights } from './params';
+import { PoliceSense, type CopView } from './policeSense';
 import { TeamPerception, type OpponentView } from './perception';
 import type { Adaptation, BotController, BotIntent, BotOptions, Difficulty, GoalKind, RivalId } from './types';
 
@@ -154,6 +155,8 @@ export interface BotStats {
   stuckRepaths: number;
   goalFails: number;
   pingsAnswered: number;
+  /** Dashes thrown at officers (reflex or body-block). */
+  policeStunTries: number;
   goalsByKind: Record<string, number>;
 }
 
@@ -166,6 +169,8 @@ function cmd(move: Vec2, grab: boolean, aim: Vec2 | null = null, dash = false): 
 export interface BotInternalOptions extends BotOptions {
   /** Scripted stand-in for a human player (tools/tests): no claims, private sight. */
   humanProxy?: boolean;
+  /** Tests / tools only: override difficulty parameters (e.g. policeAwareness: 0 as a control). */
+  tuning?: Partial<DifficultyParams>;
 }
 
 export class Bot implements BotController {
@@ -190,10 +195,20 @@ export class Bot implements BotController {
     stuckRepaths: 0,
     goalFails: 0,
     pingsAnswered: 0,
+    policeStunTries: 0,
     goalsByKind: {},
   };
 
   private readonly rng: () => number;
+  /** Human proxy only: short attention lapses (a person glances at the minimap, hesitates). */
+  private lapseRng: (() => number) | null = null;
+  private lapseUntil = -1;
+  /** Public police state (officers, alarm clock); refreshed every tick. */
+  private ps: PoliceSense;
+  /** Release-and-dash plan against an officer about to tackle this bot. */
+  private stunPlan: { copId: EntityId; until: number } | null = null;
+  /** Loot an opponent just lost to a police tackle (seen): loot id -> tick (police chaos). */
+  private readonly chaos = new Map<EntityId, number>();
   private readonly board: TeamBoard;
   private readonly nav: NavGrid;
   private readonly perception: TeamPerception;
@@ -238,19 +253,29 @@ export class Bot implements BotController {
     this.team = me.team;
     this.personality = opts.personality;
     this.difficulty = opts.difficulty;
-    this.P = DIFFICULTY_PARAMS[opts.difficulty];
-    this.W = PERSONALITY[opts.personality];
     this.adaptation = opts.adaptation ?? null;
     this.isProxy = opts.humanProxy === true;
     this.rng = createRng((opts.seed ^ (0x9e3779b9 * (opts.slot + 1))) >>> 0);
+    if (this.isProxy) {
+      // a person is not a mirror of any rival: blended, per-match priorities and human timing
+      const prng = createRng((opts.seed * 2246822519 + opts.slot * 3266489917 + 0x1234567) >>> 0);
+      this.P = HUMAN_PROXY_PARAMS;
+      this.W = humanProxyWeights(prng);
+      this.lapseRng = prng;
+    } else {
+      this.P = DIFFICULTY_PARAMS[opts.difficulty];
+      this.W = PERSONALITY[opts.personality];
+    }
+    if (opts.tuning) this.P = { ...this.P, ...opts.tuning };
     this.tasteSeed = (opts.seed * 2654435761 + opts.slot * 40503) >>> 0;
     // per-match style (seeded, constant for the whole match): the same rival does not replay
     // the exact same plan every game, without changing what it is (all within ±12 %)
     const srng = createRng((this.tasteSeed ^ 0x5bd1e995) >>> 0);
-    const v = (): number => 0.78 + 0.44 * srng();
+    const v = (): number => 1 + BOT_TUNING.styleSpread * (srng() - 0.5) * 2;
     this.style = { small: v(), large: v(), bank: v(), strip: v(), intercept: v() };
     this.board = TeamBoard.for(sim, this.team);
     this.nav = this.board.nav;
+    this.ps = PoliceSense.for(sim);
     if (this.isProxy) {
       this.perception = new TeamPerception(sim, this.team);
     } else {
@@ -295,6 +320,7 @@ export class Bot implements BotController {
   update(sim: Simulation): Command {
     const st = sim.state;
     this.board.tick(sim);
+    this.ps = PoliceSense.for(sim);
     if (this.isProxy) this.perception.update(sim, [this.slot]);
     if (st.over) return EMPTY;
     const me = this.me(sim);
@@ -334,6 +360,12 @@ export class Bot implements BotController {
     this.travelDash = false;
     if (this.goal && tick < this.telegraphUntil) c = this.telegraphCommand(sim, this.goal);
     else c = this.execute(sim);
+    // police reflexes (public officers): let go and knock over an officer about to tackle me, or
+    // the one about to tackle a carrying teammate
+    const pr = this.policeReflex(sim, me);
+    if (pr) c = pr;
+    // human proxy: a short lapse of attention now and then (never while holding something)
+    if (this.isProxy && tick < this.lapseUntil && !me.grab && !pr) c = cmd({ x: 0, y: 0 }, false);
     // pinned: wedged (e.g. between a wall and an anchored safe in a narrow gap) the body does not
     // move in any direction while walking; a dash along the freest direction breaks out
     if (V.len(c.move) > 0.5 && V.len(me.vel) < 0.05 && !me.straining && !me.grab && !c.grab) this.pinnedTicks++;
@@ -493,6 +525,7 @@ export class Bot implements BotController {
           this.finalPending = true;
           break;
         case 'release':
+          if (e.forced) this.forcedRelease.set(e.charId, { loot: e.targetId, tick: e.tick });
           if (e.charId === this.id && e.forced) {
             this.urgent = true;
             // (a knockdown also breaks the grip: that is not the way being blocked)
@@ -514,6 +547,9 @@ export class Bot implements BotController {
         case 'fenceBroken':
           this.path = null;
           break;
+        case 'policeTackle':
+          if (e.hit) this.notePoliceTackle(sim, e.victimId, e.tick);
+          break;
         default:
           break;
       }
@@ -522,6 +558,35 @@ export class Bot implements BotController {
   }
 
   private finalPending = false;
+  private readonly forcedRelease = new Map<EntityId, { loot: EntityId; tick: number }>();
+
+  /**
+   * An officer just tackled someone (public, but an opponent only counts when the team sees it):
+   * what they dropped is up for grabs — 눈치왕's favourite moment.
+   */
+  private notePoliceTackle(sim: Simulation, victimId: EntityId, tick: number): void {
+    const victim = sim.getCharacter(victimId);
+    if (!victim || victim.team === this.team) return;
+    const seen = this.perception.latest(victimId);
+    if (!seen || tick - seen.tick > 8) return;
+    const fr = this.forcedRelease.get(victimId);
+    const loot = fr && fr.tick === tick ? fr.loot : seen.holdingId;
+    if (loot === null) return;
+    this.chaos.set(loot, tick);
+    if (this.W.opportunism > 0.5 && this.P.policeAwareness > 0.5) this.urgent = true;
+  }
+
+  /** Police chaos bonus for an item an opponent lost to the police in the last few seconds. */
+  private chaosBonus(sim: Simulation, lootId: EntityId): number {
+    const t = this.chaos.get(lootId);
+    if (t === undefined) return 1;
+    const age = sim.state.tick - t;
+    if (age > 6 * TICK_RATE) {
+      this.chaos.delete(lootId);
+      return 1;
+    }
+    return 1 + (0.25 + 1.1 * this.W.opportunism) * this.P.policeAwareness * (1 - age / (6 * TICK_RATE));
+  }
   /** Bank stand spots chosen by the bots of this sim (slot -> spot), shared via a static map. */
   private get claimedSpots(): Map<number, Vec2> {
     let m = Bot.spotBoard.get(this.board);
@@ -578,16 +643,23 @@ export class Bot implements BotController {
     this.urgent = false;
     this.nextDecision = tick + this.P.decisionInterval + Math.floor(this.rng() * 6);
     this.stats.decisions++;
+    if (this.lapseRng) {
+      // irregular human timing: decision gaps vary, and ~1 in 20 decisions comes with a short pause
+      this.nextDecision += Math.floor(this.lapseRng() * 24) - 8;
+      if (this.lapseRng() < 0.05) this.lapseUntil = tick + 15 + Math.floor(this.lapseRng() * 30);
+    }
     if (this.pinned) {
       if (this.goal) return;
       this.pinned = false;
     }
     const cands = this.candidates(sim);
-    // choice quality: noisy self-estimates (a novice misjudges; a challenge bot does not)
-    if (this.P.estimateNoise > 0) {
+    // choice quality: noisy self-estimates (a novice misjudges; a challenge bot does not); a
+    // person's opening plan is their own (wider noise during the first 20 s)
+    const noise = this.isProxy && tick < 20 * TICK_RATE ? Math.max(this.P.estimateNoise, 0.45) : this.P.estimateNoise;
+    if (noise > 0) {
       for (const c of cands) {
         if (c.kind === 'idle' || c.pingId !== undefined) continue;
-        c.utility *= Math.max(0.2, 1 + this.P.estimateNoise * (this.rng() + this.rng() + this.rng() - 1.5) * 1.4);
+        c.utility *= Math.max(0.2, 1 + noise * (this.rng() + this.rng() + this.rng() - 1.5) * 1.4);
       }
     }
     const cur = this.goal;
@@ -940,21 +1012,40 @@ export class Bot implements BotController {
       if (!l.anchored && !strip) w *= 1.08;
       // taking a safe out of a bank also lowers what that bank is worth to the other team —
       // all the more once they have shown they haul banks (in-match observation, public)
-      if (!strip && l.floorOf !== null && depth > 0) value *= this.oppBankHauls.size > 0 ? 1 + 0.3 * depth : 1 + 0.15 * Math.min(1, depth);
-      // competition: an empty-handed opponent much closer to it
+      if (!strip && l.floorOf !== null && depth > 0) value *= 1 + BOT_TUNING.stripAnchoredBonus * (this.oppBankHauls.size > 0 ? 0.3 * depth : 0.15 * Math.min(1, depth));
+      // competition: an empty-handed opponent much closer to it (a bot leaves it to them; a person
+      // just goes for what they want — the human proxy never yields, which is also what breaks
+      // perfectly mirrored play on the mirror-symmetric layouts)
       let compete = 1;
-      if (!holdingIt) {
+      if (!holdingIt && !this.isProxy) {
         for (const o of freshOpps) {
           if (!o.last || o.last.holdingId !== null) continue;
           const od = V.dist(o.last.pos, l.pos) * 1.15 + (o.age / TICK_RATE) * 2.5;
-          if (od + 2.5 < walk) compete = Math.min(compete, 0.5);
+          if (od + 2.5 < walk) compete = Math.min(compete, BOT_TUNING.yieldSafe);
         }
       }
       // adaptation stripBank: prefer extracting the large safe of the nearest bank
       if (this.adaptation?.kind === 'stripBank' && l.floorOf !== null && kind === 'largeSafe') w *= 1.6;
       // final phase: deliverable small safes first (doc §11 마지막 30초)
       if (finalPhase && kind === 'smallSafe') w *= 1.1;
-      const rate = (value / t) * w * compete * feas * this.taste(l.id);
+      // police on the field: a carry past free officers takes longer (they outrun a large safe,
+      // barely a small one); loot an opponent just lost to the police is up for grabs
+      let tPol = t;
+      if (this.ps.onField() && !inZone) {
+        const thr = this.ps.threatAt(l.pos, holdingIt ? this.id : null, 10) + 0.5 * this.ps.threatAt(zoneOf(sim.layout, this.team).center, null, 9);
+        tPol += thr * (kind === 'smallSafe' ? 2.5 : 5) * this.P.policeAwareness;
+      }
+      w *= this.chaosBonus(sim, l.id);
+      if (strip && l.floorOf !== null && this.ps.onField()) {
+        // their hauler has an officer on its back: its bank is wide open (눈치왕 above all)
+        for (const o of this.oppHolding(sim, l.floorOf)) {
+          if (this.ps.chasers(o.id).length > 0) {
+            w *= 1 + (0.2 + 0.8 * W.opportunism) * this.P.policeAwareness;
+            break;
+          }
+        }
+      }
+      const rate = (value / tPol) * w * compete * feas * this.taste(l.id);
       out.push(
         this.mk(strip ? 'stripBank' : 'collectSafe', key, l.id, rate, l.baseValue, t, {
           strip,
@@ -1010,7 +1101,21 @@ export class Bot implements BotController {
       const tOpt = inZone ? (sim.rules.recoveryTicks - b.recovery!.ticks) / TICK_RATE : walk / WALK + (holdingIt ? 0 : 0.8) + tUn + remRaw / (bankSpeed(value, nAfter) * 1.03) + RECOVERY_S;
       const feas = this.feasibility(t * 1.05 + 1, tOpt, left, holdingIt, notAheadLate);
       if (feas <= 0) continue;
-      let rate = (value / t) * feas;
+      // police waves (public alarm clock): officers on the field go for the biggest load first, so
+      // a bank hauled while they are around crawls — collect safes meanwhile and haul when they
+      // leave (an uproot itself calls a car in ~12 s). A second hauler / guard halves the drag.
+      // (measured: a solo haul with officers on duty averages ~75 % of its free speed, ~68 % while
+      // an officer is on it; a second hauler / a guard roughly halves that drag)
+      let tPol = t;
+      let wave = 1;
+      if (this.ps.enabled && !inZone) {
+        const aw = this.P.policeAwareness;
+        const exp = this.ps.exposure(t, b.anchored);
+        tPol += exp * BOT_TUNING.bankPoliceDrag * (nAfter >= 2 ? 0.55 : 1) * aw * (holdingIt ? 0.5 : 1);
+        // officers on the field right now and staying a while: start it once they walk back
+        if (!holdingIt && !committed && this.ps.onField() && this.ps.shiftLeft() > 12) wave = 1 - BOT_TUNING.waveDefer * aw;
+      }
+      let rate = (value / tPol) * feas * wave;
       if (isAssist) {
         const key = `assist:${b.id}`;
         if (claimed.has(key) || this.blacklisted(key, tick)) continue;
@@ -1024,20 +1129,28 @@ export class Bot implements BotController {
         const key = `haul:${b.id}`;
         if (claimed.has(key) || this.blacklisted(key, tick)) continue;
         const contents = (value - 500) / 100;
-        let w = W.bank * this.style.bank * (1 + W.bankContents * contents);
+        let w = W.bank * this.style.bank * (1 + W.bankContents * contents) * (contents > 0 ? BOT_TUNING.wholeBank : 1);
         // an empty-handed opponent closer to this bank will contest it: prefer the other one
-        if (!holdingIt) {
+        if (!holdingIt && !this.isProxy) {
           for (const o of freshOpps) {
             if (!o.last || o.last.holdingId !== null || o.age > 120) continue;
             const od = V.dist(o.last.pos, b.pos) - 4.5;
-            if (od < 12 && od + 3.5 < walk) w *= 0.55;
+            if (od < 12 && od + 3.5 < walk) w *= BOT_TUNING.yieldBank;
           }
         }
         // long exposure with opponents around
         if (freshOpps.length > 0 && t > 30) w *= 0.92;
         if (this.adaptation?.kind === 'stripBank') w *= 0.75;
         // bank race: they haul banks, so whichever bank we leave they will take next
-        if (depth > 0 && [...this.oppBankHauls].some((id) => id !== b.id)) w *= 1 + 0.6 * depth;
+        if (depth > 0 && [...this.oppBankHauls].some((id) => id !== b.id)) w *= 1 + BOT_TUNING.bankRace * depth;
+        // the last bank starts the 30 s getaway (doc §8): worth locking in when it puts us ahead,
+        // a poor deal while we would still trail or tie after it (the clock would run out on us)
+        if (st.banksRecovered === 1 && depth > 0 && left > 40) {
+          const lead = st.scores[this.team] - st.scores[(1 - this.team) as TeamId] + value;
+          const k = Math.min(1, depth) * BOT_TUNING.lastBankTiming;
+          if (lead <= 0) w *= 1 - (lead < 0 ? 0.6 : 0.4) * k;
+          else if (lead > (st.remainingValue - value) * 0.5) w *= 1 + 0.35 * k;
+        }
         rate *= w * this.taste(b.id);
         out.push(this.mk('haulBank', key, b.id, rate, value, t, { bankId: b.id }));
       }
@@ -1077,11 +1190,13 @@ export class Bot implements BotController {
       const pHit = 0.35 + 0.35 * this.P.dashUse;
       let w = W.intercept * this.style.intercept * (depth < 1 ? 0.55 + 0.45 * depth : 1);
       if (l.kind === 'largeSafe') w *= 1 + W.opportunism * 0.6;
+      // an officer is on their back (public; the carrier itself is seen): they are about to drop it
+      if (o.visible && this.ps.chasers(o.id).length > 0) w *= 1 + (0.2 + 0.8 * W.opportunism) * this.P.policeAwareness;
       // adaptation ambushChoke: carriers seen at the chokepoint the human kept using come first
       if (ambushChoke && V.dist(o.last.pos, ambushChoke.pos) < ambushChoke.radius + 9 && l.kind === 'smallSafe') w *= 1.6;
       // the swing: they lose it, we may gain it (only the denial when ours could not finish)
       const swing = t <= left ? 1.6 : 0.8;
-      const rate = ((l.baseValue * swing * pHit) / (t <= left ? t : tReach + 1.5)) * w;
+      const rate = ((l.baseValue * swing * pHit) / (t <= left ? t : tReach + 1.5)) * w * BOT_TUNING.intercept;
       out.push(this.mk('intercept', key, o.id, rate, l.baseValue, t, { pos: { ...o.last.pos } }));
     }
 
@@ -1145,6 +1260,30 @@ export class Bot implements BotController {
             out.push(this.mk('escort', key, threat.id, rate, hl.baseValue, d / WALK + 5, { mateId: human.id, until: tick + 5 * TICK_RATE }));
           }
         }
+      }
+    }
+
+    // --- body-block / stun the officer chasing a carrying teammate (police are public) ---
+    if (this.ps.onField() && !me.grab && this.P.policeAwareness > 0) {
+      for (const mate of this.mates(sim)) {
+        if (!mate.grab) continue;
+        const chs = this.ps.chasers(mate.id);
+        if (!chs.length) continue;
+        const l = sim.getLoot(mate.grab.targetId);
+        if (!l || l.recovered || (l.recovery && l.recovery.team === this.team)) continue;
+        const key = `copguard:${mate.id}`;
+        if (claimed.has(key) || this.blacklisted(key, tick)) continue;
+        let dm = Infinity;
+        for (const c of chs) dm = Math.min(dm, V.dist(c.pos, mate.pos));
+        const dMe = V.dist(me.pos, mate.pos);
+        if (dMe > 18) continue;
+        const tReach = Math.max(0, dMe - 1.5) / WALK;
+        const urgency = Math.max(0.35, Math.min(1.4, 1.5 - dm / 8));
+        const value = l.kind === 'bank' ? l.estimatedValue : l.baseValue * 1.2;
+        const horizon = l.kind === 'bank' ? 40 : 8;
+        let u = (value / (tReach + horizon)) * urgency * this.P.policeAwareness * (0.7 + 0.5 * W.assist);
+        if (!mate.isBot) u *= 1.3;
+        out.push(this.mk('escort', key, null, u, Math.round(value), tReach + 4, { mateId: mate.id, pos: { ...mate.pos }, until: tick + 6 * TICK_RATE }));
       }
     }
 
@@ -1225,7 +1364,7 @@ export class Bot implements BotController {
       let h = (this.tasteSeed ^ Math.imul(id, 0x9e3779b1)) >>> 0;
       h = Math.imul(h ^ (h >>> 15), 0x85ebca6b) >>> 0;
       h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35) >>> 0;
-      v = 0.93 + 0.14 * (((h ^ (h >>> 16)) >>> 0) / 4294967296);
+      v = 1 + BOT_TUNING.tasteSpread * ((((h ^ (h >>> 16)) >>> 0) / 4294967296) - 0.5) * 2;
       this.tastes.set(id, v);
     }
     return v;
@@ -1496,7 +1635,7 @@ export class Bot implements BotController {
       case 'defendDoor':
         return this.execDefend(sim, g);
       case 'escort':
-        return this.execEscort(sim, g);
+        return g.key.startsWith('copguard:') ? this.execCopGuard(sim, g) : this.execEscort(sim, g);
       case 'ambush':
         return this.execAmbush(sim, g);
       case 'followPing':
@@ -1682,6 +1821,7 @@ export class Bot implements BotController {
       if (!o.visible || !o.last) continue;
       consider(o.last.pos, 0.45, 0.7);
     }
+    for (const c of this.ps.cops) consider(c.pos, carrying ? 1.0 : 0.42, carrying ? 1.4 : 0.7);
     const holding = me.grab ? me.grab.targetId : null;
     const goalTarget = this.goal ? this.goal.targetId : null;
     for (const l of sim.state.loot) {
@@ -2238,14 +2378,20 @@ export class Bot implements BotController {
     }
     // snag / stall detection on the carried object: progress along its own path (a safe rocking
     // back and forth in a corner moves, but gets nowhere)
-    const progress = P ? projectOnPolyline(P, l.pos).s : 0;
-    if (!g.stallRef || g.stallTick === undefined || g.stallPath !== P) {
+    // (without a path: getting closer to the goal; a safe rocking in a pocket is not progress)
+    const progress = P ? projectOnPolyline(P, l.pos).s : -V.dist(l.pos, goal);
+    if (!g.stallRef || g.stallTick === undefined) {
       g.stallRef = { ...l.pos };
       g.stallTick = tick;
       g.stallBest = progress;
       g.stallPath = P;
+    } else if (g.stallPath !== P) {
+      // a re-planned path (officers moving, the load straying) re-bases the progress measure but
+      // never restarts the stall clock — re-planning every half second must not hide a stall
+      g.stallBest = progress;
+      g.stallPath = P;
     }
-    if (P ? progress > (g.stallBest ?? 0) + 0.5 : V.dist(l.pos, g.stallRef) > 0.5) {
+    if (progress > (g.stallBest ?? 0) + 0.5) {
       g.stallRef = { ...l.pos };
       g.stallTick = tick;
       g.stallBest = progress;
@@ -2275,9 +2421,18 @@ export class Bot implements BotController {
       g.wiggleUntil = tick + 18;
       return cmd(g.wiggleDir, true);
     }
-    // carry boost on straight stretches when no threat is near
+    // police: veer away from an officer closing in, and burst away when it is right behind
     let dash = false;
-    if (me.dashCooldown === 0 && straight > 5 && this.rngCheck(this.P.carryBoost, 20) && !this.threatNear(sim, me.pos, 10)) dash = true;
+    const chase = this.ps.onField() ? this.ps.nearest(me.pos, this.id) : null;
+    if (chase && chase.d < 4.5 && V.len(move) > 0.3 && !(l.recovery && l.recovery.team === this.team)) {
+      const aw = this.P.policeAwareness;
+      const away = V.norm(V.sub(me.pos, chase.cop.pos));
+      const nd = V.norm(V.add(V.norm(move), V.scale(away, aw * 0.9 * (1 - chase.d / 4.5))));
+      if (this.nav.clearanceAt(me.pos.x + nd.x * 0.6, me.pos.y + nd.y * 0.6) >= 0.5) move = V.scale(nd, V.len(move));
+      if (me.dashCooldown === 0 && me.protectTicks === 0 && chase.d < 3.2 && V.dot(V.norm(move), away) > 0.2 && this.rngCheck(aw * this.P.carryBoost, 6)) dash = true;
+    }
+    // carry boost on straight stretches when no threat is near
+    if (!dash && me.dashCooldown === 0 && straight > 5 && this.rngCheck(this.P.carryBoost, 20) && !this.threatNear(sim, me.pos, 10) && !(chase && chase.d < 9)) dash = true;
     return cmd(move, true, null, dash);
   }
 
@@ -2286,14 +2441,17 @@ export class Bot implements BotController {
     const tick = sim.state.tick;
     const P = g.objPath;
     const age = g.objPathTick === undefined ? 1e9 : tick - g.objPathTick;
+    // officers on duty: route the load around them (refreshed often, they move)
+    const cops = this.ps.onField() && this.P.policeAwareness > 0 ? this.ps.avoidCircles(this.id, tick + 60, this.P.policeAwareness) : [];
     const stale =
       P === undefined ||
       age > 240 ||
+      (cops.length > 0 && age > 30) ||
       (g.objPathGoal !== undefined && V.dist(g.objPathGoal, dest) > 1) ||
       (P !== null && age > 30 && projectOnPolyline(P, l.pos).dist > 1.6) ||
       (age > 75 && g.objPathVer !== this.nav.dynVersion);
     if (stale && (P === undefined || this.nav.astarSpentThisTick() <= ASTAR_TICK_BUDGET)) {
-      const res = this.nav.findPath(l.pos, dest, cls, { maxExpand: 25000, discount: this.trail && this.trail.length ? this.trail : null, smoothMargin: 0.25 });
+      const res = this.nav.findPath(l.pos, dest, cls, { maxExpand: 25000, discount: this.trail && this.trail.length ? this.trail : null, smoothMargin: 0.25, avoid: cops.length ? cops : undefined });
       g.objPath = res && !res.partial && res.points.length >= 2 ? res.points : null;
       g.objPathTick = tick;
       g.objPathGoal = { ...dest };
@@ -2726,6 +2884,159 @@ export class Bot implements BotController {
     if (!this.rngCheck(Math.min(1, this.P.dashUse * (0.6 + 0.6 * this.W.aggression)), 8)) return null;
     this.log1(sim, `dash at ${o.id} (${why}, d=${d.toFixed(2)})`);
     return cmd(dir, false, dir, true);
+  }
+
+  // -------------------------------------------------------------------------
+  // Police (public officers; owner addition beyond doc v0.5)
+  // -------------------------------------------------------------------------
+
+  /** An officer is set to lunge at `victim` soon: chasing it, close, ready and coming at it. */
+  private copAboutToTackle(cop: CopView, victim: Vec2, range: number): boolean {
+    if (cop.busyTicks > 12 || cop.phase === 'stunned') return false;
+    const rel = V.sub(victim, cop.pos);
+    const d = V.len(rel);
+    if (d > range || d < 1e-6) return false;
+    const f = { x: Math.cos(cop.facing), y: Math.sin(cop.facing) };
+    return V.dot(f, V.scale(rel, 1 / d)) > 0.3 || d < POLICE.tackleRange + 0.3;
+  }
+
+  /** Dash at an officer if the burst would knock it over (cone, reach, line of sight). */
+  private dashAtCop(sim: Simulation, me: CharacterState, cop: CopView): Command | null {
+    if (me.grab || me.dashCooldown > 0 || cop.phase === 'stunned' || this.ps.stunImmune(cop.id)) return null;
+    const rel = V.sub(cop.pos, me.pos);
+    const d = V.len(rel);
+    const reach = CHARACTER.radius + POLICE.radius + 0.05;
+    const burst = DASH.speed * (DASH.durationTicks / TICK_RATE) * 0.85;
+    if (d > reach + burst || d < 0.3) return null;
+    const q = 0.5 + 0.5 * this.P.leadQuality;
+    const tHit = Math.max(0, d - reach) / DASH.speed;
+    const pred = V.add(cop.pos, V.scale(cop.vel, tHit * q));
+    const dir = V.norm(V.sub(pred, me.pos));
+    if (!sim.lineOfSight(me.pos, pred)) return null;
+    // something solid (a safe) in between stops the dash short
+    for (const l of sim.state.loot) {
+      if (l.recovered || l.kind === 'bank' || V.dist(l.pos, me.pos) > d + 1.5) continue;
+      const box = { center: l.pos, half: { x: l.half.x + 0.4, y: l.half.y + 0.4 }, angle: l.angle };
+      const len = Math.max(0, V.dist(me.pos, pred) - reach);
+      if (len > 0.05 && rayOBB(me.pos, dir, box, len) !== null) return null;
+    }
+    this.log1(sim, `dash-stuns officer ${cop.id} (d=${d.toFixed(2)})`);
+    return cmd(dir, false, dir, true);
+  }
+
+  /**
+   * Reflexes around the police, on top of the current goal:
+   *  - carrying and an officer is about to tackle me: let go (an empty-handed raccoon is never
+   *    tackled) and dash it over, then pick the load up again (the goal resumes by itself);
+   *  - a carrying teammate is about to be tackled and the officer is within my dash: stun it.
+   * Awareness (difficulty) decides how often the bot notices in time.
+   */
+  private policeReflex(sim: Simulation, me: CharacterState): Command | null {
+    const ps = this.ps;
+    if (!ps.onField()) {
+      this.stunPlan = null;
+      return null;
+    }
+    const tick = sim.state.tick;
+    const aw = this.P.policeAwareness;
+    if (this.stunPlan) {
+      const plan = this.stunPlan;
+      const cop = ps.cops.find((c) => c.id === plan.copId);
+      if (!cop || tick > plan.until || cop.phase === 'stunned' || me.grab || me.dashCooldown > 0) this.stunPlan = null;
+      else {
+        const c = this.dashAtCop(sim, me, cop);
+        if (c) {
+          this.stunPlan = null;
+          this.stats.policeStunTries++;
+          return c;
+        }
+        // (it is coming at me anyway): square up to it
+        return cmd(V.scale(V.norm(V.sub(cop.pos, me.pos)), 0.4), false, V.sub(cop.pos, me.pos));
+      }
+    }
+    if (me.dashCooldown > 0 || me.knockdownTicks > 0) return null;
+    if (me.grab && me.protectTicks === 0 && !me.straining) {
+      const l = sim.getLoot(me.grab.targetId);
+      // (a load already dwelling in our zone scores whatever happens to me)
+      if (l && !l.recovered && !(l.recovery && l.recovery.team === this.team)) {
+        for (const cop of ps.chasers(this.id)) {
+          if (!this.copAboutToTackle(cop, me.pos, 2.4) || ps.stunImmune(cop.id)) continue;
+          if (!this.rngCheck(aw, 3)) continue;
+          this.stunPlan = { copId: cop.id, until: tick + 24 };
+          this.log1(sim, `lets go of ${l.id} to stun officer ${cop.id}`);
+          return cmd({ x: 0, y: 0 }, false, V.sub(cop.pos, me.pos));
+        }
+      }
+      return null;
+    }
+    if (!me.grab) {
+      for (const mate of this.mates(sim)) {
+        // (still protected for a while: the officer cannot lunge yet; at the very end it will)
+        if (!mate.grab || mate.protectTicks > 20) continue;
+        for (const cop of ps.chasers(mate.id)) {
+          if (!this.copAboutToTackle(cop, mate.pos, 3.4)) continue;
+          if (V.dist(cop.pos, me.pos) > 3.6) continue;
+          const c = this.dashAtCop(sim, me, cop);
+          if (c && this.rngCheck(aw, 2)) {
+            this.stats.policeStunTries++;
+            return c;
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Body-block: stand on the line from the officer chasing a carrying teammate to that teammate
+   * (officers never tackle empty-handed raccoons, so they must go around), and stun it when it
+   * gets close (policeReflex does the dash).
+   */
+  private execCopGuard(sim: Simulation, g: Goal): Command {
+    const tick = sim.state.tick;
+    const mate = g.mateId !== undefined ? sim.getCharacter(g.mateId) : undefined;
+    const me = this.me(sim);
+    // (a tackled mate gets up and grabs its load again: keep covering it for a moment)
+    if (mate && !mate.grab) g.exitTick ??= tick;
+    else if (mate) g.exitTick = undefined;
+    const lost = !mate || (!mate.grab && mate.knockdownTicks <= 0 && tick - (g.exitTick ?? tick) > 1.5 * TICK_RATE);
+    if (lost || (g.until !== undefined && tick > g.until)) {
+      this.endGoal(sim, 'cop guard over');
+      return cmd({ x: 0, y: 0 }, false);
+    }
+    if (me.grab) return cmd({ x: 0, y: 0 }, false);
+    g.phase = 'block';
+    let cop: CopView | null = null;
+    let cd = Infinity;
+    for (const c of this.ps.chasers(mate.id)) {
+      const d = V.dist(c.pos, mate.pos);
+      if (d < cd) {
+        cd = d;
+        cop = c;
+      }
+    }
+    if (!cop) {
+      g.waitStart ??= tick;
+      if (tick - g.waitStart > 2 * TICK_RATE) {
+        this.endGoal(sim, 'mate no longer chased');
+        return cmd({ x: 0, y: 0 }, false);
+      }
+      const m = this.moveTo(sim, mate.pos, 'walk', 2.0);
+      return cmd(this.yieldToMates(sim, m.move), false);
+    }
+    g.waitStart = undefined;
+    const dir = V.norm(V.sub(cop.pos, mate.pos));
+    // in front of the officer's run, a body width from the mate (or half way when it is close)
+    const off = Math.max(0.95, Math.min(1.6, cd * 0.5));
+    const block = V.add(mate.pos, V.scale(dir, off));
+    const k = this.nav.nearestPassable(block, 'walk', 2);
+    const tgt = k >= 0 ? { x: this.nav.cellX(k), y: this.nav.cellY(k) } : block;
+    const d = V.dist(me.pos, tgt);
+    const aim = V.sub(cop.pos, me.pos);
+    if (d < 0.25) return cmd({ x: 0, y: 0 }, false, aim);
+    if (d < 4 && this.nav.segmentClear(me.pos, tgt, 'walk', 0)) return cmd(V.scale(V.norm(V.sub(tgt, me.pos)), Math.min(1, d / 0.6)), false, aim);
+    const m = this.moveTo(sim, tgt, 'walk', 0.25);
+    return cmd(m.move, false, aim);
   }
 
   // -------------------------------------------------------------------------

@@ -30,8 +30,10 @@ const BANK_N = { x: AX, y: 12.5 };
 const BANK_S = { x: AX, y: H - 12.5 };
 const ZONE = { x: 10, y: 26 };
 /** Loading dock in the back of each on-axis store (half width, depth from the service lane). */
-const DOCK_HALF = 1.5;
+const DOCK_HALF = 1.75; // 1.05 m beside the large safe: no raccoon-wide pocket (was 1.5 -> 0.8 m)
 const DOCK_DEPTH = 2;
+/** Large safe in the dock: 1.05 m from the back wall (it pokes 0.25 m into the service lane). */
+const DOCK_SAFE_Y = 2.5 + DOCK_DEPTH - 0.6 - 1.05;
 
 function build(): { def: LayoutDef; meta: LayoutDesignMeta } {
   const b = new LayoutBuilder({
@@ -135,8 +137,9 @@ function build(): { def: LayoutDef; meta: LayoutDesignMeta } {
   b.safe('smallSafe', 3.0, H - 10.0); // SW corner nook
   b.safe('smallSafe', AX, 21.0); // fountain north (contested, on axis)
   b.safe('smallSafe', AX, H - 21.0); // fountain south
-  b.safe('largeSafe', AX, 3.4); // loading dock behind the post office
-  b.safe('largeSafe', AX, H - 3.4); // loading dock behind the pharmacy
+  // 1.05 m clear of the dock walls on every side (at 3.4 it left a 0.5 m wedge pocket behind it)
+  b.safe('largeSafe', AX, DOCK_SAFE_Y); // loading dock behind the post office
+  b.safe('largeSafe', AX, H - DOCK_SAFE_Y); // loading dock behind the pharmacy
 
   // --- chokepoints ----------------------------------------------------------------------------
   b.choke('choke.plaza.flowerRoadW', 'choke.plaza.flowerRoadW', 21, 26, 2.5, { id: 'choke.plaza.flowerRoadE', nameKey: 'choke.plaza.flowerRoadE' });

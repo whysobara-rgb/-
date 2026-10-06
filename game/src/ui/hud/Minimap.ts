@@ -11,7 +11,7 @@
  */
 import type { LayoutDef, SafeKind, TeamId } from '../../sim/types';
 import { h, svgFromMarkup } from '../core/dom';
-import { teamEmblem } from '../core/icons';
+import { icon, teamEmblem } from '../core/icons';
 import { drawBackground, drawBank, drawLayoutBase, drawSafe, fitTransform, setupCanvas, type MapTransform } from './mapDraw';
 import type { MinimapModel } from './types';
 
@@ -22,7 +22,7 @@ interface Marker {
   el: HTMLElement;
   /** Facing wedge (me only). */
   rot: HTMLElement | null;
-  kind: 'me' | 'char' | 'ping';
+  kind: 'me' | 'char' | 'ping' | 'cop' | 'car';
   team: TeamId;
   x: number;
   y: number;
@@ -106,6 +106,24 @@ export class Minimap {
       const mk = this.marker(`c:${c.id}`, c.isMe ? 'me' : 'char', c.team);
       this.place(mk, tf.ox + c.x * tf.scale, tf.oy + c.y * tf.scale, c.isMe ? c.facing : 0);
     }
+    // Police (public info): officers with an alert ring while hunting, cars with their light bar.
+    if (m.police) {
+      for (const o of m.police) {
+        if (!Number.isFinite(o.x) || !Number.isFinite(o.y)) continue;
+        const mk = this.marker(`o:${o.id}`, 'cop', 0);
+        mk.el.dataset.hunting = o.hunting ? '1' : '0';
+        mk.el.dataset.stunned = o.stunned ? '1' : '0';
+        this.place(mk, tf.ox + o.x * tf.scale, tf.oy + o.y * tf.scale, 0);
+      }
+    }
+    if (m.policeCars) {
+      for (const c of m.policeCars) {
+        if (!Number.isFinite(c.x) || !Number.isFinite(c.y)) continue;
+        const mk = this.marker(`v:${c.id}`, 'car', 0);
+        mk.el.dataset.siren = c.siren ? '1' : '0';
+        this.place(mk, tf.ox + c.x * tf.scale, tf.oy + c.y * tf.scale, c.angle);
+      }
+    }
     if (m.pings) {
       for (const p of m.pings) {
         if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
@@ -137,6 +155,11 @@ export class Minimap {
         el.append(rot, h('div', { class: 'uh-mm__ring' }, teamEmblem(team)));
       } else if (kind === 'char') {
         el.append(teamEmblem(team, 'uh-emblem', 'color'));
+      } else if (kind === 'cop') {
+        el.append(h('div', { class: 'uh-mm__copRing' }), h('div', { class: 'uh-mm__cop' }, icon('police')));
+      } else if (kind === 'car') {
+        rot = h('div', { class: 'uh-mm__car' }, h('i', { class: 'uh-mm__carRed' }), h('i', { class: 'uh-mm__carBlue' }));
+        el.append(rot);
       } else {
         el.append(h('div', { class: 'uh-mm__pulse' }), h('div', { class: 'uh-mm__dot' }));
       }

@@ -238,6 +238,9 @@ export function buildContext(setup: MatchSetup): SimContext {
       stuckTicks: 0,
       lastX: pos.x,
       lastY: pos.y,
+      stallTicks: 0,
+      stallX: pos.x,
+      stallY: pos.y,
       cmd: EMPTY_COMMAND,
     });
     characters.push({

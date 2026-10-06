@@ -769,3 +769,35 @@ describe('police: mirror-canonical navigation', () => {
     }
   });
 });
+
+describe('police: sealed off from the car', () => {
+  it('officers whose gate is sealed by a bank squeeze past it and still board at their car in time', () => {
+    // counter: the north bank shoved 2 m north against the on-axis police gate (found by the fuzz)
+    const sim = new Simulation(makeSetup(LAYOUTS.counter, [0, 0, 1, 1], { police: true, matchTicks: 30000 }));
+    const banks = sim.state.loot.filter((l) => l.kind === 'bank');
+    const north = banks.find((b) => b.pos.y < sim.layout.size.y / 2)!;
+    const south = banks.find((b) => b !== north)!;
+    sim.debug.setAnchored(south.id, false); // rings: a wave comes for it
+    const idle = (): Command[] => [cmd(), cmd(), cmd(), cmd()];
+    for (let t = 0; t < POLICE.dispatchDelayTicks + POLICE.arriveTicks + 30; t++) sim.step(idle());
+    const entry = sim.policeEntries()[0]!;
+    expect(sim.state.police.length).toBeGreaterThan(0);
+    // seal the gate behind the north bank once the officers are out in the square
+    for (let t = 0; t < 30 * 60 && !sim.state.police.every((o) => o.pos.y > 14); t++) sim.step(idle());
+    expect(sim.state.police.every((o) => o.pos.y > 14)).toBe(true);
+    sim.debug.teleport(north.id, { x: 36.7, y: 8.1 }, (12 * Math.PI) / 180);
+    for (let x = 30; x <= 38; x += 0.25) expect(sim.isFree({ x, y: 4.75 }, POLICE.radius)).toBe(false);
+    const born = sim.state.tick;
+    const boarded = new Map<number, Vec2>();
+    const last = new Map<number, Vec2>();
+    for (let t = 0; t < POLICE.shiftTicks + 40 * 60 && sim.state.police.length > 0; t++) {
+      sim.step(idle());
+      for (const [id, p] of last) if (!sim.state.police.some((o) => o.id === id)) boarded.set(id, p);
+      last.clear();
+      for (const o of sim.state.police) last.set(o.id, { ...o.pos });
+    }
+    expect(sim.state.police.length).toBe(0);
+    expect(sim.state.tick - born).toBeLessThan(POLICE.shiftTicks + 30 * 60);
+    for (const p of boarded.values()) expect(Math.hypot(p.x - entry.park.x, p.y - entry.park.y)).toBeLessThan(POLICE_CAR.curb + 0.75 + POLICE_CAR.half.x + 0.5);
+  });
+});

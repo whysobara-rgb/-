@@ -14,11 +14,13 @@
  *   --swap                                also play every seed with sides swapped
  *   --quiet                               aggregate only
  *   --log                                 print the final-30-s re-plan log lines
+ *   --police                              police event on (rules.police = true, as in quick match /
+ *                                         tournament); prints the match-flow / police metrics row
  *
  * Checks the score invariant every tick (scores + remaining = total) and prints per-match and
  * aggregate stats; exits with code 1 on any invariant violation.
  */
-import { aggregate, formatAggregate, runSeries, type SideSpec, type SlotSpec } from '../src/ai/harness';
+import { FLOW_HEADER, aggregate, flowMetrics, flowRow, formatAggregate, runSeries, type SideSpec, type SlotSpec } from '../src/ai/harness';
 import type { Difficulty, RivalId } from '../src/ai/types';
 import type { LayoutId } from '../src/sim/types';
 
@@ -31,6 +33,7 @@ export interface CliOptions {
   swap: boolean;
   quiet: boolean;
   log: boolean;
+  police: boolean;
 }
 
 const RIVAL_SET = new Set(['hodadak', 'tongkeun', 'nunchi']);
@@ -74,7 +77,7 @@ export function parseArgs(argv: string[]): CliOptions {
     return { members };
   };
   const seeds = get('seeds') ? parseSeeds(get('seeds')!) : Array.from({ length: Number(get('n') ?? 4) }, (_, i) => i + 1);
-  return { layouts, mode, a: side(get('a'), 'hodadak'), b: side(get('b'), 'tongkeun'), seeds, swap: has('swap'), quiet: has('quiet'), log: has('log') };
+  return { layouts, mode, a: side(get('a'), 'hodadak'), b: side(get('b'), 'tongkeun'), seeds, swap: has('swap'), quiet: has('quiet'), log: has('log'), police: has('police') };
 }
 
 function describe(s: SideSpec): string {
@@ -91,21 +94,27 @@ export function main(argv: string[]): number {
     seeds: o.seeds,
     swap: o.swap,
     timing: true,
+    rules: o.police ? { police: true } : undefined,
     onMatch: (m) => {
       if (o.quiet) return;
       const r = m.stats.result;
       const slots = m.stats.slots
         .map((s) => `${s.humanProxy ? 'proxy' : s.personality[0]}${s.team}:${s.points.toFixed(0)}(${s.recoveries.smallSafe.toFixed(0)}s${s.recoveries.largeSafe.toFixed(0)}L${s.recoveries.bank.toFixed(0)}B ko${s.knockdownsDealt} st${s.steals} stuck${s.maxStuck.toFixed(1)}${s.passiveBehindSeconds > 3 ? ` passive${s.passiveBehindSeconds.toFixed(0)}s` : ''})`)
         .join(' ');
+      const pq = m.stats.police;
+      const pol = o.police ? `  police w${pq.waves} t${pq.tackles}/${pq.tackleAttempts} stun${pq.stuns} bankBrk${pq.bankInterruptsPolice}` : '';
+      const fb = m.stats.firstBankTick !== null ? ` bank1@${(m.stats.firstBankTick / 60).toFixed(0)}s` : '';
       console.log(
-        `${m.layout.padEnd(8)} seed ${String(m.seed).padStart(3)} A=team${m.aTeam}  ${m.scoreA}-${m.scoreB}  ${m.winner ?? 'draw'}  ${r.reason} @${(r.endTick / 60).toFixed(1)}s  ${slots}${m.stats.invariantViolations ? '  INVARIANT!' : ''}`,
+        `${m.layout.padEnd(8)} seed ${String(m.seed).padStart(3)} A=team${m.aTeam}  ${m.scoreA}-${m.scoreB}  ${m.winner ?? 'draw'}  ${r.reason} @${(r.endTick / 60).toFixed(1)}s  ${slots}${fb}${pol}${m.stats.invariantViolations ? '  INVARIANT!' : ''}`,
       );
       if (o.log) for (const l of m.stats.finalLog) console.log(`    [${(l.tick / 60).toFixed(1)}s] slot ${l.slot}: ${l.msg}`);
       for (const s of m.stats.slots) for (const x of s.incidents) console.log(`    stuck ${x.dur} s at ${(x.tick / 60).toFixed(1)} s: slot ${s.slot} ${x.what} @(${x.x}, ${x.y})`);
     },
   });
   const agg = aggregate(matches);
-  console.log(formatAggregate(agg, `${o.mode} ${describe(o.a)} (A) vs ${describe(o.b)} (B) on ${o.layouts.join(',')}${o.swap ? ' (side swap)' : ''}`));
+  console.log(formatAggregate(agg, `${o.mode} ${describe(o.a)} (A) vs ${describe(o.b)} (B) on ${o.layouts.join(',')}${o.swap ? ' (side swap)' : ''}${o.police ? ' [police on]' : ''}`));
+  const row = flowRow('all', flowMetrics(matches));
+  console.log('flow: ' + FLOW_HEADER.slice(1).map((h, i) => `${h}: ${row[i + 1]}`).join(' | '));
   console.log(`(${((Date.now() - t0) / 1000).toFixed(1)} s)`);
   return agg.invariantViolations > 0 ? 1 : 0;
 }

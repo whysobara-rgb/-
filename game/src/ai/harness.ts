@@ -81,6 +81,10 @@ export interface SlotStats {
   /** ... of which with the own team tied or behind. */
   passiveBehindSeconds: number;
   unstuckEvents: number;
+  /** Police tackles this character suffered (hits). */
+  tackledByPolice: number;
+  /** Officers this character knocked over with a dash. */
+  policeStuns: number;
   botMsTotal: number;
   botMsMax: number;
   /** Max after the first 2 s (JIT warm-up excluded). */
@@ -109,6 +113,25 @@ export interface MatchStats {
   firstScoreTick: [number | null, number | null];
   finalLog: { tick: number; slot: number; msg: string }[];
   fencesBroken: number;
+  /** Tick of the first / second bank body recovery (null = never). */
+  firstBankTick: number | null;
+  secondBankTick: number | null;
+  /** Tick the final countdown started (null = never). */
+  finalCountdownTick: number | null;
+  /** Points by source (both teams): small / large safes, bank buildings, safes recovered inside a bank. */
+  pointsBy: { small: number; large: number; bankBuilding: number; bankContents: number };
+  /** Police event statistics (all zero when rules.police is off). */
+  police: {
+    waves: number;
+    tackleAttempts: number;
+    tackles: number;
+    stuns: number;
+    /** Forced releases of an uprooted bank's wall (a haul broken off) by a police tackle / an opponent dash. */
+    bankInterruptsPolice: number;
+    bankInterruptsDash: number;
+    /** Forced releases of a carried safe by a police tackle. */
+    safeInterruptsPolice: number;
+  };
 }
 
 function rosterFor(spec: MatchSpec): { roster: RosterEntry[]; slots: SlotSpec[] } {
@@ -179,6 +202,8 @@ export function runMatch(spec: MatchSpec): MatchStats {
     passiveSeconds: 0,
     passiveBehindSeconds: 0,
     unstuckEvents: 0,
+    tackledByPolice: 0,
+    policeStuns: 0,
     botMsTotal: 0,
     botMsMax: 0,
     botMsMaxWarm: 0,
@@ -205,6 +230,11 @@ export function runMatch(spec: MatchSpec): MatchStats {
   const commands: Command[] = new Array(n);
   const maxTicks = spec.maxTicks ?? Infinity;
   let fences = 0;
+  let firstBankTick: number | null = null;
+  let secondBankTick: number | null = null;
+  let fcTick: number | null = null;
+  const pointsBy = { small: 0, large: 0, bankBuilding: 0, bankContents: 0 };
+  const pol = { waves: 0, tackleAttempts: 0, tackles: 0, stuns: 0, bankInterruptsPolice: 0, bankInterruptsDash: 0, safeInterruptsPolice: 0 };
   // last holder per safe (for attributing recoveries completed without a holder)
   const lastHolder = new Map<EntityId, EntityId>();
   while (!st.over && st.tick < maxTicks) {
@@ -226,13 +256,59 @@ export function runMatch(spec: MatchSpec): MatchStats {
     }
     const events = sim.step(commands);
     if (st.scores[0] + st.scores[1] + st.remainingValue !== st.totalValue) violations++;
+    // forced releases this tick (cause: a police tackle or an opponent dash on the same victim)
+    const tackled = new Set<EntityId>();
+    const dashed = new Set<EntityId>();
+    for (const e of events) {
+      if (e.type === 'policeTackle' && e.hit) tackled.add(e.victimId);
+      else if (e.type === 'dashHit' && e.knockdown) dashed.add(e.victimId);
+    }
     for (const e of events) {
       switch (e.type) {
+        case 'release': {
+          if (!e.forced) break;
+          const l = sim.getLoot(e.targetId);
+          if (!l) break;
+          if (l.kind === 'bank') {
+            if (!l.anchored) {
+              if (tackled.has(e.charId)) pol.bankInterruptsPolice++;
+              else if (dashed.has(e.charId)) pol.bankInterruptsDash++;
+            }
+          } else if (tackled.has(e.charId)) pol.safeInterruptsPolice++;
+          break;
+        }
+        case 'policeTackle':
+          pol.tackleAttempts++;
+          if (e.hit) {
+            pol.tackles++;
+            if (e.victimId <= n) slotStats[e.victimId - 1]!.tackledByPolice++;
+          }
+          break;
+        case 'policeStunned':
+          pol.stuns++;
+          if (e.byCharId <= n) slotStats[e.byCharId - 1]!.policeStuns++;
+          break;
+        case 'policeDispatched':
+          pol.waves++;
+          break;
+        case 'bankBodyRecovered':
+          if (e.count === 1) firstBankTick = e.tick;
+          else if (e.count === 2) secondBankTick = e.tick;
+          break;
+        case 'finalCountdown':
+          fcTick = e.tick;
+          break;
         case 'grab':
           lastHolder.set(e.targetId, e.charId);
           break;
         case 'recovered': {
           if (firstScore[e.team] === null) firstScore[e.team] = e.tick;
+          if (e.kind === 'smallSafe') pointsBy.small += e.value;
+          else if (e.kind === 'largeSafe') pointsBy.large += e.value;
+          else {
+            pointsBy.bankBuilding += e.value - e.safesValue;
+            pointsBy.bankContents += e.safesValue;
+          }
           let holders = e.holders.filter((h) => sim.getCharacter(h)!.team === e.team);
           if (!holders.length) {
             const lh = lastHolder.get(e.lootId);
@@ -358,6 +434,11 @@ export function runMatch(spec: MatchSpec): MatchStats {
     firstScoreTick: firstScore,
     finalLog,
     fencesBroken: fences,
+    firstBankTick,
+    secondBankTick,
+    finalCountdownTick: fcTick,
+    pointsBy,
+    police: pol,
   };
 }
 
@@ -654,4 +735,149 @@ export function formatAggregate(agg: SeriesAggregate, title = ''): string {
     );
   }
   return L.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// Match-flow / police metrics (doc §3 match flow, §19 targets; owner police event)
+// ---------------------------------------------------------------------------
+
+export interface FlowMetrics {
+  matches: number;
+  /** Match length quartiles (s). */
+  lenQ1: number;
+  lenMedian: number;
+  lenQ3: number;
+  /** Median time of the first bank recovery among matches that had one (s), and share of matches with one. */
+  firstBankMedian: number | null;
+  firstBankShare: number;
+  /** Share of matches whose final countdown (both banks recovered) started before 120 s. */
+  fcBefore120: number;
+  /** Share of matches whose final countdown started at all. */
+  fcShare: number;
+  draws: number;
+  drawRate: number;
+  /** Team 0 wins / decided games. */
+  team0Share: number | null;
+  tacklesPerMatch: number;
+  tackleAttemptsPerMatch: number;
+  stunsPerMatch: number;
+  wavesPerMatch: number;
+  bankInterruptsPolicePerMatch: number;
+  bankInterruptsDashPerMatch: number;
+  safeInterruptsPolicePerMatch: number;
+  /** Share of all recovered points from small safes / large safes / bank buildings / bank contents. */
+  shareSmall: number;
+  shareLarge: number;
+  shareBankBuilding: number;
+  shareBankContents: number;
+  /** Strict stuck metric: non-waiting no-progress windows > 5 s (all characters incl. proxies). */
+  stuck5: number;
+  /** ... of which by human proxies. */
+  stuck5Proxy: number;
+  /** Longest such window of any human proxy (s). */
+  proxyMaxStuck: number;
+  /** Sim 'unstuck' nudges of characters. */
+  unstuck: number;
+}
+
+function quantile(sorted: number[], q: number): number {
+  if (!sorted.length) return NaN;
+  const i = (sorted.length - 1) * q;
+  const lo = Math.floor(i);
+  const hi = Math.ceil(i);
+  return sorted[lo]! + (sorted[hi]! - sorted[lo]!) * (i - lo);
+}
+
+export function flowMetrics(ms: SeriesMatch[]): FlowMetrics {
+  const n = Math.max(1, ms.length);
+  const lens = ms.map((m) => m.stats.ticks / TICK_RATE).sort((a, b) => a - b);
+  const fb = ms.filter((m) => m.stats.firstBankTick !== null).map((m) => m.stats.firstBankTick! / TICK_RATE).sort((a, b) => a - b);
+  let draws = 0;
+  let t0 = 0;
+  let stuck5 = 0;
+  let stuck5Proxy = 0;
+  let proxyMax = 0;
+  let unstuck = 0;
+  const pts = { small: 0, large: 0, bankBuilding: 0, bankContents: 0 };
+  const pol = { tackles: 0, att: 0, stuns: 0, waves: 0, bip: 0, bid: 0, sip: 0 };
+  for (const m of ms) {
+    const w = m.stats.result.winner;
+    if (w === null) draws++;
+    else if (w === 0) t0++;
+    for (const s of m.stats.slots) {
+      stuck5 += s.stuckIncidents5s;
+      unstuck += s.unstuckEvents;
+      if (s.humanProxy) {
+        stuck5Proxy += s.stuckIncidents5s;
+        proxyMax = Math.max(proxyMax, s.maxStuck);
+      }
+    }
+    const p = m.stats.pointsBy;
+    pts.small += p.small;
+    pts.large += p.large;
+    pts.bankBuilding += p.bankBuilding;
+    pts.bankContents += p.bankContents;
+    const q = m.stats.police;
+    pol.tackles += q.tackles;
+    pol.att += q.tackleAttempts;
+    pol.stuns += q.stuns;
+    pol.waves += q.waves;
+    pol.bip += q.bankInterruptsPolice;
+    pol.bid += q.bankInterruptsDash;
+    pol.sip += q.safeInterruptsPolice;
+  }
+  const tot = Math.max(1, pts.small + pts.large + pts.bankBuilding + pts.bankContents);
+  const decided = ms.length - draws;
+  return {
+    matches: ms.length,
+    lenQ1: quantile(lens, 0.25),
+    lenMedian: quantile(lens, 0.5),
+    lenQ3: quantile(lens, 0.75),
+    firstBankMedian: fb.length ? quantile(fb, 0.5) : null,
+    firstBankShare: fb.length / n,
+    fcBefore120: ms.filter((m) => m.stats.finalCountdownTick !== null && m.stats.finalCountdownTick < 120 * TICK_RATE).length / n,
+    fcShare: ms.filter((m) => m.stats.finalCountdownTick !== null).length / n,
+    draws,
+    drawRate: draws / n,
+    team0Share: decided > 0 ? t0 / decided : null,
+    tacklesPerMatch: pol.tackles / n,
+    tackleAttemptsPerMatch: pol.att / n,
+    stunsPerMatch: pol.stuns / n,
+    wavesPerMatch: pol.waves / n,
+    bankInterruptsPolicePerMatch: pol.bip / n,
+    bankInterruptsDashPerMatch: pol.bid / n,
+    safeInterruptsPolicePerMatch: pol.sip / n,
+    shareSmall: pts.small / tot,
+    shareLarge: pts.large / tot,
+    shareBankBuilding: pts.bankBuilding / tot,
+    shareBankContents: pts.bankContents / tot,
+    stuck5,
+    stuck5Proxy,
+    proxyMaxStuck: proxyMax,
+    unstuck,
+  };
+}
+
+export const FLOW_HEADER = ['group', 'n', 'len q1/med/q3 s', '1st bank med s (share)', 'FC<120s', 'FC any', 'draws', 'team0 (decided)', 'tackles (att)', 'stuns', 'waves', 'bank haul broken: police / dash', 'safe carry broken by police', 'pts small / large / bank bldg / bank contents', 'stuck>5s (proxy)', 'unstuck'];
+
+export function flowRow(label: string, f: FlowMetrics): string[] {
+  const p = (x: number): string => `${(100 * x).toFixed(0)}%`;
+  return [
+    label,
+    String(f.matches),
+    `${f.lenQ1.toFixed(0)} / ${f.lenMedian.toFixed(0)} / ${f.lenQ3.toFixed(0)}`,
+    f.firstBankMedian === null ? '-' : `${f.firstBankMedian.toFixed(0)} (${p(f.firstBankShare)})`,
+    p(f.fcBefore120),
+    p(f.fcShare),
+    `${f.draws} (${p(f.drawRate)})`,
+    f.team0Share === null ? '-' : p(f.team0Share),
+    `${f.tacklesPerMatch.toFixed(2)} (${f.tackleAttemptsPerMatch.toFixed(2)})`,
+    f.stunsPerMatch.toFixed(2),
+    f.wavesPerMatch.toFixed(2),
+    `${f.bankInterruptsPolicePerMatch.toFixed(2)} / ${f.bankInterruptsDashPerMatch.toFixed(2)}`,
+    f.safeInterruptsPolicePerMatch.toFixed(2),
+    `${p(f.shareSmall)} / ${p(f.shareLarge)} / ${p(f.shareBankBuilding)} / ${p(f.shareBankContents)}`,
+    `${f.stuck5} (${f.stuck5Proxy}, proxy max ${f.proxyMaxStuck.toFixed(1)} s)`,
+    String(f.unstuck),
+  ];
 }

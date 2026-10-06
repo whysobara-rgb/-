@@ -16,7 +16,7 @@
 import { Bot, RivalObserver, createBot, type BotController, type ObservationSummary } from '../ai';
 import { MatchAudioDirector, type AudioEngine } from '../audio';
 import { DT, TICK_RATE, VISION, Simulation, type CharacterState, type Command, type EntityId, type MatchResult, type SimEvent, type TeamId, type Vec2 } from '../sim';
-import type { GameView, ViewFocus } from '../render';
+import type { GameView, ViewCallout, ViewFocus } from '../render';
 import { GrabLatch, buildCommand, type InputManager, type MatchFrame } from '../platform/input';
 import type { Settings } from '../platform/settings';
 import { unlockAchievement } from '../platform/steam';
@@ -34,8 +34,6 @@ const MAX_FRAME_DT = 0.1;
 const COUNT_SECONDS = 0.8;
 /** Wall-clock pause between the end horn and the results screen. */
 const END_HOLD_SECONDS = 2.4;
-/** HUD score roll-up duration (s). */
-const ROLLUP_SECONDS = 0.45;
 /** Value tags for safes within this radius (doc §4: never every number at once). */
 const NEAR_LABEL_RADIUS = 8;
 
@@ -114,9 +112,10 @@ export class MatchController {
   private readonly cmds: (Command | undefined)[] = [];
   private pendingPing: { pos: Vec2; targetId: EntityId | null } | null = null;
   private earned = new Set<string>();
-  private dispScores: [number, number] = [0, 0];
-  private rollFrom: [number, number] = [0, 0];
-  private rollT: [number, number] = [1, 1];
+  /** The police alert banner already explained the officers this match. */
+  private policeArrivedExplained = false;
+  /** Wall time (performance.now) of the escape banner: police banners never cover it. */
+  private escapeBannerAt = -1e9;
   private readonly rumbleTimers: number[] = [];
   /** The first police dispatch of this match was explained to the player. */
   private policeExplained = false;
@@ -177,7 +176,23 @@ export class MatchController {
     hud.setLayout(this.sim.layout);
     const rivalBot = this.sim.state.characters.find((c) => c.team === 1 && c.look.rival);
     hud.setTeamLabels(this.sim.state.characters.length === 2 && rivalBot ? [null, `rival.${rivalBot.look.rival}.name`] : null);
+    // Scoreboard faces: the player's raccoon with its hat, the rival's own look.
+    const me = this.sim.getCharacter(this.meId);
+    hud.setTeamFaces(this.isPractice ? null : [{ hat: me?.look.hat ?? 'none' }, rivalBot ? { rival: rivalBot.look.rival ?? null } : null]);
     hud.setCaptionsEnabled(this.svc.settings().subtitles);
+    // The HUD shows the "뽑았다!" stamp itself (from the view's callouts): no in-world duplicate.
+    this.applyViewSettings(this.svc.settings());
+  }
+
+  /** Same view settings main.ts applies, plus the HUD-owned callouts. */
+  private applyViewSettings(s: Readonly<Settings>): void {
+    this.svc.view.applySettings({
+      quality: this.svc.params.quality ?? s.quality,
+      screenShake: s.screenShake,
+      reducedMotion: s.reducedMotion,
+      language: s.language,
+      builtinCallouts: false,
+    });
   }
 
   /** In-world 3-2-1-출발 (no sim steps until it ends). */
@@ -311,6 +326,8 @@ export class MatchController {
     const { view } = this.svc;
     view.captureTick(sim);
     view.onEvents(events, sim);
+    const callouts = view.takeCallouts();
+    if (callouts.length) this.handleCallouts(callouts);
     for (const b of this.bots) {
       const it = b.intent?.();
       if (it) view.setBotTelegraph(sim.characterBySlot(b.slot).id, it.telegraph, it.goal);
@@ -401,7 +418,6 @@ export class MatchController {
             x: p && p.onScreen ? p.x : undefined,
             y: p && p.onScreen ? p.y : undefined,
           });
-          this.juiceScore(e.team, e.kind === 'bank' ? 1 : e.kind === 'largeSafe' ? 0.6 : 0.35);
           // Slow-mo when a recovery lands in the last 3 s of the clock (the deciding one is
           // handled by matchEnd below).
           const left = sim.ticksLeft();
@@ -412,20 +428,27 @@ export class MatchController {
           checkAch = true;
           break;
         case 'policeDispatched':
-          // Police (owner addition beyond doc v0.5): tell the player what the car is and what
-          // the officers do, once in full, then a short notice per later wave.
-          this.svc.toasts.show({
-            kicker: 'police.dispatched.kicker',
-            title: 'police.dispatched.title',
-            body: this.policeExplained ? null : 'police.dispatched.body',
-            icon: 'siren',
-            durationMs: this.policeExplained ? 2200 : 4200,
-          });
+          // Police (owner addition beyond doc v0.5): a red/blue alert banner per wave.
+          // (The arrival banner, shown once, says what the officers do.)
+          if (performance.now() - this.escapeBannerAt > 3500) hud.banner('policeDispatched', undefined, this.policeExplained ? 2000 : 2800);
           this.policeExplained = true;
           break;
+        case 'safeUnloaded': {
+          // "가로채기!": a safe pulled out of a bank the other team was hauling (same rule as the
+          // audio stinger).
+          if (e.byCharId === null || e.bankCarrierTeam === null) break;
+          const thief = sim.getCharacter(e.byCharId)?.team;
+          if (thief === undefined || thief === e.bankCarrierTeam) break;
+          if (thief !== this.myTeam && e.bankCarrierTeam !== this.myTeam) break;
+          const l = sim.getLoot(e.safeId);
+          const p = l ? this.svc.view.project(l.pos, 1.8) : null;
+          hud.stamp('steal', { team: thief, x: p?.onScreen ? p.x : undefined, y: p?.onScreen ? p.y : undefined });
+          break;
+        }
         case 'finalCountdown': {
           const sec = Math.max(1, Math.round((e.endTick - e.tick) / TICK_RATE));
           hud.banner('escape', { sec });
+          this.escapeBannerAt = performance.now();
           this.svc.view.cameraKick({ shake: 0.25 });
           this.hudSlam(1);
           break;
@@ -439,23 +462,41 @@ export class MatchController {
     if (checkAch && !this.isPractice) this.checkAchievements(null);
   }
 
-  private juiceScore(team: TeamId, strength: number): void {
-    const s = this.svc.settings();
-    if (s.reducedMotion) return;
-    const el = this.svc.hud.el.querySelector<HTMLElement>(`.uh-sb__team--${team}`) ?? this.svc.hud.el.querySelector<HTMLElement>('.uh-practice');
-    if (!el || typeof el.animate !== 'function') return;
-    const k = 1 + 0.18 * strength;
-    // Individual `translate`/`scale` properties compose with any layout `transform` the HUD CSS
-    // sets on the element, so the juice never displaces it.
-    el.animate(
-      [
-        { translate: '0 0', scale: '1' },
-        { translate: `0 ${(-6 * strength).toFixed(1)}px`, scale: k.toFixed(3), offset: 0.35 },
-        { translate: '0 0', scale: '0.97', offset: 0.7 },
-        { translate: '0 0', scale: '1' },
-      ],
-      { duration: 420 + 200 * strength, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' },
-    );
+  /**
+   * Presentation callouts from the view -> HUD stamps. "뽑았다!" / "은행째!" for uproots (ours
+   * always, theirs when on screen), "태클 피했다!" when an officer's lunge at the player misses,
+   * "경찰이다!" when a police car parks (the first one also gets the alert banner).
+   */
+  private handleCallouts(callouts: readonly ViewCallout[]): void {
+    const { hud } = this.svc;
+    for (const c of callouts) {
+      switch (c.type) {
+        case 'uproot': {
+          const ours = c.byTeam === this.myTeam;
+          if (!ours && !c.screen.onScreen) break;
+          const at = c.screen.onScreen ? { x: c.screen.x, y: c.screen.y } : {};
+          hud.stamp(c.kind === 'bank' ? 'bankWhole' : 'uproot', { team: c.byTeam, ...at });
+          break;
+        }
+        case 'tackle': {
+          if (c.hit || c.victimId !== this.meId) break;
+          const p = this.svc.view.project(c.pos, 2.2);
+          hud.stamp('dodge', { team: this.myTeam, x: p.onScreen ? p.x : undefined, y: p.onScreen ? p.y : undefined });
+          break;
+        }
+        case 'policeArrived': {
+          const p = this.svc.view.project(c.pos, 2.4);
+          hud.stamp('police', { x: p.onScreen ? p.x : undefined, y: p.onScreen ? p.y : undefined });
+          if (!this.policeArrivedExplained && performance.now() - this.escapeBannerAt > 3500) {
+            this.policeArrivedExplained = true;
+            hud.banner('policeArrived');
+          }
+          break;
+        }
+        default:
+          break;
+      }
+    }
   }
 
   /** Banner slam: the scoreboard jolts down and settles as a big banner lands. */
@@ -544,27 +585,7 @@ export class MatchController {
       isOpponentVisible: this.isOpponentVisible,
       nearRadius: NEAR_LABEL_RADIUS,
     });
-    // Score roll-up (presentation only: the confirmed score is already final in the sim).
-    const reduced = this.svc.settings().reducedMotion;
-    const shown: [number, number] = [0, 0];
-    for (const t of [0, 1] as const) {
-      const target = sim.state.scores[t];
-      if (target !== this.dispScores[t] && this.rollT[t] >= 1) {
-        this.rollFrom[t] = this.dispScores[t];
-        this.rollT[t] = 0;
-      }
-      if (reduced || this.rollT[t] >= 1) {
-        this.dispScores[t] = target;
-        this.rollT[t] = 1;
-      } else {
-        this.rollT[t] = Math.min(1, this.rollT[t] + realDt / ROLLUP_SECONDS);
-        const k = 1 - Math.pow(1 - this.rollT[t], 3);
-        const v = this.rollFrom[t] + (target - this.rollFrom[t]) * k;
-        this.dispScores[t] = this.rollT[t] >= 1 ? target : Math.min(target, Math.round(v / 10) * 10);
-      }
-      shown[t] = this.dispScores[t];
-    }
-    const model: HudModel = { ...m, scores: shown, timeLeftSec: this.phase === 'countdown' || this.phase === 'loaded' ? (this.sim.rules.timeLimit ? this.sim.rules.matchTicks / TICK_RATE : null) : m.timeLeftSec };
+    const model: HudModel = { ...m, timeLeftSec: this.phase === 'countdown' || this.phase === 'loaded' ? (this.sim.rules.timeLimit ? this.sim.rules.matchTicks / TICK_RATE : null) : m.timeLeftSec };
     const extra = this.scriptArrows();
     if (extra.length) model.arrows = [...(model.arrows ?? []), ...extra];
     if (this.phase === 'ending') {
@@ -682,6 +703,7 @@ export class MatchController {
   }
 
   applySettings(s: Readonly<Settings>): void {
+    this.applyViewSettings(s);
     this.latch.setMode(s.grabMode);
     this.time.setEnabled(!s.reducedMotion);
     this.svc.hud.setCaptionsEnabled(s.subtitles);

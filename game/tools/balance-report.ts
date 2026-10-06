@@ -8,6 +8,12 @@
  *   npx tsx tools/balance-report.ts --blocks equal  # subset: equal,ladder,team,proxy
  *   npx tsx tools/balance-report.ts --out report.md --workers 3 --seeds 4
  *   npx tsx tools/balance-report.ts --seed-base 500000   # fresh seeds (robustness of the margins)
+ *   npx tsx tools/balance-report.ts --police off    # police event off (default ON: quick match / tournament)
+ *   npx tsx tools/balance-report.ts --json out.json # also dump per-match records
+ *   npx tsx tools/balance-report.ts --tune stripLooseBank=0.5,police.shiftTicks=2700   # experiment knobs
+ *
+ * Blocks: equal (1v1 bot vs bot, equal difficulty), ladder (difficulty ladder), team (2v2 bots),
+ * proxy (2v2 human proxy + bot mate vs 2 bots), proxy1v1 (1v1 human proxy vs each rival at normal).
  *
  * Default output: <os tmpdir>/balance-report.md (path printed at the end).
  */
@@ -15,8 +21,10 @@ import { spawn } from 'node:child_process';
 import { mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { aggregate, runMatch, type SeriesMatch, type SlotSpec, type SeriesAggregate } from '../src/ai/harness';
+import { FLOW_HEADER, aggregate, flowMetrics, flowRow, runMatch, type SeriesMatch, type SlotSpec, type SeriesAggregate } from '../src/ai/harness';
 import type { Difficulty, RivalId } from '../src/ai/types';
+import { BOT_TUNING } from '../src/ai/params';
+import { POLICE } from '../src/sim/config';
 import type { LayoutId, TeamId } from '../src/sim/types';
 
 const DEFAULT_OUT = join(tmpdir(), 'balance-report.md');
@@ -33,6 +41,7 @@ interface Job {
   aTeam: TeamId;
   a: SlotSpec[];
   b: SlotSpec[];
+  police: boolean;
 }
 
 interface JobResult {
@@ -44,7 +53,7 @@ function s(p: RivalId, d: Difficulty, proxy = false): SlotSpec {
   return { personality: p, difficulty: d, humanProxy: proxy };
 }
 
-function buildJobs(blocks: Set<string>, seedsEq: number, seedsLadder: number, seedsTeam: number, diffs: Difficulty[] = DIFFS, layouts: LayoutId[] = LAYOUTS, seedBase = 0): Job[] {
+function buildJobs(blocks: Set<string>, seedsEq: number, seedsLadder: number, seedsTeam: number, diffs: Difficulty[] = DIFFS, layouts: LayoutId[] = LAYOUTS, seedBase = 0, police = true, seedsProxy1 = seedsEq): Job[] {
   const jobs: Job[] = [];
   let id = 0;
   const push = (block: string, group: string, a: SlotSpec[], b: SlotSpec[], seeds: number): void => {
@@ -52,7 +61,7 @@ function buildJobs(blocks: Set<string>, seedsEq: number, seedsLadder: number, se
       for (let k = 1; k <= seeds; k++) {
         // (a mirror pairing played from the other side is the very same match: use another seed)
         const mirror = JSON.stringify(a) === JSON.stringify(b);
-        for (const aTeam of [0, 1] as TeamId[]) jobs.push({ id: id++, block, group, layout, seed: seedBase + 1000 * k + 17 + (mirror && aTeam === 1 ? 500 : 0), aTeam, a, b });
+        for (const aTeam of [0, 1] as TeamId[]) jobs.push({ id: id++, block, group, layout, seed: seedBase + 1000 * k + 17 + (mirror && aTeam === 1 ? 500 : 0), aTeam, a, b, police });
       }
     }
   };
@@ -89,6 +98,9 @@ function buildJobs(blocks: Set<string>, seedsEq: number, seedsLadder: number, se
       }
     }
   }
+  if (blocks.has('proxy1v1')) {
+    for (const p of PERS) push('proxy1v1', `proxy vs ${p}`, [s('hodadak', 'normal', true)], [s(p, 'normal')], seedsProxy1);
+  }
   if (blocks.has('proxy')) {
     const opps: [RivalId, RivalId][] = [
       ['hodadak', 'tongkeun'],
@@ -105,7 +117,7 @@ function buildJobs(blocks: Set<string>, seedsEq: number, seedsLadder: number, se
 function runJob(j: Job): SeriesMatch {
   const team0 = j.aTeam === 0 ? j.a : j.b;
   const team1 = j.aTeam === 0 ? j.b : j.a;
-  const stats = runMatch({ layout: j.layout, team0, team1, seed: j.seed, timing: true });
+  const stats = runMatch({ layout: j.layout, team0, team1, seed: j.seed, timing: true, rules: { police: j.police } });
   const w = stats.result.winner;
   return {
     layout: j.layout,
@@ -145,7 +157,9 @@ function runWorkers(jobs: Job[], workers: number, onProgress: (done: number) => 
       alive++;
       const tmp = join(tmpdir(), `balance-jobs-${process.pid}-${alive}.json`);
       writeFileSync(tmp, JSON.stringify(chunk));
-      const child = spawn(process.execPath, [...process.execArgv, self, '--worker', tmp], { stdio: ['ignore', 'pipe', 'inherit'] });
+      const tune = process.argv.indexOf('--tune');
+      const extra = tune >= 0 ? ['--tune', process.argv[tune + 1]!] : [];
+      const child = spawn(process.execPath, [...process.execArgv, self, '--worker', tmp, ...extra], { stdio: ['ignore', 'pipe', 'inherit'] });
       let buf = '';
       child.stdout.on('data', (d: Buffer) => {
         buf += d.toString();
@@ -249,6 +263,50 @@ export function buildReport(jobs: Job[], results: Map<number, SeriesMatch>, elap
     for (const layout of LAYOUTS) {
       L.push(`- ${layout}: 1v1 ${lens((j) => j.layout === layout && j.a.length === 1)}; 2v2 ${lens((j) => j.layout === layout && j.a.length === 2)}`);
     }
+  }
+  {
+    L.push('');
+    L.push(`Match flow and police (police ${jobs[0]?.police ? 'ON' : 'off'}). FC = final countdown (both banks recovered). Bank haul broken = forced release of an uprooted bank's wall; stuck>5s = strict no-progress windows (all characters):`);
+    L.push('');
+    const rows: string[][] = [FLOW_HEADER];
+    const blocksSeen = [...new Set(jobs.map((j) => j.block))];
+    for (const b of blocksSeen) {
+      const bj = jobs.filter((j) => j.block === b && results.has(j.id));
+      if (!bj.length) continue;
+      rows.push(flowRow(`**${b}** (all)`, flowMetrics(bj.map((j) => results.get(j.id)!))));
+      for (const layout of LAYOUTS) {
+        const lj = bj.filter((j) => j.layout === layout);
+        if (lj.length) rows.push(flowRow(`${b} ${layout}`, flowMetrics(lj.map((j) => results.get(j.id)!))));
+      }
+      if (b === 'equal') {
+        for (const d of DIFFS) {
+          const dj = bj.filter((j) => j.a[0]!.difficulty === d);
+          if (dj.length) rows.push(flowRow(`equal @${d}`, flowMetrics(dj.map((j) => results.get(j.id)!))));
+        }
+      }
+      if (b === 'proxy1v1') {
+        for (const p of PERS) {
+          const pj = bj.filter((j) => j.b[0]!.personality === p);
+          if (pj.length) rows.push(flowRow(`proxy vs ${p}`, flowMetrics(pj.map((j) => results.get(j.id)!))));
+        }
+      }
+    }
+    L.push(table(rows));
+    const p1 = jobs.filter((j) => j.block === 'proxy1v1' && results.has(j.id));
+    if (p1.length) {
+      const f = flowMetrics(p1.map((j) => results.get(j.id)!));
+      checks['proxy-vs-bot draws <10%'] = f.drawRate < 0.1;
+      const won = p1.filter((j) => results.get(j.id)!.winner === 'A').length;
+      L.push('');
+      L.push(`Human proxy vs bot (normal, 1v1): proxy won ${pct(won, p1.length)}, draws ${pct(f.draws, f.matches)}.`);
+    }
+    const eqj = jobs.filter((j) => j.block === 'equal' && results.has(j.id));
+    if (eqj.length) {
+      const f = flowMetrics(eqj.map((j) => results.get(j.id)!));
+      checks['1v1 median length 150-220 s'] = f.lenMedian >= 150 && f.lenMedian <= 220;
+      checks['1v1 FC before 120 s in < 50% of matches'] = f.fcBefore120 < 0.5;
+    }
+    checks['no permanently stuck human proxy (max stuck < 30 s)'] = flowMetrics(all).proxyMaxStuck < 30;
   }
   checks['invariant'] = total.invariantViolations === 0;
   checks['cpu<0.3ms'] = total.botMsAvg < 0.3;
@@ -472,7 +530,25 @@ export function buildReport(jobs: Job[], results: Map<number, SeriesMatch>, elap
   return { md: L.join('\n'), checks };
 }
 
+function applyTune(spec: string): void {
+  for (const kv of spec.split(',').filter(Boolean)) {
+    const [k, v] = kv.split('=');
+    if (!k || v === undefined) continue;
+    if (k.startsWith('police.')) {
+      const key = k.slice(7) as keyof typeof POLICE;
+      if (!(key in POLICE)) throw new Error(`unknown police knob ${key}`);
+      (POLICE as unknown as Record<string, unknown>)[key] = v.includes('/') ? v.split('/').map(Number) : Number(v);
+    } else {
+      if (!(k in BOT_TUNING)) throw new Error(`unknown bot knob ${k}`);
+      BOT_TUNING[k as keyof typeof BOT_TUNING] = Number(v);
+    }
+  }
+}
+
 async function main(argv: string[]): Promise<void> {
+  // experiment knobs (bot tuning / police overrides): --tune key=value,key=value
+  const ti = argv.indexOf('--tune');
+  if (ti >= 0) applyTune(argv[ti + 1] ?? '');
   const wi = argv.indexOf('--worker');
   if (wi >= 0) {
     const { readFileSync } = await import('node:fs');
@@ -484,12 +560,13 @@ async function main(argv: string[]): Promise<void> {
     return i >= 0 ? argv[i + 1] : undefined;
   };
   const quick = argv.includes('--quick');
-  const blocks = new Set((get('blocks') ?? 'equal,ladder,team,proxy').split(','));
+  const blocks = new Set((get('blocks') ?? 'equal,ladder,team,proxy,proxy1v1').split(','));
   const seeds = Number(get('seeds') ?? (quick ? 1 : 3));
   const diffs = (get('diffs')?.split(',') ?? DIFFS) as Difficulty[];
   const layouts = (get('layouts')?.split(',') ?? LAYOUTS) as LayoutId[];
   const seedBase = Number(get('seed-base') ?? 0);
-  const jobs = buildJobs(blocks, seeds, Math.max(1, Math.round(seeds / 2)), Math.max(1, Math.round(seeds / 2)), diffs, layouts, seedBase);
+  const police = get('police') !== 'off';
+  const jobs = buildJobs(blocks, seeds, Math.max(1, Math.round(seeds / 2)), Math.max(1, Math.round(seeds / 2)), diffs, layouts, seedBase, police, Number(get('seeds-proxy1') ?? seeds * 2));
   const workers = Number(get('workers') ?? 3);
   const out = get('out') ?? DEFAULT_OUT;
   const t0 = Date.now();
@@ -504,6 +581,16 @@ async function main(argv: string[]): Promise<void> {
   const { md, checks } = buildReport(jobs, results, Date.now() - t0, workers);
   mkdirSync(dirname(out), { recursive: true });
   writeFileSync(out, md);
+  const jsonOut = get('json');
+  if (jsonOut) {
+    // per-match records for offline analysis (draw causes, outliers)
+    const rows = jobs.filter((j) => results.has(j.id)).map((j) => {
+      const m = results.get(j.id)!;
+      const st = m.stats;
+      return { block: j.block, group: j.group, layout: j.layout, seed: j.seed, aTeam: j.aTeam, winner: m.winner, scoreA: m.scoreA, scoreB: m.scoreB, reason: st.result.reason, ticks: st.ticks, firstBankTick: st.firstBankTick, secondBankTick: st.secondBankTick, fcTick: st.finalCountdownTick, police: st.police, pointsBy: st.pointsBy, slots: st.slots.map((x) => ({ slot: x.slot, team: x.team, p: x.personality, d: x.difficulty, proxy: x.humanProxy, points: x.points, rec: x.recoveries, stuck5: x.stuckIncidents5s, incidents: x.incidents, tackled: x.tackledByPolice, stuns: x.policeStuns, unstuck: x.unstuckEvents })) };
+    });
+    writeFileSync(jsonOut, JSON.stringify(rows));
+  }
   console.log(md);
   console.log(`\nwritten ${out}`);
   const failed = Object.entries(checks).filter(([, v]) => v !== true);

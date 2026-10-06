@@ -10,6 +10,7 @@ import { icon, teamEmblem, type IconName } from '../core/icons';
 import { navigable, uiSound } from '../core/nav';
 import { glyphChip, type PromptAction } from '../core/prompts';
 import { clamp } from '../core/format';
+import { chunky } from '../core/juice';
 
 // ---------------------------------------------------------------------------------------------
 // Buttons
@@ -19,7 +20,7 @@ export interface ButtonOptions {
   id: string;
   label: TextRef;
   onActivate: () => void;
-  variant?: 'default' | 'primary' | 'mint' | 'danger' | 'night';
+  variant?: 'default' | 'primary' | 'mint' | 'danger' | 'night' | 'sky' | 'grape';
   size?: 'sm' | 'md' | 'lg';
   icon?: IconName;
   /** Show a prompt glyph inside the button (e.g. confirm glyph on the primary action). */
@@ -266,15 +267,15 @@ export function tabs<K extends string>(specs: readonly TabSpec<K>[], active: K, 
 // Header + prompt bar
 // ---------------------------------------------------------------------------------------------
 
-export function screenHeader(title: TextRef, sub?: TextRef | null, iconName?: IconName, extra?: Child): HTMLElement {
+export function screenHeader(title: TextRef, sub?: TextRef | null, iconName?: IconName, extra?: Child, tone: 'sun' | 'tomato' | 'mint' | 'sky' | 'grape' = 'sun'): HTMLElement {
   return h(
     'header',
-    { class: 'uh-header' },
+    { class: `uh-header uh-header--${tone}` },
     iconName ? h('div', { class: 'uh-header__icon' }, icon(iconName)) : null,
     h(
       'div',
       { class: 'uh-header__titles' },
-      h('h1', { class: 'uh-header__title uh-outline-text' }, tr(title)),
+      chunky(tr(title), { tag: 'h1', cls: 'uh-header__title', tone: 'cream' }),
       sub ? h('p', { class: 'uh-header__sub' }, tr(sub)) : null,
     ),
     extra ?? null,
@@ -327,7 +328,9 @@ export function teamTag(team: TeamId, label?: TextRef | null): HTMLElement {
   );
 }
 
-export function chip(text: TextRef, variant?: 'gold' | 'mint' | 'night' | 'ghost', iconName?: IconName): HTMLElement {
+export type ChipVariant = 'gold' | 'mint' | 'night' | 'ghost' | 'tomato' | 'sky' | 'grape' | 'cream';
+
+export function chip(text: TextRef, variant?: ChipVariant, iconName?: IconName): HTMLElement {
   return h('span', { class: ['uh-chip', variant ? `uh-chip--${variant}` : ''] }, iconName ? icon(iconName) : null, tr(text));
 }
 

@@ -32,7 +32,10 @@ import type {
   HudCarry,
   HudGrab,
   HudModel,
+  HudPolice,
   MinimapModel,
+  MinimapOfficer,
+  MinimapPoliceCar,
   OffscreenTarget,
   WorldLabelModel,
 } from './types';
@@ -121,7 +124,41 @@ export function minimapFromState(state: SimState, myTeam: TeamId, meId: EntityId
     })),
     pings: state.pings.filter((p) => p.team === myTeam).map((p) => ({ id: p.id, team: p.team, x: p.pos.x, y: p.pos.y, kind: p.kind })),
     brokenFences: state.fences.filter((f) => f.broken).map((f) => f.id),
+    // Police are public information (they are on everyone's screen): always drawn.
+    police: policeMarkers(state),
+    policeCars: policeCarMarkers(state),
   };
+}
+
+export function policeMarkers(state: SimState): MinimapOfficer[] {
+  const list = state.police ?? [];
+  const out: MinimapOfficer[] = [];
+  for (const o of list) {
+    if (o.phase === 'gone') continue;
+    out.push({ id: o.id, x: o.pos.x, y: o.pos.y, hunting: o.phase === 'chase' || o.phase === 'tackle', stunned: o.phase === 'stunned' });
+  }
+  return out;
+}
+
+export function policeCarMarkers(state: SimState): MinimapPoliceCar[] {
+  const list = state.policeCars ?? [];
+  const out: MinimapPoliceCar[] = [];
+  for (const c of list) {
+    if (c.phase === 'gone') continue;
+    out.push({ id: c.id, x: c.pos.x, y: c.pos.y, angle: c.angle, siren: c.sirenOn });
+  }
+  return out;
+}
+
+/** Police chip data: a pending dispatch countdown, officers on the field, ringing alarms. */
+export function policeFromState(state: SimState): HudPolice | null {
+  const alarm = state.alarm;
+  const pending = alarm && alarm.dispatchTick !== null && alarm.dispatchTick !== undefined ? Math.max(0, alarm.dispatchTick - state.tick) / TICK_RATE : null;
+  let officers = 0;
+  for (const o of state.police ?? []) if (o.phase !== 'gone') officers++;
+  const alarms = alarm?.ringing?.length ?? 0;
+  if (pending === null && officers === 0 && alarms === 0) return null;
+  return { dispatchInSec: pending, officers, alarms };
 }
 
 export function carryFromState(sim: SimView, me: CharacterState): HudCarry | null {
@@ -264,6 +301,7 @@ export function hudModelFromSim(sim: SimView, o: HudAdapterOptions): HudModel {
     grab: me ? grabFromState(sim, me) : null,
     dashCooldown: me ? Math.min(1, me.dashCooldown / DASH.cooldownTicks) : 0,
     minimap: minimapFromState(st, o.myTeam, o.meId, o.isOpponentVisible),
+    police: policeFromState(st),
     labels: lw?.labels,
     arrows: lw?.arrows,
   };

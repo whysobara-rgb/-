@@ -14,7 +14,7 @@ import type { MusicId, TrackId } from './ids';
 import { INSTRUMENTS, type InstId } from './instruments';
 import type { BarGrid } from './loops';
 import { makeRng, type Rng } from './rng';
-import { LAYERS, SONGS, barSeconds, type LayerId, type NoteEvent, type SongDef } from './songs';
+import { INTENSITY_LAYERS, LAYERS, SONGS, barSeconds, type IntensityLayerId, type LayerId, type NoteEvent, type SongDef } from './songs';
 import { SFX_KEY_ROOT } from './theory';
 
 export interface MusicHost {
@@ -30,8 +30,14 @@ const smoothstep = (e0: number, e1: number, x: number): number => {
   return t * t * (3 - 2 * t);
 };
 
-/** Layer levels for a dynamic track at music intensity x (0..1). */
-export function layerLevels(x: number): Record<LayerId, number> {
+/**
+ * Level of the police chase ('tension') layer at tension 1: the layer sits ~3 dB under the rest
+ * of the 'match' mix, so the chase reads clearly without pushing the music over the effects.
+ */
+export const TENSION_LAYER_GAIN = 1.4;
+
+/** Intensity layer levels for a dynamic track at music intensity x (0..1). */
+export function layerLevels(x: number): Record<IntensityLayerId, number> {
   const i = Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : 0;
   return {
     base: 1,
@@ -84,6 +90,7 @@ export class TrackPlayer {
   private bar = 0;
   private barStart: number;
   private intensity: number;
+  private tension: number;
   /** No events start at or after this time (set by fadeOut). */
   stopAt = Infinity;
   disposed = false;
@@ -99,8 +106,10 @@ export class TrackPlayer {
     intensity: number,
     fadeIn: number,
     filter: ((ev: NoteEvent) => boolean) | null = null,
+    tension = 0,
   ) {
     this.filter = filter;
+    this.tension = tension;
     this.ctx = host.ctx;
     this.def = def;
     this.startTime = startTime;
@@ -121,7 +130,7 @@ export class TrackPlayer {
     for (const id of LAYERS) {
       const dry = this.ctx.createGain();
       const wet = this.ctx.createGain();
-      const v = lv ? lv[id] : 1;
+      const v = id === 'tension' ? tension * TENSION_LAYER_GAIN : lv ? lv[id] : 1;
       dry.gain.value = v;
       wet.gain.value = v;
       dry.connect(this.out);
@@ -138,12 +147,20 @@ export class TrackPlayer {
     this.intensity = x;
     if (!this.def.dynamic) return;
     const lv = layerLevels(x);
-    for (const id of LAYERS) {
+    for (const id of INTENSITY_LAYERS) {
       const l = this.layers.get(id)!;
       // ~1 s time constant: layers swell in musically rather than snapping.
       l.dry.gain.setTargetAtTime(lv[id], at, 0.9);
       l.wet.gain.setTargetAtTime(lv[id], at, 0.9);
     }
+  }
+
+  /** Police chase layer level (0..1). Composition of the layer starts / stops with it. */
+  setTension(x: number, at: number): void {
+    this.tension = x;
+    const l = this.layers.get('tension')!;
+    l.dry.gain.setTargetAtTime(x * TENSION_LAYER_GAIN, at, 0.7);
+    l.wet.gain.setTargetAtTime(x * TENSION_LAYER_GAIN, at, 0.7);
   }
 
   /** Time of the next beat at or after t (for musically aligned transitions). */
@@ -177,7 +194,7 @@ export class TrackPlayer {
     let composed = false;
     while (this.barStart - barDur * 0.25 < until && this.barStart < this.stopAt) {
       const stepDur = barDur / 16;
-      const evs = this.def.compose({ bar: this.bar, intensity: this.intensity, rnd: this.rnd });
+      const evs = this.def.compose({ bar: this.bar, intensity: this.intensity, tension: this.tension, rnd: this.rnd });
       for (const ev of evs) {
         if (this.filter && !this.filter(ev)) continue;
         const time = this.barStart + swingStep(ev.step, this.def.swing, this.def.swingUnit) * stepDur;
@@ -264,6 +281,7 @@ export class MusicPlayer {
   private readonly tracks: TrackPlayer[] = [];
   private current: TrackPlayer | null = null;
   private intensity = 0.5;
+  private tension = 0;
   private seed: number;
   /** QA only: keep just the events this predicate accepts (solo / mute instruments). */
   eventFilter: ((ev: NoteEvent) => boolean) | null = null;
@@ -301,7 +319,7 @@ export class MusicPlayer {
     this.current = null;
     if (id === 'none') return;
     this.seed = (this.seed * 1664525 + 1013904223) >>> 0;
-    const tr = new TrackPlayer(this.host, SONGS[id], start, this.seed, this.intensity, fade.in, this.eventFilter);
+    const tr = new TrackPlayer(this.host, SONGS[id], start, this.seed, this.intensity, fade.in, this.eventFilter, this.tension);
     this.tracks.push(tr);
     this.current = tr;
   }
@@ -315,6 +333,18 @@ export class MusicPlayer {
 
   getIntensity(): number {
     return this.intensity;
+  }
+
+  /** Police chase tension 0..1 (the current track's 'tension' layer). */
+  setTension(x: number, at: number): void {
+    const v = Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : 0;
+    if (Math.abs(v - this.tension) < 0.005) return;
+    this.tension = v;
+    this.current?.setTension(v, at);
+  }
+
+  getTension(): number {
+    return this.tension;
   }
 
   schedule(until: number, now: number): void {

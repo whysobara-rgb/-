@@ -7,103 +7,26 @@
  * Levels are matched per family with `gain` (measured offline; see dev/audio-gallery.html).
  */
 import { DEFAULT_RULES, TICK_RATE } from '../sim/config';
-import { ahr, creakBuffer, fm, noise, partials, perc, route, scrapeBuffer, sub, tone, type Partial, type Target } from './dsp';
-import type { BusId, SfxId } from './ids';
+import { ahr, creakBuffer, noise, partials, perc, route, scrapeBuffer, sub, tone, type Partial } from './dsp';
+import type { SfxId } from './ids';
 import { brass, glock, marimba, timpani, crash, snare, kick } from './instruments';
 import { playJingle } from './jingles';
 import { jitter, rint, rrange } from './rng';
+import { POLICE_RECIPES } from './sfxPolice';
+import { coin, crackles, pn, pnMidi, thump, type SfxRecipe } from './sfxkit';
+import { STAGE_RECIPES } from './sfxStage';
 import { midiToHz, scaleNote } from './theory';
 
-export interface SfxVoice extends Target {
-  /** Variation index in [0, recipe.variants). */
-  variant: number;
-  /** Frequency multiplier (play option `pitch`). */
-  pitch: number;
-  /** Tonic (MIDI) of the current music key; tonal SFX use its major pentatonic. */
-  key: number;
-  /** Extra scale steps (combo climb for consecutive recoveries). */
-  step: number;
-}
-
-export interface SfxRecipe {
-  bus: BusId;
-  variants: number;
-  /** Linear trim for loudness matching inside a family. */
-  gain: number;
-  /** Max simultaneous voices of this id (oldest is faded out). */
-  maxVoices: number;
-  /** Minimum seconds between two triggers (extra triggers are dropped). */
-  minInterval: number;
-  /** Higher survives when the global voice budget is exhausted. */
-  priority: number;
-  /** Upper bound of the duration including tails (offline render length). */
-  length: number;
-  /** Reverb send 0..1. */
-  reverb?: number;
-  /** Duck the music while this plays (dB, seconds). */
-  duck?: { db: number; hold: number };
-  /** Ignore positions (always centered, full level): global signals and rewards. */
-  global?: boolean;
-  /**
-   * Seconds during which a retrigger reuses the previous variation instead of picking a new one
-   * (a "3, 2, 1, GO" countdown keeps one timbre; the next countdown may use the other).
-   */
-  holdVariant?: number;
-  play(v: SfxVoice): number;
-}
+export type { SfxRecipe, SfxVoice } from './sfxkit';
 
 /** Recovery dwell (doc §8: 1.5 s). The recoverStart riser lasts exactly this long. */
 export const RECOVERY_SECONDS = DEFAULT_RULES.recoveryTicks / TICK_RATE;
-
-/** Pentatonic note frequency for scale degree `deg` (+ combo step) in the voice's key. */
-const pn = (v: SfxVoice, deg: number): number => midiToHz(scaleNote(v.key, deg + v.step)) * v.pitch;
-const pnMidi = (v: SfxVoice, deg: number): number => scaleNote(v.key, deg + v.step);
-
 /**
- * Metallic coin "tink": inharmonic FM (+ an octave partial unless `light`). Components share
- * one panner so a coin shower stays cheap (~5 nodes per coin).
+ * scoreSmall: level lift (dB) per combo step 0..6. The climbing coins measure softer the higher
+ * they go (-2.2 LU by step 6 unlifted); this table, measured offline, makes each step ~0.4 LU
+ * bigger than the last while step 6 stays under a large-safe recovery.
  */
-function coin(v: Target, at: number, f: number, amp: number, decay: number, pan?: number, light = false): number {
-  let t: Target = v;
-  if (pan && typeof v.ctx.createStereoPanner === 'function') {
-    const p = v.ctx.createStereoPanner();
-    p.pan.value = Math.max(-1, Math.min(1, pan));
-    p.connect(v.out);
-    t = sub(v, p);
-  }
-  const end = fm(t, { freq: f, ratio: 3.51, index: [[0, 2.4], [decay * 0.4, 0.2]], amp: perc(0.0008, amp, decay), at });
-  if (light) return end;
-  return Math.max(end, tone(t, { freq: f * 2.003, amp: perc(0.0008, amp * 0.22, decay * 0.45), at }));
-}
-
-/** Short broadband impact used by many recipes (transient + body). */
-function thump(v: Target, at: number, f0: number, f1: number, amp: number, decay: number): number {
-  noise(v, { color: 'pink', filters: [{ type: 'lowpass', freq: 900 }], amp: perc(0.001, amp * 0.6, decay * 0.4), at });
-  return tone(v, { freq: [[0, f0], [decay * 0.6, f1]], amp: perc(0.002, amp, decay), at });
-}
-
-/** Many tiny random clicks (fibres snapping, coin rattle, debris). */
-function crackles(
-  v: Target,
-  count: number,
-  from: number,
-  to: number,
-  o: { fLo: number; fHi: number; ampLo: number; ampHi: number; durLo: number; durHi: number; skew?: number; panWidth?: number },
-): void {
-  for (let i = 0; i < count; i++) {
-    // skew > 1 front-loads the events.
-    const u = Math.pow(v.rnd(), o.skew ?? 1);
-    const at = from + (to - from) * u;
-    const fade = 1 - 0.6 * u;
-    noise(v, {
-      color: 'white',
-      filters: [{ type: 'bandpass', freq: rrange(v.rnd, o.fLo, o.fHi), q: rrange(v.rnd, 2.5, 6) }],
-      amp: perc(0.0005, rrange(v.rnd, o.ampLo, o.ampHi) * fade, rrange(v.rnd, o.durLo, o.durHi)),
-      at,
-      pan: (v.rnd() * 2 - 1) * (o.panWidth ?? 0.4),
-    });
-  }
-}
+export const CLIMB_LIFT_DB = [0, 0.3, 0.9, 1.8, 2.5, 3.3, 4.0] as const;
 
 /** Ping figures (pentatonic degrees): two per meaning, chosen at random. */
 const PING_RISING = [
@@ -299,61 +222,78 @@ export const SFX_RECIPES: Record<SfxId, SfxRecipe> = {
     },
   },
   unanchorSafe: {
-    bus: 'sfx', variants: 3, gain: 0.8, maxVoices: 3, minInterval: 0.06, priority: 6, length: 0.9, reverb: 0.2,
+    bus: 'sfx', variants: 3, gain: 1.13, maxVoices: 3, minInterval: 0.06, priority: 6, length: 0.9, reverb: 0.2,
     play(v) {
+      // The safe's uproot "POP!" (src/render/uproot.ts): the roots tear, the safe pops out like a
+      // cork with a bloop, dirt bursts. Pass pitch = size (large safe ~0.85). The landing thud is
+      // 'uprootLand', played by the director when the hop comes down.
       const p = v.pitch * jitter(v.rnd, 0.04);
-      let at = 0;
+      let at = 0.02;
       if (v.variant === 2) {
         // Ratchet ticks of the bolt turning before it pops.
-        for (let i = 0; i < 3; i++) noise(v, { color: 'white', filters: [{ type: 'bandpass', freq: 3200, q: 4 }], amp: perc(0.0005, 0.22, 0.012), at: i * 0.035 });
+        for (let i = 0; i < 3; i++) noise(v, { color: 'white', filters: [{ type: 'bandpass', freq: 3200, q: 4 }], amp: perc(0.0005, 0.2, 0.012), at: i * 0.035 });
         at = 0.11;
       }
-      // Bolt pop: sharp pitch drop + crack.
-      tone(v, { freq: [[0, 950 * p], [0.035, 190 * p]], amp: perc(0.001, 0.6, 0.07), at });
-      noise(v, { color: 'white', filters: [{ type: 'highpass', freq: 2000 }], amp: perc(0.0005, 0.45, 0.02), at });
-      thump(v, at, 160 * p, 80 * p, 0.4, 0.14);
+      // Roots tearing ("뿌드득"): a front-loaded burst of fibre snaps around the pop.
+      crackles(v, 12 + rint(v.rnd, 6), Math.max(0, at - 0.03), at + 0.14, { fLo: 800, fHi: 3200, ampLo: 0.1, ampHi: 0.3, durLo: 0.003, durHi: 0.018, skew: 1.8, panWidth: 0.35 });
+      // POP: cork transient, an upward bloop and the body of the box.
+      // (The bloop starts a hair after the click: "k-bloop", and the layers don't stack peaks.)
+      noise(v, { color: 'white', filters: [{ type: 'highpass', freq: 1800 }], amp: perc(0.0008, 0.3, 0.014), at });
+      tone(v, { freq: [[0, 240 * p], [0.065, 780 * p]], amp: perc(0.002, 0.5, 0.11), at: at + 0.008 });
+      tone(v, { type: 'triangle', freq: [[0, 480 * p], [0.065, 1560 * p]], amp: perc(0.002, 0.06, 0.07), at: at + 0.008 });
+      thump(v, at, 170 * p, 75 * p, 0.3, 0.15);
+      // Dirt burst.
+      noise(v, { color: 'pink', filters: [{ type: 'lowpass', freq: 1500 }], amp: perc(0.002, 0.28, 0.09), at });
       // Metal clink of the freed bolt.
       const metal: Partial[] = [
-        [1, 0.16, 0.35],
-        [2.32, 0.1, 0.22],
-        [4.1, 0.06, 0.12],
-        [6.6, 0.035, 0.07],
+        [1, 0.12, 0.35],
+        [2.32, 0.07, 0.22],
+        [4.1, 0.045, 0.12],
+        [6.6, 0.025, 0.07],
       ];
-      partials(v, [1480, 1720, 1300][v.variant] * p, metal, { at: at + 0.04 });
-      if (v.variant === 1) tone(v, { freq: 540 * p, amp: perc(0.004, 0.12, 0.25), vib: { rate: 19, cents: [[0, 140], [0.25, 10]] }, at: at + 0.05 });
+      partials(v, [1480, 1720, 1300][v.variant] * p, metal, { at: at + 0.05 });
+      if (v.variant === 1) tone(v, { freq: 540 * p, amp: perc(0.004, 0.1, 0.25), vib: { rate: 19, cents: [[0, 140], [0.25, 10]] }, at: at + 0.05 });
       return at + 0.45;
     },
   },
   unanchorBank: {
-    bus: 'sfx', variants: 3, gain: 0.53, maxVoices: 2, minInterval: 0.3, priority: 9, length: 4.2, reverb: 0.3,
-    duck: { db: -7, hold: 2.2 },
+    bus: 'sfx', variants: 3, gain: 0.5, maxVoices: 2, minInterval: 0.3, priority: 10, length: 3.6, reverb: 0.3,
+    duck: { db: -9, hold: 2.2 },
+    duckAmbience: { db: -6, hold: 1.2 },
     play(v) {
       const p = v.pitch * jitter(v.rnd, 0.03);
-      // "기초가 끊기는 소리": deep crack, sub boom, swelling rumble, tearing roots, debris.
+      // The biggest sound in the game — the bank's "뿌리째" pop (src/render/uproot.ts): the
+      // foundation cracks, the whole building pops out with a giant bloop, a sub-bass drop rides
+      // the hop, roots rip in long tears, the ground groans. The landing slam is 'bankLand'.
       // 1. Crack transient.
       noise(v, { color: 'white', filters: [{ type: 'bandpass', freq: 2600, q: 0.7 }], amp: perc(0.0008, 0.75, 0.05) });
       noise(v, { color: 'pink', filters: [{ type: 'lowpass', freq: 1400 }], amp: perc(0.002, 0.7, 0.28) });
-      // 2. Sub boom + an audible-on-laptops upper thump.
-      tone(v, { freq: [[0, 88 * p], [0.5, 38 * p]], amp: perc(0.004, 0.75, 1.2) });
+      // 2. POP: a giant upward bloop.
+      tone(v, { freq: [[0, 95 * p], [0.09, 300 * p]], amp: perc(0.003, 0.55, 0.2) });
+      tone(v, { type: 'triangle', freq: [[0, 190 * p], [0.09, 600 * p]], amp: perc(0.003, 0.1, 0.12) });
+      // 3. Sub-bass drop under the hop + an upper thump laptops can play.
+      tone(v, { freq: [[0, 120 * p], [0.12, 70 * p], [1.1, 26 * p]], amp: [[0, 0], [0.01, 0.85], [0.5, 0.55], [1.25, 0]] });
       tone(v, { freq: [[0, 175 * p], [0.3, 72 * p]], amp: perc(0.003, 0.35, 0.4) });
-      // 3. Rumble swell (ground giving way).
+      // 4. The building flies up and comes down: a low air whoosh over the hop.
+      noise(v, { color: 'pink', filters: [{ type: 'bandpass', freq: [[0, 200], [0.3, 650], [0.6, 260]], q: 1 }], amp: [[0, 0], [0.25, 0.2], [0.6, 0]] });
+      // 5. Rumble (ground giving way) and grinding.
       noise(v, {
         color: 'brown',
-        filters: [{ type: 'lowpass', freq: [[0, 200], [2.8, 110]], q: 0.8 }],
-        amp: [[0, 0], [0.18, 0.5], [0.9, 0.6], [3.2, 0]],
+        filters: [{ type: 'lowpass', freq: [[0, 200], [2.2, 110]], q: 0.8 }],
+        amp: [[0, 0], [0.15, 0.45], [0.7, 0.4], [2.4, 0]],
       });
       noise(v, {
         buffer: scrapeBuffer(v.ctx),
         rate: 0.45 * p,
         filters: [{ type: 'bandpass', freq: 380, q: 1.1 }],
-        amp: [[0, 0], [0.12, 0], [0.45, 0.28], [2.4, 0]],
+        amp: [[0, 0], [0.12, 0], [0.45, 0.26], [2.2, 0]],
       });
-      // 4. Roots tearing: front-loaded snaps, ripping sweeps and a fibrous groan.
-      crackles(v, 46, 0.04, 1.7, { fLo: 650, fHi: 3400, ampLo: 0.12, ampHi: 0.42, durLo: 0.004, durHi: 0.028, skew: 1.7, panWidth: 0.55 });
+      // 6. Roots tearing: front-loaded snaps, ripping sweeps and a fibrous groan.
+      crackles(v, 46, 0.0, 1.6, { fLo: 650, fHi: 3400, ampLo: 0.12, ampHi: 0.42, durLo: 0.004, durHi: 0.028, skew: 1.7, panWidth: 0.55 });
       const rips = [
-        [0.1, 0.3],
-        [0.42, 0.26],
-        [0.85, 0.34],
+        [0.06, 0.3],
+        [0.38, 0.26],
+        [0.8, 0.34],
       ] as const;
       for (const [at, d] of rips) {
         const g = v.ctx.createGain();
@@ -387,17 +327,17 @@ export const SFX_RECIPES: Record<SfxId, SfxRecipe> = {
         buffer: creakBuffer(v.ctx),
         rate: [[0, 0.42 * p], [1.4, 0.7 * p]],
         filters: [{ type: 'bandpass', freq: [[0, 380], [1.4, 520]], q: 2.5 }],
-        amp: [[0, 0], [0.08, 0.45], [1.0, 0.35], [1.6, 0]],
+        amp: [[0, 0], [0.08, 0.42], [1.0, 0.3], [1.6, 0]],
       });
-      // 5. Debris settling.
+      // 7. Debris settling.
       crackles(v, 9, 1.0, 2.7, { fLo: 2200, fHi: 5200, ampLo: 0.04, ampHi: 0.11, durLo: 0.008, durHi: 0.02, panWidth: 0.7 });
       // Variation: an extra late "second snap" on two of the three.
       if (v.variant > 0) {
-        const at = v.variant === 1 ? 0.62 : 0.95;
-        noise(v, { color: 'white', filters: [{ type: 'bandpass', freq: 1900, q: 1 }], amp: perc(0.0008, 0.4, 0.04), at });
-        tone(v, { freq: [[0, 120 * p], [0.25, 50 * p]], amp: perc(0.003, 0.35, 0.35), at });
+        const at = v.variant === 1 ? 0.42 : 0.9;
+        noise(v, { color: 'white', filters: [{ type: 'bandpass', freq: 1900, q: 1 }], amp: perc(0.0008, 0.38, 0.04), at });
+        tone(v, { freq: [[0, 120 * p], [0.25, 50 * p]], amp: perc(0.003, 0.3, 0.35), at });
       }
-      return 3.4;
+      return 3.2;
     },
   },
   fenceBreak: {
@@ -472,6 +412,7 @@ export const SFX_RECIPES: Record<SfxId, SfxRecipe> = {
   // ---- recovery & scoring -------------------------------------------------------------------------
   recoverStart: {
     bus: 'sfx', variants: 2, gain: 0.5, maxVoices: 6, minInterval: 0.05, priority: 6, length: RECOVERY_SECONDS + 0.4,
+    duckAmbience: { db: -4, hold: RECOVERY_SECONDS },
     play(v) {
       const D = RECOVERY_SECONDS;
       const root = pnMidi(v, v.variant === 0 ? 0 : 2);
@@ -519,20 +460,29 @@ export const SFX_RECIPES: Record<SfxId, SfxRecipe> = {
     },
   },
   scoreSmall: {
-    bus: 'sfx', variants: 4, gain: 0.56, maxVoices: 4, minInterval: 0.04, priority: 8, length: 1.4, reverb: 0.3, global: true,
+    bus: 'sfx', variants: 4, gain: 0.56, maxVoices: 4, minInterval: 0.04, priority: 8, length: 1.6, reverb: 0.3, global: true,
+    duckAmbience: { db: -8, hold: 0.9 },
     play(v) {
-      // Coin cascade in key ("tli-li-ling"), climbing with the combo step.
+      // Coin cascade in key ("tli-li-ling"), climbing with the combo step (ART_DIRECTION §1):
+      // every consecutive recovery starts one scale degree higher and adds a coin (up to 3).
       const pats = [
         [0, 1, 3],
         [0, 2, 3],
         [1, 0, 3],
         [0, 1, 2, 3],
       ] as const;
-      const pat = pats[v.variant];
+      const more = Math.max(0, Math.min(3, v.step));
+      const pat = [...pats[v.variant], ...Array.from({ length: more }, (_, i) => 4 + i)];
+      // Higher coins read softer, so the climb is lifted a little each step and, from the third
+      // consecutive recovery, an octave-lower coin under the top one adds weight: every step of
+      // the combo sounds bigger than the last (ART_DIRECTION §1-2).
+      const climb = Math.max(0, Math.min(6, v.step));
+      const lift = Math.pow(10, CLIMB_LIFT_DB[climb] / 20);
       let at = 0;
       pat.forEach((d, i) => {
         const last = i === pat.length - 1;
-        coin(v, at, pn(v, 8 + d), last ? 0.34 : 0.2, last ? 0.6 : 0.12, last ? 0 : (i % 2 ? 0.2 : -0.2));
+        coin(v, at, pn(v, 8 + d), (last ? 0.34 : 0.2) * lift, last ? 0.6 : 0.12, last ? 0 : (i % 2 ? 0.2 : -0.2));
+        if (last && climb >= 3) coin(v, at + 0.008, pn(v, 8 + d - 5), 0.1 * lift * Math.min(1, (climb - 2) / 2), 0.45, 0, true);
         at += 0.045;
       });
       for (let k = 0; k < 3; k++) {
@@ -543,6 +493,7 @@ export const SFX_RECIPES: Record<SfxId, SfxRecipe> = {
   },
   scoreLarge: {
     bus: 'sfx', variants: 3, gain: 0.61, maxVoices: 3, minInterval: 0.06, priority: 8, length: 1.8, reverb: 0.3, global: true,
+    duckAmbience: { db: -8, hold: 1.2 },
     play(v) {
       const p = v.pitch;
       // Cash register "ka-ching": drawer clunk + ratchet, struck bell, coin rattle, confirm arpeggio.
@@ -572,6 +523,7 @@ export const SFX_RECIPES: Record<SfxId, SfxRecipe> = {
   scoreBank: {
     bus: 'sfx', variants: 2, gain: 0.61, maxVoices: 2, minInterval: 0.2, priority: 10, length: 3.6, reverb: 0.35, global: true,
     duck: { db: -10, hold: 2.4 },
+    duckAmbience: { db: -10, hold: 3 },
     play(v) {
       const k = v.key;
       // Fanfare (original motif) on soft brass with a timpani hit and a cymbal.
@@ -597,7 +549,8 @@ export const SFX_RECIPES: Record<SfxId, SfxRecipe> = {
       const n = 26;
       for (let i = 0; i < n; i++) {
         const at = hit + 0.1 + Math.pow(i / n, 1.4) * 1.9 + v.rnd() * 0.04;
-        const f = midiToHz(scaleNote(k, 10 + rint(v.rnd, 6)));
+        // The shower climbs with the combo too.
+        const f = midiToHz(scaleNote(k, 10 + Math.max(0, Math.min(3, v.step)) + rint(v.rnd, 6)));
         coin(v, at, f * jitter(v.rnd, 0.01), rrange(v.rnd, 0.09, 0.18) * (1 - (0.5 * i) / n), rrange(v.rnd, 0.12, 0.3), (v.rnd() * 2 - 1) * 0.75, true);
       }
       return hit + 2.4;
@@ -612,13 +565,9 @@ export const SFX_RECIPES: Record<SfxId, SfxRecipe> = {
       const filter = { type: 'lowpass' as const, freq: 2400, q: 0.7 };
       let freq: readonly (readonly [number, number])[];
       if (v.variant === 1) {
-        // Two-tone "nee-naw".
-        const pts: [number, number][] = [];
-        for (let i = 0; i < 4; i++) {
-          const f = i % 2 ? 590 : 780;
-          pts.push([i * 0.5, f], [i * 0.5 + 0.47, f]);
-        }
-        freq = pts;
+        // "Whoop-whoop" then a wail. (The two-tone belongs to the police cars' own siren, so the
+        // getaway signal stays in the wail family and never clashes with an arriving car.)
+        freq = [[0, 520], [0.42, 1250], [0.5, 560], [0.92, 1250], [1.0, 560], [1.5, 1320], [2.05, 600]];
       } else if (v.variant === 2) {
         freq = [[0, 540], [0.7, 1320], [1.1, 1250], [1.45, 1340], [2.05, 600]];
       } else {
@@ -804,6 +753,10 @@ export const SFX_RECIPES: Record<SfxId, SfxRecipe> = {
       return 0.2;
     },
   },
+
+  // ---- presentation (./sfxStage.ts) and police (./sfxPolice.ts) ---------------------------------
+  ...STAGE_RECIPES,
+  ...POLICE_RECIPES,
 };
 
 /**

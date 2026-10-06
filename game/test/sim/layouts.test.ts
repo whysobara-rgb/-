@@ -13,7 +13,10 @@ import {
   INTERIOR_FAIRNESS_TOL,
   MIN_DRESSING,
   MIN_ONE_SPOT_DOOR_COVER,
+  POCKET_FLUSH,
+  POCKET_MIN_GAP,
   bankDoorExteriors,
+  safeGaps,
   layoutStringKeys,
   validateLayout,
   validateLayoutSet,
@@ -112,6 +115,15 @@ describe.each(ALL_IDS)('layout %s', (id) => {
     }
     expect(errors(report(id), 'zone')).toEqual([]);
     expect(errors(report(id), 'van')).toEqual([]);
+  });
+
+  it('has no wall pockets: every outdoor safe is flush with a solid or a raccoon-wide gap away', () => {
+    for (const id of ALL_IDS) {
+      for (const g of safeGaps(LAYOUTS[id])) {
+        expect(g.gap <= POCKET_FLUSH || g.gap >= POCKET_MIN_GAP, `${id} safe ${g.safe}: ${g.gap.toFixed(3)} m against ${g.against}`).toBe(true);
+      }
+      expect(errors(report(id), 'pocket')).toEqual([]);
+    }
   });
 
   it('is perfectly mirror-symmetric', () => {
@@ -485,6 +497,16 @@ describe('validator catches broken layouts', () => {
     const sameHalf = clone(base);
     sameHalf.policeEntries![1] = structuredClone(sameHalf.policeEntries![0]!);
     expect(errors(validateLayout(sameHalf, meta, fast), 'police').some((m) => m.includes('alternate'))).toBe(true);
+  });
+
+  it('flags an anchored safe leaving a sub-body-width pocket against a wall (wedge bug)', () => {
+    // counter before the fix: the north terrace-lane small safes sat centered in a 2.5 m lane,
+    // 0.85 m from the building on each side
+    const d = clone(LAYOUTS.counter);
+    for (const s of d.safes) if (Math.abs(s.pos.y - 11.46) < 0.01) s.pos.y = 12.25;
+    const e = errors(validateLayout(d, LAYOUT_META.counter, { skipBypass: true }), 'pocket');
+    expect(e.length).toBe(2);
+    expect(e[0]).toMatch(/0\.85 m pocket/);
   });
 
   it('flags decor dropped in a narrow alley', () => {

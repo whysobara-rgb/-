@@ -6,7 +6,7 @@
  * Screen-space coordinates (labels, arrows, popups) are CSS pixels relative to the UiRoot
  * box, i.e. exactly what GameView.project() returns.
  */
-import type { EntityId, LootKind, PingKind, SafeKind, TeamId } from '../../sim/types';
+import type { EntityId, HatId, LootKind, PingKind, SafeKind, TeamId } from '../../sim/types';
 import type { TextRef } from '../i18n';
 import type { PromptAction } from '../core/prompts';
 
@@ -88,8 +88,31 @@ export interface MinimapPing {
   kind: PingKind;
 }
 
+/** A police officer on the minimap (police are public info: always drawn). */
+export interface MinimapOfficer {
+  id: EntityId;
+  x: number;
+  y: number;
+  /** Chasing / lunging (drawn with an alert ring). */
+  hunting?: boolean;
+  /** Knocked over by a dash. */
+  stunned?: boolean;
+}
+
+/** A police car on (or at the edge of) the arena. */
+export interface MinimapPoliceCar {
+  id: number;
+  x: number;
+  y: number;
+  angle: number;
+  siren?: boolean;
+}
+
 export interface MinimapModel {
   banks: readonly MinimapBank[];
+  /** Police officers and cars (empty arrays / omitted when the police event is off). */
+  police?: readonly MinimapOfficer[];
+  policeCars?: readonly MinimapPoliceCar[];
   safes: readonly MinimapSafe[];
   characters: readonly MinimapCharacter[];
   /** Only the local team's pings should be passed. */
@@ -169,6 +192,16 @@ export interface OffscreenTarget {
   value?: number;
 }
 
+/** Police status for the HUD chip (owner addition beyond doc v0.5). */
+export interface HudPolice {
+  /** Seconds until the next police car arrives (an alarm is pending), else null. */
+  dispatchInSec: number | null;
+  /** Officers on the field. */
+  officers: number;
+  /** Banks whose alarm is ringing. */
+  alarms: number;
+}
+
 export interface HudModel {
   mode: 'match' | 'practice';
   myTeam: TeamId;
@@ -186,6 +219,8 @@ export interface HudModel {
   /** 0 = dash ready .. 1 = just used. */
   dashCooldown: number;
   minimap?: MinimapModel | null;
+  /** Police chip (null / omitted = no police activity to show). */
+  police?: HudPolice | null;
   labels?: readonly WorldLabelModel[];
   arrows?: readonly OffscreenTarget[];
 }
@@ -202,7 +237,25 @@ export interface ScorePopupOptions {
   y?: number;
 }
 
-export type BannerKind = 'escape' | 'timeUp' | 'decided' | 'allRecovered' | 'practiceDone' | 'go';
+export type BannerKind = 'escape' | 'timeUp' | 'decided' | 'allRecovered' | 'practiceDone' | 'go' | 'policeDispatched' | 'policeArrived';
+
+/** Stamp callouts for big moments, driven from real events. */
+export type HudStampKind = 'uproot' | 'steal' | 'bankWhole' | 'dodge' | 'police';
+
+export interface HudStampOptions {
+  /** Team that made the play (colours the stamp; never the only cue — the text says it). */
+  team?: TeamId | null;
+  /** Screen anchor (CSS px). Omitted: under the scoreboard. */
+  x?: number;
+  y?: number;
+  params?: Readonly<Record<string, string | number>>;
+}
+
+/** Portrait spec for a scoreboard face (the team's lead character). */
+export interface HudFace {
+  hat?: HatId;
+  rival?: 'hodadak' | 'tongkeun' | 'nunchi' | null;
+}
 
 export interface TutorialPromptModel {
   text: TextRef;

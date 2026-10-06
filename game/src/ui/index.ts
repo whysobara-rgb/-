@@ -42,7 +42,15 @@ export {
   NAV_ACTIONS,
   EMPTY_MENU_NAV,
 } from './core/nav';
-export type { MenuNav, NavTarget, NavItemHandlers, UiSoundKind } from './core/nav';
+export type { MenuNav, NavTarget, NavItemHandlers, UiSoundKind, UiSoundOptions } from './core/nav';
+export { noteFor } from './core/nav';
+export { setPortraitProvider, hasPortraitProvider, portrait, objectPortrait, layoutPortrait } from './core/portrait';
+export type { PortraitProvider, PortraitSpec } from './core/portrait';
+export { chunky, stamp, slamIn, burst, RollingNumber } from './core/juice';
+export type { StampTone, BurstKind } from './core/juice';
+export { pawPointer } from './core/pointer';
+export { IrisWipe, irisWipe } from './components/wipe';
+export type { WipeShape } from './components/wipe';
 export {
   setPromptGlyphProvider,
   promptGlyph,
@@ -103,7 +111,7 @@ export { Hud } from './hud/Hud';
 export { Minimap } from './hud/Minimap';
 export { WorldLabels } from './hud/WorldLabels';
 export { OffscreenArrows } from './hud/OffscreenArrows';
-export { hudModelFromSim, hudBanksFromState, minimapFromState, carryFromState, grabFromState, labelsFromSim, carrierTeam, characterNameRef } from './hud/adapters';
+export { hudModelFromSim, hudBanksFromState, minimapFromState, carryFromState, grabFromState, labelsFromSim, carrierTeam, characterNameRef, policeFromState, policeMarkers, policeCarMarkers } from './hud/adapters';
 export type { SimView, Projector, HudAdapterOptions } from './hud/adapters';
 export type {
   HudModel,
@@ -115,6 +123,12 @@ export type {
   MinimapSafe,
   MinimapCharacter,
   MinimapPing,
+  MinimapOfficer,
+  MinimapPoliceCar,
+  HudPolice,
+  HudStampKind,
+  HudStampOptions,
+  HudFace,
   WorldLabelModel,
   ValueLabel,
   BankLabel,

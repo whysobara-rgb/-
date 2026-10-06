@@ -1,9 +1,11 @@
 /**
- * Title: animated "뿌리째 털어라" wordmark (CSS + SVG roots), English ribbon, tagline and a
- * pulsing "아무 키나 누르세요". Any nav action, any key frame (MenuNav.any) or a click starts.
+ * Title: the logo SLAMS in over the live 3D diorama (overshoot + squash, letters jiggle in one by
+ * one, dangling roots grow), the "UPROOT HEIST" ribbon flips in, and a bobbing "아무 키나
+ * 누르세요" sticker waits. Any nav action, any key frame (MenuNav.any) or a click starts.
  */
 import { t } from '../i18n';
 import { h, svgFromMarkup } from '../core/dom';
+import { icon } from '../core/icons';
 import { UiScreen } from '../core/screen';
 import { uiSound } from '../core/nav';
 import type { NavAction } from '../core/prompts';
@@ -26,13 +28,18 @@ const ROOT_PATHS = [
 /** Dangling roots under "뿌리째" (ink outline + two browns, sticker style). */
 const ROOTS_SVG = `<svg viewBox="0 0 600 130" xmlns="http://www.w3.org/2000/svg">
   <g fill="none" stroke-linecap="round" stroke-linejoin="round">
-    <g stroke="#2E2442" stroke-width="17">${ROOT_PATHS.map((d) => `<path d="${d}"/>`).join('')}</g>
-    <g stroke="#B9774A" stroke-width="9">${ROOT_PATHS.map((d) => `<path d="${d}"/>`).join('')}</g>
-    <g stroke="#E0A06C" stroke-width="3" opacity=".8">${ROOT_PATHS.slice(0, 6).map((d) => `<path d="${d}" transform="translate(-2 -1)"/>`).join('')}</g>
+    <g stroke="#2A2131" stroke-width="19">${ROOT_PATHS.map((d) => `<path d="${d}"/>`).join('')}</g>
+    <g stroke="#B9774A" stroke-width="10">${ROOT_PATHS.map((d) => `<path d="${d}"/>`).join('')}</g>
+    <g stroke="#E8AE78" stroke-width="3.5" opacity=".85">${ROOT_PATHS.slice(0, 6).map((d) => `<path d="${d}" transform="translate(-2.5 -1.5)"/>`).join('')}</g>
   </g>
-  <path d="M20 14c40-14 120-12 170-4s110 10 180 0 150-8 210 6c-30 10-110 12-190 8s-140 6-210 4-120-2-160-14z" fill="#7A4A30" stroke="#2E2442" stroke-width="6" stroke-linejoin="round"/>
-  <g fill="#9C6440" stroke="#2E2442" stroke-width="4"><circle cx="48" cy="34" r="8"/><circle cx="196" cy="30" r="6"/><circle cx="372" cy="34" r="7"/><circle cx="556" cy="30" r="6"/></g>
+  <path d="M20 14c40-14 120-12 170-4s110 10 180 0 150-8 210 6c-30 10-110 12-190 8s-140 6-210 4-120-2-160-14z" fill="#7A4A30" stroke="#2A2131" stroke-width="7" stroke-linejoin="round"/>
+  <g fill="#9C6440" stroke="#2A2131" stroke-width="4.5"><circle cx="48" cy="34" r="8"/><circle cx="196" cy="30" r="6"/><circle cx="372" cy="34" r="7"/><circle cx="556" cy="30" r="6"/></g>
 </svg>`;
+
+/** Little sparkle stars around the logo (static SVG, CSS twinkles them). */
+const SPARK = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 1.5l2.6 7.9 7.9 2.6-7.9 2.6L12 22.5l-2.6-7.9L1.5 12l7.9-2.6z" fill="#FFF6E6" stroke="#2A2131" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
+
+const TILT = [-7, 4, -3, 6, -5, 3];
 
 export class TitleScreen extends UiScreen<TitleScreenProps> {
   constructor(props: TitleScreenProps) {
@@ -44,29 +51,30 @@ export class TitleScreen extends UiScreen<TitleScreenProps> {
   }
 
   protected render(): void {
-    const word = (text: string, cls: string, delay0: number): HTMLElement =>
+    const word = (text: string, tone: 'sun' | 'cream', delay0: number, seed: number): HTMLElement =>
       h(
         'span',
-        { class: `uh-wordmark__word ${cls}` },
+        { class: `uh-logo__word uh-logo__word--${tone}` },
         Array.from(text).map((ch, i) =>
-          h('span', { class: 'uh-wordmark__char', style: { '--d': `${delay0 + i * 90}ms`, '--k': String(i) } }, ch),
+          h('span', { class: 'uh-logo__char', style: { '--d': `${delay0 + i * 85}ms`, '--tilt': `${TILT[(i + seed) % TILT.length]}deg`, '--k': String(i) } }, ch),
         ),
       );
     const title = t('game.title');
     const [first, ...rest] = title.split(' ');
-    const wordmark = h(
+    const logo = h(
       'div',
-      { class: 'uh-wordmark', role: 'img', 'aria-label': title },
-      h('div', { class: 'uh-wordmark__line uh-wordmark__line--a' }, word(first, 'uh-wordmark__word--gold', 0), svgFromMarkup(ROOTS_SVG, 'uh-wordmark__roots')),
-      h('div', { class: 'uh-wordmark__line uh-wordmark__line--b' }, word(rest.join(' '), 'uh-wordmark__word--cream', 320)),
-      h('div', { class: 'uh-wordmark__ribbon' }, h('span', null, t('game.titleEn'))),
+      { class: 'uh-logo', role: 'img', 'aria-label': title },
+      h('div', { class: 'uh-logo__line uh-logo__line--a' }, word(first, 'sun', 260, 0), svgFromMarkup(ROOTS_SVG, 'uh-logo__roots')),
+      h('div', { class: 'uh-logo__line uh-logo__line--b' }, word(rest.join(' '), 'cream', 560, 3)),
+      h('div', { class: 'uh-logo__ribbon' }, h('span', null, t('game.titleEn'))),
+      [0, 1, 2, 3].map((i) => h('span', { class: `uh-logo__spark uh-logo__spark--${i}` }, svgFromMarkup(SPARK))),
     );
     this.el.append(
       h(
         'div',
         { class: 'uh-frame uh-title' },
-        h('div', { class: 'uh-title__center' }, wordmark, h('p', { class: 'uh-title__tagline' }, t('game.tagline'))),
-        h('div', { class: 'uh-title__press' }, h('span', { class: 'uh-title__pressText' }, t('title.pressAny'))),
+        h('div', { class: 'uh-title__center' }, logo, h('p', { class: 'uh-title__tagline' }, t('game.tagline'))),
+        h('div', { class: 'uh-title__press' }, h('span', { class: 'uh-title__pressPaw' }, icon('paw')), h('span', { class: 'uh-title__pressText' }, t('title.pressAny'))),
         this.props.version ? h('div', { class: 'uh-title__version' }, t('title.version', { version: this.props.version })) : null,
       ),
     );
