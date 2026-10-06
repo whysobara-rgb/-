@@ -155,8 +155,10 @@ class PawPointer {
     const now = performance.now();
     if (t !== this.target || !this.visible || now - this.checkedAt > RECHECK_MS) {
       this.checkedAt = now;
-      const forced = t!.getAttribute('data-paw') === 'top' || t!.closest('[data-paw-mode="top"]') ? 'top' : null;
-      const next = forced ?? this.pickSide(t!, r, rem, (top as Target).el ?? document.body);
+      // Items / rows can prefer the top (grid cards, button rows); a covered top still falls
+      // back to a free side.
+      const preferTop = t!.getAttribute('data-paw') === 'top' || !!t!.closest('[data-paw-mode="top"]');
+      const next = this.pickSide(t!, r, rem, (top as Target).el ?? document.body, preferTop);
       if (t === this.target && next !== this.mode) {
         el.dataset.mode = next;
       }
@@ -199,13 +201,14 @@ class PawPointer {
   }
 
   /** First side (left, right, top, bottom) where the paw covers nothing; else the least covered. */
-  private pickSide(t: HTMLElement, r: DOMRect, rem: number, root: ParentNode): PawMode {
+  private pickSide(t: HTMLElement, r: DOMRect, rem: number, root: ParentNode, preferTop = false): PawMode {
     const obs = obstacles(root, t);
+    const order: PawMode[] = preferTop ? ['top', 'left', 'right', 'bottom'] : SIDES;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    let best: PawMode = 'left';
+    let best: PawMode = order[0]!;
     let bestCost = Infinity;
-    for (const side of SIDES) {
+    for (const side of order) {
       const { box } = placement(side, r, rem);
       if (box.l < 0 || box.t < 0 || box.r > vw || box.b > vh) continue;
       let cost = 0;

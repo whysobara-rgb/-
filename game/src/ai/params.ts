@@ -315,10 +315,12 @@ export const BOT_TUNING = {
    */
   bankRace: 0,
   /**
-   * A solo bank hauler tackled n >= 2 times in 20 s while officers are on duty divides the haul's
-   * value by 1 + houndedDrop * (n - 1) * awareness (it collects safes until the wave leaves).
+   * A solo bank hauler tackled off (or kept off by an officer standing by) one bank n >= 2 times in
+   * 20 s while officers are on duty divides that haul's value by
+   * 1 + houndedDrop * (n - 1) * (0.5 + 0.5 * awareness) (it scores elsewhere until the wave leaves).
    * Measured: without it a hounded tongkeun crawled ~45 s under two officers (~20 tackles) and
-   * scored 0 in 8 % of mirror games on counter.
+   * scored 0 in 8 % of mirror games on counter; 0.5 (x awareness only) still let novice / normal
+   * haulers take 10-20 tackles in a row; 1.0 with the awareness floor ends those chains.
    */
-  houndedDrop: 0.5,
+  houndedDrop: 1.0,
 };

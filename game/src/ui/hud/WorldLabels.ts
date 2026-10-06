@@ -129,7 +129,7 @@ export class WorldLabels {
     order.sort((a, b) => a.prio - b.prio || a.ay - b.ay);
     const placed = this.placed;
     placed.length = 0;
-    for (const e of order) this.place(e, e.ax, (window as unknown as { __noDeclutter?: boolean }).__noDeclutter ? e.ay : placeLabel(placed, e.ax, e.ay, e.w, e.h, GAP));
+    for (const e of order) this.place(e, e.ax, placeLabel(placed, e.ax, e.ay, e.w, e.h, GAP));
   }
 
   private place(e: Entry, ax: number, ay: number): void {

@@ -177,6 +177,8 @@ export interface BotInternalOptions extends BotOptions {
 const REFLEX_LEAD_TICKS = 6;
 /** Longest wait (x police awareness) with the hands off a load while an officer stands by. */
 const HOLDOFF_TICKS = 150;
+/** Knocked off (or kept off) one bank this many times in 20 s with officers on duty: give it up for a while. */
+const HOUNDED_GIVE_UP = 3;
 
 export class Bot implements BotController {
   readonly slot: number;
@@ -615,6 +617,15 @@ export class Bot implements BotController {
     let a = this.bankHeat.get(bankId);
     if (!a) this.bankHeat.set(bankId, (a = []));
     a.push(tick);
+    // knocked off it a third time in 20 s with officers still around: give it up for now (score
+    // elsewhere; the haul is back on the menu once they leave or after a while). A teammate on
+    // the bank keeps it worth fighting for.
+    if (this.heatOf(bankId, tick) >= HOUNDED_GIVE_UP && this.ps.onField() && this.mateHolders(sim, bankId).length === 0) {
+      const dur = Math.round(Math.min(15, Math.max(6, this.ps.shiftLeft())) * TICK_RATE);
+      this.blacklist.set(`haul:${bankId}`, tick + dur);
+      this.blacklist.set(`assist:${bankId}`, tick + dur);
+      if (this.goal && this.goal.targetId === bankId && (this.goal.kind === 'haulBank' || this.goal.kind === 'assistHaul')) this.endGoal(sim, 'hounded by the police: later');
+    }
   }
 
   /** How hard the officers have hounded my hauls of this bank in the last 20 s. */
@@ -763,6 +774,10 @@ export class Bot implements BotController {
       // minimum commitment: a fresh goal is not dropped for a slightly better idea
       if (cur && tick - cur.started < 90 && !wasUrgent) hyst += 0.6;
       if (curCand.utility * hyst >= pick.utility) pick = curCand;
+      // a safe already on its way home and a few seconds from scoring is finished first: dropping
+      // it for a fresh idea (e.g. a bank the moment the officers leave) throws the carry away,
+      // while finishing only delays the new plan by those seconds
+      if (holding && !requested && cur!.kind === 'collectSafe' && cur!.phase === 'carry' && cur!.loadInto === undefined && curCand.est <= 18) pick = curCand;
     }
     // switching back to something just abandoned needs a clearly better reason
     if (pick && cur && pick.key !== cur.key) {
@@ -779,6 +794,7 @@ export class Bot implements BotController {
       if (cur) this.endGoal(sim, 'noCandidates');
       return;
     }
+    if (process.env.DBGSW && cur) this.log1(sim, `SW cur=${cur.key}:${cur.phase} curCand=${curCand ? curCand.utility.toFixed(1) + "/est" + curCand.est.toFixed(1) : "none"} pick=${pick.key} ${pick.utility.toFixed(1)}`);
     if (final || (wasUrgent && this.secondsLeft(sim) <= 30.5 && sim.state.finalCountdown)) this.logFinal(sim, cur, pick, 'switched');
     this.startGoal(sim, pick);
   }
@@ -1188,8 +1204,11 @@ export class Bot implements BotController {
         if (!holdingIt && !committed && this.ps.onField() && this.ps.shiftLeft() + this.shiftGuess(sim) > 12) wave = 1 - BOT_TUNING.waveDefer * aw;
         // tackled again and again on this haul: let the bank be for now (the officers hound
         // whoever drags it), score elsewhere and come back when they leave
-        const hounded = this.ps.onField() ? this.heatOf(b.id, tick) : 0;
-        if (hounded >= 2 && nAfter < 2) wave *= 1 / (1 + BOT_TUNING.houndedDrop * (hounded - 1) * aw);
+        // (any police tackle counts: the officers circle every ringing bank; giving one bank up
+        // for a while is per bank, see addHeat)
+        const hounded = this.ps.onField() ? this.recentTackles(tick) : 0;
+        // (being knocked flat again and again is plain to anyone: half of it regardless of awareness)
+        if (hounded >= 2 && nAfter < 2) wave *= 1 / (1 + BOT_TUNING.houndedDrop * (hounded - 1) * (0.5 + 0.5 * aw));
       }
       let rate = (value / tPol) * feas * wave;
       if (isAssist) {
