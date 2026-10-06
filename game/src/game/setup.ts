@@ -32,6 +32,11 @@ export interface MatchConfig {
   humanName?: string | null;
   /** Test hook: overrides the match length (seconds). */
   matchSeconds?: number | null;
+  /**
+   * Police event (owner addition beyond doc v0.5, RuleConfig.police): on for real matches
+   * unless explicitly false (?police=0); never in the tutorial.
+   */
+  police?: boolean | null;
 }
 
 export interface BotSpec {
@@ -87,7 +92,8 @@ export function buildMatch(cfg: MatchConfig): BuiltMatch {
       roster.push({ team: 1, isBot: true, name: rival.nameKey, look: { ...rival.look } });
       bots.push({ slot: 1, personality: cfg.rival, difficulty: cfg.difficulty, adaptation, seed: botSeed(cfg.seed, 1) });
     }
-    if (cfg.matchSeconds && cfg.matchSeconds > 0) rules = { matchTicks: Math.round(cfg.matchSeconds * 60) };
+    rules = { police: cfg.police !== false };
+    if (cfg.matchSeconds && cfg.matchSeconds > 0) rules.matchTicks = Math.round(cfg.matchSeconds * 60);
   }
   return { setup: { layout, roster, seed: cfg.seed >>> 0, rules }, bots, humanSlot: 0 };
 }

@@ -29,12 +29,18 @@ import { disposeRaccoonCache } from './raccoon';
 import { disposeSafeCache } from './safes';
 import { disposeTextureCache } from './textures';
 import { disposeVanCache } from './van';
+import { disposePoliceCache } from './police';
+import { disposeArtCache } from './art';
 
-export { createRaccoon, idlePose, RACCOON_HEIGHT, RACCOON_LABEL_HEIGHT } from './raccoon';
+export { createRaccoon, idlePose, RACCOON_HEIGHT, RACCOON_LABEL_HEIGHT, RACCOON_TUMBLE_TIME } from './raccoon';
 export type { RaccoonRig, RaccoonPose, RaccoonExpression } from './raccoon';
-export { createSafe } from './safes';
+export { createSafe, SAFE_POP } from './safes';
 export type { SafeRig } from './safes';
-export { createBank, createBankScar, BANK_FLOOR_Y, BANK_LABEL_HEIGHT } from './bank';
+export { createBank, createBankScar, BANK_FLOOR_Y, BANK_LABEL_HEIGHT, BANK_POP, BANK_CUT_HEIGHT } from './bank';
+export { createOfficer, createPoliceCar, OFFICER_HEIGHT, POLICE_CAR, POLICE_COLORS } from './police';
+export type { OfficerRig, OfficerPose, PoliceCarRig } from './police';
+export { emoteAtlasTexture, crackTexture, EMOTE_CELLS, EMOTE_BUBBLED } from './art';
+export type { EmoteKind } from './art';
 export type { BankRig } from './bank';
 export { createVan } from './van';
 export type { VanRig } from './van';
@@ -56,7 +62,7 @@ export type { SignResolver, SceneryStats, SceneryOptions } from './environment';
 export type { SignLanguage } from './palette';
 export { FxSystem, DebrisBurst } from './fx';
 export type { FxOptions, DebrisPieceSpec, Vec3Like } from './fx';
-export { Highlighter, OUTLINE_THICKNESS } from './outline';
+export { Highlighter, InkOutline, OUTLINE_THICKNESS, INK_THICKNESS } from './outline';
 export type { OutlineOptions } from './outline';
 export { createDuskLighting } from './lighting';
 export type { DuskLighting } from './lighting';
@@ -67,6 +73,8 @@ export {
   setMaterialOpacity,
   setGhostAlpha,
   createToonMaterial,
+  pushShockwave,
+  clearShockwaves,
   SHARED_UNIFORMS,
 } from './materials';
 export { setViewCamera, viewCameraPosition, cameraFacingYaw } from './occlusion';
@@ -85,6 +93,8 @@ export function disposeModelCaches(): void {
   disposeSafeCache();
   disposeBankCache();
   disposeVanCache();
+  disposePoliceCache();
+  disposeArtCache();
   disposeOutlineCache();
   disposeGeometryCache();
   disposeMaterialCache();

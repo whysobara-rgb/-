@@ -20,6 +20,8 @@ export interface PauseMenuProps {
   confirmDestructive?: boolean;
   /** Context chip, e.g. '빠른 대전 · 수집 광장'. */
   context?: TextRef | null;
+  /** Body text of the leave-to-menu confirmation (default 'pause.menuConfirm.body'). */
+  menuConfirmBody?: string | null;
   /** Hide 다시 시작 (e.g. tutorial). Default true. */
   showRestart?: boolean;
   /** For the controls reminder line. */
@@ -105,7 +107,7 @@ export class PauseMenu extends UiScreen<PauseMenuProps> {
     this.closeDialog();
     this.dialog = new ConfirmDialog({
       titleKey: kind === 'restart' ? 'pause.restartConfirm.title' : 'pause.menuConfirm.title',
-      bodyKey: kind === 'restart' ? 'pause.restartConfirm.body' : 'pause.menuConfirm.body',
+      bodyKey: kind === 'restart' ? 'pause.restartConfirm.body' : this.props.menuConfirmBody ?? 'pause.menuConfirm.body',
       confirmKey: kind === 'restart' ? 'pause.restartConfirm.ok' : 'pause.menuConfirm.ok',
       danger: true,
       onConfirm: () => {

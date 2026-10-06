@@ -42,7 +42,39 @@ export const SHARED_UNIFORMS = {
   uFadeTex: { value: null as THREE.Texture | null },
   uRimColor: { value: new THREE.Color('#FFE6CC') },
   uRimStrength: { value: 0.32 },
+  /**
+   * Shockwaves rippling through the scenery (bank uproot, big landings): xy = world (x, z)
+   * center, z = start time (uTime clock), w = strength (0 = off). Two slots, see pushShockwave().
+   */
+  uShockA: { value: new THREE.Vector4(0, 0, -100, 0) },
+  uShockB: { value: new THREE.Vector4(0, 0, -100, 0) },
 };
+
+let shockSlot = 0;
+
+/**
+ * Start a jelly shockwave through the scenery (lamps, trees, shop fronts wobble as the ring
+ * passes; docs/ART_DIRECTION.md §1 "모든 것이 반응"). `strength` ~0.2 (safe) .. 1 (bank).
+ * Pass strength 0 (or call clearShockwaves) to stop. Uses the shared model clock.
+ */
+export function pushShockwave(x: number, z: number, strength: number): void {
+  const u = shockSlot === 0 ? SHARED_UNIFORMS.uShockA : SHARED_UNIFORMS.uShockB;
+  shockSlot = 1 - shockSlot;
+  u.value.set(x, z, SHARED_UNIFORMS.uTime.value, Math.max(0, strength));
+}
+
+export function clearShockwaves(): void {
+  SHARED_UNIFORMS.uShockA.value.set(0, 0, -100, 0);
+  SHARED_UNIFORMS.uShockB.value.set(0, 0, -100, 0);
+}
+
+/** Per-object cutaway plane (object space): fragments with dot(p, xyz) > w are removed. */
+export type CutPlaneUniform = { value: THREE.Vector4 };
+
+/** A cutaway plane uniform that cuts nothing (until the owner moves it). */
+export function createCutPlane(): CutPlaneUniform {
+  return { value: new THREE.Vector4(0, 1, 0, 1e4) };
+}
 
 /** Advance the shared animation clock (seconds). Call once per rendered frame. */
 export function setModelTime(seconds: number): void {
@@ -148,6 +180,15 @@ export interface ToonOptions {
   polygonOffset?: number;
   depthWrite?: boolean;
   name?: string;
+  /** Scenery jelly wobble from pushShockwave() (static scenery only: assumes identity model). */
+  shock?: boolean;
+  /**
+   * Cutaway (dollhouse) plane in object space: fragments beyond it are removed and the inside
+   * of cut solids is drawn as a flat cap (`cutCap`) with a light edge line. Forces DoubleSide.
+   */
+  cutPlane?: CutPlaneUniform | null;
+  cutCap?: THREE.ColorRepresentation;
+  cutEdge?: THREE.ColorRepresentation;
 }
 
 const BAYER = /* glsl */ `
@@ -165,7 +206,7 @@ export function createToonMaterial(opts: ToonOptions = {}): THREE.MeshToonMateri
     transparent: ghost || (opts.transparent ?? false),
     opacity: opts.opacity ?? 1,
     alphaTest: opts.alphaTest ?? 0,
-    side: opts.side ?? THREE.FrontSide,
+    side: opts.cutPlane ? THREE.DoubleSide : opts.side ?? THREE.FrontSide,
     emissive: opts.emissive ?? 0x000000,
     emissiveIntensity: opts.emissiveIntensity ?? 1,
   });
@@ -184,6 +225,10 @@ export function createToonMaterial(opts: ToonOptions = {}): THREE.MeshToonMateri
     ghosted: !!opts.occlusion && (ghost || (opts.ghosted ?? true)),
     water: !!opts.water,
     rim: opts.rim ?? 1,
+    shock: !!opts.shock,
+    cut: opts.cutPlane ?? null,
+    cutCap: new THREE.Color(opts.cutCap ?? '#E8A08C'),
+    cutEdge: new THREE.Color(opts.cutEdge ?? '#FFF6E6'),
   });
   return mat;
 }
@@ -203,6 +248,27 @@ interface ExtendFlags {
   ghosted: boolean;
   water: boolean;
   rim: number;
+  shock: boolean;
+  cut: CutPlaneUniform | null;
+  cutCap: THREE.Color;
+  cutEdge: THREE.Color;
+}
+
+/**
+ * Depth material for shadow maps of a cut object: the removed part must not keep casting
+ * shadows into the opened interior. Assign to mesh.customDepthMaterial.
+ */
+export function createCutDepthMaterial(cut: CutPlaneUniform): THREE.MeshDepthMaterial {
+  const m = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
+  m.onBeforeCompile = (shader) => {
+    shader.uniforms.uCutPlane = cut;
+    shader.vertexShader = 'varying vec3 vUhLocal;\n' + shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvUhLocal = transformed;');
+    shader.fragmentShader =
+      'uniform vec4 uCutPlane;\nvarying vec3 vUhLocal;\n' +
+      shader.fragmentShader.replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\nif (dot(vUhLocal, uCutPlane.xyz) > uCutPlane.w) discard;');
+  };
+  m.customProgramCacheKey = () => 'uh-cut-depth';
+  return m;
 }
 
 function extendToon(mat: THREE.MeshToonMaterial, flags: ExtendFlags): void {
@@ -213,9 +279,13 @@ function extendToon(mat: THREE.MeshToonMaterial, flags: ExtendFlags): void {
   if (flags.ghosted) defines.push('#define UH_GHOSTED');
   if (flags.water) defines.push('#define UH_WATER');
   if (flags.rim > 0) defines.push('#define UH_RIM');
+  if (flags.shock) defines.push('#define UH_SHOCK');
+  if (flags.cut) defines.push('#define UH_CUT');
   const defineBlock = defines.join('\n') + '\n';
   const rimScale = { value: flags.rim };
   mat.userData.uhRimScale = rimScale;
+  const cutCap = { value: flags.cutCap };
+  const cutEdge = { value: flags.cutEdge };
 
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = SHARED_UNIFORMS.uTime;
@@ -229,6 +299,13 @@ function extendToon(mat: THREE.MeshToonMaterial, flags: ExtendFlags): void {
     shader.uniforms.uRimColor = SHARED_UNIFORMS.uRimColor;
     shader.uniforms.uRimStrength = SHARED_UNIFORMS.uRimStrength;
     shader.uniforms.uRimScale = rimScale;
+    shader.uniforms.uShockA = SHARED_UNIFORMS.uShockA;
+    shader.uniforms.uShockB = SHARED_UNIFORMS.uShockB;
+    if (flags.cut) {
+      shader.uniforms.uCutPlane = flags.cut;
+      shader.uniforms.uCutCap = cutCap;
+      shader.uniforms.uCutEdge = cutEdge;
+    }
 
     shader.vertexShader =
       defineBlock +
@@ -244,6 +321,27 @@ varying vec3 vUhWorld;
 #ifdef UH_OCCLUSION
 uniform sampler2D uFadeTex;
 varying float vUhFade;
+#endif
+#ifdef UH_SHOCK
+uniform vec4 uShockA;
+uniform vec4 uShockB;
+vec2 uhShock(vec4 s, vec3 w) {
+  if (s.w <= 0.0) return vec2(0.0);
+  float age = uTime - s.z;
+  if (age < 0.0 || age > 2.2) return vec2(0.0);
+  vec2 d = w.xz - s.xy;
+  float r = length(d);
+  float front = age * 17.0;
+  float band = exp(-pow((r - front) / 2.6, 2.0));
+  float env = band * exp(-age * 1.6) * s.w;
+  // Taller things sway more (feet stay planted); a damped wiggle behind the front.
+  float h = smoothstep(0.25, 3.5, w.y) * min(1.6, 0.4 + w.y * 0.2);
+  float wig = sin((r - front) * 1.6) * 0.5 + 0.5;
+  return (r > 1e-3 ? d / r : vec2(0.0)) * env * h * (0.18 + 0.14 * wig);
+}
+#endif
+#ifdef UH_CUT
+varying vec3 vUhLocal;
 #endif
 ` +
       shader.vertexShader
@@ -264,6 +362,17 @@ if (fx.y > 0.0) {
   transformed.x += sin(uTime * 1.6 + uhPh) * 0.05 * fx.y;
   transformed.z += sin(uTime * 1.27 + uhPh * 1.3 + 1.7) * 0.04 * fx.y;
   transformed.y += sin(uTime * 2.1 + uhPh * 0.7) * 0.012 * fx.y;
+}
+#endif
+#ifdef UH_CUT
+vUhLocal = transformed;
+#endif
+#ifdef UH_SHOCK
+{
+  vec3 uhWs = (modelMatrix * vec4(transformed, 1.0)).xyz;
+  vec2 uhOff = uhShock(uShockA, uhWs) + uhShock(uShockB, uhWs);
+  transformed.x += uhOff.x;
+  transformed.z += uhOff.y;
 }
 #endif`,
         )
@@ -296,12 +405,22 @@ varying float vUhFade;
 #if defined(UH_OCCLUSION) || defined(UH_WATER)
 varying vec3 vUhWorld;
 #endif
+#ifdef UH_CUT
+uniform vec4 uCutPlane;
+uniform vec3 uCutCap;
+uniform vec3 uCutEdge;
+varying vec3 vUhLocal;
+#endif
 ${BAYER}
 ` +
       shader.fragmentShader
         .replace(
           '#include <clipping_planes_fragment>',
           /* glsl */ `#include <clipping_planes_fragment>
+#ifdef UH_CUT
+float uhCutD = dot(vUhLocal, uCutPlane.xyz) - uCutPlane.w;
+if (uhCutD > 0.0) discard;
+#endif
 #ifdef UH_OCCLUSION
 // How much of this fragment the occlusion removes: its fade group's fade, or the soft
 // cylinder around the camera -> focus segment.
@@ -354,6 +473,11 @@ outgoingLight += mix(diffuseColor.rgb, uRimColor, 0.55) * smoothstep(0.6, 0.92, 
 #endif
 #ifdef UH_GHOST
 diffuseColor.a *= uGhostAlpha * clamp(uhGone, 0.0, 1.0);
+#endif
+#ifdef UH_CUT
+// Dollhouse cut: the inside of a sliced solid reads as a flat cap with a light lip.
+if (!gl_FrontFacing) outgoingLight = uCutCap;
+else if (uhCutD > -0.05 && uCutPlane.w < 1000.0) outgoingLight = mix(outgoingLight, uCutEdge, 0.85);
 #endif
 #include <opaque_fragment>`,
         );
@@ -409,23 +533,23 @@ export function matVC(): THREE.MeshToonMaterial {
 
 /** Vertex-colored toon for static scenery: occlusion cut + fade groups (ghost twin below). */
 export function matScenery(): THREE.MeshToonMaterial {
-  return cached('vcScenery', () => createToonMaterial({ vertexColors: true, fx: true, occlusion: true }));
+  return cached('vcScenery', () => createToonMaterial({ vertexColors: true, fx: true, occlusion: true, shock: true }));
 }
 
 /** Ghost twin of matScenery (draws only what the occlusion removed, see createGhostMaterial). */
 export function matSceneryGhost(): THREE.MeshToonMaterial {
-  return cached('vcSceneryGhost', () => createGhostMaterial({ vertexColors: true, fx: true }));
+  return cached('vcSceneryGhost', () => createGhostMaterial({ vertexColors: true, fx: true, shock: true }));
 }
 
 /** Double-sided variant for thin cards (awnings, umbrella canopies, flags). */
 export function matSceneryDouble(): THREE.MeshToonMaterial {
   return cached('vcSceneryDouble', () =>
-    createToonMaterial({ vertexColors: true, fx: true, occlusion: true, side: THREE.DoubleSide, rim: 0.5 }),
+    createToonMaterial({ vertexColors: true, fx: true, occlusion: true, side: THREE.DoubleSide, rim: 0.5, shock: true }),
   );
 }
 
 export function matSceneryDoubleGhost(): THREE.MeshToonMaterial {
-  return cached('vcSceneryDoubleGhost', () => createGhostMaterial({ vertexColors: true, fx: true, side: THREE.DoubleSide, rim: 0.5 }));
+  return cached('vcSceneryDoubleGhost', () => createGhostMaterial({ vertexColors: true, fx: true, side: THREE.DoubleSide, rim: 0.5, shock: true }));
 }
 
 /**

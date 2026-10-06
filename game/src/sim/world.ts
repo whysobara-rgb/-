@@ -76,7 +76,7 @@ export function mergeRules(setup: MatchSetup): RuleConfig {
   tickCount('matchTicks', 1);
   tickCount('finalCountdownTicks', 0);
   tickCount('recoveryTicks', 1);
-  for (const key of ['earlyDecision', 'timeLimit'] as const) {
+  for (const key of ['earlyDecision', 'timeLimit', 'police'] as const) {
     if (typeof rules[key] !== 'boolean') {
       throw new TypeError(`RuleConfig.${key} must be a boolean (got ${String(rules[key])})`);
     }
@@ -343,5 +343,6 @@ export function buildContext(setup: MatchSetup): SimContext {
     nextPingId: 1,
     settled: new Set(),
     started: false,
+    police: null,
   };
 }

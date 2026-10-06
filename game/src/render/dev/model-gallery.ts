@@ -26,6 +26,9 @@ import {
   createStaticCircle,
   createVan,
   createZoneMarker,
+  createOfficer,
+  createPoliceCar,
+  emoteAtlasTexture,
   idlePose,
   placeOnSim,
   preloadModelFonts,
@@ -122,9 +125,12 @@ const poseRow: [string, (t: number) => RaccoonPose][] = [
   ['sad', (t) => ({ ...idlePose(t), sad: true })],
 ];
 poseRow.forEach(([, pose], i) => addRaccoon((i % 2) as TeamId, { hat: i % 2 ? 'teamCapB' : 'teamCapA' }, -7.5 + i * 1.6, 0.6, FACE_CAM - 0.6, pose));
-(['normal', 'blink', 'happy', 'cheer', 'strain', 'dizzy', 'sad'] as const).forEach((expression, i) =>
+(['normal', 'blink', 'happy', 'cheer', 'strain', 'dizzy', 'sad', 'determined', 'shock', 'angry', 'panic'] as const).forEach((expression, i) =>
   addRaccoon(0, { hat: 'none' }, -7.5 + i * 1.5, 2.6, FACE_CAM, (t) => ({ ...idlePose(t), expression })),
 );
+// Uproot effort ramp (plants feet -> giant-radish lean -> violent) and the pop tumble loop.
+[0.2, 0.6, 0.95].forEach((effort, i) => addRaccoon(0, { hat: 'teamCapA' }, -7.5 + i * 1.6, 4.6, FACE_CAM - 0.9, (t) => ({ ...idlePose(t), grabbing: true, straining: true, effort })));
+addRaccoon(1, { hat: 'teamCapB' }, -2.5, 4.6, FACE_CAM - 0.9, (t) => ({ ...idlePose(t), tumble: t % 2 }));
 // A highlighted raccoon.
 addRaccoon(1, { hat: 'teamCapB' }, 3.2, 0.6, FACE_CAM, (t) => idlePose(t)).setHighlight(HIGHLIGHT_COLORS.ping);
 
@@ -290,6 +296,41 @@ circles.forEach((c) => SHOW.add(createStaticCircle(c)));
 const decorKinds: DecorKind[] = ['flowers', 'cone', 'sign', 'crate', 'umbrella', 'trash', 'bush', 'puddle', 'arrow', 'balloon'];
 decorKinds.forEach((kind, i) => SHOW.add(createDecor({ kind, pos: { x: -6 + i * 2.6, y: 16 }, angle: 0 })));
 
+// --- police (puppy officers in every phase + the patrol car) -----------------------------------
+const officerPhases = ['patrol', 'chase', 'tackle', 'tired', 'stunned', 'arriving'] as const;
+officerPhases.forEach((phase, i) => {
+  const o = createOfficer(i + 1);
+  o.root.position.set(-7.5 + i * 1.8, 0, 8.5);
+  o.root.rotation.y = -(FACE_CAM - 0.5);
+  SHOW.add(o.root);
+  updaters.push((dt, t) =>
+    o.update(dt, {
+      phase,
+      speed: phase === 'chase' ? 4.4 : phase === 'patrol' ? 2.4 : 0,
+      time: t + i,
+      tackle: (t * 2) % 1,
+      phaseTime: phase === 'arriving' ? t % 1.5 : t,
+      whistle: phase === 'patrol' && t % 3 < 1.2,
+      wave: phase === 'chase',
+    }),
+  );
+});
+const policeCar = createPoliceCar();
+placeOnSim(policeCar.root, { x: 5, y: 9 }, 0.35);
+SHOW.add(policeCar.root);
+policeCar.setSiren(true);
+updaters.push((dt, t) => policeCar.update(dt, t));
+// Emote sticker sheet (all icons, original drawings).
+{
+  const tex = emoteAtlasTexture();
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(8, 3), new THREE.MeshBasicMaterial({ map: tex, transparent: true }));
+  m.position.set(-30, 2.2, 12.5);
+  m.rotation.x = -0.6;
+  SHOW.add(m);
+}
+// The cutaway bank rings its alarm every other few seconds.
+updaters.push((_dt, t) => bankA.setAlarm(t % 8 > 4));
+
 // FX demo near the safes.
 let lastFx = 0;
 updaters.push((_dt, t) => {
@@ -448,6 +489,9 @@ const CAMERAS: Record<string, CamPreset> = {
   kiosk: { pos: [S + 12, 2.2, 28.5], target: [S + 12, 1.0, 23] },
   decor: { pos: [S + 6, 5.5, 23.5], target: [S + 6, 0.4, 16], fov: 42 },
   gameShowRaccoons: gameCam(S - 2, -1),
+  police: { pos: [S - 2, 4.5, 14.5], target: [S - 2.5, 0.7, 8.5] },
+  emotes: { pos: [S - 30, 5, 18], target: [S - 30, 1.8, 12.4] },
+  expressions: { pos: [S - 1, 2.6, 6.2], target: [S - 1, 1.0, 2.6] },
   /** Both teams in every hat at the match camera (team must read from the emblem shapes). */
   hatsGame: gameCam(S - 3.75, -5.2, 21),
   gameShowBank: gameCam(S + 30, 4),

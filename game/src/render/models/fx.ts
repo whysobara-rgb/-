@@ -227,6 +227,8 @@ export interface FxOptions {
   stars?: number;
   coins?: number;
   rings?: number;
+  /** Ballistic pebbles / bricks / dirt clods. */
+  chunks?: number;
 }
 
 /** All pooled particle effects. Add `root` to the scene, call update(dt) every frame. */
@@ -237,6 +239,7 @@ export class FxSystem {
   private readonly starPool: ParticlePool;
   private readonly sparklePool: ParticlePool;
   private readonly coinPool: ParticlePool;
+  private readonly chunkPool: ParticlePool;
   private readonly rings: { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; t: number; dur: number; r: number }[] = [];
   private readonly owned: (THREE.Material | THREE.BufferGeometry)[] = [];
   private time = 0;
@@ -251,13 +254,16 @@ export class FxSystem {
     const confGeo = new THREE.PlaneGeometry(1, 0.6);
     const sparkGeo = G.star(4, 0.28, 0.05, false);
     const coinGeo = new THREE.CylinderGeometry(1, 1, 0.22, 16).rotateX(Math.PI / 2);
-    this.owned.push(dustMat, confMat, starMat, sparkMat, coinMat, confGeo, coinGeo);
+    const chunkMat = createToonMaterial({ color: '#FFFFFF', rim: 0.4 });
+    const chunkGeo = new THREE.DodecahedronGeometry(1, 0).scale(1, 0.7, 0.85);
+    this.owned.push(dustMat, confMat, starMat, sparkMat, coinMat, confGeo, coinGeo, chunkMat, chunkGeo);
     this.dustPool = new ParticlePool({ capacity: o.dust ?? 220, geometry: G.ico(1), material: dustMat });
     this.confettiPool = new ParticlePool({ capacity: o.confetti ?? 400, geometry: confGeo, material: confMat });
     this.starPool = new ParticlePool({ capacity: o.stars ?? 96, geometry: G.star(5, 0.45, 0.35), material: starMat });
     this.sparklePool = new ParticlePool({ capacity: 160, geometry: sparkGeo, material: sparkMat });
     this.coinPool = new ParticlePool({ capacity: o.coins ?? 120, geometry: coinGeo, material: coinMat, castShadow: false });
-    for (const p of [this.dustPool, this.confettiPool, this.starPool, this.sparklePool, this.coinPool]) this.root.add(p.mesh);
+    this.chunkPool = new ParticlePool({ capacity: o.chunks ?? 220, geometry: chunkGeo, material: chunkMat, castShadow: true });
+    for (const p of this.pools()) this.root.add(p.mesh);
     const ringGeo = new THREE.RingGeometry(0.86, 1, 48).rotateX(-Math.PI / 2);
     this.owned.push(ringGeo);
     for (let i = 0; i < (o.rings ?? 8); i++) {
@@ -375,6 +381,37 @@ export class FxSystem {
     }
   }
 
+  /**
+   * Ballistic chunks that bounce and settle (pebbles popping out of cracks, bricks crumbling off
+   * a foundation, dirt clods in an uproot explosion). `dir` biases the throw (ground plane).
+   */
+  chunks(
+    pos: Vec3Like,
+    o: { count?: number; colors?: readonly THREE.ColorRepresentation[]; size?: number; power?: number; up?: number; spread?: number; dir?: Vec3Like | null; life?: number } = {},
+  ): void {
+    const n = o.count ?? 6;
+    const colors = o.colors ?? ['#8A6748', '#6A4E37', '#A47E5C'];
+    const pw = o.power ?? 1;
+    const spread = o.spread ?? 0.2;
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = rnd(0.6, 2.2) * pw;
+      const d = o.dir;
+      this.chunkPool.spawn({
+        pos: { x: pos.x + Math.cos(a) * spread * Math.random(), y: pos.y + 0.05, z: pos.z + Math.sin(a) * spread * Math.random() },
+        vel: { x: Math.cos(a) * sp + (d ? d.x * pw * 2.5 : 0), y: rnd(2, 4.5) * pw * (o.up ?? 1), z: Math.sin(a) * sp + (d ? d.z * pw * 2.5 : 0) },
+        life: (o.life ?? 1.4) * rnd(0.8, 1.2),
+        size: (o.size ?? 0.09) * rnd(0.6, 1.4),
+        color: colors[i % colors.length]!,
+        gravity: 15,
+        drag: 0.4,
+        spin: 14,
+        curve: 'flat',
+        ground: true,
+      });
+    }
+  }
+
   /** Expanding flat ring on the ground (impacts, unanchor, zone completion). */
   ring(pos: Vec3Like, o: { radius?: number; color?: THREE.ColorRepresentation; duration?: number } = {}): void {
     let slot = this.rings.find((r) => !r.mesh.visible);
@@ -395,6 +432,7 @@ export class FxSystem {
     this.starPool.update(dt, this.time);
     this.sparklePool.update(dt, this.time);
     this.coinPool.update(dt, this.time);
+    this.chunkPool.update(dt, this.time);
     for (const r of this.rings) {
       if (!r.mesh.visible) continue;
       r.t += dt;
@@ -411,16 +449,22 @@ export class FxSystem {
 
   /** Number of live particles (debug/stats). */
   get activeCount(): number {
-    return this.dustPool.alive + this.confettiPool.alive + this.starPool.alive + this.sparklePool.alive + this.coinPool.alive;
+    let n = 0;
+    for (const p of this.pools()) n += p.alive;
+    return n;
+  }
+
+  private pools(): ParticlePool[] {
+    return [this.dustPool, this.confettiPool, this.starPool, this.sparklePool, this.coinPool, this.chunkPool];
   }
 
   clear(): void {
-    for (const p of [this.dustPool, this.confettiPool, this.starPool, this.sparklePool, this.coinPool]) p.clear();
+    for (const p of this.pools()) p.clear();
     for (const r of this.rings) r.mesh.visible = false;
   }
 
   dispose(): void {
-    for (const p of [this.dustPool, this.confettiPool, this.starPool, this.sparklePool, this.coinPool]) p.dispose();
+    for (const p of this.pools()) p.dispose();
     for (const o of this.owned) o.dispose();
     this.root.removeFromParent();
   }

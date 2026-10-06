@@ -117,17 +117,23 @@ describe('pickBiggestEvent', () => {
     expect(ev).toMatchObject({ key: 'event.bankStolen', params: { total: 800 }, team: 0 });
   });
 
-  it('fence busts: valued at the bank they moved; a bank that busted a fence and got home says so', () => {
+  it('fence busts move no points: any real recovery or steal outranks them; alone they are the story', () => {
     const fence: SimEvent = { type: 'fenceBroken', tick: 2000, fenceId: 'f', bankId: 3, pos: { x: 1, y: 1 } };
-    const only = pickBiggestEvent(input([grab(100, 1, 3, 'bankWall'), fence, rec(2500, 7, 'smallSafe', 1, 100)]));
-    expect(only).toMatchObject({ type: 'fence', key: 'event.fenceBroken', team: 0, value: 1000, kind: 'fence' });
+    // Review regression (shortcut layout): a 1000-pt bank busting a fence must not hide a real
+    // recovery, even a small one that happened earlier.
+    const small = pickBiggestEvent(input([grab(100, 1, 3, 'bankWall'), rec(1500, 7, 'smallSafe', 1, 100), fence]));
+    expect(small).toMatchObject({ type: 'recovery', key: 'event.smallRecovered', value: 100, team: 1 });
+    const only = pickBiggestEvent(input([grab(100, 1, 3, 'bankWall'), fence]));
+    expect(only).toMatchObject({ type: 'fence', key: 'event.fenceBroken', team: 0, value: 0, kind: 'fence' });
+    setLanguage('ko');
+    expect(t(only!.key, only!.params)).toBe('은행으로 펜스를 뚫어 지름길이 열림');
     const home = pickBiggestEvent(input([grab(100, 1, 3, 'bankWall'), fence, rec(4000, 3, 'bank', 0, 1000, [4, 5, 6], 500, [1])]));
     expect(home).toMatchObject({ type: 'recovery', key: 'event.fenceBankRecovered', params: { total: 1000 } });
   });
 
-  it('on a real bots-vs-bots match the pick is one of the logged events and its text resolves', () => {
+  it.each(['plaza', 'shortcut'] as const)('on a real bots-vs-bots match (%s) the pick is one of the logged events and its text resolves', (layoutId) => {
     setLanguage('ko');
-    const layout = getLayout('plaza');
+    const layout = getLayout(layoutId);
     const sim = new Simulation({
       layout,
       seed: 11,
@@ -145,6 +151,7 @@ describe('pickBiggestEvent', () => {
       expect(ev).not.toBeNull();
       const max = Math.max(...recs.map((r) => (r.type === 'recovered' ? r.value : 0)));
       expect(ev!.value).toBeGreaterThanOrEqual(max);
+      expect(ev!.type).not.toBe('fence');
       expect(sim.eventLog.some((e) => e.tick === ev!.tick)).toBe(true);
       const text = t(ev!.key, ev!.params);
       expect(text).not.toMatch(/⟦|\{/);

@@ -18,6 +18,7 @@ import type {
   DecorKind,
   FenceDef,
   LayoutDef,
+  PoliceEntryDef,
   LayoutId,
   SafeKind,
   SafePlacementDef,
@@ -30,7 +31,7 @@ import type {
   Vec2,
   ZoneDef,
 } from '../types';
-import { ZONE_DEFAULT_HALF } from '../config';
+import { POLICE_CAR, ZONE_DEFAULT_HALF } from '../config';
 import { EPS, mirrorAngle, mirrorPoint, normAngle } from './geometry';
 import type { LayoutDesignMeta, PathClass, PathSpec } from './meta';
 
@@ -76,6 +77,7 @@ export class LayoutBuilder {
   private readonly chokes: ChokepointDef[] = [];
   private readonly decorList: DecorDef[] = [];
   private readonly pathList: PathSpec[] = [];
+  private readonly policeList: PoliceEntryDef[] = [];
   /** west fence id -> east fence id (identity for on-axis fences). */
   private readonly fenceMirror = new Map<string, string>();
   private readonly usedIds = new Set<string>();
@@ -281,6 +283,32 @@ export class LayoutBuilder {
     return this;
   }
 
+  /**
+   * Police car entry (owner addition): the car drives in from `from` (on/outside the arena
+   * edge) and parks at `park`. Mirrored layouts need both points on the mirror axis, so police
+   * reach both teams equally. Add them in wave order (north first, then south).
+   */
+  police(park: Vec2, angle: number, from: Vec2): this {
+    if (this.mirror && (!this.onAxis(park.x) || !this.onAxis(from.x))) {
+      throw new Error(`layout ${this.opts.id}: police entries must sit on the mirror axis`);
+    }
+    this.policeList.push({ from: { ...from }, park: { ...park }, angle: normAngle(angle) });
+    return this;
+  }
+
+  /**
+   * The standard police entries: the car pulls up at the curb OUTSIDE the north edge (wave 1)
+   * and the south edge (wave 2) at `x` (default: the mirror axis), driving in on that line from
+   * off-screen, so it never sits on a lane. Officers hop the fence just inside the edge, so the
+   * arena needs free ground there (validated).
+   */
+  policeCurbs(x = this.opts.size.x / 2): this {
+    const h = this.opts.size.y;
+    this.police({ x, y: -POLICE_CAR.curb }, 0, { x, y: -POLICE_CAR.approach });
+    this.police({ x, y: h + POLICE_CAR.curb }, 0, { x, y: h + POLICE_CAR.approach });
+    return this;
+  }
+
   /** Declares a narrow alley / medium lane stretch for width validation (mirrored). */
   path(id: string, cls: PathClass, a: Vec2, b: Vec2): this {
     this.pathList.push({ id: this.twin(a.x) || this.twin(b.x) ? idW(id) : id, cls, a: { ...a }, b: { ...b } });
@@ -316,6 +344,7 @@ export class LayoutBuilder {
       decor: this.decorList,
       groundStyle: this.opts.groundStyle,
     };
+    if (this.policeList.length > 0) def.policeEntries = this.policeList;
     return { def, meta: { paths: this.pathList, intent } };
   }
 }

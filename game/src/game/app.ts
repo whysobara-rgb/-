@@ -14,7 +14,7 @@
  * - Back is consistent: every screen's back returns to the screen it came from; leaving a
  *   match in progress always asks first (PauseMenu confirm dialogs).
  */
-import { RIVALS, type RivalId } from '../ai';
+import { RIVALS, type ObservationSummary, type RivalId } from '../ai';
 import { UI_SOUND_SFX, type AudioEngine } from '../audio';
 import { Simulation } from '../sim';
 import { MATCH_LAYOUT_IDS, getLayout } from '../sim/layouts';
@@ -23,7 +23,7 @@ import type { GameView } from '../render';
 import { type InputManager } from '../platform/input';
 import { applyMatchStats, unlockHat, newHats, type SaveManager } from '../platform/save';
 import { cloneSettings, type Settings } from '../platform/settings';
-import { isDesktopBuild, quitApp, setFullscreen } from '../platform/native';
+import { isDesktopBuild, isFullscreen, quitApp, setFullscreen } from '../platform/native';
 import { unlockAchievement } from '../platform/steam';
 import { summarizeMatchStats } from '../platform/progress';
 import type { MatchAction } from '../platform/bindings';
@@ -40,6 +40,7 @@ import {
   TitleScreen,
   TournamentScreen,
   WardrobeScreen,
+  navRouter,
   setLanguage,
   setUiSoundHandler,
   uiSound,
@@ -68,6 +69,7 @@ import {
   seriesAdaptation,
   seriesLayout,
   startSeries,
+  type GameOutcome,
   type GameRecord,
 } from './tournament';
 import { TutorialDirector } from './tutorial';
@@ -102,6 +104,8 @@ export interface AppDeps {
   /** Persist + apply a settings change everywhere (view, audio, input, UI). */
   applySettings: (s: Settings, changed: keyof Settings | null) => void;
   log: (level: 'info' | 'warn' | 'error', msg: string) => void;
+  /** Non-fatal error overlay ("다시 시도" runs `retry`). */
+  reportError: (err: unknown, context: string, retry?: () => void) => void;
 }
 
 interface LaunchOpts {
@@ -133,6 +137,10 @@ export class App {
   private drawStreak = 0;
   private firstRunAsked = false;
   private previewTimer = 0;
+  /** Starts the match from the layout preview (re-armed when the player comes back). */
+  private previewGo: (() => void) | null = null;
+  /** The window lost focus / the tab is hidden: nothing may start on its own. */
+  private awayValue = false;
   private settingsReturn: (() => void) | null = null;
   private transitionToken = 0;
 
@@ -232,13 +240,19 @@ export class App {
   frame(dt: number): void {
     this.frameNo++;
     const st = this.stateValue;
-    if (this.match && (st === 'match' || st === 'paused')) {
+    const m = this.match;
+    if (m && (st === 'match' || st === 'paused')) {
       if (st === 'paused') this.pollMenu();
-      this.match.frame(dt);
+      else if (m.state !== 'playing' && m.state !== 'countdown') this.d.input.pollMenu();
+      // A pause-menu press may have left the match (menu / forfeit / restart) this very frame.
+      if (this.match === m) m.frame(dt);
       return;
     }
     if (st === 'match' || st === 'loading' || st === 'boot') {
-      // match is between phases / loading: just keep the view alive
+      // Match between phases / loading: keep the view alive. The menu consumer is drained every
+      // frame here (presses discarded) so the input module only ever sees a long poll gap on a
+      // real hitch — which then keeps its presses (see main.ts reactivateAfterMs).
+      this.d.input.pollMenu();
       if (this.match) this.match.frame(dt);
       return;
     }
@@ -248,10 +262,15 @@ export class App {
   }
 
   private pollMenu(): void {
-    const nav = this.d.input.pollMenu();
+    let nav = this.d.input.pollMenu();
     if (this.stateValue === 'paused' && nav.pause && !this.overlay) {
-      this.resumeMatch();
-      return;
+      // Esc / Start closes the pause menu only when the pause menu itself has focus. With its
+      // own confirm dialog (restart / leave) on top, the same press backs out of the dialog.
+      if (this.screen instanceof PauseMenu && navRouter.top() === this.screen) {
+        this.resumeMatch();
+        return;
+      }
+      if (!nav.back) nav = { ...nav, back: true };
     }
     this.d.ui.handleNav(nav);
   }
@@ -313,6 +332,7 @@ export class App {
     this.match?.dispose();
     this.match = null;
     window.clearTimeout(this.previewTimer);
+    this.previewGo = null;
   }
 
   private nextSeed(): number {
@@ -454,6 +474,7 @@ export class App {
       seed,
       humanHat: this.d.save.data.cosmetics.equipped,
       matchSeconds: this.d.params.matchSeconds,
+      police: this.d.params.police,
     };
   }
 
@@ -505,6 +526,9 @@ export class App {
           seed: this.nextSeed(),
           humanHat: this.d.save.data.cosmetics.equipped,
           matchSeconds: this.d.params.matchSeconds,
+          // The onboarding match right after the practice (doc §3) keeps to what the practice
+          // taught: no police unless forced with ?police=1.
+          police: this.d.params.police === true,
         };
         this.quickOpts = { mode: '1v1', layout: 'plaza', rival: 'hodadak', difficulty: 'novice' };
         void this.launch(cfg, { preview: true, back: () => this.toMenu(), context: 'mode.quickMatch' });
@@ -545,6 +569,27 @@ export class App {
             screen.rearm();
             return;
           }
+          const cur = this.d.save.data.tournament.series;
+          if (cur && cur.rival !== r && cur.wins + cur.losses + cur.draws > 0) {
+            // Switching rivals abandons the series in progress: ask first.
+            this.overlay = new ConfirmDialog({
+              titleKey: 'tournament.abandon.title',
+              bodyKey: 'tournament.abandon.body',
+              params: { rival: RIVALS[cur.rival].nameKey },
+              confirmKey: 'tournament.abandon.ok',
+              danger: true,
+              onConfirm: () => {
+                this.closeOverlay();
+                this.startTournamentGame(r, true);
+              },
+              onCancel: () => {
+                this.closeOverlay();
+                screen.rearm();
+              },
+            });
+            this.overlay.show();
+            return;
+          }
           this.startTournamentGame(r, true);
         },
         onBack: () => this.toMenu('tournament'),
@@ -567,6 +612,7 @@ export class App {
       seed: mixSeed(this.baseSeed ^ 0x7a11, (['hodadak', 'tongkeun', 'nunchi'].indexOf(rival) + 1) * 1000 + s.gameIndex + this.seedCounter++),
       humanHat: this.d.save.data.cosmetics.equipped,
       matchSeconds: this.d.params.matchSeconds,
+      police: this.d.params.police,
     };
   }
 
@@ -620,7 +666,8 @@ export class App {
       showTutorialHints: s.showTutorialHints,
       volumes: { ...s.volumes },
       subtitles: s.subtitles,
-      fullscreen: s.fullscreen,
+      // Browser builds cannot start fullscreen without a gesture: show the real state there.
+      fullscreen: isDesktopBuild() ? s.fullscreen : isFullscreen(),
       quality: s.quality,
       screenShake: s.screenShake,
       reducedMotion: s.reducedMotion,
@@ -700,7 +747,7 @@ export class App {
     await nextFrame();
     await nextFrame();
     if (token !== this.transitionToken) return;
-    let ctl: MatchController;
+    let ctl: MatchController | null = null;
     try {
       ctl = new MatchController(
         {
@@ -719,23 +766,39 @@ export class App {
           onFinished: (s) => this.onMatchFinished(s),
         },
       );
-      this.loading.setProgress(0.6);
+      this.loading?.setProgress(0.6);
       await nextFrame();
-      if (token !== this.transitionToken) return;
+      if (token !== this.transitionToken) {
+        ctl.dispose();
+        return;
+      }
       ctl.load();
       if (cfg.kind === 'tutorial') {
         ctl.attachScript(new TutorialDirector(ctl.sim, ctl.meId, this.d.hud, { autopilot: this.d.params.autotest }));
       }
-    } finally {
+    } catch (err) {
+      ctl?.dispose();
       if (token === this.transitionToken) {
         this.loading?.destroy();
         this.loading = null;
+        this.d.reportError(err, 'match load', () => void this.launch(cfg, opts));
       }
+      return;
     }
+    if (token !== this.transitionToken) {
+      ctl.dispose();
+      return;
+    }
+    this.loading?.destroy();
+    this.loading = null;
     this.match = ctl;
     this.lastSummary = null;
     if (opts.preview) this.showPreview(ctl, opts);
-    else this.beginMatch();
+    else {
+      this.beginMatch();
+      // Loaded while the player was away (alt-tab, hidden tab): hold at the countdown.
+      if (this.awayValue) this.openPause();
+    }
   }
 
   private showPreview(ctl: MatchController, opts: LaunchOpts): void {
@@ -770,8 +833,15 @@ export class App {
     });
     this.show(preview, 'preview');
     this.d.view.setMode('preview');
+    this.previewGo = go;
+    this.armPreview();
+  }
+
+  /** (Re)start the preview's auto-start timer — never while the player is away. */
+  private armPreview(): void {
     window.clearTimeout(this.previewTimer);
-    this.previewTimer = window.setTimeout(go, this.d.params.skipIntro ? 300 : PREVIEW_HOLD_MS);
+    if (this.stateValue !== 'preview' || !this.previewGo || this.awayValue) return;
+    this.previewTimer = window.setTimeout(this.previewGo, this.d.params.skipIntro ? 300 : PREVIEW_HOLD_MS);
   }
 
   private beginMatch(): void {
@@ -788,6 +858,10 @@ export class App {
     m.pause();
     this.setState('paused');
     const tut = m.isPractice;
+    // Rival series: a started game can't be thrown away — no restart, and leaving forfeits it
+    // (recorded as a loss, progress saved) so best-of-3 pressure holds.
+    const tour = m.config.kind === 'tournament';
+    const forfeits = tour && m.sim.state.tick > 0 && !m.sim.state.over;
     const pause = new PauseMenu({
       onResume: () => this.resumeMatch(),
       onSettings: () => this.toSettings(() => this.reopenPause()),
@@ -797,10 +871,17 @@ export class App {
       },
       onMenu: () => {
         if (tut) this.markTutorialDone();
+        if (tour) {
+          const rival = m.config.rival;
+          if (forfeits) this.recordTournament(rival, 'loss', m.observer ? m.observer.summary() : null);
+          this.toTournament(rival);
+          return;
+        }
         this.toMenu(tut ? 'practice' : undefined);
       },
       confirmDestructive: !tut,
-      showRestart: !tut,
+      menuConfirmBody: forfeits ? 'tournament.forfeit.body' : null,
+      showRestart: !tut && !tour,
       context: tut ? 'mode.practice' : m.config.kind === 'tournament' ? 'mode.tournament' : 'mode.quickMatch',
       grabMode: this.settings.grabMode,
     });
@@ -826,9 +907,27 @@ export class App {
     m.resume();
   }
 
-  /** Pause from outside (window blur, pad disconnect). */
+  /**
+   * Pause from outside (pad disconnect, or the player went away): a running match or its 3-2-1
+   * countdown opens the pause menu, and the layout preview stops counting down to the start
+   * (confirm still starts it).
+   */
   requestPause(): void {
-    if (this.stateValue === 'match' && this.match && this.match.state === 'playing') this.openPause();
+    const m = this.match;
+    if (this.stateValue === 'match' && m && (m.state === 'playing' || m.state === 'countdown')) this.openPause();
+    else if (this.stateValue === 'preview') window.clearTimeout(this.previewTimer);
+  }
+
+  /**
+   * Window focus / tab visibility (desktop alt-tab, minimise, hidden tab). While away nothing
+   * starts on its own: the preview holds, a match that finishes loading waits paused at its
+   * countdown, and a running match pauses. Coming back re-arms the preview timer only.
+   */
+  setAway(away: boolean): void {
+    if (this.awayValue === away) return;
+    this.awayValue = away;
+    if (away) this.requestPause();
+    else this.armPreview();
   }
 
   private onMatchFinished(summary: MatchSummary): void {
@@ -848,16 +947,19 @@ export class App {
       this.d.log('warn', `[app] stats update failed: ${String(err)}`);
     }
     let record: GameRecord | null = null;
-    if (cfg.kind === 'tournament') record = this.recordTournament(summary);
+    if (cfg.kind === 'tournament') {
+      const outcome = summary.outcome === 'win' ? 'win' : summary.outcome === 'lose' ? 'loss' : 'draw';
+      record = this.recordTournament(cfg.rival, outcome, summary.observation);
+    }
     this.lastRecord = record;
     this.toResults(summary, record);
   }
 
-  private recordTournament(summary: MatchSummary): GameRecord | null {
+  /** Record one series game (finished, or forfeited from the pause menu) and save at once. */
+  private recordTournament(rival: RivalId, outcome: GameOutcome, observation: ObservationSummary | null): GameRecord | null {
     const prog = cloneProgress(this.d.save.data.tournament);
-    if (!prog.series || prog.series.rival !== summary.config.rival) return null;
-    const outcome = summary.outcome === 'win' ? 'win' : summary.outcome === 'lose' ? 'loss' : 'draw';
-    const rec = recordGame(prog, outcome, summary.observation, this.drawStreak, (m) => this.d.log('warn', m));
+    if (!prog.series || prog.series.rival !== rival) return null;
+    const rec = recordGame(prog, outcome, observation, this.drawStreak, (m) => this.d.log('warn', m));
     this.drawStreak = rec.drawStreak;
     if (rec.seriesState !== 'ongoing') this.drawStreak = 0;
     let hatNew = false;
@@ -908,7 +1010,9 @@ export class App {
         props.actions = { next: true };
         props.onNext = () => this.toIntermission(record);
       } else if (record.seriesState === 'won') {
+        // The next press goes to the ladder (next rival), not to another game of this series.
         props.actions = { next: true };
+        props.nextLabel = isComplete(this.d.save.data.tournament) ? 'results.toLadder' : 'results.nextRival';
         props.onNext = () => this.toTournament(this.nextRivalFocus(record.rival));
       } else {
         // A lost series retries that rival only (doc §12).

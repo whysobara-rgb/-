@@ -157,6 +157,8 @@ export function rumbleFor(e: SimEvent, sim: Pick<Simulation, 'getCharacter' | 'g
       return e.holders.includes(meId) ? (e.kind === 'largeSafe' ? 'largeRecovery' : 'safeRecovery') : null;
     case 'finalCountdown':
       return 'siren';
+    case 'policeTackle':
+      return e.victimId === meId && e.hit ? 'knockdownThud' : null;
     default:
       return null;
   }

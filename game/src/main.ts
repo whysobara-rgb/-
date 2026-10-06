@@ -96,7 +96,11 @@ async function boot(): Promise<void> {
 
   // --- input / audio / HUD -------------------------------------------------------------------
   // Autotest: software-GL frames can stall for seconds; never treat that as a context switch.
-  const input = new InputManager({ bindings: settings0.bindings, vibration: settings0.vibration, ...(params.autotest ? { reactivateAfterMs: 60000 } : {}) });
+  // Game flow polls exactly one consumer every frame in every context (App.frame drains the menu
+  // consumer while loading / between match phases), so a long gap between polls only happens on
+  // a frame hitch or a hidden tab. 2 s keeps presses made during a load hitch or on a very slow
+  // (software-GL) machine instead of dropping them; longer gaps still re-arm the consumer.
+  const input = new InputManager({ bindings: settings0.bindings, vibration: settings0.vibration, reactivateAfterMs: params.autotest ? 60000 : 2000 });
   const installGlyphs = (): void => {
     setPromptGlyphProvider((a) => input.promptGlyph(a as GlyphAction));
     setBindingLabelFormatter((d, c) => input.bindingGlyph(d, c));
@@ -158,16 +162,24 @@ async function boot(): Promise<void> {
     version: getNative()?.appVersion || GAME_VERSION,
     applySettings,
     log: (level, msg) => nativeLog(level, msg),
+    reportError: (err, context, retry) => errors.report(err, context, { retry }),
   });
   const theApp = app;
   input.onGamepadConnection((connected) => {
     if (!connected) theApp.requestPause();
   });
+  // Hidden tab / minimized window: no sound, and a running match pauses itself.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) void audio.suspend();
+    else void audio.resume();
+  });
   if (!params.autotest) {
-    document.addEventListener('visibilitychange', () => {
-      if (document.hidden) theApp.requestPause();
-    });
-    window.addEventListener('blur', () => theApp.requestPause());
+    // Away (alt-tab, minimised, hidden tab): pause a running match or its countdown, hold the
+    // layout preview, and keep a match that finishes loading meanwhile waiting at its countdown.
+    const syncAway = (): void => theApp.setAway(document.hidden || !document.hasFocus());
+    document.addEventListener('visibilitychange', syncAway);
+    window.addEventListener('blur', () => theApp.setAway(true));
+    window.addEventListener('focus', syncAway);
   }
 
   loading.setProgress(1);

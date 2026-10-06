@@ -60,6 +60,21 @@ export const POLICE = {
   stunTicks: secondsToTicks(1.8),
 } as const;
 
+/**
+ * Police car visual footprint (render + layout validation only; the car never collides).
+ * Half extents in the car's local frame: x along the heading, y across.
+ */
+export const POLICE_CAR = {
+  half: { x: 2.2, y: 1.0 } as Vec2,
+  /**
+   * Curb parking: the car stops this far outside the arena edge (center to edge), on the
+   * dressed sidewalk / street ring, so it never covers a lane; officers hop the low fence.
+   */
+  curb: 2.4,
+  /** Where the drive-in starts: this far outside the edge, on the same line (off-screen). */
+  approach: 12,
+} as const;
+
 /** doc §5: unanchor first values (small 1 s, large 2 s, bank 3 s) of valid pulling by one character. */
 export const UNANCHOR_TICKS = {
   smallSafe: secondsToTicks(1),

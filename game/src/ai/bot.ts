@@ -119,9 +119,15 @@ interface Goal {
   /** Load this safe onto that bank's floor instead of recovering it (욕심내서 하나 더). */
   loadInto?: EntityId;
   forcedReleases?: number;
+  /** Intercept: what the chased opponent was last seen holding. */
+  chasedLoot?: EntityId | null;
   exitDoor?: number;
   exitBank?: EntityId;
+  /** The safe this goal already brought out through a door (no second exit manoeuvre). */
+  exitDone?: EntityId;
   objPath?: Vec2[] | null;
+  stallBest?: number;
+  stallPath?: Vec2[] | null;
   objPathTick?: number;
   objPathGoal?: Vec2;
   objPathVer?: number;
@@ -129,6 +135,8 @@ interface Goal {
   exitTick?: number;
   exitTries?: number;
   enterRef?: Vec2;
+  enterBest?: number;
+  exitBest?: number;
   enterTick?: number;
   enterTries?: number;
   enterBackUntil?: number;
@@ -241,10 +249,6 @@ export class Bot implements BotController {
     const srng = createRng((this.tasteSeed ^ 0x5bd1e995) >>> 0);
     const v = (): number => 0.78 + 0.44 * srng();
     this.style = { small: v(), large: v(), bank: v(), strip: v(), intercept: v() };
-    // per-match opening (doc §3: 초반에는 가까운 전리품으로 손을 풀고, 중반에는 큰 목표): how long
-    // this bot warms up on nearby loot before committing to a bank haul (seeded, personality range)
-    const [o0, o1] = this.W.opening;
-    this.openingUntil = sim.state.tick + Math.round((o0 + (o1 - o0) * srng()) * TICK_RATE);
     this.board = TeamBoard.for(sim, this.team);
     this.nav = this.board.nav;
     if (this.isProxy) {
@@ -261,6 +265,7 @@ export class Bot implements BotController {
       this.nav.zoneField(t, 'large', sim.state.tick);
     }
     this.walkDist(sim, me.pos);
+    for (const c of ['walk', 'small', 'large'] as const) this.nav.labels(c);
     // stagger first decisions of teammates
     this.nextDecision = sim.state.tick + Math.floor(this.rng() * 4);
     this.lastEventIdx = sim.eventLog.length;
@@ -329,6 +334,19 @@ export class Bot implements BotController {
     this.travelDash = false;
     if (this.goal && tick < this.telegraphUntil) c = this.telegraphCommand(sim, this.goal);
     else c = this.execute(sim);
+    // pinned: wedged (e.g. between a wall and an anchored safe in a narrow gap) the body does not
+    // move in any direction while walking; a dash along the freest direction breaks out
+    if (V.len(c.move) > 0.5 && V.len(me.vel) < 0.05 && !me.straining && !me.grab && !c.grab) this.pinnedTicks++;
+    else this.pinnedTicks = 0;
+    if (this.pinnedTicks > 40 && me.dashCooldown === 0) {
+      const esc = this.escapeDir(me.pos);
+      if (esc) {
+        this.log1(sim, `pinned at (${me.pos.x.toFixed(1)}, ${me.pos.y.toFixed(1)}): dash out`);
+        this.pinnedTicks = 0;
+        this.path = null;
+        c = { move: esc, aim: esc, dash: !this.prevDash, grab: false, ping: null };
+      }
+    }
     if (this.travelDash && !c.dash && !c.grab && V.len(c.move) > 0.9) c = { ...c, dash: true, aim: null };
     // level dash: only a rising edge triggers
     if (c.dash && this.prevDash) c = { ...c, dash: false };
@@ -351,6 +369,27 @@ export class Bot implements BotController {
     this.updateIntent(sim, c);
     return c;
   }
+
+  private pinnedTicks = 0;
+
+  /** The direction with the most room within ~1.2 m (8 headings), for breaking out when pinned. */
+  private escapeDir(p: Vec2): Vec2 | null {
+    let best: Vec2 | null = null;
+    let bestC = -1;
+    for (let k = 0; k < 8; k++) {
+      const a = (k * Math.PI) / 4 + (this.pinnedFlip ? Math.PI / 8 : 0);
+      const d = { x: Math.cos(a), y: Math.sin(a) };
+      let c = Infinity;
+      for (const r of [0.6, 1.2]) c = Math.min(c, this.nav.clearanceAt(p.x + d.x * r, p.y + d.y * r));
+      if (c > bestC) {
+        bestC = c;
+        best = d;
+      }
+    }
+    this.pinnedFlip = !this.pinnedFlip;
+    return best;
+  }
+  private pinnedFlip = false;
 
   // =========================================================================
   // Basic accessors
@@ -464,6 +503,8 @@ export class Bot implements BotController {
           if (e.attackerId === this.id && e.knockdown) {
             this.stats.dashKnockdowns++;
             this.knockedVictim = e.victimId;
+            this.lastKnockedId = e.victimId;
+            this.knockedTick = e.tick;
             this.urgent = true;
           }
           break;
@@ -499,6 +540,8 @@ export class Bot implements BotController {
   /** Banks the other team has been seen hauling or has recovered (public in-match observation). */
   private readonly oppBankHauls = new Set<EntityId>();
   private knockedVictim: EntityId | null = null;
+  private knockedTick = -1;
+  private lastKnockedId: EntityId | null = null;
   /** A bank whose hauler this bot just knocked off: not "their haul" while it still slides. */
   private takeover: { id: EntityId; until: number } | null = null;
 
@@ -694,6 +737,18 @@ export class Bot implements BotController {
   private walkJob: FieldJob | null = null;
   private walkSpare: Float64Array | null = null;
 
+  /** Carry distance of a safe to the zone; out through the better door when it is in a bank. */
+  private lootCarryDist(sim: Simulation, l: LootState, cls: Cls, team: TeamId = this.team): number {
+    const bank = this.bankAround(sim, l);
+    if (!bank) return this.carryDist(sim, l.pos, cls, team);
+    let best = Infinity;
+    for (const d of bankDoors(bank)) {
+      const outside = V.add(d.center, V.scale(d.normal, 2.0));
+      best = Math.min(best, V.dist(l.pos, d.center) + 2.0 + this.carryDist(sim, outside, cls, team));
+    }
+    return best;
+  }
+
   private carryDist(sim: Simulation, p: Vec2, cls: Cls, team: TeamId = this.team): number {
     return this.nav.fieldAt(this.nav.zoneField(team, cls, sim.state.tick), p, cls);
   }
@@ -741,16 +796,6 @@ export class Bot implements BotController {
     return id;
   }
   private readonly blockers = new Map<EntityId, { id: EntityId | null; ver: number; tick: number }>();
-
-  /** An opponent seen at (or holding) a bank wall: the bank race has started. */
-  private oppNearBank(sim: Simulation, opps: OpponentView[]): boolean {
-    for (const o of opps) {
-      if (!o.last || o.age > 300) continue;
-      if (o.last.holdingPart === 'bankWall') return true;
-      for (const b of sim.state.loot) if (b.kind === 'bank' && !b.recovered && V.dist(o.last.pos, b.pos) < 6) return true;
-    }
-    return false;
-  }
 
   /** An opponent was seen holding this item within maxAge ticks (last sighting). */
   private oppSeenHolding(sim: Simulation, lootId: EntityId, maxAge: number): boolean {
@@ -866,7 +911,7 @@ export class Bot implements BotController {
       }
       const cls = this.safeClass(l);
       const walk = holdingIt ? 0 : Math.max(0, this.walkDist(sim, l.pos) - 0.8);
-      const carry = this.carryDist(sim, l.pos, cls);
+      const carry = this.lootCarryDist(sim, l, cls);
       if (!Number.isFinite(walk) || !Number.isFinite(carry)) continue;
       const kind = l.kind as 'smallSafe' | 'largeSafe';
       const helpers = 1;
@@ -990,17 +1035,7 @@ export class Bot implements BotController {
         }
         // long exposure with opponents around
         if (freshOpps.length > 0 && t > 30) w *= 0.92;
-        // opening: nearby loot first — unless the other team is already seen going for a bank
-        // (then it is a race) or a bank is all that is left
-        if (tick < this.openingUntil && !holdingIt && !committed && this.oppBankHauls.size === 0 && !this.oppNearBank(sim, freshOpps)) w *= 0.3;
         if (this.adaptation?.kind === 'stripBank') w *= 0.75;
-        // the last bank ends the match 30 s after its recovery (doc §8): while that would still
-        // leave us behind or level, collect the other loot first and bring the bank in last
-        if (depth >= 1 && st.banksRecovered === 1 && !st.finalCountdown && !holdingIt) {
-          const mine = st.scores[this.team] + value;
-          const theirs = st.scores[(1 - this.team) as TeamId];
-          if (mine <= theirs && st.remainingValue - value > 0 && left - t > 45) w *= 0.45;
-        }
         // bank race: they haul banks, so whichever bank we leave they will take next
         if (depth > 0 && [...this.oppBankHauls].some((id) => id !== b.id)) w *= 1 + 0.6 * depth;
         rate *= w * this.taste(b.id);
@@ -1017,6 +1052,9 @@ export class Bot implements BotController {
       // (no flip-flopping with a collect of the same safe when sight flickers)
       const chasing = this.goal !== null && this.goal.key === `intercept:${o.id}`;
       if (!o.last || o.age > (chasing ? 70 : 40) || o.last.holdingId === null) continue;
+      // just knocked down by me (my own hit; the delayed view still shows them holding): pick
+      // up what they dropped instead of chasing them again
+      if (this.knockedTick >= 0 && tick - this.knockedTick < 2.5 * TICK_RATE && this.lastKnockedId === o.id) continue;
       if (me.grab) break;
       const l = sim.getLoot(o.last.holdingId);
       if (!l || l.recovered || l.kind === 'bank') continue;
@@ -1136,9 +1174,12 @@ export class Bot implements BotController {
     }
 
     // --- endgame (doc §11: 점수 차와 실제 남은 시간을 보고 욕심의 크기를 정한다) ---
-    if (left < 45) {
+    // (the end is near by the clock, or because little is left on the field: all loot recovered
+    // ends the match too)
+    const lateByLoot = st.remainingValue <= 700 && st.banksRecovered >= 1;
+    if (left < 45 || lateByLoot) {
       const diff = st.scores[this.team] - st.scores[(1 - this.team) as TeamId];
-      if (this.posture === null && left < 40) {
+      if (this.posture === null && (left < 40 || lateByLoot)) {
         // decided once: behind -> bold, ahead -> steady, tied -> personality-weighted coin
         const pBold = diff < 0 ? 1 : diff > 0 ? 0 : 0.35 + 0.3 * this.W.aggression;
         this.posture = this.rng() < pBold ? 'bold' : 'steady';
@@ -1191,7 +1232,6 @@ export class Bot implements BotController {
   }
   private readonly tastes = new Map<EntityId, number>();
   private style = { small: 1, large: 1, bank: 1, strip: 1, intercept: 1 };
-  private openingUntil = 0;
   private tasteSeed = 0;
 
   private nearestThreat(opps: OpponentView[], p: Vec2, radius: number): OpponentView | null {
@@ -1832,9 +1872,15 @@ export class Bot implements BotController {
   private carryTarget(sim: Simulation, l: LootState, g: Goal): Vec2 {
     if (g.loadInto !== undefined) {
       const b = sim.getLoot(g.loadInto);
-      if (b && !b.recovered) return this.loadPoint(sim, b, l);
+      if (b && !b.recovered) return this.bankAround(sim, l) ? this.loadPoint(sim, b, l) : this.loadStage(b, l);
     }
     return zoneOf(sim.layout, this.team).center;
+  }
+
+  /** Outside the loading door, on its axis (where the trailing safe lines up to go in). */
+  private loadStage(b: LootState, l: LootState): Vec2 {
+    const d = this.loadDoor(b, l);
+    return V.add(d.center, V.scale(d.normal, d.stage));
   }
 
   /** The door a safe is loaded through: the nearer one with open ground in front of it. */
@@ -1989,7 +2035,8 @@ export class Bot implements BotController {
         g.phase = 'load';
         const enter = this.enterBankStep(sim, g, l, b);
         if (enter) return enter;
-        return this.carryStep(sim, g, l, this.loadPoint(sim, b, l));
+        // (carriers never path through a bank: up to the door's staging point, then in)
+        return this.carryStep(sim, g, l, this.bankAround(sim, l) ? this.loadPoint(sim, b, l) : this.loadStage(b, l));
       }
     }
     const zone = zoneOBB(sim.layout, this.team);
@@ -2021,9 +2068,11 @@ export class Bot implements BotController {
     for (const b of sim.state.loot) {
       if (b.kind !== 'bank' || b.recovered) continue;
       if (l.floorOf === b.id) return b;
-      if (V.dist(l.pos, b.pos) > Math.hypot(BANK_MODEL.half.x, BANK_MODEL.half.y) + 0.3) continue;
+      // (still between the walls or half way through the doorway)
+      const m = 0.2 + 0.5 * Math.max(l.half.x, l.half.y);
+      if (V.dist(l.pos, b.pos) > Math.hypot(BANK_MODEL.half.x, BANK_MODEL.half.y) + m + 0.1) continue;
       const loc = V.rot(V.sub(l.pos, b.pos), -b.angle);
-      if (Math.abs(loc.x) < BANK_MODEL.half.x + 0.2 && Math.abs(loc.y) < BANK_MODEL.half.y + 0.2) return b;
+      if (Math.abs(loc.x) < BANK_MODEL.half.x + m && Math.abs(loc.y) < BANK_MODEL.half.y + m) return b;
     }
     return null;
   }
@@ -2067,9 +2116,12 @@ export class Bot implements BotController {
     const safeLat = V.dot(V.sub(l.pos, d.center), t);
     // no progress for 1.5 s (jammed on the jamb): back out a little and line up again
     if (g.enterBackUntil !== undefined && tick < g.enterBackUntil) return cmd(V.norm(V.add(d.normal, V.scale(t, -safeLat))), true);
-    if (!g.enterRef || g.enterTick === undefined || V.dist(l.pos, g.enterRef) > 0.3) {
+    // (progress = the safe getting closer to the doorway; rocking in place is not progress)
+    const dDoor = V.dist(l.pos, d.center);
+    if (!g.enterRef || g.enterTick === undefined || dDoor < (g.enterBest ?? Infinity) - 0.3) {
       g.enterRef = { ...l.pos };
       g.enterTick = tick;
+      g.enterBest = dDoor;
     } else if (tick - g.enterTick > 90) {
       g.enterTries = (g.enterTries ?? 0) + 1;
       g.enterBackUntil = tick + 30;
@@ -2100,28 +2152,36 @@ export class Bot implements BotController {
   private exitBankStep(sim: Simulation, g: Goal, l: LootState): Command | null {
     const me = this.me(sim);
     const bank = this.bankAround(sim, l);
-    if (!bank) {
-      g.exitDoor = undefined;
+    if (!bank || g.exitDone === l.id) {
+      if (!bank) g.exitDone = undefined;
+      g.exitDoor = bank ? g.exitDoor : undefined;
       return null;
     }
     const doors = bankDoors(bank);
     this.exitDoorOf(sim, g, l, bank);
-    if ((g.exitTries ?? 0) >= 3) return null; // both doors tried: let the regular carry skill work it out
-    // no progress for 2 s (the way out is blocked): try the other door
+    if ((g.exitTries ?? 0) >= 3) return null; // let the regular carry skill work it out
     const tick = sim.state.tick;
-    if (!g.exitRef || g.exitTick === undefined || V.dist(l.pos, g.exitRef) > 0.5) {
-      g.exitRef = { ...l.pos };
-      g.exitTick = tick;
-    } else if (tick - g.exitTick > 2 * TICK_RATE) {
-      g.exitTries = (g.exitTries ?? 0) + 1;
-      g.exitDoor = doors.find((x) => x.index !== g.exitDoor)?.index ?? g.exitDoor;
-      g.exitTick = tick;
-    }
     const d = doors.find((x) => x.index === g.exitDoor)!;
     const safeOut = V.dot(V.sub(l.pos, d.center), d.normal);
-    const ext = Math.max(l.half.x, l.half.y);
-    if (safeOut > ext + 0.6) return null; // cleared: normal carry from here
     const meOut = V.dot(V.sub(me.pos, d.center), d.normal);
+    const ext = Math.max(l.half.x, l.half.y);
+    // cleared: the safe's back is past the outer wall face — or, at a door that opens onto a
+    // narrow lane, it is as far out as the lane lets me pull it (it pivots out from here)
+    if (safeOut > ext + 0.35) return this.exitCleared(g, l);
+    if (safeOut > 0.2 && meOut > 0.8 && this.nav.clearanceAt(me.pos.x + d.normal.x * 0.5, me.pos.y + d.normal.y * 0.5) < 0.5) return this.exitCleared(g, l);
+    // no progress for 2 s: still deep inside -> the way to this door is blocked, try the other
+    // door; already in the doorway -> hand over to the regular carry (wiggle / regrab)
+    if (!g.exitRef || g.exitTick === undefined || safeOut > (g.exitBest ?? -Infinity) + 0.4) {
+      g.exitRef = { ...l.pos };
+      g.exitTick = tick;
+      g.exitBest = safeOut;
+    } else if (tick - g.exitTick > 2 * TICK_RATE) {
+      g.exitTries = (g.exitTries ?? 0) + 1;
+      g.exitTick = tick;
+      g.exitBest = undefined;
+      if (safeOut > -0.6) return this.exitCleared(g, l);
+      g.exitDoor = doors.find((x) => x.index !== g.exitDoor)?.index ?? g.exitDoor;
+    }
     const t = { x: -d.normal.y, y: d.normal.x };
     const lat = V.dot(V.sub(me.pos, d.center), t);
     let move: Vec2;
@@ -2136,6 +2196,14 @@ export class Bot implements BotController {
     g.phase = 'carry';
     return cmd(move, true);
   }
+
+  /** The safe is out (or as far out as it gets straight): regular carry from here on. */
+  private exitCleared(g: Goal, l: LootState): null {
+    g.exitDone = l.id;
+    g.objPath = undefined;
+    return null;
+  }
+
 
   private carryStep(sim: Simulation, g: Goal, l: LootState, goal: Vec2): Command {
     const me = this.me(sim);
@@ -2168,24 +2236,32 @@ export class Bot implements BotController {
       const nxt = this.path ? this.path.pts[this.path.idx] : undefined;
       if (nxt && V.dot(V.norm(V.sub(nxt, me.pos)), V.norm(move)) > 0.95) straight = V.dist(me.pos, nxt);
     }
-    // snag / stall detection on the carried object
-    if (!g.stallRef || g.stallTick === undefined) {
+    // snag / stall detection on the carried object: progress along its own path (a safe rocking
+    // back and forth in a corner moves, but gets nowhere)
+    const progress = P ? projectOnPolyline(P, l.pos).s : 0;
+    if (!g.stallRef || g.stallTick === undefined || g.stallPath !== P) {
       g.stallRef = { ...l.pos };
       g.stallTick = tick;
+      g.stallBest = progress;
+      g.stallPath = P;
     }
-    if (V.dist(l.pos, g.stallRef) > 0.5) {
+    if (P ? progress > (g.stallBest ?? 0) + 0.5 : V.dist(l.pos, g.stallRef) > 0.5) {
       g.stallRef = { ...l.pos };
       g.stallTick = tick;
-    } else if (tick - g.stallTick > 50 && V.len(move) > 0.3) {
+      g.stallBest = progress;
+    } else if (tick - g.stallTick > 45 && (V.len(move) > 0.3 || V.dist(l.pos, goal) > 2.5)) {
+      // (also when the planner has nothing to offer: a safe pushed into a pocket it cannot be
+      // pathed out of must not be held forever)
       g.stalls = (g.stalls ?? 0) + 1;
       g.stallTick = tick;
       this.path = null;
-      if (g.stalls % 3 === 0) {
+      g.objPath = undefined;
+      if (g.stalls % 2 === 0) {
         // regrab from another side
         g.regrabs = (g.regrabs ?? 0) + 1;
         (g.excluded ??= new Set()).add(`f${this.heldFace(sim, l)}`); // faces that already failed stay out
         g.spot = null;
-        if (g.regrabs > 3) {
+        if (g.regrabs > 2) {
           this.endGoal(sim, 'carry stalled', 360);
           return cmd({ x: 0, y: 0 }, false);
         }
@@ -2661,8 +2737,12 @@ export class Bot implements BotController {
     const tick = sim.state.tick;
     if (me.grab) return cmd({ x: 0, y: 0 }, false);
     // after a successful knockdown: pick up what they dropped
-    if (this.knockedVictim === g.targetId && this.lastSeenHolding(g.targetId!) !== null) {
-      const lootId = this.lastSeenHolding(g.targetId!)!;
+    // (only a knockdown of this chase, just now — not an old one of the same opponent)
+    if (this.knockedVictim !== null && tick - this.knockedTick > 45) this.knockedVictim = null;
+    // (what they were holding while chased: the sighting after the knockdown shows empty hands)
+    const knockedLoot = g.chasedLoot ?? this.lastSeenHolding(g.targetId!);
+    if (this.knockedVictim === g.targetId && this.knockedTick >= g.started && knockedLoot !== null) {
+      const lootId = knockedLoot;
       this.knockedVictim = null;
       const l = sim.getLoot(lootId);
       if (l && !l.recovered && l.kind !== 'bank') {
@@ -2701,6 +2781,7 @@ export class Bot implements BotController {
       this.endGoal(sim, 'target dropped loot');
       return cmd({ x: 0, y: 0 }, false);
     }
+    if (o.last.holdingId !== null) g.chasedLoot = o.last.holdingId;
     g.phase = 'chase';
     if (o.visible) {
       const dc = this.dashAt(sim, o, 'intercept');

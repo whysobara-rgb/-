@@ -13,7 +13,8 @@
  *
  * Used by tools/layout-check.ts (CLI) and test/sim/layouts.test.ts.
  */
-import { BANK_MODEL, CHARACTER, SAFE_SPECS, SCORE, VAN } from '../config';
+import { BANK_MODEL, CHARACTER, POLICE, POLICE_CAR, SAFE_SPECS, SCORE, VAN } from '../config';
+import { officerStepOutSpot } from '../police';
 import type { LayoutDef, OBB, SafeKind, TeamId, Vec2 } from '../types';
 import {
   EPS,
@@ -141,6 +142,8 @@ export interface LayoutMetrics {
   chokepoints: number;
   fences: number;
   decor: number;
+  /** Police entries (owner addition): park spot, heading and the tightest officer step-out clearance. */
+  police: { park: Vec2; angle: number; stepOutClearance: number }[];
 }
 
 export interface ValidationReport {
@@ -696,6 +699,60 @@ export function validateLayout(def: LayoutDef, meta: LayoutDesignMeta, opts: Val
     for (const s of def.spawns) if (dist(s.pos, d.pos) < 0.8) err('decor', `decor ${i} sits on a spawn`);
   });
 
+  // ---- police entries (owner addition) ------------------------------------------------------
+  // The car is visual and never collides, but it must never sit on (or drive across) the play
+  // field: it parks at the curb OUTSIDE the arena edge, close enough that officers visibly hop
+  // the fence, and its from -> park drive-in stays outside too. Officers step in just inside the
+  // edge, which needs free, reachable ground (checked with the reachability grid below).
+  // Mirrored layouts need it on the mirror axis.
+  const police = def.policeEntries ?? [];
+  if (isMatch && police.length < 2) err('police', `match layouts need police entries north and south (got ${police.length})`);
+  const maxOfficers = Math.max(...POLICE.officersPerWave);
+  const policeMetrics: LayoutMetrics['police'] = [];
+  const stepOutSpots: { tag: string; k: number; p: Vec2 }[] = [];
+  /** Distance from p to the arena rectangle (0 inside or on it). */
+  const outsideBy = (p: Vec2): number => {
+    const dx = Math.max(0, -p.x, p.x - def.size.x);
+    const dy = Math.max(0, -p.y, p.y - def.size.y);
+    return Math.hypot(dx, dy);
+  };
+  police.forEach((e, i) => {
+    const tag = `police entry ${i}`;
+    const car: OBB = { center: e.park, half: POLICE_CAR.half, angle: e.angle };
+    const corners = obbCorners(car);
+    const gap = Math.min(...corners.map(outsideBy), ...samplePolyline([corners[0], corners[1], corners[2], corners[3], corners[0]], 0.25).map(outsideBy));
+    if (gap < 0.5) err('police', `${tag}: car at ${fmt(e.park.x)},${fmt(e.park.y)} must park at the curb outside the arena (gap to the edge ${fmt(gap, 2)} m < 0.5)`);
+    else if (gap > 3) err('police', `${tag}: car at ${fmt(e.park.x)},${fmt(e.park.y)} parks ${fmt(gap, 2)} m from the edge (> 3 m: officers could not hop in from it)`);
+    const drive = samplePolyline([e.from, e.park], 0.25);
+    if (drive.some((q) => outsideBy(q) < 0.5)) err('police', `${tag}: drive-in ${fmt(e.from.x)},${fmt(e.from.y)} -> ${fmt(e.park.x)},${fmt(e.park.y)} crosses the arena`);
+    let stepOut = Infinity;
+    for (let k = 0; k < maxOfficers; k++) {
+      const p = officerStepOutSpot(e, k, def.size);
+      const need = POLICE.radius + 0.1;
+      const c = clearanceAt(def, staticShapes, p);
+      stepOut = Math.min(stepOut, c);
+      const onLoot = [...safeObbs, ...bankObbs].some((o) => sdOBB(o, p) < need);
+      const onZone = def.zones.some((z) => sdOBB(zoneOBB(z), p) < need);
+      if (c < need || onLoot || onZone) err('police', `${tag}: officer ${k} has no room to step in at ${fmt(p.x)},${fmt(p.y)} (clearance ${fmt(c, 2)})`);
+      else stepOutSpots.push({ tag, k, p });
+    }
+    if (isMatch) {
+      const twin = police.some((t) => sameBox({ center: t.park, half: POLICE_CAR.half, angle: t.angle }, mirroredBox(car, axis)) && nearV(t.from, mirrorPoint(e.from, axis)));
+      if (!twin) err('symmetry', `${tag} has no mirror twin (put cars on the mirror axis)`);
+    }
+    policeMetrics.push({ park: { ...e.park }, angle: e.angle, stepOutClearance: stepOut });
+  });
+  if (isMatch && police.length >= 2) {
+    const north = police.filter((e) => e.park.y < def.size.y / 2).length;
+    const south = police.length - north;
+    if (north === 0 || south === 0) err('police', `police entries must cover the north and the south edge (north ${north}, south ${south})`);
+    for (let i = 0; i + 1 < police.length; i++) {
+      if (police[i].park.y < def.size.y / 2 === police[i + 1].park.y < def.size.y / 2) {
+        err('police', `police entries ${i} and ${i + 1} are on the same half; waves alternate north/south`);
+      }
+    }
+  }
+
   // ---- declared path widths ---------------------------------------------------------------
   const pathShapes = obstacles(def, { fences: 'all', banksAtStart: true });
   const pathMetrics: LayoutMetrics['paths'] = [];
@@ -904,6 +961,13 @@ export function validateLayout(def: LayoutDef, meta: LayoutDesignMeta, opts: Val
     });
   }
 
+  // Police step-in spots must connect to the play field (officers walk out to chase).
+  for (const sp of stepOutSpots) {
+    const c = grid.cellOf(sp.p);
+    const k = grid.idx(c.i, c.j);
+    if (!walk[k] || (spawnDist.length > 0 && !Number.isFinite(spawnDist[0][k]))) err('police', `${sp.tag}: officer ${sp.k} steps in at ${fmt(sp.p.x)},${fmt(sp.p.y)}, which is walled off from the arena`);
+  }
+
   // Chokepoints must be walkable and reachable.
   def.chokepoints.forEach((c) => {
     const cell = grid.cellOf(c.pos);
@@ -1071,6 +1135,7 @@ export function validateLayout(def: LayoutDef, meta: LayoutDesignMeta, opts: Val
     chokepoints: def.chokepoints.length,
     fences: def.fences.length,
     decor: def.decor.length,
+    police: policeMetrics,
   };
   return { id: def.id, ok: !issues.some((i) => i.level === 'error'), issues, metrics };
 }
@@ -1284,6 +1349,9 @@ export function formatReport(r: ValidationReport): string {
   }
   for (const p of m.paths) lines.push(`   ${p.cls.padEnd(6)} ${p.id}: ${fmt(p.minWidth, 3)}..${fmt(p.maxWidth, 3)} m`);
   lines.push(`   bypass: ${m.bypass.combos} bank-position combos, ${m.bypass.failures} failures`);
+  m.police.forEach((p, i) =>
+    lines.push(`   police ${i}: car parks at (${fmt(p.park.x)},${fmt(p.park.y)}) heading ${fmt((p.angle * 180) / Math.PI, 0)} deg · officer step-out clearance ${fmt(p.stepOutClearance, 2)} m`),
+  );
   for (const i of r.issues) lines.push(`   [${i.level}] ${i.code}: ${i.msg}`);
   return lines.join('\n');
 }

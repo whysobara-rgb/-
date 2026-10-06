@@ -95,12 +95,13 @@ export function main(argv: string[]): number {
       if (o.quiet) return;
       const r = m.stats.result;
       const slots = m.stats.slots
-        .map((s) => `${s.humanProxy ? 'proxy' : s.personality[0]}${s.team}:${s.points.toFixed(0)}(${s.recoveries.smallSafe.toFixed(0)}s${s.recoveries.largeSafe.toFixed(0)}L${s.recoveries.bank.toFixed(0)}B ko${s.knockdownsDealt} st${s.steals} stuck${s.maxStuck.toFixed(1)})`)
+        .map((s) => `${s.humanProxy ? 'proxy' : s.personality[0]}${s.team}:${s.points.toFixed(0)}(${s.recoveries.smallSafe.toFixed(0)}s${s.recoveries.largeSafe.toFixed(0)}L${s.recoveries.bank.toFixed(0)}B ko${s.knockdownsDealt} st${s.steals} stuck${s.maxStuck.toFixed(1)}${s.passiveBehindSeconds > 3 ? ` passive${s.passiveBehindSeconds.toFixed(0)}s` : ''})`)
         .join(' ');
       console.log(
         `${m.layout.padEnd(8)} seed ${String(m.seed).padStart(3)} A=team${m.aTeam}  ${m.scoreA}-${m.scoreB}  ${m.winner ?? 'draw'}  ${r.reason} @${(r.endTick / 60).toFixed(1)}s  ${slots}${m.stats.invariantViolations ? '  INVARIANT!' : ''}`,
       );
       if (o.log) for (const l of m.stats.finalLog) console.log(`    [${(l.tick / 60).toFixed(1)}s] slot ${l.slot}: ${l.msg}`);
+      for (const s of m.stats.slots) for (const x of s.incidents) console.log(`    stuck ${x.dur} s at ${(x.tick / 60).toFixed(1)} s: slot ${s.slot} ${x.what} @(${x.x}, ${x.y})`);
     },
   });
   const agg = aggregate(matches);

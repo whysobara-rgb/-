@@ -37,6 +37,8 @@ const ZONE = { x: 10, y: 24 };
  * tower, the closest any spot gets to a door of both banks (doc §6: no easy one-spot defense).
  */
 const BANK_Y = 10;
+/** Half width of the on-axis police gate through the edge buildings behind each bank. */
+const POLICE_GATE_HALF = 1.5;
 
 function build(): { def: LayoutDef; meta: LayoutDesignMeta } {
   const b = new LayoutBuilder({
@@ -90,13 +92,15 @@ function build(): { def: LayoutDef; meta: LayoutDesignMeta } {
       const [style, signKey, eStyle, eSign] = sg[id];
       b.rect(`${id}.${side}`, 'building', x0, y(y0), x1, y(y1), h, { style, signKey, east: { style: eStyle, signKey: eSign } });
     };
-    // Row 0 along the outer edge, on-axis building behind the bank.
+    // Row 0 along the outer edge; behind the bank, two on-axis blocks (post office / mall and a
+    // police box) flank the 3 m police gate the officers hop in through (dead end at the edge).
     shop('r0a', 0, 0, 8, 4.75, 5.5);
     shop('r0b', 8, 0, 17, 4.75, 6);
     shop('r0c', 17, 0, 26, 4.75, 6.5);
-    b.rect(`axis.${side}`, 'building', 26, y(0), 42, y(4.75), 7.5, {
+    b.rect(`axis.${side}`, 'building', 26, y(0), AX - POLICE_GATE_HALF, y(4.75), 7.5, {
       style: side === 'n' ? 'brick' : 'glass',
       signKey: side === 'n' ? 'sign.post' : 'sign.mall',
+      east: { signKey: side === 'n' ? 'sign.policeBoxN' : 'sign.policeBoxS' },
     });
     // Row 1 (between terrace lane A and B), split by the 1.1 m alley at x = 10.
     shop('r1a', 2.5, 7.25, 9.45, 11, 5);
@@ -180,6 +184,11 @@ function build(): { def: LayoutDef; meta: LayoutDesignMeta } {
   b.decor('arrow', 18.0, 24.0, PI);
   b.decor('arrow', 1.25, 19.0, PI / 2);
   b.decor('arrow', 1.25, H - 19.0, -PI / 2);
+
+  // --- police (owner addition) --------------------------------------------------------------
+  // Cars pull up at the curb outside the north edge (wave 1) and the south edge (wave 2) on the
+  // mirror axis; officers hop the fence into the police gate and come out at the bank's back lane.
+  b.policeCurbs();
 
   return b.build(
     'Open counter: both bank fronts face a shared clock-tower crossing that also holds the two large safes. Bank routes are short ' +

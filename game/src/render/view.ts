@@ -37,6 +37,7 @@ import type {
   EntityId,
   GrabCandidate,
   LayoutDef,
+  LootKind,
   LootState,
   SimEvent,
   Simulation,
@@ -63,6 +64,9 @@ import {
   preloadModelFonts,
   setModelTime,
   setOcclusionFocus,
+  pushShockwave,
+  clearShockwaves,
+  RACCOON_LABEL_HEIGHT,
   type BankRig,
   type DuskLighting,
   type FenceRig,
@@ -77,6 +81,13 @@ import {
 import { GameCamera, MATCH_DIST, MATCH_FOV, MATCH_PITCH, NORTH_YAW, fitDistance, type CameraGoal, type ViewMode } from './camera';
 import { GRAB_MARKER_COLOR, PigeonFlock, ViewEffects, type CharMarker, type PigeonThreat, type SirenGlow } from './effects';
 import { qualityPreset, type QualityLevel, type QualityPreset } from './quality';
+import { PostFX } from './post';
+import { EmoteSystem, POLICE_OWNER, type EmoteKind } from './emotes';
+import { OffscreenMarkers } from './markers';
+import { UprootBanners } from './banner';
+import { MoodDirector } from './moods';
+import { UprootDirector, type LootPose } from './uproot';
+import { PoliceView } from './police';
 import { PoseBuffer, damp, insideRect, lerpAngle, onBankSlab, pointVelocity, toLocal, wrapAngle, type Pose2 } from './sync';
 
 export type { ViewMode } from './camera';
@@ -98,6 +109,11 @@ export interface ViewSettings {
    * models are tuned for it; 'aces' is the filmic alternative (desaturates bright pastels).
    */
   toneMapping?: 'neutral' | 'aces';
+  /**
+   * (extension) Built-in in-world "뽑았다!" banner on uproots (default true). Turn it off when
+   * the HUD shows its own callout from takeCallouts() / onCallout.
+   */
+  builtinCallouts?: boolean;
 }
 
 export interface ViewFocus {
@@ -105,6 +121,18 @@ export interface ViewFocus {
   grabCandidate: GrabCandidate | null;
   pingTargetIds: EntityId[];
 }
+
+/**
+ * (extension) Presentation moments the HUD / audio can react to (polled with takeCallouts() or
+ * pushed through GameView.onCallout). `screen` is the CSS-pixel projection at the event.
+ */
+export type ViewCallout =
+  | { type: 'uproot'; lootId: EntityId; kind: LootKind; byTeam: TeamId | null; value: number; pos: Vec2; screen: { x: number; y: number; onScreen: boolean } }
+  | { type: 'landed'; lootId: EntityId; kind: LootKind; pos: Vec2 }
+  | { type: 'emote'; ownerId: number; emote: EmoteKind; pos: Vec2; police: boolean }
+  | { type: 'tackle'; officerId: EntityId; victimId: EntityId; hit: boolean; pos: Vec2 }
+  | { type: 'alarm'; bankId: EntityId; pos: Vec2 }
+  | { type: 'policeArrived'; carId: number; pos: Vec2 };
 
 /** (extension) Short "준비 동작" a bot can show before acting (doc §11 personality tells). */
 export type TelegraphKind = 'dash' | 'grab' | 'sly' | 'cheer';
@@ -122,6 +150,16 @@ export interface ViewStats {
   height: number;
   /** The WebGL context is currently lost (three.js restores it when the browser allows). */
   contextLost: boolean;
+  /** Draw calls of the scene pass alone (drawCalls includes post-processing passes). */
+  sceneDrawCalls: number;
+  /** Post-processing composer active (medium / high). */
+  post: boolean;
+  /** Emote stickers on screen, police officers / cars shown. */
+  emotes: number;
+  officers: number;
+  cars: number;
+  /** Off-screen attention markers drawn (police arriving / chasing outside the frame). */
+  markers: number;
 }
 
 const ZONE_LABELS = { ko: '회수 구역', en: 'RECOVERY ZONE' } as const;
@@ -318,6 +356,17 @@ export class GameView {
   private readonly lights: DuskLighting;
   private readonly cam: GameCamera;
   private readonly effects: ViewEffects;
+  private post!: PostFX;
+  private readonly emotes = new EmoteSystem(48);
+  private readonly markers = new OffscreenMarkers(8);
+  private readonly banners = new UprootBanners();
+  private readonly moods: MoodDirector;
+  private readonly uproot: UprootDirector;
+  private readonly police: PoliceView;
+  private readonly callouts: ViewCallout[] = [];
+  /** (extension) Optional push hook for callouts (also queued for takeCallouts()). */
+  onCallout: ((c: ViewCallout) => void) | null = null;
+  private alarmLevel = 0;
   private readonly pigeons = new PigeonFlock(24);
   private readonly threats: PigeonThreat[] = [];
   private readonly poses = new PoseBuffer();
@@ -372,8 +421,54 @@ export class GameView {
     this.effects = new ViewEffects(this.preset);
     this.scene.add(this.effects.root);
     this.scene.add(this.pigeons.root);
+    this.moods = new MoodDirector(this.emotes);
+    this.moods.listener = (owner, kind, pos) => this.pushCallout({ type: 'emote', ownerId: owner, emote: kind, pos, police: owner >= POLICE_OWNER });
+    this.uproot = new UprootDirector(
+      {
+        effects: this.effects,
+        pose: (id) => this.lootPose(id),
+        shake: (at, amount, radius) => this.cam.shake(amount * this.nearFactorAt(at, radius)),
+        impact: (at, strength, chroma) => this.impactAt(at, strength, chroma),
+        shock: (at, strength) => {
+          if (!this.settings.reducedMotion) pushShockwave(at.x, at.y, strength);
+        },
+        scare: (at, r) => this.pigeons.scare(at, r),
+        stage: (id, kind, stage) => this.onUprootStage(id, kind, stage),
+        landed: (id, kind) => {
+          const p = this.lootPose(id);
+          if (kind === 'bank') {
+            const bv = this.banks.get(id);
+            bv?.rig.wobbleSign(3.5);
+            bv?.rig.clangBell(1);
+          }
+          if (p) this.pushCallout({ type: 'landed', lootId: id, kind, pos: { x: p.x, y: p.y } });
+        },
+      },
+      this.preset,
+    );
+    this.scene.add(this.uproot.root);
+    this.police = new PoliceView({
+      effects: this.effects,
+      focusId: () => this.lastFocusId,
+      impact: (at, strength, chroma) => this.impactAt(at, strength, chroma),
+      shake: (at, amount, radius) => this.cam.shake(amount * this.nearFactorAt(at, radius)),
+      punch: (dir, strength) => {
+        if (!this.settings.reducedMotion) this.cam.punch(dir, strength);
+      },
+      scare: (at, r) => this.pigeons.scare(at, r),
+      charPos: (id) => {
+        const cv = this.chars.get(id);
+        return cv ? { x: cv.pose.x, y: cv.pose.y } : null;
+      },
+    });
+    this.scene.add(this.police.root);
+    this.scene.add(this.emotes.root);
+    this.scene.add(this.markers.mesh);
+    this.scene.add(this.banners.root);
 
     this.createRenderer();
+    this.post = new PostFX(this.renderer, this.scene, this.cam.camera, this.preset);
+    this.post.setReducedMotion(settings.reducedMotion);
     if (typeof ResizeObserver !== 'undefined') {
       this.resizeObserver = new ResizeObserver(() => this.resize());
       this.resizeObserver.observe(container);
@@ -485,6 +580,18 @@ export class GameView {
       }
     }
 
+    // Uproot choreography tracks (anchored loot; already-free loot gets its crater).
+    for (const l of st.loot) {
+      if (l.recovered) continue;
+      const owner = l.kind !== 'bank' && l.homeBank !== null ? l.homeBank : null;
+      const ob = owner !== null ? sim.getLoot(owner) : undefined;
+      const ownerPose = ob ? { x: ob.pos.x, y: ob.pos.y, a: ob.angle, h: BANK_FLOOR_Y } : null;
+      // An interior safe that already left its bank is tracked in the world frame.
+      const inHome = owner !== null && l.anchored && l.floorOf === owner;
+      this.uproot.track(l, inHome ? owner : null, inHome ? ownerPose : null);
+    }
+    this.police.setLayout(layout);
+
     for (const c of st.characters) {
       const rig = createRaccoon({ team: c.team, look: c.look });
       rig.setBlobShadow(this.preset.blobShadows);
@@ -536,6 +643,7 @@ export class GameView {
   captureTick(sim: Simulation): void {
     if (sim !== this.sim) return;
     this.poses.capture(sim);
+    this.police.capture(sim);
   }
 
   onEvents(events: SimEvent[], sim: Simulation): void {
@@ -546,7 +654,14 @@ export class GameView {
   render(sim: Simulation, alpha: number, frameDt: number, focus: ViewFocus | null): void {
     if (this.disposed) return;
     this.advance(sim, alpha, frameDt, focus);
-    this.renderer.render(this.scene, this.cam.camera);
+    this.draw(Math.min(Math.max(Number.isFinite(frameDt) ? frameDt : 0, 0), 0.1));
+  }
+
+  /** Draw the current scene state (post-processing when the preset enables it). */
+  private draw(dt: number): void {
+    this.renderer.info.reset();
+    if (this.post.active) this.post.render(dt);
+    else this.renderer.render(this.scene, this.cam.camera);
   }
 
   /**
@@ -608,11 +723,50 @@ export class GameView {
       this.effects.confetti(new THREE.Vector3(s.confettiAt.x, 0.4, s.confettiAt.y), w, 70);
       this.vans[w]?.bounce(0.6);
       s.nextConfetti = this.settings.reducedMotion ? Infinity : this.time + 2.6;
+      // Winners pop hearts / sparkles, losers a tear now and then.
+      for (const [id, spot] of s.spots) {
+        if (spot.cheer) this.emotes.show(id, (spot.index + Math.floor(this.time)) % 2 ? 'heart' : 'sparkle', { duration: 1.6 });
+        else if (spot.sad && spot.index === 0) this.emotes.show(id, 'tear', { duration: 2 });
+      }
     }
+
+    // --- uproot choreography, police, moods + emotes, alarm grade --------------------------
+    this.uproot.update(sim, dt);
+    this.police.update(sim, alpha, dt, mode !== 'preview');
+    this.moods.update(sim, dt, mode === 'match', this.settings.reducedMotion);
+    this.emotes.update(dt, this.cam.camera, (owner, out) => this.emoteAnchor(owner, out));
+    this.banners.calm = this.settings.reducedMotion;
+    this.banners.update(dt);
+    this.markers.calm = this.settings.reducedMotion;
+    this.markers.begin();
+    if (mode === 'match') this.police.collectMarkers(this.markers, this.cam.camera, this.lastFocusId, sim);
+    this.markers.end();
+    let alarm = 0;
+    if (mode === 'match') {
+      for (const id of st.alarm.ringing) {
+        const bv = this.banks.get(id);
+        if (bv && !bv.done) alarm = Math.max(alarm, this.nearFactorAt(bv.pose, 24));
+      }
+    }
+    this.post.tick(dt);
+    this.alarmLevel += (alarm * (0.6 + 0.4 * Math.max(0, Math.sin(this.time * 8))) - this.alarmLevel) * damp(6, dt);
+    this.post.setAlarm(this.alarmLevel);
 
     this.updatePigeons(sim, dt);
     this.effects.update(dt);
     this.snapVisuals = false;
+  }
+
+  /** Head-top point for an emote owner (raccoon id or POLICE_OWNER + officer id). */
+  private emoteAnchor(owner: number, out: THREE.Vector3): boolean {
+    if (this.viewMode === 'preview') return false;
+    if (owner >= POLICE_OWNER) return this.police.anchor(owner - POLICE_OWNER, out);
+    const cv = this.chars.get(owner);
+    if (!cv || !cv.rig.root.visible) return false;
+    const c = this.sim?.getCharacter(owner);
+    const down = c && c.knockdownTicks > 0 ? 0.3 : 0;
+    out.set(cv.pose.x, cv.rig.root.position.y + RACCOON_LABEL_HEIGHT - 0.12 - down, cv.pose.y);
+    return true;
   }
 
   /** Project a sim point at `height` meters to CSS pixels inside the container. */
@@ -668,6 +822,25 @@ export class GameView {
     const h = this.settings.reducedMotion ? 0 : this.hitstop;
     this.hitstop = 0;
     return h;
+  }
+
+  /**
+   * (extension) Presentation callouts since the last call (oldest first): 'uproot' ("뽑았다!"
+   * with the screen point), 'landed' (heavy thud), 'emote' (sticker pop sound), 'tackle',
+   * 'alarm', 'policeArrived'. Also pushed live through `onCallout`.
+   */
+  takeCallouts(): ViewCallout[] {
+    return this.callouts.splice(0, this.callouts.length);
+  }
+
+  /** (extension) Pop an emote over a character (e.g. UI pings, tutorial beats). */
+  showEmote(charId: EntityId, kind: EmoteKind, seconds?: number): void {
+    this.emotes.show(charId, kind, { duration: seconds, priority: 2 });
+  }
+
+  /** (extension) Dollhouse cutaway of the banks (default on). */
+  setBankCutaway(on: boolean): void {
+    for (const bv of this.banks.values()) bv.rig.setCutaway(on);
   }
 
   /**
@@ -727,14 +900,18 @@ export class GameView {
     this.preset = next;
     if (next.antialias !== old.antialias) {
       this.createRenderer();
+      this.post.setRenderer(this.renderer);
       this.resize();
     }
+    this.post.setQuality(next, s.reducedMotion);
+    this.post.setReducedMotion(s.reducedMotion);
     if (next !== old) {
       this.effects.setQuality(next);
+      this.uproot.setQuality(next);
       this.applyQualityToScene();
       this.resize();
       for (const cv of this.chars.values()) cv.rig.setBlobShadow(next.blobShadows);
-      if (this.layout && next.decorDensity !== this.sceneryDecor) this.buildScenery();
+      if (this.layout && (next.decorDensity !== this.sceneryDecor || next.groundDetail !== old.groundDetail || next.shopInteriors !== old.shopInteriors)) this.buildScenery();
     }
     const langChanged = (prev.language ?? 'ko') !== (s.language ?? 'ko') || prev.signResolver !== s.signResolver;
     if (langChanged && this.scenery) this.scenery.setSignResolver(this.signResolver());
@@ -759,7 +936,9 @@ export class GameView {
     const dpr = typeof devicePixelRatio === 'number' ? devicePixelRatio : 1;
     this.renderer.setPixelRatio(Math.min(dpr, this.preset.maxPixelRatio));
     this.renderer.setSize(w, h);
+    this.post?.setSize(w, h, this.renderer.getPixelRatio());
     this.cam.setAspect(w / h);
+    this.markers.setSize(w, h);
   }
 
   /** (extension) Renderer statistics of the last frame + live particles. */
@@ -777,6 +956,12 @@ export class GameView {
       width: this.width,
       height: this.height,
       contextLost: this.contextLost,
+      sceneDrawCalls: this.post.active ? this.post.sceneCalls : info.render.calls,
+      post: this.post.active,
+      emotes: this.emotes.activeCount,
+      officers: this.police.stats.officers,
+      cars: this.police.stats.cars,
+      markers: this.markers.count,
     };
   }
 
@@ -787,6 +972,12 @@ export class GameView {
     this.disposed = true;
     this.resizeObserver?.disconnect();
     this.effects.dispose();
+    this.uproot.dispose();
+    this.police.dispose();
+    this.emotes.dispose();
+    this.markers.dispose();
+    this.banners.dispose();
+    this.post.dispose();
     this.pigeons.dispose();
     this.lights.dispose();
     setOcclusionFocus(null, null);
@@ -829,7 +1020,8 @@ export class GameView {
     this.applyToneMapping(r);
     r.shadowMap.enabled = this.preset.shadows;
     r.shadowMap.type = THREE.PCFShadowMap;
-    r.info.autoReset = true;
+    // Reset manually per frame (draw()) so post-processing passes add up in stats().
+    r.info.autoReset = false;
     const c = r.domElement;
     c.style.display = 'block';
     c.style.width = '100%';
@@ -896,13 +1088,21 @@ export class GameView {
     if (!this.layout) return;
     this.scenery?.dispose();
     const density = this.preset.decorDensity;
-    this.scenery = buildStaticScenery(this.layout, this.signResolver(), { decorDensity: density });
+    this.scenery = buildStaticScenery(this.layout, this.signResolver(), { decorDensity: density, groundDetail: this.preset.groundDetail, shopInteriors: this.preset.shopInteriors });
     this.sceneryDecor = density;
     this.world.add(this.scenery.root);
   }
 
   private unload(): void {
     this.effects.clear();
+    this.uproot.clear();
+    this.police.clear();
+    this.banners.clear();
+    this.moods.reset();
+    clearShockwaves();
+    this.callouts.length = 0;
+    this.alarmLevel = 0;
+    this.post?.setAlarm(0);
     for (const cv of this.chars.values()) cv.rig.dispose();
     for (const sv of this.safes.values()) sv.rig.dispose();
     for (const bv of this.banks.values()) {
@@ -944,6 +1144,8 @@ export class GameView {
       const d = Math.hypot(p.x - focusPos.x, p.y - focusPos.y);
       return Math.max(0, 1 - d / radius);
     };
+    this.moods.onEvent(e, sim);
+    this.police.onEvent(e, sim);
     switch (e.type) {
       case 'dash': {
         const c = sim.getCharacter(e.charId);
@@ -968,6 +1170,7 @@ export class GameView {
           if (involved) {
             this.cam.punch(dir, 0.35);
             this.hitstop = Math.max(this.hitstop, 0.07);
+            this.impactAt(v.pos, 0.85, 0.6);
           }
         } else {
           this.effects.bump(v.pos, 0.6, cv?.y ?? 0);
@@ -990,14 +1193,13 @@ export class GameView {
       case 'unanchored': {
         const l = sim.getLoot(e.lootId);
         if (!l) break;
+        // The choreography (explosion, roots snapping, shockwave, crater) lives in uproot.ts.
+        this.uproot.pop(l.id, sim);
         if (l.kind === 'bank') {
           const bv = this.banks.get(l.id);
           if (bv) this.uprootBank(bv, true);
-          this.effects.bankUproot(l.pos, l.angle, BANK_MODEL.half);
-          this.pigeons.scare(l.pos, 16);
           const near = nearFactor(l.pos, 26);
-          this.cam.shake(0.65 * near + 0.08);
-          this.cam.zoomPunch(0.05 * near);
+          this.cam.zoomPunch(0.06 * near);
           if (near > 0.3) this.hitstop = Math.max(this.hitstop, 0.12);
         } else {
           const sv = this.safes.get(l.id);
@@ -1005,9 +1207,33 @@ export class GameView {
             sv.rig.setAnchored(false);
             sv.anchored = false;
           }
-          this.effects.safeUnanchor(l.pos, l.kind === 'largeSafe');
-          this.cam.shake(0.12 * nearFactor(l.pos, 10));
-          this.pulse(l.id, 0.1);
+          this.pulse(l.id, 0.12);
+          if (l.kind === 'largeSafe' && nearFactor(l.pos, 10) > 0.4) this.hitstop = Math.max(this.hitstop, 0.05);
+        }
+        const sp = this.project(l.pos, l.kind === 'bank' ? 4.5 : 1.6);
+        if (this.settings.builtinCallouts !== false && this.viewMode === 'match') {
+          const top = (this.lootPose(l.id)?.h ?? 0) + (l.kind === 'bank' ? 5.6 : l.kind === 'largeSafe' ? 2.3 : 1.7);
+          this.banners.show(l.pos.x, top, l.pos.y, l.kind, this.settings.language ?? 'ko');
+        }
+        this.pushCallout({ type: 'uproot', lootId: l.id, kind: l.kind, byTeam: e.byTeam, value: l.estimatedValue, pos: { x: l.pos.x, y: l.pos.y }, screen: { x: sp.x, y: sp.y, onScreen: sp.onScreen } });
+        break;
+      }
+      case 'alarm': {
+        const b = sim.getLoot(e.bankId);
+        if (b) this.pushCallout({ type: 'alarm', bankId: e.bankId, pos: { x: b.pos.x, y: b.pos.y } });
+        break;
+      }
+      case 'policeArrived':
+        this.pushCallout({ type: 'policeArrived', carId: e.carId, pos: { ...e.pos } });
+        break;
+      case 'policeTackle': {
+        const v = sim.getCharacter(e.victimId);
+        if (v) this.pushCallout({ type: 'tackle', officerId: e.officerId, victimId: e.victimId, hit: e.hit, pos: { x: v.pos.x, y: v.pos.y } });
+        if (e.hit) {
+          const cv = this.chars.get(e.victimId);
+          if (cv) cv.flashUntil = this.time + 0.09;
+          this.pulse(e.victimId, 0.14);
+          if (e.victimId === this.lastFocusId) this.hitstop = Math.max(this.hitstop, 0.08);
         }
         break;
       }
@@ -1110,6 +1336,73 @@ export class GameView {
       this.effects.recoveryPop({ x: from.x, y: from.z }, e.team, false);
       this.effects.fly({ objects: [sv.rig.root], from, to, team: e.team, kind: 'safe', onArrive: () => van?.bounce(e.kind === 'largeSafe' ? 1 : 0.6) }, this.world);
     }
+  }
+
+  // ===========================================================================
+  // Presentation helpers (uproot / police / emotes hosts)
+  // ===========================================================================
+
+  private pushCallout(c: ViewCallout): void {
+    if (this.callouts.length >= 64) this.callouts.shift();
+    this.callouts.push(c);
+    try {
+      this.onCallout?.(c);
+    } catch (err) {
+      console.warn('[GameView] onCallout handler failed', err);
+    }
+  }
+
+  /** 0..1 closeness of a sim point to the focus character (0.5 without a focus). */
+  private nearFactorAt(p: Vec2, radius: number): number {
+    const f = this.focusPos();
+    if (!f) return 0.5;
+    return Math.max(0, 1 - Math.hypot(p.x - f.x, p.y - f.y) / radius);
+  }
+
+  /** Impact frame (post) centered on a sim point + chromatic kick, scaled by closeness. */
+  private impactAt(p: Vec2, strength: number, chroma: number): void {
+    if (this.settings.reducedMotion || this.viewMode !== 'match') return;
+    // Screen flashes are scaled by the screen-shake setting too (0 = none at all).
+    const shake = Math.min(1, Math.max(0, this.settings.screenShake));
+    if (shake <= 0) return;
+    const near = this.nearFactorAt(p, 26);
+    const s = strength * (0.35 + 0.65 * near) * shake;
+    if (s < 0.08) return;
+    const sp = this.project(p, 0.8);
+    this.post.impact({ center: { x: sp.x / Math.max(1, this.width), y: 1 - sp.y / Math.max(1, this.height) }, strength: s, chroma: chroma * near * shake });
+  }
+
+  /** Interpolated loot pose + floor height (uproot host); banks report their floor. */
+  private lootPose(id: EntityId): LootPose | null {
+    const bv = this.banks.get(id);
+    if (bv) {
+      if (bv.done) return null;
+      return { x: bv.pose.x, y: bv.pose.y, a: bv.pose.a, h: bv.rig.floorY };
+    }
+    const sv = this.safes.get(id);
+    if (sv) {
+      if (sv.done) return null;
+      return { x: sv.pose.x, y: sv.pose.y, a: sv.pose.a, h: sv.y };
+    }
+    return null;
+  }
+
+  /** Extra hop of a bank floor (pop / strain lift) for riders and loaded safes. */
+  private floorLift(bankId: EntityId | null): number {
+    if (bankId === null) return 0;
+    const bv = this.banks.get(bankId);
+    return bv && !bv.done ? bv.rig.floorY - BANK_FLOOR_Y : 0;
+  }
+
+  private onUprootStage(id: EntityId, kind: LootKind, stage: number): void {
+    const bv = kind === 'bank' ? this.banks.get(id) : undefined;
+    const p = this.lootPose(id);
+    if (bv) {
+      bv.rig.wobbleSign(0.8 + stage * 0.6);
+      if (stage >= 2 && p) this.pigeons.scare({ x: p.x, y: p.y }, 9 + stage * 3);
+      if (stage >= 3) bv.rig.clangBell(0.8);
+    }
+    if (stage >= 2) this.pulse(id, kind === 'smallSafe' ? 0.06 : 0.04);
   }
 
   private pulse(id: EntityId, amp: number): void {
@@ -1223,15 +1516,10 @@ export class GameView {
     this.poses.sample(bv.id, alpha, bv.pose, l);
     placeOnSim(bv.rig.root, { x: bv.pose.x, y: bv.pose.y }, bv.pose.a);
     if (!l.anchored && !bv.uprooted) this.uprootBank(bv, true);
-    // Strain while someone pulls the anchored bank.
-    let strain = 0;
-    if (l.anchored) {
-      for (const cid of l.grabbedBy) {
-        const c = sim.getCharacter(cid);
-        if (c?.straining) strain = Math.max(strain, 0.3 + 0.7 * l.unanchorProgress);
-      }
-    }
-    bv.rig.setStrain(strain);
+    // Strain / lift while someone pulls the anchored bank (uproot.ts), alarm while it rings.
+    bv.rig.setStrain(this.uproot.strainOf(bv.id));
+    bv.rig.setLift(this.uproot.liftOf(bv.id));
+    bv.rig.setAlarm(sim.state.alarm.ringing.includes(bv.id) && this.viewMode !== 'title');
     // Dust trail while moving.
     const speed = Math.hypot(l.vel.x, l.vel.y) + Math.abs(l.angVel) * 3;
     if (!l.anchored && speed > 0.2 && dt > 0 && this.viewMode !== 'results') {
@@ -1279,21 +1567,15 @@ export class GameView {
     const targetY = onFloor ? BANK_FLOOR_Y : 0;
     sv.y += (targetY - sv.y) * damp(18, dt);
     if (this.snapVisuals) sv.y = targetY;
-    placeOnSim(sv.rig.root, sv.pose, sv.pose.a, sv.y);
+    placeOnSim(sv.rig.root, sv.pose, sv.pose.a, sv.y + this.floorLift(l.floorOf));
     const ps = this.pulseScale(sv.id);
     sv.rig.root.scale.set(2 - ps, ps, 2 - ps);
     if (sv.anchored !== l.anchored) {
       sv.anchored = l.anchored;
       sv.rig.setAnchored(l.anchored);
     }
-    let strain = 0;
-    if (l.anchored) {
-      for (const cid of l.grabbedBy) {
-        const c = sim.getCharacter(cid);
-        if (c?.straining) strain = Math.max(strain, 0.35 + 0.65 * l.unanchorProgress);
-      }
-    }
-    sv.rig.setStrain(strain);
+    sv.rig.setStrain(this.uproot.strainOf(sv.id));
+    sv.rig.setLift(this.uproot.liftOf(sv.id));
     // Drag dust on the ground.
     if (!l.anchored && l.floorOf === null && dt > 0) {
       const sp = Math.hypot(l.vel.x, l.vel.y);
@@ -1356,6 +1638,12 @@ export class GameView {
     pose.celebrating = this.time < cv.cheerUntil;
     pose.sad = false;
     if (this.time < cv.happyUntil && !pose.celebrating) pose.expression = 'happy';
+    // Uproot effort (how far the pull has come), pop tumble and mood faces (moods.ts).
+    const held = c.grab ? sim.getLoot(c.grab.targetId) : undefined;
+    pose.effort = c.straining && held ? held.unanchorProgress : 0;
+    pose.tumble = this.moods.tumble(c.id);
+    const moodFace = this.moods.expression(c.id);
+    if (moodFace && !pose.knockedDown && !pose.celebrating) pose.expression = moodFace;
 
     // Title attract: idle raccoons cheer now and then.
     if (mode === 'title') {
@@ -1398,7 +1686,7 @@ export class GameView {
     sqY *= ps;
     sqXZ *= 2 - ps;
     cv.rig.root.scale.set(sqXZ, sqY, sqXZ);
-    placeOnSim(cv.rig.root, cv.pose, cv.facing, cv.y);
+    placeOnSim(cv.rig.root, cv.pose, cv.facing, cv.y + this.floorLift(c.floorOf));
     // Impact frame: a white outline flash for a couple of frames on knockdown.
     const flash = this.time < cv.flashUntil && mode === 'match';
     if (flash !== cv.flashOn) {
@@ -1804,7 +2092,24 @@ export class GameView {
         dist = f.dist;
       }
     }
-    return { target: { x: tx, y: ty }, distance: dist, pitch: MATCH_PITCH, fov: MATCH_FOV, followRate: 4.5, clamp: true };
+    // Police pulling up nearby: glance toward the parking spot for a moment (the layouts park
+    // behind the shop rows), never so far that the player leaves the frame.
+    let overscan = 0;
+    const att = calm ? null : this.police.attention(P);
+    if (att && att.w > 0.01) {
+      let dx = att.x - tx;
+      let dy = att.y - ty;
+      const dl = Math.hypot(dx, dy);
+      const maxShift = 4.5;
+      if (dl > maxShift) {
+        dx *= maxShift / dl;
+        dy *= maxShift / dl;
+      }
+      tx += dx * att.w;
+      ty += dy * att.w;
+      overscan = 6 * att.w;
+    }
+    return { target: { x: tx, y: ty }, distance: dist, pitch: MATCH_PITCH, fov: MATCH_FOV, followRate: 4.5, clamp: true, overscan };
   }
 
   /**
@@ -2091,9 +2396,12 @@ export class GameView {
           if (l.floorOf === bv.id || l.loadedIn === bv.id || insideRect(sv.pose, center, BANK_MODEL.half, ang, -0.1)) inside = true;
         }
         if (inside) {
-          roofT = 0;
-          // Fade the walls facing the camera (front of the view) so the interior reads.
+          // Glass skylight: keep a whisper of the frame so the building still reads.
+          roofT = 0.3;
+          // Fade the walls facing the camera (front of the view) so the interior reads (walls
+          // already opened by the dollhouse cutaway stay as they are).
           BANK_MODEL.walls.forEach((w, i) => {
+            if (bv.rig.wallOpen(i) > 0.5) return;
             // Outward normal (bank local): door walls face ±y, side walls ±x.
             const alongX = w.half.x > w.half.y;
             const nx = alongX ? 0 : Math.sign(w.center.x);
@@ -2139,7 +2447,7 @@ export class GameView {
         const wallTest = (p: THREE.Vector3): void => {
           toLocal({ x: p.x, y: p.z }, center, ang, _loc);
           BANK_MODEL.walls.forEach((w, i) => {
-            if (wallT[i] <= WALL_FADE) return;
+            if (wallT[i] <= WALL_FADE || bv.rig.wallOpen(i) > 0.5) return;
             const min: [number, number, number] = [w.center.x - w.half.x - 0.05, 0, w.center.y - w.half.y - 0.05];
             const max: [number, number, number] = [w.center.x + w.half.x + 0.05, H + 0.4, w.center.y + w.half.y + 0.05];
             if (segmentHitsBox(lc.x, camPos.y, lc.y, _loc.x, p.y, _loc.y, min, max)) wallT[i] = WALL_FADE;

@@ -8,14 +8,23 @@
  *
  * Structure (each piece is one merged draw call):
  *   root (view transform)
- *    └ body (uproot pop, strain tremble)
- *       ├ slab        foundation (top at BANK_FLOOR_Y) + painted floor + dashed outline
- *       ├ walls[0..5] one Object3D per BANK_MODEL.walls entry, same order (individual fade)
+ *    └ body (uproot pop, strain tremble, lift)
+ *       ├ slab        foundation (top at BANK_FLOOR_Y) + carpet floor + dashed outline
+ *       ├ walls[0..5] one Object3D per BANK_MODEL.walls entry, same order (individual fade);
+ *       │             exterior facade + fully dressed interior (bankInterior.ts)
  *       ├ headers     door lintels + awnings (fade with the min of their two walls)
- *       ├ roof        separate object (hide / fade when the player is inside); carries the
- *       │             '은행 BANK' sign on a wobbly pivot
+ *       ├ art         cat-banker portraits + wanted posters (one textured draw call)
+ *       ├ lasers      alarm security lasers (additive, flashing while the alarm rings)
+ *       ├ roof        glass pyramid skylight + slim frame + pendant lamps (fades when the player is
+ *       │             inside); the '은행 BANK' sign rides a boom on the far side from the
+ *       │             camera, with the alarm beacon and two bells on top
  *       ├ rootsAttached  cartoon roots / pipes / cables running into the ground (anchored)
  *       └ rootsSnapped   snapped stubs + clinging dirt + sparks (uprooted)
+ *
+ * Dollhouse cutaway (투시도): every bank material shares one cut plane (object space) that
+ * slices off the camera side of the building above ~0.9 m, sloping up toward the back, so the
+ * interior always reads from the game camera; cut solids show a flat cap with a light lip,
+ * shadows and outlines follow the cut. Colliders are untouched (pure rendering).
  *
  * The title means "uprooted": while anchored the bank is visibly plumbed into the ground;
  * setUprooted(true) snaps everything (pop + big sign wobble). createBankScar() builds the
@@ -25,15 +34,35 @@ import * as THREE from 'three';
 import { BANK_MODEL } from '../../sim/config';
 import { PAL } from './palette';
 import { G, PartBuilder, rampSway, taperedTube, rng, type V3 } from './geometry';
-import { createToonMaterial, matVC, matWater, setMaterialOpacity } from './materials';
-import { bankFloorTexture, bankSignTexture, dashedLineTexture } from './textures';
+import { createCutDepthMaterial, createCutPlane, createToonMaterial, matVC, matWater, setMaterialOpacity, SHARED_UNIFORMS, type CutPlaneUniform } from './materials';
+import { bankSignTexture, dashedLineTexture, radialGlowTexture } from './textures';
+import { bankCarpetTexture, catPortraitTexture, wantedPosterTexture } from './art';
 import { Highlighter } from './outline';
 import { cameraFacingYaw, trackViewCamera } from './occlusion';
+import {
+  BANK_INTERIOR_COLORS,
+  addCctv,
+  addPendantLamp,
+  addClock,
+  addDepositBoxes,
+  addHangingPlanter,
+  addNiche,
+  addPortraitFrame,
+  addPosterBacking,
+  addSconce as addInteriorSconce,
+  addTellerStation,
+  addVaultDoor,
+} from './bankInterior';
 
 /** Height of the bank floor surface (slab top). Raise characters/safes on the floor by this. */
 export const BANK_FLOOR_Y = 0.06;
 /** Height for the floating value label above the bank. */
 export const BANK_LABEL_HEIGHT = 6.0;
+/** Cutaway: height of the cut at the camera-side face, and how fast it rises toward the back. */
+export const BANK_CUT_HEIGHT = 0.9;
+const CUT_SLOPE = 1.0;
+/** Uproot pop timing (seconds): total hop and the moment it slams back down. */
+export const BANK_POP = { time: 0.95, land: 0.6, height: 0.95 } as const;
 
 const H = BANK_MODEL.wallHeight;
 const T = BANK_MODEL.wallThickness;
@@ -47,6 +76,8 @@ const SLAB_BOTTOM = -0.25;
 
 export interface BankRig {
   readonly root: THREE.Group;
+  /** Cutaway plane shared by every bank material (object space of the body). */
+  readonly cutPlane: CutPlaneUniform;
   /** Roof group (hide or fade when the player is inside). */
   readonly roof: THREE.Object3D;
   /** One object per BANK_MODEL.walls entry, same order. */
@@ -64,6 +95,18 @@ export interface BankRig {
   setStrain(s: number): void;
   /** Kick the sign (e.g. on bumps, fence breaks, unanchor). */
   wobbleSign(amount: number): void;
+  /** Alarm (state.alarm.ringing): roof beacon spins, bells clang, lasers flash, red light pool. */
+  setAlarm(on: boolean): void;
+  /** Dollhouse cutaway on/off (default on). */
+  setCutaway(on: boolean): void;
+  /** 0..1 how open wall `index` is (cut low on the camera side): the view skips fading it. */
+  wallOpen(index: number): number;
+  /** Extra visual lift of the building (uproot strain), meters. */
+  setLift(y: number): void;
+  /** Ring the alarm bells once (strain spikes, the pop). */
+  clangBell(amount: number): void;
+  /** Seconds since the uproot pop started (Infinity before / long after). */
+  readonly popAge: number;
   setHighlight(color: THREE.ColorRepresentation | null): void;
   /** Advance sign spring, pop, tremble. Reads the root's world motion for inertia. */
   update(dt: number): void;
@@ -133,58 +176,15 @@ function addWindow(b: PartBuilder, u: number, w: number, h: number, sill: number
 function addSconce(b: PartBuilder, u: number, y: number, z: number, dir: number): void {
   b.add(G.rbox(0.12, 0.2, 0.04, 0.02), { color: PAL.goldDark, pos: [u, y, z] });
   b.add(G.cyl(1, 1, 8), { color: PAL.goldDark, pos: [u, y + 0.06, z + dir * 0.08], rot: [Math.PI / 2, 0, 0], scale: [0.02, 0.14, 0.02] });
-  b.add(G.sphere(12, 8), { color: '#FFE6A8', pos: [u, y + 0.14, z + dir * 0.15], scale: [0.08, 0.1, 0.08], emissive: 1.2 });
+  b.add(G.sphere(12, 8), { color: '#FFE6A8', pos: [u, y + 0.14, z + dir * 0.15], scale: [0.08, 0.1, 0.08], emissive: 1.6 });
 }
 
-function addFrame(b: PartBuilder, u: number, y: number, z: number, dir: number, w: number, h: number, art: string, accent: string): void {
-  b.add(G.rbox(w + 0.12, h + 0.12, 0.05, 0.02), { color: PAL.gold, pos: [u, y, z + dir * 0.02] });
-  b.add(G.box(), { color: art, pos: [u, y, z + dir * 0.048], scale: [w, h, 0.01] });
-  // Simple motif: hills + sun / coin.
-  b.add(G.sphere(12, 8), { color: accent, pos: [u + w * 0.18, y + h * 0.15, z + dir * 0.05], scale: [h * 0.18, h * 0.18, 0.008], emissive: 0.15 });
-  b.add(G.sphere(12, 8), { color: '#8CCB7E', pos: [u - w * 0.12, y - h * 0.38, z + dir * 0.052], scale: [w * 0.45, h * 0.3, 0.008] });
-}
-
-/** Big round vault door decoration mounted on an interior wall face. */
-function addVaultDoor(b: PartBuilder, u: number, y: number, z: number, dir: number): void {
-  const r = 0.62;
-  b.add(G.cyl(1, 1, 32), { color: PAL.steelDark, pos: [u, y, z + dir * 0.02], rot: [Math.PI / 2, 0, 0], scale: [r + 0.08, 0.04, r + 0.08] });
-  b.add(G.cyl(1, 1, 32), { color: PAL.vault, pos: [u, y, z + dir * 0.05], rot: [Math.PI / 2, 0, 0], scale: [r, 0.05, r] });
-  b.add(G.torus(0.06, 6, 32), { color: PAL.steel, pos: [u, y, z + dir * 0.075], scale: [r * 0.82, r * 0.82, 0.3] });
-  for (let i = 0; i < 12; i++) {
-    const a = (i / 12) * Math.PI * 2;
-    b.add(G.sphere(8, 6), { color: PAL.silver, pos: [u + Math.cos(a) * r * 0.92, y + Math.sin(a) * r * 0.92, z + dir * 0.08], scale: 0.035 });
-  }
-  b.add(G.cyl(1, 1, 16), { color: PAL.gold, pos: [u, y, z + dir * 0.085], rot: [Math.PI / 2, 0, 0], scale: [0.12, 0.05, 0.12], emissive: 0.1 });
-  for (let i = 0; i < 3; i++) {
-    const a = (i / 3) * Math.PI;
-    b.add(G.cyl(1, 1, 8), { color: PAL.gold, pos: [u, y, z + dir * 0.095], rot: [0, 0, a], scale: [0.022, r * 0.9, 0.022] });
-  }
-  // Hinge block.
-  b.add(G.rbox(0.14, 0.6, 0.1, 0.03), { color: PAL.steelDark, pos: [u + r + 0.07, y, z + dir * 0.05] });
-}
-
-function addClock(b: PartBuilder, u: number, y: number, z: number, dir: number): void {
-  b.add(G.cyl(1, 1, 24), { color: PAL.gold, pos: [u, y, z + dir * 0.03], rot: [Math.PI / 2, 0, 0], scale: [0.3, 0.05, 0.3] });
-  b.add(G.cyl(1, 1, 24), { color: '#FFFBF0', pos: [u, y, z + dir * 0.05], rot: [Math.PI / 2, 0, 0], scale: [0.25, 0.02, 0.25], emissive: 0.15 });
-  b.add(G.box(), { color: PAL.ink, pos: [u, y + 0.07, z + dir * 0.065], scale: [0.025, 0.15, 0.01] });
-  b.add(G.box(), { color: PAL.ink, pos: [u + 0.05, y, z + dir * 0.065], rot: [0, 0, 0.6], scale: [0.11, 0.022, 0.01] });
-  for (let i = 0; i < 12; i++) {
-    const a = (i / 12) * Math.PI * 2;
-    b.add(G.box(), { color: PAL.goldDark, pos: [u + Math.cos(a) * 0.2, y + Math.sin(a) * 0.2, z + dir * 0.062], rot: [0, 0, a], scale: [0.035, 0.012, 0.01] });
-  }
-}
-
-/** Teller window panel with bars. */
-function addTellerWindow(b: PartBuilder, u: number, z: number, dir: number): void {
-  b.add(G.rbox(1.5, 1.1, 0.05, 0.03), { color: '#3E8F80', pos: [u, 1.55, z + dir * 0.02] });
-  b.add(G.box(), { color: '#BFE3F2', pos: [u, 1.6, z + dir * 0.048], scale: [1.25, 0.8, 0.01], emissive: 0.25 });
-  for (let i = 0; i < 7; i++) {
-    b.add(G.cyl(1, 1, 6), { color: PAL.gold, pos: [u - 0.54 + i * 0.18, 1.6, z + dir * 0.06], scale: [0.014, 0.8, 0.014] });
-  }
-  b.add(G.rbox(1.7, 0.08, 0.12, 0.03), { color: PAL.gold, pos: [u, 1.0, z + dir * 0.06] });
-  // Little bell.
-  b.add(G.dome(10, 6), { color: PAL.goldLight, pos: [u + 0.45, 1.04, z + dir * 0.07], scale: 0.045, emissive: 0.2 });
-}
+/** Where the portrait canvases and wanted posters go (wall index, u, y, which face). */
+const ART_SPOTS: { wall: number; u: number; y: number; w: number; h: number; kind: 'portrait' | 'poster'; inside: boolean }[] = [
+  { wall: 4, u: 0, y: 1.95, w: 1.3, h: 1.0, kind: 'portrait', inside: true },
+  { wall: 5, u: 0, y: 1.55, w: 0.5, h: 0.62, kind: 'poster', inside: false },
+  { wall: 4, u: 0.15, y: 1.5, w: 0.5, h: 0.62, kind: 'poster', inside: false },
+];
 
 function buildWall(index: number, f: WallFrame): THREE.BufferGeometry {
   const b = new PartBuilder();
@@ -273,32 +273,61 @@ function buildWall(index: number, f: WallFrame): THREE.BufferGeometry {
     addSconce(b, ue - end * 0.62, 2.72, zIn - 0.02, -1);
   }
 
-  // Interior decor, wall-mounted only (nothing on the floor).
+  // Interior decor, wall-mounted only (nothing on the floor). Every wall is dressed: the
+  // banks rotate in play, so any of them can become the dollhouse's back wall.
   const dir = -1; // interior faces -z in the wall frame
   const zi = zIn - 0.005;
-  // Layout per BANK_MODEL.walls index: 0/1 front (window + door leaf), 2/3 back (vault door,
-  // teller window), 4/5 sides (two windows; decor between them).
   switch (index) {
-    case 2: // back-left: big round vault door
-      addVaultDoor(b, uc + 0.12, 1.42, zi, dir);
+    case 0:
+    case 1: {
+      // Door walls (front): hanging planter + CCTV in the outer corner.
+      const outer = f.doorEnds.includes(1) ? u0 : u1;
+      const inward = f.doorEnds.includes(1) ? 1 : -1;
+      addHangingPlanter(b, outer + inward * 0.24, 1.9, zi, index * 1.7);
+      addCctv(b, outer + inward * 0.18, 2.86, zi, inward * 0.5);
       break;
-    case 3: // back-right: teller window + clock
-      addTellerWindow(b, uc - 0.05, zi, dir);
-      addClock(b, uc - 0.05, 2.58, zi, dir);
+    }
+    case 2: {
+      // Back-left: the big round vault door with the clock above it.
+      addVaultDoor(b, uc + 0.12, 1.62, zi);
+      addClock(b, uc + 0.12, 2.76, zi);
+      const outer = f.doorEnds.includes(1) ? u0 : u1;
+      const inward = f.doorEnds.includes(1) ? 1 : -1;
+      addCctv(b, outer + inward * 0.18, 2.86, zi, inward * 0.5);
       break;
-    case 4: // west side: painting + sconces
-      addFrame(b, 0, 1.95, zi, dir, 1.35, 0.95, '#FFE9C9', PAL.gold);
-      addSconce(b, -2.3, 2.1, zi, dir);
-      addSconce(b, 2.3, 2.1, zi, dir);
+    }
+    case 3: {
+      // Back-right: teller station (counter ledge + service bell above head height).
+      addTellerStation(b, uc - 0.05, zi);
+      const outer = f.doorEnds.includes(1) ? u0 : u1;
+      const inward = f.doorEnds.includes(1) ? 1 : -1;
+      addHangingPlanter(b, outer + inward * 0.22, 2.0, zi, 4.2);
       break;
-    case 5: // east side: clock + two small frames
-      addClock(b, 0, 2.25, zi, dir);
-      addFrame(b, -2.2, 1.85, zi, dir, 0.42, 0.6, '#D8C8F0', '#FFFFFF');
-      addFrame(b, 2.2, 1.85, zi, dir, 0.42, 0.6, '#C9EBDD', '#FFD45C');
+    }
+    case 4: {
+      // West side: cat-banker portrait (canvas quad in the art mesh), gold + bag niches.
+      addPortraitFrame(b, 0, 1.95, zi, 1.3, 1.0);
+      addNiche(b, -2.18, 1.78, zi, 0.5, 'gold');
+      addNiche(b, 2.18, 1.78, zi, 0.5, 'bags');
+      addInteriorSconce(b, -2.18, 2.5, zi);
+      addInteriorSconce(b, 2.18, 2.5, zi);
       break;
+    }
+    case 5: {
+      // East side: safety-deposit wall between the windows, coin + gold niches.
+      addDepositBoxes(b, 0, 1.86, zi);
+      addNiche(b, -2.18, 1.78, zi, 0.5, 'coins');
+      addNiche(b, 2.18, 1.78, zi, 0.5, 'gold');
+      addInteriorSconce(b, -2.18, 2.5, zi);
+      addInteriorSconce(b, 2.18, 2.5, zi);
+      addCctv(b, 0, 2.86, zi, 0);
+      break;
+    }
     default:
       break;
   }
+  // Exterior: wanted-poster backings (the posters themselves are in the art mesh).
+  for (const a of ART_SPOTS) if (a.wall === index && !a.inside) addPosterBacking(b, a.u, a.y, zOut + 0.005, 1);
   b.pop();
   return b.merge('vc')!;
 }
@@ -372,7 +401,7 @@ function stripGeometry(cx: number, cz: number, len: number, width: number, along
 }
 
 // ---------------------------------------------------------------------------
-// Roof + sign
+// Roof (glass pyramid skylight) + sign boom + alarm
 // ---------------------------------------------------------------------------
 
 function triangleShape(w: number, h: number): THREE.Shape {
@@ -384,71 +413,135 @@ function triangleShape(w: number, h: number): THREE.Shape {
   return s;
 }
 
+/** Skylight pyramid: base rectangle (inset) and apex height. */
+const SKY = { hx: HX - 0.42, hz: HZ - 0.42, base: H + 0.26, apex: H + 1.05 } as const;
+
 function buildRoof(): THREE.BufferGeometry {
   const b = new PartBuilder();
   const top = BANK_MODEL.roofHeight;
-  // Eave slab with gold trim.
-  b.add(G.rbox(HX * 2 + 0.3, 0.24, HZ * 2 + 0.3, 0.06), { color: PAL.plasterShade, pos: [0, H + 0.12, 0] });
-  b.add(G.rbox(HX * 2 + 0.36, 0.06, HZ * 2 + 0.36, 0.03), { color: PAL.bankTrim, pos: [0, H + 0.03, 0] });
-  // Roof surface.
-  b.add(G.rbox(HX * 2 - 0.2, top - H - 0.1, HZ * 2 - 0.2, 0.06), { color: PAL.bankRoof, pos: [0, (H + top) / 2 + 0.05, 0] });
+  // Eave frame: a ring of four strips (the middle is the glass skylight).
+  const ew = 0.5;
+  const eh = 0.24;
+  const ey = H + 0.12;
+  b.add(G.rbox(HX * 2 + 0.3, eh, ew, 0.05), { color: PAL.plasterShade, pos: [0, ey, HZ + 0.15 - ew / 2] });
+  b.add(G.rbox(HX * 2 + 0.3, eh, ew, 0.05), { color: PAL.plasterShade, pos: [0, ey, -HZ - 0.15 + ew / 2] });
+  b.add(G.rbox(ew, eh, HZ * 2 + 0.3 - 2 * ew + 0.02, 0.05), { color: PAL.plasterShade, pos: [HX + 0.15 - ew / 2, ey, 0] });
+  b.add(G.rbox(ew, eh, HZ * 2 + 0.3 - 2 * ew + 0.02, 0.05), { color: PAL.plasterShade, pos: [-HX - 0.15 + ew / 2, ey, 0] });
+  // Gold trim under the eave.
+  for (const sz of [-1, 1]) b.add(G.box(), { color: PAL.bankTrim, pos: [0, H + 0.03, sz * (HZ + 0.17)], scale: [HX * 2 + 0.36, 0.06, 0.04], emissive: 0.05 });
+  for (const sx of [-1, 1]) b.add(G.box(), { color: PAL.bankTrim, pos: [sx * (HX + 0.17), H + 0.03, 0], scale: [0.04, 0.06, HZ * 2 + 0.36], emissive: 0.05 });
   // Parapet ring.
   const pH = 0.3;
-  const py = top + pH / 2 - 0.05;
-  b.add(G.rbox(HX * 2 + 0.1, pH, 0.3, 0.06), { color: PAL.bankRoofDark, pos: [0, py, HZ - 0.0] });
-  b.add(G.rbox(HX * 2 + 0.1, pH, 0.3, 0.06), { color: PAL.bankRoofDark, pos: [0, py, -HZ + 0.0] });
+  const py = top + pH / 2 - 0.12;
+  b.add(G.rbox(HX * 2 + 0.1, pH, 0.3, 0.06), { color: PAL.bankRoofDark, pos: [0, py, HZ] });
+  b.add(G.rbox(HX * 2 + 0.1, pH, 0.3, 0.06), { color: PAL.bankRoofDark, pos: [0, py, -HZ] });
   b.add(G.rbox(0.3, pH, HZ * 2 - 0.2, 0.06), { color: PAL.bankRoofDark, pos: [HX, py, 0] });
   b.add(G.rbox(0.3, pH, HZ * 2 - 0.2, 0.06), { color: PAL.bankRoofDark, pos: [-HX, py, 0] });
-  // Gold balls on the parapet corners.
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-    b.add(G.sphere(12, 8), { color: PAL.gold, pos: [sx * HX, top + 0.2, sz * HZ], scale: 0.17, emissive: 0.1 });
+    b.add(G.sphere(12, 8), { color: PAL.gold, pos: [sx * HX, top + 0.1, sz * HZ], scale: 0.17, emissive: 0.12 });
+  }
+  // Skylight frame: base ring, hip rafters, mid purlins (teal + gold), apex finial.
+  const base = SKY.base;
+  const corners: [number, number][] = [
+    [SKY.hx, SKY.hz],
+    [-SKY.hx, SKY.hz],
+    [-SKY.hx, -SKY.hz],
+    [SKY.hx, -SKY.hz],
+  ];
+  const beam = (a: THREE.Vector3, c: THREE.Vector3, w: number, color: string, em = 0): void => {
+    const d = c.clone().sub(a);
+    const len = d.length();
+    const mid = a.clone().add(c).multiplyScalar(0.5);
+    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
+    const e = new THREE.Euler().setFromQuaternion(q);
+    b.add(G.cyl(1, 1, 8), { color, pos: [mid.x, mid.y, mid.z], rot: [e.x, e.y, e.z], scale: [w, len, w], emissive: em });
+  };
+  const apex = new THREE.Vector3(0, SKY.apex, 0);
+  // A light skeleton only (base ring + four slim hip rafters): the cutaway must keep every
+  // interior safe readable from the game camera, and from 55° the apex projects ~3 m north of
+  // the center — right over a back safe when the bank is turned — so no hub, purlins or
+  // finial there.
+  for (let i = 0; i < 4; i++) {
+    const [x0, z0] = corners[i]!;
+    const [x1, z1] = corners[(i + 1) % 4]!;
+    const a = new THREE.Vector3(x0, base, z0);
+    const c = new THREE.Vector3(x1, base, z1);
+    beam(a, c, 0.06, PAL.bankRoofDark);
+    beam(a, apex, 0.026, PAL.goldLight, 0.06);
+  }
+  b.add(G.sphere(10, 6), { color: PAL.gold, pos: [0, SKY.apex + 0.02, 0], scale: 0.05, emissive: 0.2 });
+  // Ceiling lamps: four little pendant lanterns hung from the rafters, off the safe line
+  // (safes sit on local z = 0) so their projection never lands on a safe at any bank angle.
+  for (const [sx, sz] of corners) {
+    const f = 0.5;
+    const lx = sx * (1 - f);
+    const lz = sz * (1 - f);
+    const top = base + (SKY.apex - base) * f;
+    addPendantLamp(b, lx, top, lz);
   }
   // Pediments over both doors with a coin medallion.
   for (const d of BANK_MODEL.doors) {
     const zf = d.center.y + d.normal.y * 0.12;
-    b.push([0, top - 0.05, zf], [0, d.normal.y > 0 ? 0 : Math.PI, 0]);
+    b.push([0, top - 0.15, zf], [0, d.normal.y > 0 ? 0 : Math.PI, 0]);
     b.add(new THREE.ExtrudeGeometry(triangleShape(4.2, 1.05), { depth: 0.3, bevelEnabled: true, bevelSize: 0.04, bevelThickness: 0.04, bevelSegments: 1 }).translate(0, 0, -0.15), {
       color: PAL.plaster,
     });
     b.add(new THREE.ExtrudeGeometry(triangleShape(4.5, 1.2), { depth: 0.12, bevelEnabled: false }).translate(0, -0.06, -0.2), { color: PAL.bankTrim });
     b.add(G.cyl(1, 1, 22), { color: PAL.goldDark, pos: [0, 0.42, 0.17], rot: [Math.PI / 2, 0, 0], scale: [0.3, 0.06, 0.3] });
-    b.add(G.cyl(1, 1, 22), { color: PAL.gold, pos: [0, 0.42, 0.2], rot: [Math.PI / 2, 0, 0], scale: [0.25, 0.04, 0.25], emissive: 0.12 });
+    b.add(G.cyl(1, 1, 22), { color: PAL.gold, pos: [0, 0.42, 0.2], rot: [Math.PI / 2, 0, 0], scale: [0.25, 0.04, 0.25], emissive: 0.15 });
     b.add(G.star(5, 0.45, 0.3), { color: PAL.goldLight, pos: [0, 0.42, 0.225], scale: 0.14, emissive: 0.2 });
     b.pop();
-  }
-  // Turntable base for the swivelling sign.
-  b.add(G.cyl(1, 1.15, 20), { color: PAL.goldDark, pos: [0, top + 0.06, 0.2], scale: [0.42, 0.12, 0.42] });
-  b.add(G.cyl(1, 1, 20), { color: PAL.gold, pos: [0, top + 0.13, 0.2], scale: [0.3, 0.04, 0.3], emissive: 0.1 });
-  // Roof vents.
-  for (const [x, z] of [
-    [-2.6, -1.6],
-    [2.7, -1.5],
-  ]) {
-    b.add(G.cyl(1, 1, 12), { color: PAL.steel, pos: [x, top + 0.15, z], scale: [0.22, 0.3, 0.22] });
-    b.add(G.cone(12), { color: PAL.steelDark, pos: [x, top + 0.42, z], scale: [0.3, 0.2, 0.3] });
   }
   return b.merge('vc')!;
 }
 
+/** The four glass faces of the skylight (uv = face-local, for the sheen sweep). */
+function buildGlass(): THREE.BufferGeometry {
+  const pos: number[] = [];
+  const uv: number[] = [];
+  const corners: [number, number][] = [
+    [SKY.hx, SKY.hz],
+    [-SKY.hx, SKY.hz],
+    [-SKY.hx, -SKY.hz],
+    [SKY.hx, -SKY.hz],
+  ];
+  for (let i = 0; i < 4; i++) {
+    const [x0, z0] = corners[i]!;
+    const [x1, z1] = corners[(i + 1) % 4]!;
+    pos.push(x0, SKY.base, z0, x1, SKY.base, z1, 0, SKY.apex, 0);
+    uv.push(0, 0, 1, 0, 0.5, 1);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.computeVertexNormals();
+  return g;
+}
+
 const SIGN_W = 3.3;
 const SIGN_H = 1.45;
-const SIGN_POST = 0.45;
+const SIGN_POST = 0.62;
 const SIGN_TILT = -0.22; // lean back toward the high camera
 
 function buildSignFrame(): THREE.BufferGeometry {
   const b = new PartBuilder();
-  // Central post on a turntable (the sign swivels to face the camera, see update()).
-  b.add(G.cyl(1, 1, 12), { color: PAL.goldDark, pos: [0, SIGN_POST / 2, 0], scale: [0.11, SIGN_POST + 0.1, 0.11] });
-  b.add(G.rbox(SIGN_W * 0.7, 0.1, 0.12, 0.04), { color: PAL.goldDark, pos: [0, SIGN_POST - 0.02, 0] });
+  // Little base on the eave + two legs (the sign rides a boom on the far side of the roof).
+  b.add(G.rbox(SIGN_W * 0.78, 0.1, 0.4, 0.04), { color: PAL.goldDark, pos: [0, 0.05, 0] });
   for (const s of [-1, 1]) {
-    b.add(G.cyl(1, 1, 8), { color: PAL.goldDark, pos: [s * SIGN_W * 0.3, SIGN_POST - 0.08, 0], scale: [0.045, 0.16, 0.045] });
+    b.add(G.cyl(1, 1, 10), { color: PAL.goldDark, pos: [s * SIGN_W * 0.3, SIGN_POST / 2, 0], scale: [0.06, SIGN_POST, 0.06] });
+    b.add(G.cyl(1, 1, 8), { color: PAL.gold, pos: [s * SIGN_W * 0.3, SIGN_POST * 0.35, 0.12], rot: [0.7, 0, 0], scale: [0.025, 0.4, 0.025] });
   }
-  b.add(G.rbox(SIGN_W + 0.16, SIGN_H + 0.16, 0.14, 0.07), { color: PAL.gold, pos: [0, SIGN_POST + SIGN_H / 2, 0], emissive: 0.08 });
-  // Little bulbs along the top edge (marquee charm).
+  b.add(G.rbox(SIGN_W * 0.7, 0.1, 0.12, 0.04), { color: PAL.goldDark, pos: [0, SIGN_POST - 0.02, 0] });
+  b.add(G.rbox(SIGN_W + 0.16, SIGN_H + 0.16, 0.14, 0.07), { color: PAL.gold, pos: [0, SIGN_POST + SIGN_H / 2, 0], emissive: 0.1 });
+  // Marquee bulbs along the top edge.
   for (let i = 0; i < 9; i++) {
     const x = -SIGN_W / 2 + 0.15 + (i * (SIGN_W - 0.3)) / 8;
-    b.add(G.sphere(8, 6), { color: '#FFF1C2', pos: [x, SIGN_POST + SIGN_H + 0.1, 0], scale: 0.06, emissive: 1.1 });
+    b.add(G.sphere(8, 6), { color: '#FFF1C2', pos: [x, SIGN_POST + SIGN_H + 0.1, 0], scale: 0.07, emissive: 1.8 });
   }
+  // Alarm beacon housing on top (the dome + light fans are separate, animated).
+  b.add(G.cyl(1, 1.1, 16), { color: PAL.steelDark, pos: [0, SIGN_POST + SIGN_H + 0.2, 0], scale: [0.24, 0.12, 0.24] });
+  // Bell brackets at both top corners.
+  for (const s of [-1, 1]) b.add(G.rbox(0.3, 0.05, 0.05, 0.02), { color: PAL.goldDark, pos: [s * (SIGN_W / 2 + 0.12), SIGN_POST + SIGN_H + 0.02, 0] });
   return b.merge('vc')!;
 }
 
@@ -459,6 +552,61 @@ function buildSignBoard(): THREE.BufferGeometry {
   b.add(front, { color: '#FFFFFF' });
   b.add(back, { color: '#FFFFFF' });
   return b.merge('board')!;
+}
+
+/** Red alarm dome (emissive driven per rig) + a bell (pivot at its top). */
+function buildBeaconDome(): THREE.BufferGeometry {
+  const b = new PartBuilder();
+  b.add(G.dome(18, 10), { color: '#FF4D5E', scale: [0.2, 0.26, 0.2], emissive: 0.3 });
+  b.add(G.sphere(8, 6), { color: '#FFFFFF', pos: [0.06, 0.15, 0.08], scale: 0.035, emissive: 0.8 });
+  return b.merge('vc')!;
+}
+
+function buildBell(): THREE.BufferGeometry {
+  const b = new PartBuilder();
+  b.add(G.cyl(1, 1, 6), { color: PAL.goldDark, pos: [0, -0.06, 0], scale: [0.015, 0.12, 0.015] });
+  b.add(G.dome(18, 8), { color: '#E8505B', pos: [0, -0.32, 0], scale: [0.2, 0.2, 0.2] });
+  b.add(G.cyl(1, 1.15, 18, true), { color: '#E8505B', pos: [0, -0.36, 0], scale: [0.2, 0.08, 0.2] });
+  b.add(G.torus(0.12, 6, 18), { color: PAL.gold, pos: [0, -0.4, 0], rot: [Math.PI / 2, 0, 0], scale: 0.21 });
+  b.add(G.sphere(10, 8), { color: PAL.goldDark, pos: [0, -0.45, 0], scale: 0.05 });
+  b.add(G.sphere(8, 6), { color: '#FFFFFF', pos: [0.08, -0.22, 0.1], scale: 0.03, emissive: 0.6 });
+  return b.merge('vc')!;
+}
+
+/** Portraits (inside) and wanted posters (outside) as textured quads in wall frames. */
+function buildArt(kind: 'portrait' | 'poster'): THREE.BufferGeometry | null {
+  const frames = wallFrames();
+  const b = new PartBuilder('art');
+  for (const a of ART_SPOTS) {
+    if (a.kind !== kind) continue;
+    const f = frames[a.wall]!;
+    b.push([f.cx, 0, f.cz], [0, f.yaw, 0]);
+    if (a.inside) b.add(G.plane(), { color: '#FFFFFF', pos: [a.u, a.y, -T / 2 - 0.071], rot: [0, Math.PI, 0], scale: [a.w, a.h, 1] });
+    else b.add(G.plane(), { color: '#FFFFFF', pos: [a.u, a.y, T / 2 + 0.042], rot: [0, 0, (a.u > 0 ? -1 : 1) * 0.06], scale: [a.w, a.h, 1] });
+    b.pop();
+  }
+  return b.merge('art');
+}
+
+/** Security lasers criss-crossing the interior above head height. */
+function buildLasers(): THREE.BufferGeometry {
+  const b = new PartBuilder('laser');
+  const xs = BANK_MODEL.floorHalf.x;
+  const lines: [number, number, number, number, number][] = [
+    // x0, z0, x1, z1, y
+    [-xs, -1.9, xs, 1.2, 1.5],
+    [-xs, 1.6, xs, -1.4, 1.75],
+    [-xs, -0.6, xs, 2.0, 2.1],
+    [-xs, 2.1, xs, -2.1, 2.35],
+    [-xs, -2.2, xs, 0.4, 1.95],
+  ];
+  for (const [x0, z0, x1, z1, y] of lines) {
+    const len = Math.hypot(x1 - x0, z1 - z0);
+    const yaw = -Math.atan2(z1 - z0, x1 - x0);
+    b.add(G.box(), { color: '#FF3B4E', pos: [(x0 + x1) / 2, y, (z0 + z1) / 2], rot: [0, yaw, 0], scale: [len, 0.03, 0.03] });
+    b.add(G.box(), { color: '#FF8A94', pos: [(x0 + x1) / 2, y, (z0 + z1) / 2], rot: [0, yaw, 0], scale: [len, 0.012, 0.012] });
+  }
+  return b.merge('laser')!;
 }
 
 // ---------------------------------------------------------------------------
@@ -719,8 +867,16 @@ interface BankGeo {
   walls: THREE.BufferGeometry[];
   headers: THREE.BufferGeometry[];
   roof: THREE.BufferGeometry;
+  glass: THREE.BufferGeometry;
   signFrame: THREE.BufferGeometry;
   signBoard: THREE.BufferGeometry;
+  beacon: THREE.BufferGeometry;
+  bell: THREE.BufferGeometry;
+  fan: THREE.BufferGeometry;
+  portraits: THREE.BufferGeometry | null;
+  posters: THREE.BufferGeometry | null;
+  lasers: THREE.BufferGeometry;
+  pool: THREE.BufferGeometry;
   rootsAttached: THREE.BufferGeometry;
   rootsSnapped: THREE.BufferGeometry;
   sparks: THREE.BufferGeometry;
@@ -743,6 +899,8 @@ function getBankGeo(): BankGeo {
   ];
   const db = new PartBuilder('dash');
   for (const g of dashParts) db.add(g, { color: '#FFFFFF' });
+  // Beacon light fan: an open cone lying along +x (apex at the dome).
+  const fan = new THREE.ConeGeometry(0.32, 1.5, 16, 1, true).rotateZ(Math.PI / 2).translate(0.75, 0, 0);
   bankGeo = {
     slab: buildSlab(),
     floor: new THREE.PlaneGeometry(HX * 2, HZ * 2).rotateX(-Math.PI / 2).translate(0, BANK_FLOOR_Y + 0.002, 0),
@@ -750,8 +908,16 @@ function getBankGeo(): BankGeo {
     walls: frames.map((f, i) => buildWall(i, f)),
     headers: [buildHeader(0), buildHeader(1)],
     roof: buildRoof(),
+    glass: buildGlass(),
     signFrame: buildSignFrame(),
     signBoard: buildSignBoard(),
+    beacon: buildBeaconDome(),
+    bell: buildBell(),
+    fan,
+    portraits: buildArt('portrait'),
+    posters: buildArt('poster'),
+    lasers: buildLasers(),
+    pool: new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
     rootsAttached: buildRoots(false),
     rootsSnapped: buildRoots(true),
     sparks: buildSparks(),
@@ -763,74 +929,224 @@ function getBankGeo(): BankGeo {
 // Rig
 // ---------------------------------------------------------------------------
 
+function glassMaterial(cut: CutPlaneUniform): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: { uTime: SHARED_UNIFORMS.uTime, uOpacity: { value: 1 }, uCutPlane: cut },
+    vertexShader: /* glsl */ `
+      varying vec2 vUv;
+      varying vec3 vLocal;
+      varying vec3 vN;
+      varying vec3 vView;
+      void main() {
+        vUv = uv;
+        vLocal = position;
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vView = -mv.xyz;
+        vN = normalize(normalMatrix * normal);
+        gl_Position = projectionMatrix * mv;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform float uTime;
+      uniform float uOpacity;
+      uniform vec4 uCutPlane;
+      varying vec2 vUv;
+      varying vec3 vLocal;
+      varying vec3 vN;
+      varying vec3 vView;
+      void main() {
+        if (dot(vLocal, uCutPlane.xyz) > uCutPlane.w) discard;
+        float fres = pow(1.0 - abs(dot(normalize(vN), normalize(vView))), 2.0);
+        float s = vUv.x * 0.8 + vUv.y * 0.6 - fract(uTime * 0.11) * 2.6;
+        float band = smoothstep(0.1, 0.0, abs(s - 0.4)) + 0.6 * smoothstep(0.04, 0.0, abs(s - 0.58));
+        vec3 col = mix(vec3(0.74, 0.92, 1.0), vec3(1.0), clamp(band, 0.0, 1.0));
+        float a = (0.12 + 0.22 * fres + 0.42 * band) * uOpacity;
+        gl_FragColor = vec4(col, a);
+      }
+    `,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+}
+
+function laserMaterial(cut: CutPlaneUniform): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: { uOpacity: { value: 0 }, uCutPlane: cut },
+    vertexShader: /* glsl */ `
+      varying vec3 vLocal;
+      varying vec3 vColor;
+      void main() {
+        vLocal = position;
+        vColor = color;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform float uOpacity;
+      uniform vec4 uCutPlane;
+      varying vec3 vLocal;
+      varying vec3 vColor;
+      void main() {
+        if (dot(vLocal, uCutPlane.xyz) > uCutPlane.w + 0.6) discard;
+        gl_FragColor = vec4(vColor * 1.6 * uOpacity, 1.0);
+      }
+    `,
+    vertexColors: true,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+}
+
 export function createBank(): BankRig {
   const geo = getBankGeo();
   const root = new THREE.Group();
   root.name = 'bank';
   const body = new THREE.Group();
   root.add(body);
+  const cutPlane = createCutPlane();
+  const cutDepth = createCutDepthMaterial(cutPlane);
+  const cutOpts = { cutPlane, cutCap: BANK_INTERIOR_COLORS.cutCap, cutEdge: BANK_INTERIOR_COLORS.cutEdge };
+  const owned: THREE.Material[] = [cutDepth];
 
-  const mesh = (g: THREE.BufferGeometry, m: THREE.Material, name: string, parent: THREE.Object3D, shadow = true): THREE.Mesh => {
+  const mesh = (g: THREE.BufferGeometry, m: THREE.Material, name: string, parent: THREE.Object3D, shadow = true, cut = false): THREE.Mesh => {
     const me = new THREE.Mesh(g, m);
     me.name = `bank:${name}`;
     me.castShadow = shadow;
     me.receiveShadow = true;
+    if (cut) me.customDepthMaterial = cutDepth;
     parent.add(me);
     return me;
   };
+  const own = <M extends THREE.Material>(m: M): M => {
+    owned.push(m);
+    return m;
+  };
 
   mesh(geo.slab, matVC(), 'slab', body);
-  const floor = mesh(
-    geo.floor,
-    createToonMaterial({ map: bankFloorTexture(), rim: 0, polygonOffset: -1 }),
-    'floor',
-    body,
-    false,
-  );
+  const floor = mesh(geo.floor, own(createToonMaterial({ map: bankCarpetTexture(), rim: 0, polygonOffset: -1 })), 'floor', body, false);
   floor.userData.noOutline = true;
-  const dashes = mesh(geo.dashes, createToonMaterial({ map: dashedLineTexture(), alphaTest: 0.4, rim: 0, polygonOffset: -2, emissive: '#3A2E10', emissiveIntensity: 1 }), 'dashes', body, false);
+  const dashes = mesh(geo.dashes, own(createToonMaterial({ map: dashedLineTexture(), alphaTest: 0.4, rim: 0, polygonOffset: -2, emissive: '#3A2E10', emissiveIntensity: 1 })), 'dashes', body, false);
   dashes.userData.noOutline = true;
 
-  const wallMats = geo.walls.map(() => createToonMaterial({ vertexColors: true, fx: true }));
+  const wallMats = geo.walls.map(() => own(createToonMaterial({ vertexColors: true, fx: true, ...cutOpts })));
   const walls = geo.walls.map((g, i) => {
     const grp = new THREE.Group();
     grp.name = `bank:wall${i}`;
-    mesh(g, wallMats[i], `wall${i}`, grp);
+    mesh(g, wallMats[i]!, `wall${i}`, grp, true, true);
     body.add(grp);
     return grp;
   });
-  const headerMats = geo.headers.map(() => createToonMaterial({ vertexColors: true, fx: true }));
-  const headers = geo.headers.map((g, i) => mesh(g, headerMats[i], `header${i}`, body));
+  const headerMats = geo.headers.map(() => own(createToonMaterial({ vertexColors: true, fx: true, ...cutOpts })));
+  const headers = geo.headers.map((g, i) => mesh(g, headerMats[i]!, `header${i}`, body, true, true));
+
+  // Portraits (inside) + wanted posters (outside): textured quads, cut with the walls.
+  const artMats: THREE.MeshToonMaterial[] = [];
+  for (const [g, tex, name] of [
+    [geo.portraits, catPortraitTexture(), 'portraits'],
+    [geo.posters, wantedPosterTexture(), 'posters'],
+  ] as const) {
+    if (!g) continue;
+    const m = own(createToonMaterial({ map: tex, rim: 0.1, polygonOffset: -2, cutPlane }));
+    m.emissiveMap = tex;
+    m.emissive.set('#FFFFFF');
+    m.emissiveIntensity = name === 'portraits' ? 0.22 : 0.08;
+    artMats.push(m);
+    const am = mesh(g, m, name, body, false);
+    am.userData.noOutline = true;
+  }
+
+  const laserMat = own(laserMaterial(cutPlane));
+  const lasers = mesh(geo.lasers, laserMat, 'lasers', body, false);
+  lasers.userData.noOutline = true;
+  lasers.visible = false;
+  lasers.renderOrder = 4;
 
   const roof = new THREE.Group();
   roof.name = 'bank:roof';
   body.add(roof);
-  const roofMat = createToonMaterial({ vertexColors: true, fx: true });
-  mesh(geo.roof, roofMat, 'roofBody', roof);
-  // Sign chain: pivot (position) -> yaw (swivels to face the fixed camera) -> wobble
-  // (spring) -> tilt (leans back toward the high camera).
+  const roofMat = own(createToonMaterial({ vertexColors: true, fx: true, ...cutOpts }));
+  mesh(geo.roof, roofMat, 'roofBody', roof, true, true);
+  const glassMat = own(glassMaterial(cutPlane));
+  const glass = mesh(geo.glass, glassMat, 'glass', roof, false);
+  glass.userData.noOutline = true;
+  glass.renderOrder = 3;
+
+  // Sign chain: pivot (eave height) -> yaw (faces the camera) -> back (boom to the far side of
+  // the roof, so the sign never hides the interior) -> wobble (spring) -> tilt (leans back).
   const signPivot = new THREE.Group();
-  signPivot.position.set(0, BANK_MODEL.roofHeight + 0.12, 0.2);
+  signPivot.position.set(0, H + 0.24, 0);
   roof.add(signPivot);
   const signYaw = new THREE.Group();
   signPivot.add(signYaw);
+  const signBack = new THREE.Group();
+  signYaw.add(signBack);
   const signWobble = new THREE.Group();
-  signYaw.add(signWobble);
+  signBack.add(signWobble);
   const signTilt = new THREE.Group();
   signTilt.rotation.x = SIGN_TILT;
   signWobble.add(signTilt);
-  const signFrameMat = createToonMaterial({ vertexColors: true, fx: true });
-  mesh(geo.signFrame, signFrameMat, 'signFrame', signTilt);
-  const signBoardMat = createToonMaterial({ map: bankSignTexture(), rim: 0.15, emissive: '#FFFFFF', emissiveIntensity: 0.0 });
-  // Mild self-illumination so the sign stays readable at dusk.
+  const signFrameMat = own(createToonMaterial({ vertexColors: true, fx: true }));
+  const signFrame = mesh(geo.signFrame, signFrameMat, 'signFrame', signTilt);
+  signFrame.userData.noOutline = true;
+  const signBoardMat = own(createToonMaterial({ map: bankSignTexture(), rim: 0.15, emissive: '#FFFFFF', emissiveIntensity: 0.0 }));
   signBoardMat.emissiveMap = bankSignTexture();
   signBoardMat.emissive.set('#FFFFFF');
-  signBoardMat.emissiveIntensity = 0.28;
+  signBoardMat.emissiveIntensity = 0.32;
   const board = mesh(geo.signBoard, signBoardMat, 'signBoard', signTilt);
   board.userData.noOutline = true;
-  // Remember the render camera so the sign can swivel toward it (results / title shots aim
-  // the camera from other directions than the match camera).
   trackViewCamera(board);
+
+  // Alarm: beacon dome + two light fans on top of the sign, bells on its corners.
+  const beaconMat = own(createToonMaterial({ vertexColors: true, fx: true, rim: 0.6 }));
+  const beacon = mesh(geo.beacon, beaconMat, 'beacon', signTilt, false);
+  beacon.position.set(0, SIGN_POST + SIGN_H + 0.26, 0);
+  beacon.userData.noOutline = true;
+  const fanMat = own(new THREE.MeshBasicMaterial({ color: '#FF3B4E', transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, toneMapped: false }));
+  const fans = new THREE.Group();
+  fans.position.copy(beacon.position).add(new THREE.Vector3(0, 0.12, 0));
+  for (const a of [0, Math.PI]) {
+    const f = mesh(geo.fan, fanMat, 'fan', fans, false);
+    f.rotation.y = a;
+    f.userData.noOutline = true;
+    f.renderOrder = 5;
+  }
+  fans.visible = false;
+  signTilt.add(fans);
+  const bells: THREE.Object3D[] = [];
+  for (const s of [-1, 1]) {
+    const piv = new THREE.Group();
+    piv.position.set(s * (SIGN_W / 2 + 0.22), SIGN_POST + SIGN_H + 0.02, 0);
+    const bm = mesh(geo.bell, matVC(), 'bell', piv);
+    bm.userData.noOutline = true;
+    signTilt.add(piv);
+    bells.push(piv);
+  }
+  // Red light pool + two sweeping beams on the ground while the alarm rings.
+  const alarmGround = new THREE.Group();
+  alarmGround.name = 'bank:alarmGround';
+  alarmGround.position.y = 0.04;
+  alarmGround.visible = false;
+  const poolMat = own(new THREE.MeshBasicMaterial({ map: radialGlowTexture(), color: '#FF2238', transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }));
+  const pool = mesh(geo.pool, poolMat, 'alarmPool', alarmGround, false);
+  pool.scale.set(11, 1, 9.5);
+  pool.userData.noOutline = true;
+  pool.renderOrder = 2;
+  // Short, faint sweeps: a readable "rotating light" cue near the building without washing a
+  // pink band across the play area for the whole (long) alarm phase.
+  const sweepMat = own(poolMat.clone());
+  const sweep = new THREE.Group();
+  for (const a of [0, Math.PI]) {
+    const beam = mesh(geo.pool, sweepMat, 'alarmSweep', sweep, false);
+    beam.scale.set(7.5, 1, 1.5);
+    beam.position.set(Math.cos(a) * 4.6, 0.005, -Math.sin(a) * 4.6);
+    beam.rotation.y = a;
+    beam.userData.noOutline = true;
+    beam.renderOrder = 2;
+  }
+  alarmGround.add(sweep);
+  root.add(alarmGround);
 
   const rootsAttached = mesh(geo.rootsAttached, matVC(), 'rootsAttached', body);
   rootsAttached.userData.noOutline = true;
@@ -845,19 +1161,30 @@ export function createBank(): BankRig {
   labelAnchor.position.y = BANK_LABEL_HEIGHT;
   root.add(labelAnchor);
 
-  // Silhouette-only outline: hulls slide back behind the building's own surface (outline.ts).
-  const highlighter = new Highlighter(body, { pushMax: 1.6, pushSlope: 0.75 });
+  // Silhouette-only outline: hulls slide back behind the building's own surface (outline.ts);
+  // they follow the cutaway too.
+  const highlighter = new Highlighter(body, { pushMax: 1.6, pushSlope: 0.75, cutPlane });
 
   // --- state -----------------------------------------------------------------------
   const wallAlpha = [1, 1, 1, 1, 1, 1];
+  const wallOpenAmt = [0, 0, 0, 0, 0, 0];
+  const wallNormals = BANK_MODEL.walls.map((w) => {
+    const alongX = w.half.x > w.half.y;
+    return alongX ? { x: 0, z: Math.sign(w.center.y) } : { x: Math.sign(w.center.x), z: 0 };
+  });
   let roofAlpha = 1;
   let uprooted = false;
   let strain = 0;
+  let lift = 0;
   let time = 0;
-  let pop = 0;
-  const POP_TIME = 0.6;
-  // Sign spring (pitch about x, roll about z).
-  const sp = { ax: 0, az: 0, vx: 0, vz: 0 };
+  let popAge = Infinity;
+  let alarm = false;
+  let alarmLevel = 0;
+  let bellAmp = 0;
+  let cutaway = true;
+  let backOffset = 2.6;
+  // Sign spring (pitch about x, roll about z) + a free spin kicked by the pop.
+  const sp = { ax: 0, az: 0, vx: 0, vz: 0, spin: 0, spinVel: 0 };
   const prevPos = new THREE.Vector3();
   const prevVel = new THREE.Vector3();
   const curPos = new THREE.Vector3();
@@ -869,16 +1196,37 @@ export function createBank(): BankRig {
   let signYawInit = false;
   let hasPrev = false;
   let sparkTimer = 0;
+  const rnd = rng(Math.floor(Math.random() * 1e6));
 
   const applyHeaderAlpha = (): void => {
-    const a0 = Math.min(wallAlpha[0], wallAlpha[1]);
-    const a1 = Math.min(wallAlpha[2], wallAlpha[3]);
-    setMaterialOpacity(headerMats[0], a0);
-    setMaterialOpacity(headerMats[1], a1);
-    headers[0].visible = a0 > 0.01;
-    headers[1].visible = a1 > 0.01;
-    highlighter.setMeshEnabled(headers[0], a0 > 0.6);
-    highlighter.setMeshEnabled(headers[1], a1 > 0.6);
+    const a0 = Math.min(wallAlpha[0]!, wallAlpha[1]!);
+    const a1 = Math.min(wallAlpha[2]!, wallAlpha[3]!);
+    setMaterialOpacity(headerMats[0]!, a0);
+    setMaterialOpacity(headerMats[1]!, a1);
+    headers[0]!.visible = a0 > 0.01;
+    headers[1]!.visible = a1 > 0.01;
+    highlighter.setMeshEnabled(headers[0]!, a0 > 0.6);
+    highlighter.setMeshEnabled(headers[1]!, a1 > 0.6);
+  };
+
+  const updateCut = (): void => {
+    const cx = Math.sin(signYawAngle);
+    const cz = Math.cos(signYawAngle);
+    const extent = Math.abs(cx) * HX + Math.abs(cz) * HZ;
+    if (cutaway) {
+      const sFront = extent + 0.2;
+      const len = Math.hypot(CUT_SLOPE * cx, 1, CUT_SLOPE * cz);
+      cutPlane.value.set((CUT_SLOPE * cx) / len, 1 / len, (CUT_SLOPE * cz) / len, (BANK_CUT_HEIGHT + CUT_SLOPE * sFront) / len);
+    } else cutPlane.value.set(0, 1, 0, 1e4);
+    for (let i = 0; i < 6; i++) {
+      const n = wallNormals[i]!;
+      const d = n.x * cx + n.z * cz;
+      wallOpenAmt[i] = cutaway ? THREE.MathUtils.smoothstep(d, 0.3, 0.7) : 0;
+    }
+    // Sign boom to the far side of the roof.
+    const target = Math.max(0, extent - 0.18);
+    backOffset += (target - backOffset) * 0.2;
+    signBack.position.z = -backOffset;
   };
 
   const update = (dt: number): void => {
@@ -895,13 +1243,11 @@ export function createBank(): BankRig {
     if (dt > 0) {
       vel.copy(curPos).sub(prevPos).divideScalar(dt);
       acc.copy(vel).sub(prevVel).divideScalar(dt);
-      // Teleports (spawn, ejections) should not explode the spring.
       if (acc.lengthSq() > 400) acc.set(0, 0, 0);
       prevPos.copy(curPos);
       prevVel.copy(vel);
     }
-    // Swivel the sign toward the camera (world +Z for the fixed match camera), lagging a
-    // little behind the bank's turns like a weather vane.
+    // Swivel the sign toward the camera, lagging like a weather vane.
     root.getWorldQuaternion(q);
     eul.setFromQuaternion(q, 'YXZ');
     const target = cameraFacingYaw() - eul.y;
@@ -913,39 +1259,90 @@ export function createBank(): BankRig {
     dYaw = Math.atan2(Math.sin(dYaw), Math.cos(dYaw));
     signYawAngle += dYaw * (1 - Math.exp(-dt * 5));
     signYaw.rotation.y = signYawAngle;
-    // Swivelling rocks the sign a little (bounded, so a camera cut's half-turn stays cute).
+    updateCut();
     sp.vz += THREE.MathUtils.clamp(dYaw, -0.35, 0.35) * 25 * dt;
     const k = 70;
     const c = 2.6;
     const gain = 0.06;
-    const jitter = strain * 6 * (Math.sin(time * 37) + Math.sin(time * 23.7));
+    const tr = uprooted ? 0 : strain;
+    const jitter = tr * 7 * (Math.sin(time * 37) + Math.sin(time * 23.7));
     sp.vx += (-k * sp.ax - c * sp.vx - acc.z * gain * 10 + jitter * 0.6) * dt;
     sp.vz += (-k * sp.az - c * sp.vz + acc.x * gain * 10 + jitter * 0.4) * dt;
-    sp.ax = THREE.MathUtils.clamp(sp.ax + sp.vx * dt, -0.6, 0.6);
-    sp.az = THREE.MathUtils.clamp(sp.az + sp.vz * dt, -0.5, 0.5);
-    signWobble.rotation.set(sp.ax, 0, sp.az);
-
-    // Strain tremble + pop.
-    const tr = uprooted ? 0 : strain;
-    let y = 0;
-    let sq = 1;
-    if (pop > 0) {
-      pop = Math.max(0, pop - dt);
-      const kk = 1 - pop / POP_TIME;
-      y = Math.sin(kk * Math.PI) * 0.16;
-      sq = 1 + Math.sin(kk * Math.PI * 2) * 0.03 * (1 - kk);
+    sp.ax = THREE.MathUtils.clamp(sp.ax + sp.vx * dt, -0.7, 0.7);
+    sp.az = THREE.MathUtils.clamp(sp.az + sp.vz * dt, -0.6, 0.6);
+    // Free spin (pop): decays, then snaps back to the nearest full turn.
+    if (Math.abs(sp.spinVel) > 0.3) {
+      sp.spin += sp.spinVel * dt;
+      sp.spinVel *= Math.exp(-dt * 1.8);
+    } else {
+      const full = Math.round(sp.spin / (Math.PI * 2)) * Math.PI * 2;
+      sp.spin += (full - sp.spin) * (1 - Math.exp(-dt * 6));
+      if (Math.abs(full - sp.spin) < 1e-3) sp.spin = 0;
+      sp.spinVel = 0;
     }
-    body.position.set(Math.sin(time * 43) * 0.03 * tr, y + Math.abs(Math.sin(time * 29)) * 0.02 * tr, Math.sin(time * 37 + 0.7) * 0.03 * tr);
-    body.rotation.z = Math.sin(time * 11) * 0.006 * tr;
-    body.rotation.x = Math.sin(time * 9.3) * 0.005 * tr;
+    signWobble.rotation.set(sp.ax, sp.spin, sp.az);
+
+    // Strain tremble, lift, pop hop.
+    let y = lift;
+    let sq = 1;
+    let rz = Math.sin(time * 11) * 0.008 * tr;
+    let rx = Math.sin(time * 9.3) * 0.007 * tr;
+    if (popAge < BANK_POP.time + 0.6) {
+      popAge += dt;
+      const t = popAge;
+      if (t < BANK_POP.land) {
+        const u = t / BANK_POP.land;
+        y += BANK_POP.height * 4 * u * (1 - u);
+        sq = 1 + 0.07 * Math.sin(Math.PI * Math.min(1, u * 2));
+        rz += Math.sin(u * Math.PI * 2) * 0.05;
+      } else {
+        const v = t - BANK_POP.land;
+        y += Math.max(0, Math.sin(Math.min(1, v / 0.22) * Math.PI)) * 0.12 * Math.exp(-v * 2);
+        sq = 1 - 0.1 * Math.exp(-v * 9) * Math.cos(v * 26);
+        rz += Math.sin(v * 17) * 0.03 * Math.exp(-v * 4);
+        rx += Math.sin(v * 13 + 1) * 0.02 * Math.exp(-v * 4);
+      }
+    }
+    body.position.set(Math.sin(time * 43) * 0.05 * tr, y + Math.abs(Math.sin(time * 29)) * 0.03 * tr, Math.sin(time * 37 + 0.7) * 0.05 * tr);
+    body.rotation.z = rz;
+    body.rotation.x = rx;
     body.scale.set(1 / Math.sqrt(sq), sq, 1 / Math.sqrt(sq));
+    // Windows rattle: each wall jitters on its own while the building strains.
+    for (let i = 0; i < walls.length; i++) {
+      const w = walls[i]!;
+      const a = tr * tr * 0.022;
+      w.position.set(Math.sin(time * (51 + i * 7)) * a, Math.abs(Math.sin(time * (33 + i * 5))) * a * 0.6, Math.sin(time * (47 + i * 3) + i) * a);
+    }
     // Taut roots vibrate.
-    rootsAttached.scale.set(1 + tr * 0.06 * (0.5 + 0.5 * Math.sin(time * 55)), 1 - tr * 0.08, 1);
+    rootsAttached.scale.set(1 + tr * 0.08 * (0.5 + 0.5 * Math.sin(time * 55)), 1 - tr * 0.1, 1);
     // Sparks flicker for a while after uprooting, then occasionally.
     if (uprooted) {
       sparkTimer += dt;
       const rate = sparkTimer < 4 ? 0.55 : 0.12;
       sparks.visible = Math.sin(time * 31) + Math.sin(time * 17.3) > 2 - rate * 4;
+    }
+    // Alarm.
+    alarmLevel += ((alarm ? 1 : 0) - alarmLevel) * (1 - Math.exp(-dt * 6));
+    if (!alarm) bellAmp *= Math.exp(-dt * 3);
+    else bellAmp = Math.max(bellAmp, 0.55 + 0.45 * Math.max(0, Math.sin(time * 3.1)));
+    const on = alarmLevel > 0.02;
+    fans.visible = on;
+    lasers.visible = on;
+    alarmGround.visible = on;
+    const flash = 0.5 + 0.5 * Math.sin(time * 16);
+    beaconMat.emissive.setRGB(1.6 * alarmLevel * (0.55 + 0.45 * flash), 0.08 * alarmLevel, 0.1 * alarmLevel);
+    if (on) {
+      fans.rotation.y = time * 7.5;
+      fanMat.opacity = 0.2 * alarmLevel;
+      laserMat.uniforms.uOpacity.value = alarmLevel * (Math.sin(time * 11) > -0.3 ? 0.55 + 0.45 * flash : 0.08);
+      poolMat.opacity = alarmLevel * (0.05 + 0.07 * flash);
+      sweepMat.opacity = alarmLevel * 0.09;
+      sweep.rotation.y = -time * 7.5 - signYawAngle;
+    }
+    for (let i = 0; i < bells.length; i++) {
+      const b = bells[i]!;
+      b.rotation.z = Math.sin(time * 36 + i * 1.7) * 0.4 * bellAmp;
+      b.rotation.x = Math.sin(time * 29 + i) * 0.15 * bellAmp;
     }
   };
 
@@ -954,12 +1351,17 @@ export function createBank(): BankRig {
     roof,
     walls,
     labelAnchor,
+    cutPlane,
     get floorY() {
       return BANK_FLOOR_Y + body.position.y;
     },
+    get popAge() {
+      return popAge;
+    },
     setRoofOpacity(a: number) {
       roofAlpha = THREE.MathUtils.clamp(a, 0, 1);
-      for (const m of [roofMat, signFrameMat, signBoardMat]) setMaterialOpacity(m, roofAlpha);
+      for (const m of [roofMat, signFrameMat, signBoardMat, beaconMat]) setMaterialOpacity(m, roofAlpha);
+      glassMat.uniforms.uOpacity.value = roofAlpha;
       roof.visible = roofAlpha > 0.01;
       roof.traverse((o) => {
         if ((o as THREE.Mesh).isMesh && !o.userData.isOutlineHull) highlighter.setMeshEnabled(o, roofAlpha > 0.6);
@@ -968,18 +1370,20 @@ export function createBank(): BankRig {
     setWallOpacity(index: number, a: number) {
       if (index < 0 || index >= walls.length) return;
       wallAlpha[index] = THREE.MathUtils.clamp(a, 0, 1);
-      setMaterialOpacity(wallMats[index], wallAlpha[index]);
-      walls[index].visible = wallAlpha[index] > 0.01;
-      const m = walls[index].children[0];
-      if (m) highlighter.setMeshEnabled(m, wallAlpha[index] > 0.6);
+      setMaterialOpacity(wallMats[index]!, wallAlpha[index]!);
+      walls[index]!.visible = wallAlpha[index]! > 0.01;
+      const m = walls[index]!.children[0];
+      if (m) highlighter.setMeshEnabled(m, wallAlpha[index]! > 0.6);
       applyHeaderAlpha();
     },
     setUprooted(b: boolean) {
       if (b && !uprooted) {
-        pop = POP_TIME;
-        sp.vx += 3.5;
-        sp.vz += (Math.random() - 0.5) * 3;
+        popAge = 0;
+        sp.vx += 5.5;
+        sp.vz += (rnd() - 0.5) * 4;
+        sp.spinVel = (rnd() < 0.5 ? -1 : 1) * (9 + rnd() * 5);
         sparkTimer = 0;
+        bellAmp = 1;
       }
       uprooted = b;
       rootsAttached.visible = !b;
@@ -989,9 +1393,26 @@ export function createBank(): BankRig {
     setStrain(s: number) {
       strain = THREE.MathUtils.clamp(s, 0, 1);
     },
+    setLift(y: number) {
+      lift = Math.max(0, y);
+    },
     wobbleSign(amount: number) {
-      sp.vx += amount * (0.6 + Math.random() * 0.8) * (Math.random() < 0.5 ? -1 : 1);
-      sp.vz += amount * (Math.random() - 0.5) * 1.2;
+      sp.vx += amount * (0.6 + rnd() * 0.8) * (rnd() < 0.5 ? -1 : 1);
+      sp.vz += amount * (rnd() - 0.5) * 1.2;
+    },
+    setAlarm(b: boolean) {
+      if (b && !alarm) bellAmp = 1;
+      alarm = b;
+    },
+    clangBell(amount: number) {
+      bellAmp = Math.max(bellAmp, Math.min(1, amount));
+    },
+    setCutaway(b: boolean) {
+      cutaway = b;
+      updateCut();
+    },
+    wallOpen(index: number) {
+      return wallOpenAmt[index] ?? 0;
     },
     setHighlight(color) {
       highlighter.set(color);
@@ -999,9 +1420,7 @@ export function createBank(): BankRig {
     update,
     dispose() {
       highlighter.dispose();
-      for (const m of [...wallMats, ...headerMats, roofMat, signFrameMat, signBoardMat]) m.dispose();
-      (floor.material as THREE.Material).dispose();
-      (dashes.material as THREE.Material).dispose();
+      for (const m of owned) m.dispose();
       root.removeFromParent();
     },
   };
@@ -1107,8 +1526,9 @@ export function createBankScar(): THREE.Group {
 
 export function disposeBankCache(): void {
   if (bankGeo) {
-    const all = [bankGeo.slab, bankGeo.floor, bankGeo.dashes, ...bankGeo.walls, ...bankGeo.headers, bankGeo.roof, bankGeo.signFrame, bankGeo.signBoard, bankGeo.rootsAttached, bankGeo.rootsSnapped, bankGeo.sparks];
-    all.forEach((g) => g.dispose());
+    const g = bankGeo;
+    const all = [g.slab, g.floor, g.dashes, ...g.walls, ...g.headers, g.roof, g.glass, g.signFrame, g.signBoard, g.beacon, g.bell, g.fan, g.portraits, g.posters, g.lasers, g.pool, g.rootsAttached, g.rootsSnapped, g.sparks];
+    all.forEach((x) => x?.dispose());
     bankGeo = null;
   }
   if (scarGeo) {

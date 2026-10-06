@@ -11,6 +11,7 @@
  *   ?flow=quick|tutorial|tournament   jump straight into that flow
  *   ?seed=N              base seed      ?matchSeconds=N   shorter matches (tests)
  *   ?lang=ko|en          ?fresh=1 (ignore the save: in-memory only)   ?quality=low|medium|high
+ *   ?police=0            police event off (owner addition beyond doc v0.5; on by default)
  * window.__uproot is exposed only with autotest or in dev builds.
  */
 import type { Difficulty, RivalId } from '../ai';
@@ -31,6 +32,8 @@ export interface LaunchParams {
   lang: 'ko' | 'en' | null;
   /** Test hook: render quality override for this session (not saved). */
   quality: 'low' | 'medium' | 'high' | null;
+  /** ?police=0 turns the police event off for matches (owner addition; default on). */
+  police: boolean | null;
   fresh: boolean;
   /** Expose window.__uproot. */
   hooks: boolean;
@@ -67,6 +70,7 @@ export function parseLaunchParams(search: string, dev: boolean): LaunchParams {
     matchSeconds: num(q.get('matchSeconds'), 5, 240),
     lang: oneOf(q.get('lang'), ['ko', 'en'] as const),
     quality: oneOf(q.get('quality'), ['low', 'medium', 'high'] as const),
+    police: q.get('police') === null ? null : flag('police'),
     fresh: flag('fresh'),
     hooks: autotest || dev,
   };

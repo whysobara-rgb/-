@@ -188,6 +188,11 @@ function build(): { def: LayoutDef; meta: LayoutDesignMeta } {
   b.decor('balloon', AX - 6.6, 27.8, 0, { color: '#7BDFF2' });
   b.decor('umbrella', AX - 4.2, 26.0, 0, { color: '#F25C54', east: { color: '#4FB0C6' } });
 
+  // --- police (owner addition) --------------------------------------------------------------
+  // Cars pull up at the curb outside the north edge (wave 1) and the south edge (wave 2) on the
+  // mirror axis; officers hop the fence into the post-office service lane (never parked on it).
+  b.policeCurbs();
+
   return b.build(
     'Collection plaza: banks north/south of a central park must roll the long way along the boulevards and swing into the zones; ' +
       'corner small safes near each van reward steady early collecting; large safes in the service lanes need the 2.5 m gate lanes; ' +

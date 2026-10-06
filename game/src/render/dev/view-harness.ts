@@ -119,6 +119,7 @@ function setupScenario(name: string): void {
   controllers.clear();
   let rules: MatchSetup['rules'] | undefined;
   if (name === 'results') rules = { matchTicks: 260, earlyDecision: false };
+  if (name === 'police' || name === 'policeTackle' || params.get('police') === '1') rules = { ...(rules ?? {}), police: true };
   sim = newSim(rules);
   view.load(sim);
   view.setMode(name === 'preview' || name === 'title' || name === 'results' ? (name as ViewMode) : 'match');
@@ -137,6 +138,75 @@ function setupScenario(name: string): void {
     controllers.set(0, holdCtl({ x: 0, y: 1 }, { x: 0, y: -1 }));
     d.teleport(charId(2), { x: b.pos.x + 6.5, y: b.pos.y + 6.5 }, Math.PI);
     scripted.add(0);
+  } else if (name === 'uprootSmall' || name === 'uprootLarge') {
+    // Focus pulls an outdoor safe straight out of the ground (camera side).
+    const kind = name === 'uprootSmall' ? 'smallSafe' : 'largeSafe';
+    const cands = sim.state.loot.filter((l) => l.kind === kind && l.homeBank === null);
+    const mid = { x: L.size.x / 2, y: L.size.y / 2 };
+    cands.sort((a, b) => Math.hypot(a.pos.x - mid.x, a.pos.y - mid.y) - Math.hypot(b.pos.x - mid.x, b.pos.y - mid.y));
+    const safe = cands[0] ?? sim.state.loot.find((l) => l.kind === kind)!;
+    // Re-plant it on open ground near the middle so the moment is readable.
+    if (params.get('replant') !== '0') {
+      let best = safe.pos;
+      for (let r = 3; r < 20 && best === safe.pos; r += 1) {
+        for (let k = 0; k < 16; k++) {
+          const p = { x: mid.x + Math.cos((k / 16) * Math.PI * 2) * r, y: mid.y + Math.sin((k / 16) * Math.PI * 2) * r };
+          if (sim.isFree(p, 2.6)) {
+            best = p;
+            break;
+          }
+        }
+      }
+      d.setAnchored(safe.id, false);
+      d.teleport(safe.id, best, 0);
+      d.setAnchored(safe.id, true);
+    }
+    const half = kind === 'smallSafe' ? 0.4 : 0.6;
+    d.teleport(charId(0), { x: safe.pos.x, y: safe.pos.y + half + 0.62 }, -Math.PI / 2);
+    controllers.set(0, holdCtl({ x: 0, y: 1 }, { x: 0, y: -1 }));
+    scripted.add(0);
+    // A rival watching nearby (reacts to the pop).
+    d.teleport(charId(2), { x: safe.pos.x + 3.5, y: safe.pos.y + 1.5 }, Math.PI);
+    controllers.set(2, holdCtl({ x: 0, y: 0 }, { x: -1, y: 0 }, false));
+    scripted.add(2);
+  } else if (name === 'uprootInterior') {
+    // Inside the north bank: the focus pulls the large vault safe off the floor.
+    const b = banks()[0]!;
+    const large = sim.state.loot.find((l) => l.kind === 'largeSafe' && l.homeBank === b.id)!;
+    const c = Math.cos(b.angle);
+    const sn = Math.sin(b.angle);
+    // Stand on the bank-local -x side of the safe, pulling toward -x.
+    const lx = -0.7 - 0.62;
+    d.teleport(charId(0), { x: large.pos.x + lx * c, y: large.pos.y + lx * sn }, b.angle);
+    controllers.set(0, holdCtl({ x: -c, y: -sn }, { x: c, y: sn }));
+    scripted.add(0);
+  } else if (name === 'police' || name === 'policeTackle') {
+    // Real sim police: the bank gets uprooted (alarm), the focus hauls a small safe; the car
+    // arrives after POLICE.dispatchDelayTicks and the officers chase the carrier.
+    const b = banks()[0]!;
+    const safe = sim.state.loot.find((l) => l.kind === 'smallSafe' && l.homeBank === null)!;
+    d.setAnchored(b.id, false);
+    d.setAnchored(safe.id, false);
+    const entry = (L.policeEntries && L.policeEntries[0]) ?? { park: { x: L.size.x / 2, y: 2.5 } };
+    // Open ground in front of the parking spot (toward the arena middle).
+    const toMid = Math.sign(L.size.y / 2 - entry.park.y) || 1;
+    let spot = { x: entry.park.x + 5, y: entry.park.y + 4.5 * toMid };
+    for (let r = 4; r < 22; r += 1) {
+      const p = { x: entry.park.x + (name === 'policeTackle' ? 2 : 5), y: entry.park.y + r * toMid };
+      if (sim.isFree(p, 1.6)) {
+        spot = p;
+        break;
+      }
+    }
+    d.teleport(safe.id, spot, 0);
+    d.teleport(charId(0), { x: spot.x + 0.4 + 0.62, y: spot.y }, Math.PI);
+    controllers.set(0, holdCtl({ x: 0, y: 0 }, { x: -1, y: 0 }));
+    scripted.add(0);
+    for (const c of sim.state.characters) {
+      if (c.slot === 0) continue;
+      scripted.add(c.slot);
+      controllers.set(c.slot, holdCtl({ x: 0, y: 0 }, { x: 0, y: 1 }, false));
+    }
   } else if (name === 'haul') {
     // Teammate hauls the uprooted north bank west; the focus rides inside next to the vault.
     const b = banks()[0]!;

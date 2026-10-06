@@ -107,6 +107,10 @@ function build(): { def: LayoutDef; meta: LayoutDesignMeta } {
   b.decor('crate', 35.5, 21.5, 0.3);
   b.decor('puddle', 25.0, 22.0, 0);
 
+  // --- police (owner addition; matches only, listed for completeness) --------------------------
+  // At the curb outside the north / south edge east of the cafe / bakery (bank side of the yard).
+  b.policeCurbs(36.5);
+
   return b.build(
     'Practice yard: spawn by the van, carry the nearby 100 safe, then follow the arrows through the north gate and along the ' +
       'hedge to the back of the bank, uproot it and push it straight home, busting the weak fence on the short path.',

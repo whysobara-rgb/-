@@ -244,10 +244,13 @@ export async function runModelSelfTest(layouts: Record<string, LayoutDef> | null
       // Below head height (2 m) the visuals may exceed the collider only by thin trims
       // (sills, column bases); higher up, sconces/cornices may reach further.
       const mesh = bank.walls[i].children[0] as THREE.Mesh;
-      const low = overshoot(mesh, w, 2.0);
+      // Up to raccoon head height the walls hug their colliders; above it the interior is
+      // dressed with wall-mounted things (planters, CCTV, niches, the counter ledge) that may
+      // reach into the room but never down to where raccoons walk.
+      const low = overshoot(mesh, w, 1.12);
       const high = overshoot(mesh, w, 99);
-      if (low > 0.13) problems.push(`wall ${i}: exceeds collider by ${low.toFixed(3)} below 2 m`);
-      if (high > 0.3) problems.push(`wall ${i}: exceeds collider by ${high.toFixed(3)} overall`);
+      if (low > 0.13) problems.push(`wall ${i}: exceeds collider by ${low.toFixed(3)} below 1.12 m`);
+      if (high > 0.66) problems.push(`wall ${i}: exceeds collider by ${high.toFixed(3)} overall`);
     });
     // Door gaps: a horizontal ray at 1 m through each door must not hit walls or headers.
     for (const d of BANK_MODEL.doors) {

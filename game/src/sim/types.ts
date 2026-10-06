@@ -183,9 +183,14 @@ export interface DecorDef {
 
 /** Where a police car enters the arena (edge point) and where it parks to drop officers. */
 export interface PoliceEntryDef {
-  /** Point on/just outside the arena edge the car drives in from (render only). */
+  /** Point outside the arena edge the car drives in from (render only). */
   from: Vec2;
-  /** Parking spot inside the arena (officers spawn beside it). Must be free space. */
+  /**
+   * Parking spot. Layouts park the car at the curb just OUTSIDE the arena edge (never on a
+   * lane; the from -> park drive stays outside too) and officers hop in over the fence at
+   * officerStepOutSpot(). A park spot inside the arena (free space) is still supported:
+   * officers then step out west / east of the car.
+   */
   park: Vec2;
   /** Car heading while parked (radians). */
   angle: number;

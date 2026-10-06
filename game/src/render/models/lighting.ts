@@ -30,10 +30,12 @@ const SUN_OFFSET = new THREE.Vector3(-22, 30, 16);
 export function createDuskLighting(o: { shadowRadius?: number; quality?: 'low' | 'medium' | 'high' } = {}): DuskLighting {
   const group = new THREE.Group();
   group.name = 'duskLighting';
-  const hemi = new THREE.HemisphereLight(PAL.hemiSky, PAL.hemiGround, 2.1);
+  // Dusk contrast: a cooler, dimmer sky fill so shade reads lavender and the low warm sun
+  // carves the toy shapes (lamp pools and lit windows then glow through the bloom pass).
+  const hemi = new THREE.HemisphereLight('#AEB4F2', '#D4B4AE', 1.7);
   group.add(hemi);
 
-  const sun = new THREE.DirectionalLight(PAL.sun, 2.6);
+  const sun = new THREE.DirectionalLight('#FFC99A', 3.15);
   sun.position.copy(SUN_OFFSET);
   sun.castShadow = true;
   const r = o.shadowRadius ?? 26;
@@ -50,7 +52,7 @@ export function createDuskLighting(o: { shadowRadius?: number; quality?: 'low' |
   group.add(sun);
   group.add(sun.target);
 
-  const fill = new THREE.DirectionalLight('#C9D2FF', 0.55);
+  const fill = new THREE.DirectionalLight('#C2C8FF', 0.42);
   fill.position.set(4, 14, 30);
   group.add(fill);
   group.add(fill.target);

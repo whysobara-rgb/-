@@ -55,6 +55,19 @@ test('quick match: title -> menu -> setup -> match -> pause -> results -> rematc
   await page.waitForTimeout(1500);
   expect(await uproot<number>(page, 'u.state().match.tick')).toBe(pausedTick);
   await shot(page, '05-pause');
+  // Esc on the pause menu's own confirm dialog closes the dialog only (back semantics): the
+  // match stays paused on the pause menu.
+  await navTo(page, 'pause:restart');
+  await press(page, 'Enter');
+  await expect(page.locator('.uh-screen--dialog')).toBeVisible({ timeout: 30_000 });
+  await page.waitForTimeout(600);
+  await shot(page, '05b-pause-restart-confirm');
+  await press(page, 'Escape');
+  await expect(page.locator('.uh-screen--dialog')).toHaveCount(0, { timeout: 30_000 });
+  await page.waitForTimeout(1500);
+  expect(await appState(page)).toBe('paused');
+  expect(await uproot<number>(page, 'u.state().match.tick')).toBe(pausedTick);
+  await expect(page.locator('.uh-screen--pause')).toBeVisible();
   await press(page, 'Escape');
   await waitState(page, 'match', 60_000);
   await page.waitForFunction((t) => {

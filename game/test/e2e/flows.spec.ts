@@ -73,6 +73,32 @@ test('tournament progress persists after reload', async ({ page }) => {
   await waitState(page, ['preview', 'match'], 120_000);
   const cfg2 = await uproot<{ kind: string; rival: string }>(page, 'u.state().config');
   expect(cfg2).toMatchObject({ kind: 'tournament', rival: 'hodadak' });
+
+  // A started series game can't be thrown away: no restart, and leaving forfeits it (saved).
+  await waitState(page, 'match', 120_000);
+  await page.waitForFunction(() => {
+    const u = (window as unknown as { __uproot: { state(): { match: { tick: number } | null } } }).__uproot;
+    return (u.state().match?.tick ?? 0) > 60;
+  }, null, { timeout: 120_000 });
+  await press(page, 'Escape');
+  await waitState(page, 'paused', 60_000);
+  await expect(page.locator('[data-nav="pause:restart"]')).toHaveCount(0);
+  await navTo(page, 'pause:menu');
+  await press(page, 'Enter');
+  await expect(page.locator('.uh-screen--dialog')).toContainText('패배로 기록', { timeout: 30_000 });
+  await page.waitForTimeout(600);
+  await shot(page, '23-tournament-forfeit-confirm');
+  await navTo(page, 'dlg:confirm', 'ArrowRight');
+  await press(page, 'Enter');
+  await waitState(page, 'tournament', 60_000);
+  const forfeited = await uproot<typeof before>(page, 'u.save().tournament');
+  if ((before.series?.losses ?? 0) >= 1) {
+    expect(forfeited.series).toBeNull(); // second loss: series lost, retry that rival only
+  } else {
+    expect(forfeited.series?.gameIndex).toBe(2);
+    expect(forfeited.series?.losses).toBe((before.series?.losses ?? 0) + 1);
+  }
+  await shot(page, '24-tournament-after-forfeit');
   expectNoErrors(problems);
 });
 
@@ -94,6 +120,20 @@ test('settings persist and the language switch updates visible text', async ({ p
   await expect(page.locator('.uh-screen--settings')).toContainText('Settings', { timeout: 30_000 });
   await page.waitForTimeout(600);
   await shot(page, '31-settings-en');
+  // Audio tab (E twice: Game -> Controls -> Audio): master volume down one step
+  const master0 = await uproot<number>(page, 'u.save().settings.volumes.master');
+  await press(page, 'KeyE');
+  await page.waitForFunction(() => !!document.querySelector('.uh-screen--settings [data-nav^="bind:"]'), null, { timeout: 30_000 });
+  await press(page, 'KeyE');
+  await page.waitForFunction(() => !!document.querySelector('.uh-screen--settings [data-nav="set:master"]'), null, { timeout: 30_000 });
+  await navTo(page, 'set:master');
+  await press(page, 'ArrowLeft');
+  await page.waitForFunction((m) => {
+    const u = (window as unknown as { __uproot: { save(): { settings: { volumes: { master: number } } } } }).__uproot;
+    return u.save().settings.volumes.master < m;
+  }, master0, { timeout: 30_000 });
+  const master1 = await uproot<number>(page, 'u.save().settings.volumes.master');
+  await shot(page, '31b-settings-audio');
   // Back to the menu: English there too
   await press(page, 'Escape');
   await waitState(page, 'menu');
@@ -106,5 +146,6 @@ test('settings persist and the language switch updates visible text', async ({ p
   await waitState(page, 'menu');
   await expect(page.locator('.uh-screen--menu')).toContainText('Quick Match');
   expect(await uproot<string>(page, 'u.save().settings.language')).toBe('en');
+  expect(await uproot<number>(page, 'u.save().settings.volumes.master')).toBe(master1);
   expectNoErrors(problems);
 });

@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3A2C66"/>
+      <stop offset="1" stop-color="#150F2B"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFD873"/>
+      <stop offset="1" stop-color="#F2C14E"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.42" r="0.5">
+      <stop offset="0" stop-color="#FFE3A0" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#FFE3A0" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="tile"><rect x="32" y="32" width="960" height="960" rx="200"/></clipPath>
+  </defs>
+  <g clip-path="url(#tile)">
+  <rect x="32" y="32" width="960" height="960" rx="200" fill="url(#bg)"/>
+  <circle cx="512" cy="440" r="420" fill="url(#glow)"/>
+  <!-- stars -->
+  <g fill="#FFF6E6">
+    <circle cx="196" cy="196" r="10"/><circle cx="820" cy="170" r="8"/><circle cx="870" cy="420" r="6"/>
+    <circle cx="150" cy="470" r="6"/><circle cx="300" cy="120" r="5"/>
+  </g>
+  <!-- ground with the hole the bank came out of -->
+  <path d="M0 850 Q512 760 1024 850 L1024 1024 L0 1024 Z" fill="#5B3A21"/>
+  <path d="M0 850 Q512 760 1024 850" fill="none" stroke="#7A5A3A" stroke-width="10"/>
+  <ellipse cx="512" cy="826" rx="250" ry="46" fill="#2B1A0E"/>
+  <!-- the bank, tilted while being uprooted -->
+  <g transform="rotate(-9 512 520)">
+    <!-- roots -->
+    <g fill="none" stroke="#8B5A2B" stroke-width="26" stroke-linecap="round">
+      <path d="M340 640 C330 700 290 720 300 780"/>
+      <path d="M430 650 C440 720 400 740 420 800"/>
+      <path d="M520 650 C510 730 560 750 540 810"/>
+      <path d="M610 650 C630 710 600 740 630 790"/>
+      <path d="M690 640 C710 690 740 720 720 770"/>
+    </g>
+    <g fill="none" stroke="#6E4520" stroke-width="12" stroke-linecap="round">
+      <path d="M310 740 C280 750 270 770 260 790"/>
+      <path d="M545 760 C580 770 590 790 600 805"/>
+      <path d="M700 700 C740 700 760 720 770 740"/>
+    </g>
+    <!-- foundation slab with dirt -->
+    <rect x="292" y="610" width="440" height="56" rx="18" fill="#7A5A3A" stroke="#2E2442" stroke-width="14"/>
+    <!-- base steps -->
+    <rect x="312" y="560" width="400" height="58" rx="10" fill="url(#gold)" stroke="#2E2442" stroke-width="14"/>
+    <!-- columns -->
+    <g fill="#FFF6E6" stroke="#2E2442" stroke-width="14">
+      <rect x="350" y="380" width="62" height="184" rx="8"/>
+      <rect x="481" y="380" width="62" height="184" rx="8"/>
+      <rect x="612" y="380" width="62" height="184" rx="8"/>
+    </g>
+    <!-- architrave + pediment -->
+    <rect x="320" y="338" width="384" height="52" rx="10" fill="url(#gold)" stroke="#2E2442" stroke-width="14"/>
+    <path d="M300 344 L512 196 L724 344 Z" fill="url(#gold)" stroke="#2E2442" stroke-width="14" stroke-linejoin="round"/>
+    <!-- raccoon-paw coin emblem on the pediment -->
+    <circle cx="512" cy="282" r="40" fill="#FFF6E6" stroke="#2E2442" stroke-width="10"/>
+    <g fill="#2E2442">
+      <ellipse cx="512" cy="294" rx="15" ry="12"/>
+      <circle cx="494" cy="272" r="6"/><circle cx="507" cy="266" r="6"/><circle cx="520" cy="266" r="6"/><circle cx="532" cy="272" r="6"/>
+    </g>
+  </g>
+  <!-- flying dirt clods -->
+  <g fill="#5B3A21" stroke="#2E2442" stroke-width="8">
+    <circle cx="230" cy="700" r="22"/><circle cx="800" cy="690" r="18"/><circle cx="760" cy="600" r="12"/><circle cx="262" cy="610" r="12"/>
+  </g>
+  </g>
+</svg>

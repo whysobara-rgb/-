@@ -52,6 +52,8 @@ export interface ResultsScreenProps {
   playerHat?: HatId;
   onRematch?: () => void;
   onNext?: () => void;
+  /** Label of the 'next' button (default 'results.next' = 다음 판), e.g. '다음 라이벌' after a won series. */
+  nextLabel?: string | null;
   onMenu: () => void;
 }
 
@@ -165,7 +167,7 @@ export class ResultsScreen extends UiScreen<ResultsScreenProps> {
           })
         : null,
       p.actions.next
-        ? button({ id: 'res:next', label: 'results.next', icon: 'play', variant: 'primary', size: 'lg', glyph: 'confirm', onActivate: () => this.leave(p.onNext) })
+        ? button({ id: 'res:next', label: p.nextLabel ?? 'results.next', icon: 'play', variant: 'primary', size: 'lg', glyph: 'confirm', onActivate: () => this.leave(p.onNext) })
         : null,
     );
 

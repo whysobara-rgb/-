@@ -46,8 +46,8 @@ function pips(count: number, filled: number, kind: 'you' | 'rival'): HTMLElement
   );
 }
 
-/** "나 ●○ : ○○ 호다닥" — best-of-3 needs 2 wins. */
-export function seriesPips(playerWins: number, rivalWins: number, rival: RivalId): HTMLElement {
+/** "나 ●○ : ○○ 호다닥" — best-of-3 needs 2 wins. `hideName`: locked card ('???', no spoiler). */
+export function seriesPips(playerWins: number, rivalWins: number, rival: RivalId, hideName = false): HTMLElement {
   return h(
     'div',
     { class: 'uh-seriespips' },
@@ -55,7 +55,7 @@ export function seriesPips(playerWins: number, rivalWins: number, rival: RivalId
     pips(2, playerWins, 'you'),
     h('span', { class: 'uh-seriespips__colon' }, ':'),
     pips(2, rivalWins, 'rival'),
-    h('span', { class: 'uh-seriespips__who' }, t(`rival.${rival}.name`)),
+    h('span', { class: 'uh-seriespips__who' }, hideName ? '???' : t(`rival.${rival}.name`)),
   );
 }
 
@@ -106,7 +106,7 @@ export class TournamentScreen extends UiScreen<TournamentScreenProps> {
             chip(locked ? 'common.locked' : c.layoutNameKey, 'ghost', 'map'),
             chip('tournament.bestOf3', 'ghost', 'trophy'),
           ),
-          seriesPips(c.playerWins, c.rivalWins, c.rival),
+          seriesPips(c.playerWins, c.rivalWins, c.rival, locked),
           h(
             'div',
             { class: 'uh-tourcard__reward' },
@@ -115,7 +115,8 @@ export class TournamentScreen extends UiScreen<TournamentScreenProps> {
               'div',
               { class: 'uh-tourcard__rewardText' },
               h('span', { class: 'uh-tourcard__rewardLabel' }, icon('hat'), t('tournament.reward')),
-              h('span', { class: 'uh-tourcard__rewardName' }, t(`hat.${c.rewardHat}.name`)),
+              // Hat names carry the rival's name: keep the reveal for when the card unlocks.
+              h('span', { class: 'uh-tourcard__rewardName' }, locked && !c.rewardOwned ? '???' : t(`hat.${c.rewardHat}.name`)),
             ),
             c.rewardOwned ? h('span', { class: 'uh-tourcard__owned' }, icon('check')) : null,
           ),

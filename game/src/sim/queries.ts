@@ -78,6 +78,8 @@ export function isFreeCircle(ctx: SimContext, p: Vec2, radius: number, opt: Free
       const b = ctx.chars[i]!.body;
       if (Math.hypot(b.x - p.x, b.y - p.y) < radius + CHARACTER.radius) return false;
     }
+    // police officers count as characters here (they are solid walkers too)
+    if (ctx.police && !ctx.police.isFreeOfOfficers(p, radius, opt.ignoreCharId)) return false;
   }
   return true;
 }

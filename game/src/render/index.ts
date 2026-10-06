@@ -3,7 +3,8 @@
  * Game flow imports GameView from here; model factories stay available via './models'.
  */
 export { GameView } from './view';
-export type { ViewSettings, ViewFocus, ViewMode, ViewStats, TelegraphKind } from './view';
+export type { ViewSettings, ViewFocus, ViewMode, ViewStats, TelegraphKind, ViewCallout } from './view';
+export type { EmoteKind } from './emotes';
 export { GameCamera, MATCH_DIST, MATCH_FOV, MATCH_PITCH, NORTH_YAW, fitDistance } from './camera';
 export { GRAB_MARKER_COLOR } from './effects';
 export type { CameraGoal } from './camera';

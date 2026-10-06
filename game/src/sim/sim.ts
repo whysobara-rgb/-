@@ -10,6 +10,9 @@
  *   4. recovery dwell -> settle all completions together -> remove recovered, eject riders
  *   5. bank body count -> final countdown (once)
  *   6. end check (time / all recovered / decided)
+ *   7. police (rules.police only): alarms, dispatch, cars — skipped once the match is over.
+ *      Officer brains run right before physics (after commands) and their lunges / dash stuns
+ *      resolve after every substep, after character dash hits.
  */
 import { BANK_MODEL, CHARACTER, DT, FENCE, UNSTUCK } from './config';
 import { emit, lootById, type SimContext } from './context';
@@ -31,6 +34,7 @@ import {
 } from './actions';
 import { isFiniteVec } from './math';
 import { CAT_BANK, PhysicsWorld, type Body, type PhysicsHooks } from './physics';
+import { PoliceSystem, policeEntriesFor } from './police';
 import { isFreeCircle, isFreeOBB, lineOfSight, spiralSearch, staticToOBB } from './queries';
 import { checkEnd, removeRecovered, settle, updateLoading, updateRecovery, updateRemaining, updateTimer } from './rules';
 import { buildContext } from './world';
@@ -43,6 +47,7 @@ import type {
   LootState,
   MatchSetup,
   OBB,
+  PoliceEntryDef,
   RuleConfig,
   SimEvent,
   SimState,
@@ -98,13 +103,17 @@ export class Simulation {
     this.hooks = {
       onFenceContact: (fi, bank, approach, px, py) => this.onFenceContact(fi, bank, approach, px, py),
       onImpact: (a, b, approach) => this.onImpact(a, b, approach),
-      afterSubstep: () => checkDashHits(this.ctx),
+      afterSubstep: () => {
+        checkDashHits(this.ctx);
+        this.ctx.police?.afterSubstep();
+      },
     };
     this.debug = {
       teleport: (id, pos, angle) => this.debugTeleport(id, pos, angle),
       setAnchored: (id, anchored) => this.debugSetAnchored(id, anchored),
       setVelocity: (id, vel) => this.debugSetVelocity(id, vel),
     };
+    if (this.rules.police) this.ctx.police = new PoliceSystem(this.ctx);
     // initial derived state (interior safes loaded, estimates) without events
     updateLoading(this.ctx);
     this.ctx.events = [];
@@ -133,8 +142,9 @@ export class Simulation {
     // 1. commands
     processCommands(ctx, commands);
 
-    // 2. physics + fences + unanchor + stability
+    // 2. physics + fences + unanchor + stability (police brains drive officers like commands)
     prepareBodies(ctx);
+    ctx.police?.prePhysics();
     for (const f of ctx.fences) {
       f.touched = false;
       f.maxApproach = 0;
@@ -145,6 +155,7 @@ export class Simulation {
     updateUnanchor(ctx);
     this.stabilize();
     this.syncState();
+    ctx.police?.afterPhysics();
 
     // 3. loading
     updateLoading(ctx);
@@ -163,6 +174,12 @@ export class Simulation {
 
     // 6. end check
     checkEnd(ctx);
+
+    // 7. police: alarms, dispatch, cars (owner addition; never after the end — officers freeze)
+    if (ctx.police) {
+      if (st.over) ctx.police.freeze();
+      else ctx.police.postTick();
+    }
 
     for (const e of ctx.events) this.eventLog.push(e);
     return ctx.events;
@@ -435,6 +452,14 @@ export class Simulation {
 
   staticCircles(): { center: Vec2; radius: number }[] {
     return this.ctx.physics.statics.filter((s) => s.type === 1).map((s) => ({ center: { x: s.x, y: s.y }, radius: s.r }));
+  }
+
+  /**
+   * Police car entry points (layout.policeEntries, or the derived north/south edge middles).
+   * PoliceCarState.entryIndex indexes this list.
+   */
+  policeEntries(): PoliceEntryDef[] {
+    return this.ctx.police ? this.ctx.police.entries.map((e) => ({ from: { ...e.from }, park: { ...e.park }, angle: e.angle })) : policeEntriesFor(this.layout);
   }
 
   /** Ticks left until endTick (Infinity without a time limit). */

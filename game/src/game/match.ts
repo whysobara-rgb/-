@@ -118,6 +118,8 @@ export class MatchController {
   private rollFrom: [number, number] = [0, 0];
   private rollT: [number, number] = [1, 1];
   private readonly rumbleTimers: number[] = [];
+  /** The first police dispatch of this match was explained to the player. */
+  private policeExplained = false;
   private lastFrame: MatchFrame | null = null;
   private forcedResult: MatchResult | null = null;
   private summaryCache: MatchSummary | null = null;
@@ -214,7 +216,7 @@ export class MatchController {
       this.acc += scaled * this.svc.params.speed;
       const maxSteps = MAX_STEPS_PER_FRAME * Math.max(1, Math.ceil(this.svc.params.speed));
       let steps = 0;
-      while (this.acc >= DT && steps < maxSteps && this.phase === 'playing' && !this.paused && !this.pauseRequested) {
+      while (this.acc >= DT && steps < maxSteps && this.phase === 'playing' && !this.paused && !this.pauseRequested && !this.time.frozen) {
         this.acc -= DT;
         steps++;
         this.stepOnce();
@@ -225,7 +227,7 @@ export class MatchController {
           break; // freeze now; the remaining accumulator waits for the hit-stop to pass
         }
       }
-      if (steps >= maxSteps && this.acc >= DT) {
+      if (steps >= maxSteps && this.acc >= DT && !this.time.frozen) {
         this.stats.maxStepsHit++;
         this.acc = Math.min(this.acc, DT); // never spiral: drop the backlog
       }
@@ -409,10 +411,23 @@ export class MatchController {
         case 'fenceBroken':
           checkAch = true;
           break;
+        case 'policeDispatched':
+          // Police (owner addition beyond doc v0.5): tell the player what the car is and what
+          // the officers do, once in full, then a short notice per later wave.
+          this.svc.toasts.show({
+            kicker: 'police.dispatched.kicker',
+            title: 'police.dispatched.title',
+            body: this.policeExplained ? null : 'police.dispatched.body',
+            icon: 'siren',
+            durationMs: this.policeExplained ? 2200 : 4200,
+          });
+          this.policeExplained = true;
+          break;
         case 'finalCountdown': {
           const sec = Math.max(1, Math.round((e.endTick - e.tick) / TICK_RATE));
           hud.banner('escape', { sec });
           this.svc.view.cameraKick({ shake: 0.25 });
+          this.hudSlam(1);
           break;
         }
         case 'matchEnd':
@@ -430,14 +445,35 @@ export class MatchController {
     const el = this.svc.hud.el.querySelector<HTMLElement>(`.uh-sb__team--${team}`) ?? this.svc.hud.el.querySelector<HTMLElement>('.uh-practice');
     if (!el || typeof el.animate !== 'function') return;
     const k = 1 + 0.18 * strength;
+    // Individual `translate`/`scale` properties compose with any layout `transform` the HUD CSS
+    // sets on the element, so the juice never displaces it.
     el.animate(
       [
-        { transform: 'translateY(0) scale(1)' },
-        { transform: `translateY(${(-6 * strength).toFixed(1)}px) scale(${k.toFixed(3)})`, offset: 0.35 },
-        { transform: 'translateY(0) scale(0.97)', offset: 0.7 },
-        { transform: 'translateY(0) scale(1)' },
+        { translate: '0 0', scale: '1' },
+        { translate: `0 ${(-6 * strength).toFixed(1)}px`, scale: k.toFixed(3), offset: 0.35 },
+        { translate: '0 0', scale: '0.97', offset: 0.7 },
+        { translate: '0 0', scale: '1' },
       ],
       { duration: 420 + 200 * strength, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' },
+    );
+  }
+
+  /** Banner slam: the scoreboard jolts down and settles as a big banner lands. */
+  private hudSlam(strength: number): void {
+    if (this.svc.settings().reducedMotion) return;
+    const el = this.svc.hud.el.querySelector<HTMLElement>('.uh-hud__topWrap');
+    if (!el || typeof el.animate !== 'function') return;
+    const d = (10 * strength).toFixed(1);
+    // `.uh-hud__topWrap` is centred with `transform: translateX(-50%)` in hud.css: animate the
+    // individual `translate`/`scale` properties (they compose with it) instead of replacing it.
+    el.animate(
+      [
+        { translate: '0 0', scale: '1' },
+        { translate: `0 ${d}px`, scale: '1.04', offset: 0.18 },
+        { translate: `0 ${(-3 * strength).toFixed(1)}px`, scale: '1', offset: 0.5 },
+        { translate: '0 0', scale: '1' },
+      ],
+      { duration: 460, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
     );
   }
 
@@ -567,6 +603,7 @@ export class MatchController {
     const { hud } = this.svc;
     if (res) {
       hud.banner(res.reason === 'time' ? 'timeUp' : res.reason === 'decided' ? 'decided' : 'allRecovered', undefined, 2200);
+      this.hudSlam(0.8);
       // A recovery that decides the match (or the clock running out) gets a brief slow-mo.
       this.slowmo();
       if (res.winner === this.myTeam) this.svc.view.cameraKick({ zoom: 0.06 });

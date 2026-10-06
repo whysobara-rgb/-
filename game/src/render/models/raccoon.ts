@@ -30,9 +30,9 @@ import { PAL } from './palette';
 import { G, PartBuilder, lathe, rng } from './geometry';
 import { matVC, matTextured, matBasic } from './materials';
 import { FACE_DECAL, faceTexture, nunchiMaskTexture, blobShadowTexture, type FaceExpression } from './textures';
-import { Highlighter } from './outline';
+import { Highlighter, InkOutline } from './outline';
 
-export type RaccoonExpression = 'normal' | 'blink' | 'happy' | 'cheer' | 'strain' | 'dizzy' | 'sad';
+export type RaccoonExpression = 'normal' | 'blink' | 'happy' | 'cheer' | 'strain' | 'dizzy' | 'sad' | 'determined' | 'shock' | 'angry' | 'panic' | 'sly';
 
 export interface RaccoonPose {
   /** Ground speed in m/s (walk ~5, dash ~11). */
@@ -53,7 +53,20 @@ export interface RaccoonPose {
   expression?: RaccoonExpression | null;
   /** Optional head turn relative to the body (radians, +left), e.g. to look at a target. */
   headYaw?: number;
+  /**
+   * 0..1 how hard an uproot pull is going (unanchor progress while straining): plants the
+   * feet, then leans way back like pulling a giant radish, then trembles violently.
+   */
+  effort?: number;
+  /**
+   * Seconds since an uproot "pop" knocked this raccoon onto its bottom (undefined / < 0 =
+   * none): tumble back, sit with legs up, spring up happy (~0.85 s).
+   */
+  tumble?: number;
 }
+
+/** Length of the pop tumble (sit + spring up). */
+export const RACCOON_TUMBLE_TIME = 0.85;
 
 export interface RaccoonRig {
   readonly root: THREE.Group;
@@ -762,6 +775,9 @@ export function createRaccoon(opts: { team: TeamId | null; look: CharacterLook }
   root.add(labelAnchor);
 
   const highlighter = new Highlighter(root);
+  // Bold toon ink line so raccoons read at the high game camera (hidden while a colored
+  // highlight / impact flash replaces it).
+  const ink = new InkOutline(root);
 
   // --- look application ---------------------------------------------------------
   const applyLook = (): void => {
@@ -787,11 +803,16 @@ export function createRaccoon(opts: { team: TeamId | null; look: CharacterLook }
     mask.visible = look.hat === 'nunchiMask';
     blob.scale.setScalar(0.95 * g);
     highlighter.rebuild();
+    ink.refresh();
   };
   applyLook();
 
   // --- animation state -------------------------------------------------------------
   const w: Weights = { move: 0, grab: 0, strain: 0, dash: 0, boost: 0, down: 0, cheer: 0, sad: 0 };
+  let effortW = 0;
+  // Slightly oversized head and tail: chunkier silhouette at gameplay distance.
+  head.scale.setScalar(1.1);
+  tail1.scale.setScalar(1.12);
   let phase = rand() * Math.PI * 2;
   let spin = 0;
   let spinVel = 0;
@@ -824,6 +845,20 @@ export function createRaccoon(opts: { team: TeamId | null; look: CharacterLook }
     w.sad = approach(w.sad, pose.sad ? 1 : 0, 5, dt);
     const mv = Math.min(w.move, 1);
     const athletic = rival === 'hodadak' ? 1 : 0;
+    effortW = approach(effortW, pose.straining ? THREE.MathUtils.clamp(pose.effort ?? 0.3, 0, 1) : 0, 9, dt);
+    // Tumble (uproot pop): 0..0.14 thrown back, ..0.55 sitting with legs up, ..0.85 spring up.
+    const tb = pose.tumble;
+    let sitW = 0;
+    let springW = 0;
+    if (tb !== undefined && tb >= 0 && tb < RACCOON_TUMBLE_TIME) {
+      if (tb < 0.14) sitW = tb / 0.14;
+      else if (tb < 0.55) sitW = 1;
+      else {
+        const k = (tb - 0.55) / (RACCOON_TUMBLE_TIME - 0.55);
+        sitW = Math.max(0, 1 - k * 2.2);
+        springW = Math.sin(Math.PI * k);
+      }
+    }
 
     // Gait: short legs scamper (≈2.5 strides/s at walk speed).
     phase += dt * (2.2 + pose.speed * (2.9 + athletic * 0.4));
@@ -846,20 +881,23 @@ export function createRaccoon(opts: { team: TeamId | null; look: CharacterLook }
     // --- vertical: bob, cheer hops, knockdown sit -------------------------------------
     const bob = Math.abs(s) * 0.045 * mv;
     const hop = Math.max(0, Math.sin(t * 7.5)) * 0.2 * w.cheer;
-    pivot.position.y = bob + hop - 0.1 * w.down - 0.03 * w.sad;
+    pivot.position.y = bob + hop - 0.1 * w.down - 0.03 * w.sad - 0.2 * sitW + 0.38 * springW - 0.05 * effortW;
 
     // --- body lean / squash ---------------------------------------------------------------
     const breathe = Math.sin(t * 2.4 + idleSeed) * 0.015;
     let lean = -0.08 * mv - 0.08 * athletic * (0.4 + mv); // forward lean when running
     lean += 0.12 * w.grab * mv; // dragging: lean back
     lean += 0.34 * w.strain; // tug of war
+    lean += 0.42 * effortW * effortW; // giant-radish lean
+    lean += 1.15 * sitW - 0.25 * springW;
     lean -= 0.2 * w.dash;
     lean -= 0.18 * w.boost;
     lean += 0.55 * w.down;
     lean -= 0.2 * w.sad;
     body.rotation.z = lean;
     body.rotation.x = Math.sin(phase) * 0.05 * mv * (1 - w.strain) + Math.sin(t * 40) * 0.02 * w.strain;
-    const tremble = w.strain * 0.014;
+    const violent = THREE.MathUtils.smoothstep(effortW, 0.75, 1);
+    const tremble = w.strain * 0.014 + violent * 0.03;
     body.position.x = Math.sin(t * 53.0) * tremble;
     body.position.z = Math.sin(t * 41.0 + 1.3) * tremble;
     const stretch = 1 + 0.22 * w.dash + 0.1 * w.boost;
@@ -867,9 +905,9 @@ export function createRaccoon(opts: { team: TeamId | null; look: CharacterLook }
     body.scale.set(stretch, squash, 1 / Math.sqrt(stretch * squash));
 
     // --- legs -------------------------------------------------------------------------
-    const legAmp = 0.75 * mv * (1 - w.down) * (1 - 0.6 * w.strain);
-    const brace = 0.45 * w.strain;
-    const sitLegs = 1.25 * w.down;
+    const legAmp = 0.75 * mv * (1 - w.down) * (1 - 0.6 * w.strain) * (1 - sitW);
+    const brace = 0.45 * w.strain + 0.35 * effortW;
+    const sitLegs = 1.25 * w.down + (1.45 + Math.sin(t * 22) * 0.35) * sitW;
     legL.rotation.z = s * legAmp + brace + sitLegs;
     legR.rotation.z = -s * legAmp + brace * 0.8 + sitLegs * 0.9;
     legL.rotation.x = -0.12 * w.down;
@@ -901,6 +939,10 @@ export function createRaccoon(opts: { team: TeamId | null; look: CharacterLook }
       // Knocked down: flail.
       rz += w.down * (2.2 + Math.sin(t * 18 + side) * 0.5);
       rx += w.down * side * -0.6;
+      // Tumble: arms thrown up while sitting, then a "ta-da" on the spring.
+      rz = rz * (1 - sitW) + sitW * (2.4 + Math.sin(t * 20 + side) * 0.4);
+      rz += springW * 1.4;
+      rx += (sitW + springW) * side * -0.5;
       // Sad: limp, slightly forward.
       rz = rz * (1 - sadHang) + sadHang * (0.12 + Math.sin(t * 1.3) * 0.03);
       rx = rx * (1 - sadHang) + sadHang * side * -0.05;
@@ -933,11 +975,12 @@ export function createRaccoon(opts: { team: TeamId | null; look: CharacterLook }
       stars.scale.setScalar(Math.min(1, w.down * 1.4));
       stars.position.y = HEAD_C[1] + 0.36 + Math.sin(t * 5) * 0.02;
     }
-    sweat.visible = w.strain > 0.3 || w.boost > 0.5;
+    // (Strain sweat is a view emote now; the head drop stays for the carry boost.)
+    sweat.visible = w.boost > 0.5;
     if (sweat.visible) {
       const k = (t * 1.5) % 1;
       sweat.position.set(0.12, HEAD_C[1] + 0.22 - k * 0.12, -0.31);
-      sweat.scale.setScalar(Math.max(w.strain, w.boost) * (1 - k * 0.3));
+      sweat.scale.setScalar(w.boost * (1 - k * 0.3));
     }
     const lineW = Math.max(w.dash, w.boost * 0.8);
     speedLines.visible = lineW > 0.05;
@@ -954,9 +997,12 @@ export function createRaccoon(opts: { team: TeamId | null; look: CharacterLook }
     const override = pose.expression ?? null;
     if (override) kind = override;
     else if (pose.knockedDown || w.down > 0.6) kind = 'dizzy';
+    else if (sitW > 0.4) kind = 'shock';
+    else if (springW > 0.05) kind = 'happy';
     else if (pose.celebrating) kind = 'cheer';
     else if (pose.sad) kind = 'sad';
-    else if (pose.straining || pose.boosting) kind = 'strain';
+    else if (pose.straining) kind = effortW < 0.38 ? 'determined' : 'strain';
+    else if (pose.boosting) kind = 'strain';
     else if (pose.dashing) kind = 'happy';
     else kind = rival === 'nunchi' ? 'sly' : 'normal';
     // Blinking for open-eyed faces.
@@ -987,12 +1033,14 @@ export function createRaccoon(opts: { team: TeamId | null; look: CharacterLook }
     },
     setHighlight(color) {
       highlighter.set(color);
+      ink.setVisible(color === null || color === undefined);
     },
     setBlobShadow(visible: boolean) {
       blob.visible = visible;
     },
     dispose() {
       highlighter.dispose();
+      ink.dispose();
       root.removeFromParent();
       // Geometries/materials are shared caches; nothing per-instance to free.
     },

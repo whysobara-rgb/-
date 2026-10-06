@@ -31,6 +31,10 @@ export const SHAPE_CIRCLE = 1;
 export const CAT_CHARACTER = 1;
 export const CAT_SAFE = 2;
 export const CAT_BANK = 4;
+/** Police officers (owner addition): walk like characters (soft push on loot, low friction). */
+export const CAT_POLICE = 8;
+/** Bodies that walk on their own (characters, officers). */
+const CAT_WALKER = CAT_CHARACTER | CAT_POLICE;
 
 export type Motion = 'dynamic' | 'kinematic' | 'static';
 
@@ -556,6 +560,8 @@ export class PhysicsWorld {
   private readonly sorted: Body[] = [];
   private readonly scratchStatics: StaticShape[] = [];
   private readonly fencePoints = new Map<number, number>();
+  /** Next body index (monotonic; never reused after removeBody). */
+  private nextBodyIndex = 0;
 
   constructor(
     readonly params: PhysicsParams,
@@ -563,10 +569,24 @@ export class PhysicsWorld {
   ) {}
 
   createBody(entityId: number, cat: number): Body {
-    const b = new Body(this.bodies.length, entityId, cat);
+    const b = new Body(this.nextBodyIndex++, entityId, cat);
     this.bodies.push(b);
     this.sorted.push(b);
     return b;
+  }
+
+  /**
+   * Remove a body for good (police officers boarding their car). Body indices are never
+   * reused, so the remaining bodies keep their canonical (index) order. The body must not be
+   * a weld parent, a floor or part of a grab joint.
+   */
+  removeBody(b: Body): void {
+    const i = this.bodies.indexOf(b);
+    if (i < 0) return;
+    this.bodies.splice(i, 1);
+    const k = this.sorted.indexOf(b);
+    if (k >= 0) this.sorted.splice(k, 1);
+    b.enabled = false;
   }
 
   addStaticBox(x: number, y: number, hx: number, hy: number, angle: number, tag: string): StaticShape {
@@ -890,12 +910,12 @@ export class PhysicsWorld {
     let iiA = a.solverInvI;
     let imB = b ? b.solverInvMass : 0;
     let iiB = b ? b.solverInvI : 0;
-    // soft push: a character shoving loot moves it as if it were much heavier
+    // soft push: a character (or officer) shoving loot moves it as if it were much heavier
     if (b) {
-      if (a.cat === CAT_CHARACTER && b.cat !== CAT_CHARACTER) {
+      if ((a.cat & CAT_WALKER) !== 0 && (b.cat & CAT_WALKER) === 0) {
         imB *= P.softPushFactor;
         iiB *= P.softPushFactor;
-      } else if (b.cat === CAT_CHARACTER && a.cat !== CAT_CHARACTER) {
+      } else if ((b.cat & CAT_WALKER) !== 0 && (a.cat & CAT_WALKER) === 0) {
         imA *= P.softPushFactor;
         iiA *= P.softPushFactor;
       }
@@ -919,7 +939,8 @@ export class PhysicsWorld {
     c.invMB = imB;
     c.invIB = iiB;
     const charInvolved = a.cat === CAT_CHARACTER || (b !== null && b.cat === CAT_CHARACTER);
-    c.friction = charInvolved ? 0.05 : 0.3;
+    const walkerInvolved = (a.cat & CAT_WALKER) !== 0 || (b !== null && (b.cat & CAT_WALKER) !== 0);
+    c.friction = walkerInvolved ? 0.05 : 0.3;
     c.slop = P.slop;
     const st = c.st;
     if (st && st.fenceIndex >= 0 && a.cat === CAT_BANK) {

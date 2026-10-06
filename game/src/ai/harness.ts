@@ -71,6 +71,11 @@ export interface SlotStats {
   idleSeconds: number;
   /** Declared-waiting stretches without progress longer than 6 s. */
   idleIncidents6s: number;
+  /**
+   * The previous (looser) metric, for comparison: any 0.75 m move or declared waiting resets the
+   * window; stretches longer than 5 s.
+   */
+  stuckIncidentsLoose: number;
   /** Seconds in the fallback goals (guard patrol / idle) with loot left and > 5 s on the clock. */
   passiveSeconds: number;
   /** ... of which with the own team tied or behind. */
@@ -170,6 +175,7 @@ export function runMatch(spec: MatchSpec): MatchStats {
     stuckIncidents5s: 0,
     idleSeconds: 0,
     idleIncidents6s: 0,
+    stuckIncidentsLoose: 0,
     passiveSeconds: 0,
     passiveBehindSeconds: 0,
     unstuckEvents: 0,
@@ -187,6 +193,9 @@ export function runMatch(spec: MatchSpec): MatchStats {
   }));
   const stuckWhat: string[] = bots.map(() => '');
   const waitTicks = bots.map(() => 0);
+  const looseRef = bots.map((b) => ({ ...sim.characterBySlot(b.slot).pos }));
+  const looseHeld = bots.map(() => ({ id: -1 as EntityId, x: 0, y: 0 }));
+  const looseStart = bots.map(() => 0);
   // progress tracking (no meaningful progress for > 3 s)
   const ref = bots.map((b) => ({ ...sim.characterBySlot(b.slot).pos }));
   const refHeld = bots.map(() => ({ id: -1 as EntityId, x: 0, y: 0 }));
@@ -294,6 +303,23 @@ export function runMatch(spec: MatchSpec): MatchStats {
         const d = b.debug() as { goal: { key: string; phase: string } | null };
         stuckWhat[i] = d.goal ? `${d.goal.key}:${d.goal.phase}` : 'none';
       }
+      // loose metric (previous definition)
+      {
+        let lp = waiting || ch.straining || ch.knockdownTicks > 0 || Math.hypot(ch.pos.x - looseRef[i]!.x, ch.pos.y - looseRef[i]!.y) > 0.75;
+        if (ch.grab) {
+          const l = sim.getLoot(ch.grab.targetId);
+          const lh = looseHeld[i]!;
+          if (l) {
+            if (lh.id !== l.id || Math.hypot(l.pos.x - lh.x, l.pos.y - lh.y) > 0.75 || (l.recovery && l.recovery.team === ch.team)) lp = true;
+            if (lp) looseHeld[i] = { id: l.id, x: l.pos.x, y: l.pos.y };
+          }
+        }
+        if (lp) {
+          if (st.tick - looseStart[i]! > 5 * TICK_RATE) slotStats[i]!.stuckIncidentsLoose++;
+          looseStart[i] = st.tick;
+          looseRef[i] = { ...ch.pos };
+        }
+      }
       if (progress) {
         closeWindow(slotStats[i]!, lastProgress[i]!, st.tick, waitTicks[i]!, stuckWhat[i]!, ref[i]!);
         ref[i] = { ...ch.pos };
@@ -309,6 +335,7 @@ export function runMatch(spec: MatchSpec): MatchStats {
   }
   for (let i = 0; i < n; i++) {
     closeWindow(slotStats[i]!, lastProgress[i]!, st.tick, waitTicks[i]!, stuckWhat[i]!, ref[i]!);
+    if (st.tick - looseStart[i]! > 5 * TICK_RATE) slotStats[i]!.stuckIncidentsLoose++;
     const b = bots[i]!;
     const s = slotStats[i]!;
     s.dashes = b.stats.dashes;
@@ -461,6 +488,8 @@ export interface SeriesAggregate {
   stuck5: number;
   /** Declared-waiting stretches > 6 s (bots only). */
   idle6: number;
+  /** Stuck > 5 s by the previous, looser definition (comparison). */
+  stuck5Loose: number;
   /** Seconds per bot per match in the fallback goals with loot left (tied/behind). */
   passiveBehindPerBot: number;
   finalReplans: number;
@@ -487,6 +516,7 @@ export function aggregate(ms: SeriesMatch[]): SeriesAggregate {
     botSlowShare: 0,
     stuck5: 0,
     idle6: 0,
+    stuck5Loose: 0,
     passiveBehindPerBot: 0,
     finalReplans: 0,
     teammateShare: null,
@@ -574,6 +604,7 @@ export function aggregate(ms: SeriesMatch[]): SeriesAggregate {
         slow += s.botSlow2ms;
         agg.stuck5 += s.stuckIncidents5s;
         agg.idle6 += s.idleIncidents6s;
+        agg.stuck5Loose += s.stuckIncidentsLoose;
         passiveB += s.passiveBehindSeconds;
         nBots++;
         agg.finalReplans += s.finalReplans;
@@ -612,7 +643,7 @@ export function formatAggregate(agg: SeriesAggregate, title = ''): string {
       .join(' ')}  avg score A ${agg.avgScoreA.toFixed(0)} B ${agg.avgScoreB.toFixed(0)}  first score A ${agg.avgFirstScoreS[0]?.toFixed(1) ?? '-'}s B ${agg.avgFirstScoreS[1]?.toFixed(1) ?? '-'}s  invariant violations ${agg.invariantViolations}`,
   );
   L.push(
-    `bot cpu avg ${agg.botMsAvg.toFixed(3)} ms/tick/bot  max ${agg.botMsMax.toFixed(2)} ms (after warm-up ${agg.botMsMaxWarm.toFixed(2)} ms, ${(agg.botSlowShare * 100).toFixed(3)}% of updates > 2 ms)  stuck>5s ${agg.stuck5}  idle>6s ${agg.idle6}  passive-while-not-ahead ${agg.passiveBehindPerBot.toFixed(1)} s/bot  final-30s re-plans ${agg.finalReplans}` +
+    `bot cpu avg ${agg.botMsAvg.toFixed(3)} ms/tick/bot  max ${agg.botMsMax.toFixed(2)} ms (after warm-up ${agg.botMsMaxWarm.toFixed(2)} ms, ${(agg.botSlowShare * 100).toFixed(3)}% of updates > 2 ms)  stuck>5s ${agg.stuck5} (looser old metric ${agg.stuck5Loose})  idle>6s ${agg.idle6}  passive-while-not-ahead ${agg.passiveBehindPerBot.toFixed(1)} s/bot  final-30s re-plans ${agg.finalReplans}` +
       (agg.teammateShare !== null ? `  teammate share ${(agg.teammateShare * 100).toFixed(1)}%` : ''),
   );
   L.push('  per bot (averages per match):  pts | small large bank (whole) | strips steals | KOs dashes boosts | stuck s idle s max-stuck stuck>5 idle>6 passive(not ahead) s unstuck | scored% first-score');

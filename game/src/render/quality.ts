@@ -5,7 +5,9 @@
  *            pixel ratio up to 2, full particles and decor.
  *  - medium: 2048 shadow map, MSAA, pixel ratio up to 1.25, most particles/decor.
  *  - low:    usable on integrated GPUs. No shadow maps (the models' soft blob shadows stay),
- *            no MSAA, pixel ratio 1, half particles, ~half of the purely decorative props.
+ *            no MSAA, pixel ratio 1, half particles, ~half of the purely decorative props,
+ *            no post-processing, simple shop fronts.
+ *  Post (medium/high): bloom on emissives, warm grade, vignette, impact frames (post.ts).
  *
  * Everything here is data; GameView applies it (applySettings works live — toggling MSAA
  * recreates the WebGL renderer, a decor density change rebuilds the merged scenery).
@@ -34,6 +36,19 @@ export interface QualityPreset {
   readonly dragDust: boolean;
   /** Character blob shadows even when shadow maps are on (contact grounding). */
   readonly blobShadows: boolean;
+  /** Post-processing composer (bloom + grade + impact frames). Off = direct canvas render. */
+  readonly post: boolean;
+  /** MSAA samples of the post scene target (the canvas MSAA is unused while post is on). */
+  readonly msaaSamples: number;
+  /** Bloom strength and resolution (fraction of the canvas). */
+  readonly bloomStrength: number;
+  readonly bloomScale: number;
+  /** Chromatic aberration flashes on impacts. */
+  readonly chroma: boolean;
+  /** Ground overlay texture resolution (px per meter): paths, lanes, manholes, wear. */
+  readonly groundDetail: number;
+  /** Shop window dioramas + window silhouettes (merged scenery detail). */
+  readonly shopInteriors: boolean;
 }
 
 export const QUALITY_PRESETS: Readonly<Record<QualityLevel, QualityPreset>> = {
@@ -49,6 +64,13 @@ export const QUALITY_PRESETS: Readonly<Record<QualityLevel, QualityPreset>> = {
     footsteps: false,
     dragDust: true,
     blobShadows: true,
+    post: false,
+    msaaSamples: 0,
+    bloomStrength: 0,
+    bloomScale: 0.25,
+    chroma: false,
+    groundDetail: 12,
+    shopInteriors: false,
   },
   medium: {
     level: 'medium',
@@ -62,6 +84,13 @@ export const QUALITY_PRESETS: Readonly<Record<QualityLevel, QualityPreset>> = {
     footsteps: true,
     dragDust: true,
     blobShadows: true,
+    post: true,
+    msaaSamples: 4,
+    bloomStrength: 0.55,
+    bloomScale: 0.25,
+    chroma: false,
+    groundDetail: 18,
+    shopInteriors: true,
   },
   high: {
     level: 'high',
@@ -75,6 +104,13 @@ export const QUALITY_PRESETS: Readonly<Record<QualityLevel, QualityPreset>> = {
     footsteps: true,
     dragDust: true,
     blobShadows: true,
+    post: true,
+    msaaSamples: 4,
+    bloomStrength: 0.6,
+    bloomScale: 0.5,
+    chroma: true,
+    groundDetail: 24,
+    shopInteriors: true,
   },
 };
 

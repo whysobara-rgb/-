@@ -186,8 +186,8 @@ export class FieldJob {
   ) {}
 }
 
-/** Dijkstra pops per tick shared by all background field jobs of one grid (~0.4 ms). */
-const FIELD_POPS_PER_TICK = 7000;
+/** Dijkstra pops per tick shared by all background field jobs of one grid (~0.3-0.5 ms). */
+const FIELD_POPS_PER_TICK = 3500;
 /** A* expansions per tick (all bots) before non-urgent re-paths wait for the next tick. */
 export const ASTAR_TICK_BUDGET = 9000;
 
@@ -266,6 +266,15 @@ export class NavGrid {
     for (const o of sim.staticOBBs()) this.stampOBB(this.staticDist, o);
     for (const c of sim.staticCircles()) this.stampCircle(this.staticDist, c.center, c.radius);
     this.update(sim, true);
+    // warm the hot loops up while the match loads (the first in-match re-stamp / re-label would
+    // otherwise run unoptimized: a one-off 10-20 ms hitch)
+    for (let r = 0; r < 3; r++) {
+      this.restamp(sim);
+      for (const c of NAV_CLASSES) {
+        this.labelCache.delete(c);
+        this.labels(c);
+      }
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -388,6 +397,19 @@ export class NavGrid {
         const k = j * this.nx + i;
         const v = d > 0 ? d : 0;
         if (v < field[k]!) field[k] = v;
+      }
+    }
+  }
+
+  private clearMaskInOBB(mask: Uint8Array, o: OBB): void {
+    const bb = obbBounds(o);
+    const i0 = Math.max(0, Math.floor(bb.minX / NAV_CELL));
+    const i1 = Math.min(this.nx - 1, Math.ceil(bb.maxX / NAV_CELL));
+    const j0 = Math.max(0, Math.floor(bb.minY / NAV_CELL));
+    const j1 = Math.min(this.ny - 1, Math.ceil(bb.maxY / NAV_CELL));
+    for (let j = j0; j <= j1; j++) {
+      for (let i = i0; i <= i1; i++) {
+        if (sdOBB(o, i * NAV_CELL, j * NAV_CELL) <= 0) mask[j * this.nx + i] = 0;
       }
     }
   }
@@ -543,6 +565,14 @@ export class NavGrid {
       ms[k] = c >= rs && s >= ss ? 1 : 0;
       ml[k] = c >= rl && s >= sl ? 1 : 0;
     }
+    // carrying classes never route THROUGH a bank (in one door, out the other): the interior is
+    // cramped and a safe left on its floor is loaded onto it. Taking a safe out of a bank or
+    // putting one in are explicit door manoeuvres of the bot, not paths.
+    for (const l of st.loot) {
+      if (l.kind !== 'bank' || l.recovered) continue;
+      this.clearMaskInOBB(ms, { center: l.pos, half: { x: BANK_MODEL.half.x + 0.2, y: BANK_MODEL.half.y + 0.2 }, angle: l.angle });
+      this.clearMaskInOBB(ml, { center: l.pos, half: { x: BANK_MODEL.half.x + 0.2, y: BANK_MODEL.half.y + 0.2 }, angle: l.angle });
+    }
     this.dynVersion++;
     this.stats.restamps++;
   }
@@ -602,8 +632,14 @@ export class NavGrid {
     // a goal in another connected region can only get a partial path: a small search toward it
     // (instead of flooding the whole reachable region)
     if (goalR <= 0) {
-      const lab = this.labels(cls);
-      if (lab[s] !== lab[goalCell]) maxExpand = Math.min(maxExpand, 2500);
+      // (labels are refreshed at most every 30 ticks while banks keep moving; a stale labelling
+      // only skips the cap)
+      const L = this.labelCache.get(cls);
+      const fresh = L !== undefined && L.version === this.dynVersion;
+      if (fresh || !L || this.lastSeenTick - L.tick >= 30) {
+        const lab = this.labels(cls);
+        if (lab[s] !== lab[goalCell]) maxExpand = Math.min(maxExpand, 2500);
+      }
     }
     this.epoch++;
     const ep = this.epoch;
@@ -834,10 +870,10 @@ export class NavGrid {
         if (R1 && D1 && mask[k + nx + 1] === 1 && lab[k + nx + 1] === 0) (lab[k + nx + 1] = next), (q[tail++] = k + nx + 1);
       }
     }
-    this.labelCache.set(cls, { lab, version: this.dynVersion });
+    this.labelCache.set(cls, { lab, version: this.dynVersion, tick: this.lastSeenTick });
     return lab;
   }
-  private readonly labelCache = new Map<NavClass, { lab: Int32Array; version: number }>();
+  private readonly labelCache = new Map<NavClass, { lab: Int32Array; version: number; tick: number }>();
   private get labelQueue(): Int32Array {
     return (this.labelQ ??= new Int32Array(this.n));
   }

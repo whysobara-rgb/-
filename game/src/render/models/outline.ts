@@ -25,6 +25,9 @@ const OUTLINE_ATTR = 'outlineNormal';
 
 /** Screen-ish thickness: world offset = thickness * view depth. */
 export const OUTLINE_THICKNESS = { value: 0.0026 };
+/** Permanent toon ink outline (characters, officers, safes): a touch bolder than the highlight. */
+export const INK_THICKNESS = { value: 0.0034 };
+export const INK_COLOR = '#2A2131';
 
 const outlineMats = new Map<string, THREE.ShaderMaterial>();
 
@@ -34,6 +37,19 @@ export interface OutlineOptions {
   pushMax?: number;
   /** Push-back per meter of world height above the ground (keeps ground contact outlined). */
   pushSlope?: number;
+  /** Shared thickness uniform (default OUTLINE_THICKNESS). */
+  thickness?: { value: number };
+  /** Cutaway plane (object space) shared with the cut source materials. */
+  cutPlane?: { value: THREE.Vector4 } | null;
+}
+
+let cutKeys = new WeakMap<object, number>();
+let cutKeyNext = 1;
+function uniformKey(u: object | null | undefined): number {
+  if (!u) return 0;
+  let k = cutKeys.get(u);
+  if (!k) cutKeys.set(u, (k = cutKeyNext++));
+  return k;
 }
 
 /** Shared outline material per color + push settings. */
@@ -41,22 +57,28 @@ export function outlineMaterial(color: THREE.ColorRepresentation, o: OutlineOpti
   const c = new THREE.Color(color);
   const pushMax = o.pushMax ?? 0;
   const pushSlope = o.pushSlope ?? 0.7;
-  const key = `${c.getHexString()}|${pushMax}|${pushSlope}`;
+  const thickness = o.thickness ?? OUTLINE_THICKNESS;
+  const cut = o.cutPlane ?? null;
+  const key = `${c.getHexString()}|${pushMax}|${pushSlope}|t${uniformKey(thickness)}|c${uniformKey(cut)}`;
   let m = outlineMats.get(key);
   if (!m) {
     m = new THREE.ShaderMaterial({
+      defines: cut ? { UH_CUT: 1 } : {},
       uniforms: {
         uColor: { value: c },
-        uThickness: OUTLINE_THICKNESS,
+        uThickness: thickness,
         uPushMax: { value: pushMax },
         uPushSlope: { value: pushSlope },
+        uCutPlane: cut ?? { value: new THREE.Vector4(0, 1, 0, 1e4) },
       },
       vertexShader: /* glsl */ `
         attribute vec3 outlineNormal;
         uniform float uThickness;
         uniform float uPushMax;
         uniform float uPushSlope;
+        varying vec3 vLocal;
         void main() {
+          vLocal = position;
           vec3 n = outlineNormal;
           float l = length(n);
           n = l > 1e-5 ? normalize(normalMatrix * (n / l)) : vec3(0.0);
@@ -74,7 +96,12 @@ export function outlineMaterial(color: THREE.ColorRepresentation, o: OutlineOpti
       `,
       fragmentShader: /* glsl */ `
         uniform vec3 uColor;
+        uniform vec4 uCutPlane;
+        varying vec3 vLocal;
         void main() {
+          #ifdef UH_CUT
+          if (dot(vLocal, uCutPlane.xyz) > uCutPlane.w + 0.02) discard;
+          #endif
           gl_FragColor = vec4(uColor, 1.0);
           #include <colorspace_fragment>
         }
@@ -129,6 +156,8 @@ const noRaycast = (): void => {};
 export class Highlighter {
   private hulls: THREE.Mesh[] | null = null;
   private color: THREE.Color | null = null;
+  /** userData slot holding this highlighter's hull on each source mesh. */
+  protected slot = 'outlineHull';
 
   constructor(
     private readonly target: THREE.Object3D,
@@ -156,7 +185,7 @@ export class Highlighter {
 
   /** Enable/disable the hull of one source mesh (e.g. a faded wall). */
   setMeshEnabled(mesh: THREE.Object3D, enabled: boolean): void {
-    const hull = mesh.userData.outlineHull as THREE.Mesh | undefined;
+    const hull = mesh.userData[this.slot] as THREE.Mesh | undefined;
     if (!hull) {
       mesh.userData.outlineWanted = enabled;
       return;
@@ -195,7 +224,7 @@ export class Highlighter {
       hull.raycast = noRaycast;
       hull.frustumCulled = src.frustumCulled;
       if (src.userData.outlineWanted === false) hull.userData.hullEnabled = false;
-      src.userData.outlineHull = hull;
+      src.userData[this.slot] = hull;
       src.add(hull);
       this.hulls.push(hull);
     }
@@ -206,7 +235,7 @@ export class Highlighter {
     for (const h of this.hulls) {
       const parent = h.parent;
       if (parent) {
-        if (parent.userData.outlineHull === h) delete parent.userData.outlineHull;
+        if (parent.userData[this.slot] === h) delete parent.userData[this.slot];
         parent.remove(h);
       }
     }
@@ -214,7 +243,33 @@ export class Highlighter {
   }
 }
 
+/**
+ * Permanent toon ink line (bold silhouette for characters, officers and loot so they read at
+ * the high game camera). Hidden while a colored highlight replaces it (setVisible(false)).
+ */
+export class InkOutline extends Highlighter {
+  constructor(target: THREE.Object3D, options: OutlineOptions = {}, color: THREE.ColorRepresentation = INK_COLOR) {
+    super(target, { thickness: INK_THICKNESS, ...options });
+    this.slot = 'inkHull';
+    this.set(color);
+    this.inkColor = color;
+  }
+  private inkColor: THREE.ColorRepresentation;
+  private shown = true;
+  setVisible(v: boolean): void {
+    if (v === this.shown) return;
+    this.shown = v;
+    this.set(v ? this.inkColor : null);
+  }
+  /** Rebuild after geometry swaps (keeps visibility). */
+  refresh(): void {
+    this.rebuild();
+    if (this.shown) this.set(this.inkColor);
+  }
+}
+
 export function disposeOutlineCache(): void {
   outlineMats.forEach((m) => m.dispose());
   outlineMats.clear();
+  cutKeys = new WeakMap();
 }

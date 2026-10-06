@@ -258,7 +258,7 @@ export function dashedLineTexture(): THREE.Texture {
 // Raccoon face decals
 // ---------------------------------------------------------------------------
 
-export type FaceExpression = 'normal' | 'blink' | 'happy' | 'cheer' | 'strain' | 'dizzy' | 'sad' | 'sly' | 'slyBlink';
+export type FaceExpression = 'normal' | 'blink' | 'happy' | 'cheer' | 'strain' | 'dizzy' | 'sad' | 'sly' | 'slyBlink' | 'determined' | 'shock' | 'angry' | 'panic';
 
 /**
  * The face decal is a sphere patch: phi (around Y) spans FACE_DECAL.phiLength centred on
@@ -408,6 +408,48 @@ function drawMouth(ctx: CanvasRenderingContext2D, kind: FaceExpression): void {
       ctx.stroke();
       break;
     }
+    case 'determined': {
+      // Gritted grin: flat white band with tooth lines.
+      ctx.fillStyle = '#FFFFFF';
+      roundRectPathF(ctx, -0.12, y - 0.03, 0.24, 0.075, 0.03);
+      ctx.fill();
+      ctx.stroke();
+      ctx.lineWidth = 0.014;
+      for (const x of [-0.06, 0, 0.06]) {
+        ctx.beginPath();
+        ctx.moveTo(x, y - 0.025);
+        ctx.lineTo(x, y + 0.04);
+        ctx.stroke();
+      }
+      break;
+    }
+    case 'shock':
+    case 'panic': {
+      // Little 'O' (shock) or wobbly open mouth (panic).
+      ctx.fillStyle = '#7A2E45';
+      ctx.beginPath();
+      if (kind === 'shock') ctx.ellipse(0, y + 0.04, 0.065, 0.08, 0, 0, Math.PI * 2);
+      else {
+        ctx.moveTo(-0.12, y + 0.02);
+        for (let i = 0; i <= 12; i++) {
+          const t = i / 12;
+          ctx.lineTo(-0.12 + t * 0.24, y + 0.0 + Math.sin(t * Math.PI * 4) * 0.018);
+        }
+        ctx.lineTo(0.1, y + 0.1);
+        ctx.quadraticCurveTo(0, y + 0.14, -0.1, y + 0.1);
+        ctx.closePath();
+      }
+      ctx.fill();
+      ctx.stroke();
+      break;
+    }
+    case 'angry': {
+      ctx.beginPath();
+      ctx.moveTo(-0.11, y + 0.05);
+      ctx.quadraticCurveTo(0, y - 0.03, 0.11, y + 0.05);
+      ctx.stroke();
+      break;
+    }
     case 'sly':
     case 'slyBlink': {
       ctx.beginPath();
@@ -425,6 +467,17 @@ function drawMouth(ctx: CanvasRenderingContext2D, kind: FaceExpression): void {
       ctx.stroke();
     }
   }
+}
+
+/** Rounded rect path in face space (fractional units). */
+function roundRectPathF(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
 }
 
 function drawFace(ctx: CanvasRenderingContext2D, w: number, h: number, kind: FaceExpression): void {
@@ -520,6 +573,46 @@ function drawFace(ctx: CanvasRenderingContext2D, w: number, h: number, kind: Fac
       ctx.quadraticCurveTo(ex + 0.06, ey + 0.26, ex + 0.13, ey + 0.13);
       ctx.fill();
       break;
+    case 'determined':
+    case 'angry': {
+      drawEyeOpen(ctx, -ex, ey + 0.03, 0.92);
+      drawEyeOpen(ctx, ex, ey + 0.03, 0.92);
+      // Lids cut diagonally (mask colored) + bold brows slanting toward the nose.
+      for (const s2 of [-1, 1]) {
+        ctx.fillStyle = PAL.mask;
+        ctx.beginPath();
+        ctx.moveTo(s2 * (ex - 0.22), ey + (kind === 'angry' ? 0.02 : -0.04));
+        ctx.lineTo(s2 * (ex + 0.22), ey - 0.2);
+        ctx.lineTo(s2 * (ex + 0.22), ey - 0.4);
+        ctx.lineTo(s2 * (ex - 0.22), ey - 0.4);
+        ctx.closePath();
+        ctx.fill();
+        strokeStyle(ctx, INK, 0.07);
+        ctx.beginPath();
+        ctx.moveTo(s2 * (ex - 0.2), ey - 0.06 + (kind === 'angry' ? 0.04 : 0));
+        ctx.lineTo(s2 * (ex + 0.17), ey - 0.25);
+        ctx.stroke();
+      }
+      break;
+    }
+    case 'shock':
+    case 'panic': {
+      // Wide white eyes with tiny pupils.
+      for (const s2 of [-1, 1]) {
+        ctx.fillStyle = '#FFFFFF';
+        ctx.beginPath();
+        ctx.ellipse(s2 * ex, ey, FACE.eyeRX * 1.15, FACE.eyeRY * 1.1, 0, 0, Math.PI * 2);
+        ctx.fill();
+        strokeStyle(ctx, INK, 0.02);
+        ctx.stroke();
+        ctx.fillStyle = '#16121C';
+        ctx.beginPath();
+        const jx = kind === 'panic' ? s2 * 0.03 : 0;
+        ctx.ellipse(s2 * ex + jx, ey + 0.01, 0.045, 0.055, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      break;
+    }
     case 'sly':
       drawEyeOpen(ctx, -ex, ey + 0.02, 0.95);
       drawEyeOpen(ctx, ex, ey + 0.02, 0.95);

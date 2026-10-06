@@ -7,10 +7,12 @@
  *   - a safe pulled out of a bank the other team was hauling ("은행에서 큰 금고 300점이 빠짐"),
  *   - a recovery in the last seconds of the clock ("마지막 12초에 작은 금고 회수"),
  *   - a fence busted by a moving bank (a shortcut opened for everyone).
- * Ranking: value moved (points) first, then lateness (later wins), then specificity.
+ * Ranking: value moved (points) first, then lateness (later wins), then specificity. A fence
+ * bust moves no points by itself (value 0): it is the story only when nothing was recovered or
+ * stolen; a bank that busted a fence and then got home is told as that recovery instead.
  * Every text is an i18n key + params taken straight from event data.
  */
-import { SCORE, TICK_RATE } from '../sim/config';
+import { TICK_RATE } from '../sim/config';
 import type { EntityId, LootKind, SimEvent, TeamId } from '../sim/types';
 
 export interface ResultsInput {
@@ -67,16 +69,8 @@ export function resultCandidates(input: ResultsInput): BiggestEvent[] {
   const bankHolders = new Map<EntityId, Set<TeamId>>();
   /** Safe id -> team that pulled it out of a bank the OTHER team was hauling. */
   const stolenBy = new Map<EntityId, TeamId>();
-  /** Bank id -> last known estimate (from load/unload events). */
-  const bankValue = new Map<EntityId, number>();
   /** Bank id -> characters holding it right now. */
   const holding = new Map<EntityId, Set<EntityId>>();
-
-  const initialBankValue = (bankId: EntityId): number => {
-    let v = SCORE.bankBuilding;
-    for (const l of input.loot) if (l.homeBank === bankId) v += l.baseValue;
-    return v;
-  };
 
   for (const e of input.events) {
     switch (e.type) {
@@ -98,11 +92,7 @@ export function resultCandidates(input: ResultsInput): BiggestEvent[] {
       case 'release':
         holding.get(e.targetId)?.delete(e.charId);
         break;
-      case 'safeLoaded':
-        bankValue.set(e.bankId, e.bankValue);
-        break;
       case 'safeUnloaded': {
-        bankValue.set(e.bankId, e.bankValue);
         if (e.byCharId === null || e.bankCarrierTeam === null) break;
         const t = teamOf.get(e.byCharId);
         if (t === undefined || t === e.bankCarrierTeam) break;
@@ -126,8 +116,8 @@ export function resultCandidates(input: ResultsInput): BiggestEvent[] {
         const holders = holding.get(e.bankId);
         let team: TeamId | null = null;
         if (holders) for (const id of holders) team = teamOf.get(id) ?? team;
-        const v = bankValue.get(e.bankId) ?? initialBankValue(e.bankId);
-        out.push({ type: 'fence', key: 'event.fenceBroken', params: { value: v }, team, kind: 'fence', value: v, tick: e.tick, lootId: e.bankId });
+        // Opening a shortcut changes no score: value 0 (doc §12 ranks by points moved).
+        out.push({ type: 'fence', key: 'event.fenceBroken', params: {}, team, kind: 'fence', value: 0, tick: e.tick, lootId: e.bankId });
         break;
       }
       case 'finalCountdown':

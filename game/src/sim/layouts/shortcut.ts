@@ -162,6 +162,11 @@ function build(): { def: LayoutDef; meta: LayoutDesignMeta } {
   b.decor('arrow', 1.25, 19.0, PI / 2);
   b.decor('sign', AX, 25, 0, { scale: 1.6 });
 
+  // --- police (owner addition) --------------------------------------------------------------
+  // Cars pull up at the curb outside the north edge (wave 1) and the south edge (wave 2) on the
+  // mirror axis; officers hop the fence into the back street, beside the on-axis large safe.
+  b.policeCurbs();
+
   return b.build(
     'Shortcut arcade: each bank sits in a court whose only bank-wide exit is a weak fence on the axis facing the central crossing. ' +
       'Busting it opens a shared shortcut between the back street (large safes, market small safes) and the boulevard; until then ' +

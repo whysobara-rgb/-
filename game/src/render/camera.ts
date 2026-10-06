@@ -33,6 +33,8 @@ export interface CameraGoal {
   followRate: number;
   /** Clamp the target to the arena (with overscan). Only meaningful with the default yaw. */
   clamp: boolean;
+  /** Extra meters the clamp may show past the arena edges (brief attention glances). */
+  overscan?: number;
   /**
    * Ground direction the camera looks along (sim radians, atan2(dy, dx)). Default -PI/2 =
    * north (screen-up = sim -y). 'match' never sets it, so the match view never rotates;
@@ -144,7 +146,7 @@ export class GameCamera {
     let tx = goal.target.x;
     let ty = goal.target.y;
     if (goal.clamp) {
-      const c = this.clampTarget(tx, ty, goal.distance, goal.pitch, goal.fov);
+      const c = this.clampTarget(tx, ty, goal.distance, goal.pitch, goal.fov, goal.overscan ?? 0);
       tx = c.x;
       ty = c.y;
     }
@@ -168,7 +170,7 @@ export class GameCamera {
     }
     // Keep the smoothed target inside the clamp too (zoom changes move the limits).
     if (goal.clamp) {
-      const c = this.clampTarget(this.target.x, this.target.y, this.distance, this.pitch, this.fov);
+      const c = this.clampTarget(this.target.x, this.target.y, this.distance, this.pitch, this.fov, goal.overscan ?? 0);
       this.target.set(c.x, c.y);
     }
 
@@ -177,12 +179,18 @@ export class GameCamera {
     if (dt > 0) {
       const K = 170;
       const C = 15;
-      this.punchVel.x += (-K * this.punchOff.x - C * this.punchVel.x) * dt;
-      this.punchVel.y += (-K * this.punchOff.y - C * this.punchVel.y) * dt;
-      this.punchOff.x += this.punchVel.x * dt;
-      this.punchOff.y += this.punchVel.y * dt;
-      this.zoomVel += (-120 * this.zoomOff - 13 * this.zoomVel) * dt;
-      this.zoomOff += this.zoomVel * dt;
+      // Semi-implicit Euler on these stiff springs is only stable for h below ~0.088 s, and
+      // frameDt can be up to 0.1 s (slow machines, ?render=N): integrate in small sub-steps.
+      const n = Math.max(1, Math.ceil(dt / (1 / 120)));
+      const h = dt / n;
+      for (let i = 0; i < n; i++) {
+        this.punchVel.x += (-K * this.punchOff.x - C * this.punchVel.x) * h;
+        this.punchVel.y += (-K * this.punchOff.y - C * this.punchVel.y) * h;
+        this.punchOff.x += this.punchVel.x * h;
+        this.punchOff.y += this.punchVel.y * h;
+        this.zoomVel += (-120 * this.zoomOff - 13 * this.zoomVel) * h;
+        this.zoomOff += this.zoomVel * h;
+      }
     }
     if (punchScale === 0) {
       this.punchOff.x = this.punchOff.y = this.punchVel.x = this.punchVel.y = 0;
@@ -227,7 +235,7 @@ export class GameCamera {
    * backdrop may show (they are dressed), never a void. If the arena is smaller than the view
    * along an axis, the target centers on it.
    */
-  private clampTarget(x: number, y: number, dist: number, pitchDeg: number, fovDeg: number): Vec2 {
+  private clampTarget(x: number, y: number, dist: number, pitchDeg: number, fovDeg: number, extra = 0): Vec2 {
     const p = pitchDeg * DEG;
     const vf = fovDeg * DEG;
     const h = Math.sin(p) * dist;
@@ -237,9 +245,9 @@ export class GameCamera {
     const botDep = Math.min(Math.PI / 2 - 0.01, p + vf / 2);
     const north = h / Math.tan(topDep) - back; // visible meters north of the target
     const south = back - h / Math.tan(botDep); // visible meters south of the target
-    const overX = 6;
-    const overN = 9;
-    const overS = 6;
+    const overX = 6 + extra;
+    const overN = 9 + extra;
+    const overS = 6 + extra;
     const W = this.bounds.x;
     const H = this.bounds.y;
     const minX = hw * 0.85 - overX;

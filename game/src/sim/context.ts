@@ -3,6 +3,7 @@
  * Not part of the public API (consumers use Simulation + types.ts).
  */
 import type { Body, GrabJoint, PhysicsWorld, StaticShape } from './physics';
+import type { PoliceSystem } from './police';
 import type { Command, LayoutDef, LootState, MatchSetup, OBB, RuleConfig, SimEvent, SimState } from './types';
 
 export interface CharRuntime {
@@ -77,6 +78,8 @@ export interface SimContext {
   /** Ids already settled (guards against double settlement). */
   settled: Set<number>;
   started: boolean;
+  /** Police event runtime (null unless rules.police). */
+  police: PoliceSystem | null;
 }
 
 export function lootById(ctx: SimContext, id: number): { state: LootState; rt: LootRuntime } | null {

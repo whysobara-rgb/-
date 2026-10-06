@@ -48,7 +48,9 @@ export class SeriesIntermission extends UiScreen<SeriesIntermissionProps> {
   protected render(): void {
     const p = this.props;
     const matchPoint = p.playerWins === 1 || p.rivalWins === 1;
-    const line = p.adaptation ? tr(p.adaptation.line) : t('adapt.none');
+    // No adaptation: the rival still speaks in its own voice (ART_DIRECTION §5), saying it keeps
+    // its usual plan — never a narrator line under '{rival}의 한마디'.
+    const line = p.adaptation ? tr(p.adaptation.line) : t(`adapt.none.${p.rival}`);
     this.el.append(
       h(
         'div',

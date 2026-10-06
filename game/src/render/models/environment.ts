@@ -35,6 +35,7 @@ import {
   matSceneryGhost,
   matWater,
 } from './materials';
+import { createGroundOverlay } from './groundArt';
 import { SignAtlas, asphaltTexture, pavingTexture, radialGlowTexture, PAVING_TILE_METERS, type GroundStyle } from './textures';
 import {
   addOcclusionClient,
@@ -95,6 +96,8 @@ interface Ctx {
   lang: () => SignLanguage;
   /** World-plane point the shop fronts should face (arena center), or null = local +z. */
   center: Vec2 | null;
+  /** Shop window dioramas + window silhouettes (quality). */
+  shopInteriors?: boolean;
 }
 
 /** Ask the resolver for a key; null when it does not know it (returns the key or nothing). */
@@ -435,9 +438,12 @@ function addBuilding(b: PartBuilder, def: StaticBoxDef, ctx: Ctx, frontOnly = fa
     const n = Math.max(2, Math.round(shopW / 1.4));
     b.add(G.box(), { color: st.trim, pos: [shopX - shopW / 2 + (i * shopW) / n, 1.35, zF + 0.095], scale: [0.06, 1.7, 0.03] });
   }
-  // Display goodies behind the glass (cute colored blobs).
-  for (let i = 0; i < Math.round(shopW / 0.8); i++) {
-    b.add(G.ico(1), { color: PAL.flowers[i % PAL.flowers.length], pos: [shopX - shopW / 2 + 0.4 + i * 0.8, 0.75, zF + 0.1], scale: [0.18, 0.18, 0.06], emissive: 0.15 });
+  if (ctx.shopInteriors) addShopDiorama(b, def.style ?? 'default', shopX, zF, shopW, r);
+  else {
+    // Display goodies behind the glass (cute colored blobs).
+    for (let i = 0; i < Math.round(shopW / 0.8); i++) {
+      b.add(G.ico(1), { color: PAL.flowers[i % PAL.flowers.length], pos: [shopX - shopW / 2 + 0.4 + i * 0.8, 0.75, zF + 0.1], scale: [0.18, 0.18, 0.06], emissive: 0.15 });
+    }
   }
   b.add(G.box(), { color: shade(bodyCol, -0.15), pos: [shopX, 0.35, zF + 0.06], scale: [shopW + 0.2, 0.3, 0.12] });
   // Door.
@@ -483,7 +489,13 @@ function addBuilding(b: PartBuilder, def: StaticBoxDef, ctx: Ctx, frontOnly = fa
         const wh = f === 0 ? 0.9 : 1.1;
         // No flower box where it would hang over the shop sign.
         const overSign = face.facade && Math.abs(x) < signW / 2 + 0.6 && y - wh / 2 - 0.34 < signTop;
-        addWindowBox(b, x, y, z, 0.85, wh, r() < 0.7, st.trim, face.facade && f >= 1 && !frontOnly && !overSign && r() < 0.6, r);
+        const lit = r() < 0.7;
+        addWindowBox(b, x, y, z, 0.85, wh, lit, st.trim, face.facade && f >= 1 && !frontOnly && !overSign && r() < 0.6, r);
+        if (ctx.shopInteriors && lit && f >= 1) {
+          const k = r();
+          if (k < 0.16) addWindowCat(b, x, y - wh / 2, z, r);
+          else if (k < 0.26) addWindowPlant(b, x, y - wh / 2, z, r);
+        }
       }
     }
     // Drain pipe on a back corner.
@@ -512,6 +524,119 @@ function addBuilding(b: PartBuilder, def: StaticBoxDef, ctx: Ctx, frontOnly = fa
   }
   b.pop();
   b.pop();
+}
+
+
+// ---------------------------------------------------------------------------
+// Shop window dioramas + window silhouettes (environmental storytelling)
+// ---------------------------------------------------------------------------
+
+/** Goods on two lit shelves behind the shop window, per shop style, plus a glass glint. */
+function addShopDiorama(b: PartBuilder, style: string, cx: number, zF: number, w: number, r: () => number): void {
+  const z = zF + 0.06;
+  const x0 = cx - w / 2 + 0.25;
+  const n = Math.max(2, Math.floor((w - 0.4) / 0.42));
+  const step = (w - 0.5) / Math.max(1, n - 1);
+  // Lit backdrop panel + shelves.
+  b.add(G.box(), { color: '#FFE9C2', pos: [cx, 1.35, zF + 0.08], scale: [w - 0.05, 1.62, 0.01], emissive: 0.42 });
+  for (const y of [0.78, 1.42]) b.add(G.rbox(w - 0.1, 0.04, 0.2, 0.01), { color: PAL.woodLight, pos: [cx, y, z + 0.06] });
+  const item = (x: number, y: number, k: number): void => {
+    const c = PAL.flowers[(k + Math.floor(r() * 5)) % PAL.flowers.length]!;
+    switch (style) {
+      case 'cafe':
+      case 'tea':
+        if (k % 3 === 2) {
+          b.add(G.cyl(1, 1, 12), { color: '#FFF6E8', pos: [x, y + 0.1, z + 0.08], scale: [0.11, 0.2, 0.11] });
+          b.add(G.cyl(1, 1, 12), { color: '#FF9FBF', pos: [x, y + 0.22, z + 0.08], scale: [0.12, 0.06, 0.12], emissive: 0.1 });
+        } else {
+          b.add(G.cyl(0.85, 1, 12), { color: k % 2 ? '#FFFFFF' : '#7A5844', pos: [x, y + 0.07, z + 0.08], scale: [0.06, 0.12, 0.06] });
+          b.add(G.torus(0.3, 5, 10), { color: '#FFFFFF', pos: [x + 0.07, y + 0.08, z + 0.08], rot: [0, Math.PI / 2, 0], scale: 0.035 });
+        }
+        break;
+      case 'bakery':
+        if (k % 2) b.add(G.capsule(0.06, 0.18, 3, 8), { color: '#D9A066', pos: [x, y + 0.07, z + 0.08], rot: [0, 0, Math.PI / 2 + (r() - 0.5) * 0.3] });
+        else b.add(G.torus(0.45, 6, 12, Math.PI * 1.3), { color: '#E8B472', pos: [x, y + 0.06, z + 0.08], rot: [Math.PI / 2, 0, 0.6], scale: 0.09 });
+        break;
+      case 'toy':
+      case 'arcade': {
+        // Teddy bears and bouncy balls.
+        if (k % 2 === 0) {
+          const fur = k % 4 === 0 ? '#C99A6B' : '#F2A0AE';
+          b.add(G.sphere(10, 8), { color: fur, pos: [x, y + 0.09, z + 0.08], scale: [0.09, 0.1, 0.08] });
+          b.add(G.sphere(10, 8), { color: fur, pos: [x, y + 0.24, z + 0.09], scale: 0.075 });
+          for (const s of [-1, 1]) b.add(G.sphere(6, 4), { color: fur, pos: [x + s * 0.06, y + 0.31, z + 0.09], scale: 0.03 });
+          b.add(G.sphere(6, 4), { color: '#FFF3DE', pos: [x, y + 0.22, z + 0.15], scale: [0.03, 0.025, 0.02] });
+        } else b.add(G.sphere(12, 8), { color: c, pos: [x, y + 0.08, z + 0.08], scale: 0.08, emissive: 0.1 });
+        break;
+      }
+      case 'flower':
+        b.add(G.cyl(1, 0.8, 10), { color: '#9AA3B6', pos: [x, y + 0.08, z + 0.08], scale: [0.08, 0.16, 0.08] });
+        for (let i = 0; i < 4; i++) b.add(G.ico(0), { color: PAL.flowers[(k + i) % PAL.flowers.length]!, pos: [x + (r() - 0.5) * 0.1, y + 0.2 + r() * 0.08, z + 0.08 + (r() - 0.5) * 0.06], scale: 0.045, sway: 0.2 });
+        b.add(G.ico(1), { color: PAL.leaf, pos: [x, y + 0.17, z + 0.08], scale: [0.08, 0.05, 0.06], sway: 0.15 });
+        break;
+      case 'icecream':
+        b.add(G.cone(10), { color: '#E8B472', pos: [x, y + 0.08, z + 0.08], rot: [Math.PI, 0, 0], scale: [0.05, 0.14, 0.05] });
+        b.add(G.sphere(10, 8), { color: c, pos: [x, y + 0.18, z + 0.08], scale: 0.06, emissive: 0.08 });
+        break;
+      case 'books':
+      case 'music':
+        if (style === 'music' && k % 2) b.add(G.cyl(1, 1, 18), { color: '#2E2A36', pos: [x, y + 0.13, z + 0.06], rot: [Math.PI / 2, 0, 0], scale: [0.13, 0.01, 0.13] });
+        else for (let i = 0; i < 4; i++) b.add(G.box(), { color: PAL.flowers[(k + i) % PAL.flowers.length]!, pos: [x - 0.09 + i * 0.06, y + 0.1, z + 0.08], rot: [0, 0, (r() - 0.5) * 0.15], scale: [0.045, 0.18 + r() * 0.05, 0.12] });
+        break;
+      case 'ramen':
+      case 'grocery':
+        if (style === 'ramen') {
+          b.add(G.dome(12, 6), { color: '#FFFFFF', pos: [x, y + 0.11, z + 0.08], rot: [Math.PI, 0, 0], scale: [0.11, 0.08, 0.11] });
+          b.add(G.cyl(1, 1, 12), { color: '#C2443C', pos: [x, y + 0.115, z + 0.08], scale: [0.105, 0.01, 0.105] });
+        } else {
+          b.add(G.rbox(0.3, 0.1, 0.16, 0.02), { color: PAL.woodLight, pos: [x, y + 0.05, z + 0.08] });
+          for (let i = 0; i < 3; i++) b.add(G.sphere(8, 6), { color: ['#F2504E', '#FFD23F', '#7CC47A'][k % 3]!, pos: [x - 0.08 + i * 0.08, y + 0.13, z + 0.08], scale: 0.05 });
+        }
+        break;
+      case 'laundry':
+        b.add(G.rbox(0.36, 0.36, 0.1, 0.04), { color: '#FFFFFF', pos: [x, y + 0.18, z + 0.04] });
+        b.add(G.cyl(1, 1, 16), { color: '#8FC8F2', pos: [x, y + 0.17, z + 0.1], rot: [Math.PI / 2, 0, 0], scale: [0.11, 0.02, 0.11], emissive: 0.25 });
+        break;
+      case 'pharmacy':
+        b.add(G.cyl(1, 1, 10), { color: k % 2 ? '#FFFFFF' : '#9BD8BE', pos: [x, y + 0.08, z + 0.08], scale: [0.04, 0.14, 0.04] });
+        b.add(G.cyl(1, 1, 10), { color: '#3FA37C', pos: [x, y + 0.16, z + 0.08], scale: [0.03, 0.03, 0.03] });
+        break;
+      case 'bike':
+        b.add(G.torus(0.12, 6, 16), { color: '#2E2A36', pos: [x, y + 0.16, z + 0.06], scale: 0.14 });
+        break;
+      case 'brick':
+        b.add(G.rbox(0.22, 0.14, 0.16, 0.02), { color: '#D9B58A', pos: [x, y + 0.07, z + 0.08] });
+        b.add(G.box(), { color: '#8C5E3B', pos: [x, y + 0.07, z + 0.165], scale: [0.015, 0.145, 0.004] });
+        break;
+      default:
+        b.add(G.cyl(0.8, 1, 10), { color: '#D98A6A', pos: [x, y + 0.06, z + 0.08], scale: [0.06, 0.1, 0.06] });
+        b.add(G.ico(1), { color: PAL.leaf, pos: [x, y + 0.17, z + 0.08], scale: 0.08, sway: 0.2 });
+        break;
+    }
+  };
+  for (let i = 0; i < n; i++) {
+    const x = x0 + i * step;
+    item(x, 0.8, i);
+    if (i % 2 === 0 || n < 4) item(x + step * 0.3, 1.44, i + 3);
+  }
+  // Glass glints (two thin diagonal strips) sell the pane without a transparent pass.
+  for (const gx of [cx - w * 0.28, cx + w * 0.12]) b.add(G.box(), { color: '#FFFFFF', pos: [gx, 1.5, zF + 0.24], rot: [0, 0, 0.7], scale: [0.04, 0.75, 0.005], emissive: 0.5 });
+}
+
+/** A cat silhouette sitting on a lit window sill, watching the heist. */
+function addWindowCat(b: PartBuilder, x: number, sill: number, z: number, r: () => number): void {
+  const c = r() < 0.5 ? '#3E3550' : '#5A4A62';
+  const dx = (r() - 0.5) * 0.3;
+  b.add(G.sphere(10, 8), { color: c, pos: [x + dx, sill + 0.22, z + 0.07], scale: [0.14, 0.17, 0.03] });
+  b.add(G.sphere(10, 8), { color: c, pos: [x + dx, sill + 0.45, z + 0.07], scale: [0.1, 0.09, 0.03] });
+  for (const s of [-1, 1]) b.add(G.cone(4), { color: c, pos: [x + dx + s * 0.06, sill + 0.55, z + 0.07], scale: [0.04, 0.07, 0.02] });
+  for (const s of [-1, 1]) b.add(G.sphere(6, 4), { color: '#FFE14D', pos: [x + dx + s * 0.035, sill + 0.46, z + 0.1], scale: [0.018, 0.012, 0.005], emissive: 1.2 });
+  b.add(G.torus(0.2, 5, 10, Math.PI), { color: c, pos: [x + dx + 0.13, sill + 0.12, z + 0.07], rot: [0, 0, -0.4], scale: 0.1 });
+}
+
+function addWindowPlant(b: PartBuilder, x: number, sill: number, z: number, r: () => number): void {
+  b.add(G.cyl(0.8, 1, 10), { color: '#D98A6A', pos: [x, sill + 0.1, z + 0.08], scale: [0.09, 0.16, 0.09] });
+  for (let i = 0; i < 4; i++) b.add(G.ico(1), { color: i % 2 ? PAL.leaf : PAL.leafDark, pos: [x + (r() - 0.5) * 0.18, sill + 0.28 + r() * 0.12, z + 0.08], scale: [0.09, 0.11, 0.05], sway: 0.25 });
 }
 
 // ---------------------------------------------------------------------------
@@ -587,6 +712,15 @@ function addBench(b: PartBuilder, def: StaticBoxDef): void {
   pushDef(b, def.center, def.angle);
   b.push(undefined, [0, yaw, 0]);
   const seatY = 0.45;
+  if (hashString(def.id) % 3 === 0) {
+    // The bank guard's forgotten lunchbox (gingham cloth, a sandwich peeking out).
+    const lx = L * 0.25;
+    b.add(G.rbox(0.32, 0.14, 0.22, 0.03), { color: '#E8505B', pos: [lx, seatY + 0.1, 0] });
+    b.add(G.rbox(0.33, 0.03, 0.23, 0.01), { color: '#FFFFFF', pos: [lx, seatY + 0.17, 0] });
+    b.add(G.box(), { color: '#E8505B', pos: [lx, seatY + 0.18, 0], scale: [0.04, 0.012, 0.23] });
+    b.add(G.cyl(1, 1, 3), { color: '#FFE3A8', pos: [lx + 0.24, seatY + 0.05, 0.02], rot: [Math.PI / 2, 0.3, 0], scale: [0.09, 0.05, 0.09] });
+    b.add(G.cyl(1, 1, 3), { color: '#7CC47A', pos: [lx + 0.24, seatY + 0.075, 0.02], rot: [Math.PI / 2, 0.3, 0], scale: [0.085, 0.012, 0.085] });
+  }
   for (let i = 0; i < 3; i++) {
     b.add(G.rbox(L, 0.05, Math.max(0.12, T / 3 - 0.03), 0.02, 1), { color: i % 2 ? PAL.woodLight : PAL.wood, pos: [0, seatY, -T / 2 + (i + 0.5) * (T / 3)] });
   }
@@ -1108,7 +1242,7 @@ const OUTER_WALK = 3;
 const BACKDROP_DEPTH = 7;
 
 /** Ground planes: far grass, street ring, sidewalk ring and the arena paving. */
-export function createGround(layout: LayoutDef): THREE.Group {
+export function createGround(layout: LayoutDef, opts: { detail?: number } = {}): THREE.Group {
   const g = new THREE.Group();
   g.name = 'ground';
   const sx = layout.size.x;
@@ -1141,6 +1275,11 @@ export function createGround(layout: LayoutDef): THREE.Group {
   pave.needsUpdate = true;
   pave.repeat.set(sx / PAVING_TILE_METERS, sy / PAVING_TILE_METERS);
   plane(sx, sy, 0, createToonMaterial({ map: pave, rim: 0 }), 'ground:arena');
+  // Painted paths, lanes, manholes, grass rings, wear and chalk doodles (groundArt.ts).
+  if ((opts.detail ?? 20) > 0) {
+    const overlay = createGroundOverlay(layout, opts.detail ?? 20);
+    if (overlay) g.add(overlay);
+  }
   return g;
 }
 
@@ -1608,6 +1747,10 @@ export interface SceneryOptions {
   ground?: boolean;
   /** Include the arena fence, street and backdrop (default true). */
   outskirts?: boolean;
+  /** Ground overlay texture detail (px per meter, 0 = no overlay). Default 20. */
+  groundDetail?: number;
+  /** Shop window dioramas, window silhouettes and other small stories (default true). */
+  shopInteriors?: boolean;
   /**
    * Fraction (0..1) of purely decorative props kept (layout decor + outskirts hedges/trees).
    * Deterministic per item, so the same props survive at a given density. Default 1.
@@ -1638,7 +1781,7 @@ export function buildStaticScenery(layout: LayoutDef, signResolver: SignResolver
   const atlas = new SignAtlas(4, 12);
   let resolver = signResolver;
   let lang: SignLanguage = opts.language ?? detectSignLanguage(signResolver);
-  const ctx: Ctx = { atlas, resolve: (k) => resolver(k), lang: () => lang, center: { x: layout.size.x / 2, y: layout.size.y / 2 } };
+  const ctx: Ctx = { atlas, resolve: (k) => resolver(k), lang: () => lang, center: { x: layout.size.x / 2, y: layout.size.y / 2 }, shopInteriors: opts.shopInteriors ?? true };
   const chunks = new ChunkGrid();
   const groups: FadeGroupInfo[] = [];
   const fadeGroupFor = (box: THREE.Box3 | null, chunk: string): number => {
@@ -1677,7 +1820,7 @@ export function buildStaticScenery(layout: LayoutDef, signResolver: SignResolver
     root.add(g);
   }
   for (const gr of groups) ghostChunks.get(gr.chunk)?.groups.push(gr);
-  if (opts.ground !== false) root.add(createGround(layout));
+  if (opts.ground !== false) root.add(createGround(layout, { detail: opts.groundDetail }));
   let meshes = 0;
   let casters = 0;
   let tris = 0;
@@ -1745,7 +1888,7 @@ export function buildStaticScenery(layout: LayoutDef, signResolver: SignResolver
 
 function buildSingle(fill: (b: PartBuilder, ctx: Ctx) => void, name: string): THREE.Group {
   const atlas = new SignAtlas(1, 2);
-  const ctx: Ctx = { atlas, resolve: defaultSignResolver, lang: () => 'ko', center: null };
+  const ctx: Ctx = { atlas, resolve: defaultSignResolver, lang: () => 'ko', center: null, shopInteriors: true };
   const b = new PartBuilder();
   fill(b, ctx);
   atlas.redraw();

@@ -3,7 +3,7 @@
  * desktop log file), and a non-fatal overlay offers "다시 시도" / "메뉴로". The game loop
  * keeps running behind it whenever possible — an error never leaves a frozen black window.
  */
-import { nativeLog } from '../platform/native';
+import { getNative, nativeLog } from '../platform/native';
 import { ConfirmDialog, t } from '../ui';
 
 export interface ErrorReporterOptions {
@@ -23,6 +23,8 @@ export class ErrorReporter {
   private dialog: ConfirmDialog | null = null;
   private fallback: HTMLElement | null = null;
   private opts: ErrorReporterOptions | null = null;
+  /** Retry for the failure on screen (e.g. re-run a failed match load); default: opts.onRetry. */
+  private pendingRetry: (() => void) | null = null;
   /** True while the overlay is up (the app holds its loop). */
   halted = false;
   /** Count of reported errors (tests read it). */
@@ -38,7 +40,7 @@ export class ErrorReporter {
   }
 
   /** Log once per distinct error and show the recovery overlay. */
-  report(err: unknown, context: string, opts: { overlay?: boolean } = {}): void {
+  report(err: unknown, context: string, opts: { overlay?: boolean; retry?: () => void } = {}): void {
     this.count++;
     const key = errorKey(err);
     if (!this.seen.has(key)) {
@@ -46,12 +48,16 @@ export class ErrorReporter {
       const stack = err instanceof Error ? err.stack ?? err.message : String(err);
       console.error(`[uproot] ${context}:`, err);
       try {
-        nativeLog('error', `${context}: ${stack}`);
+        // Desktop: also into userData/logs/main.log (in a browser the console line is the log).
+        if (getNative()) nativeLog('error', `${context}: ${stack}`);
       } catch {
         // logging must never throw
       }
     }
-    if (opts.overlay !== false) this.showOverlay(err);
+    if (opts.overlay !== false) {
+      if (!this.dialog && !this.fallback) this.pendingRetry = opts.retry ?? null;
+      this.showOverlay(err);
+    }
   }
 
   private showOverlay(err: unknown): void {
@@ -105,8 +111,10 @@ export class ErrorReporter {
     this.fallback?.remove();
     this.fallback = null;
     this.halted = false;
+    const retry = this.pendingRetry;
+    this.pendingRetry = null;
     try {
-      if (action === 'retry') this.opts?.onRetry();
+      if (action === 'retry') (retry ?? this.opts?.onRetry)?.();
       else this.opts?.onMenu();
     } catch (err) {
       this.report(err, `error overlay ${action}`);

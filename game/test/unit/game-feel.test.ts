@@ -136,6 +136,12 @@ describe('match setup', () => {
     expect(tour.bots[0]!.adaptation).toEqual(adaptation);
   });
 
+  it('police (owner addition): on for real matches unless turned off, never in the tutorial', () => {
+    expect(buildMatch(base).setup.rules).toMatchObject({ police: true });
+    expect(buildMatch({ ...base, police: false }).setup.rules).toMatchObject({ police: false });
+    expect(buildMatch({ ...base, kind: 'tutorial', layoutId: 'tutorial' }).setup.rules?.police).toBeUndefined();
+  });
+
   it('tutorial: alone, no time limit, no early decision', () => {
     const b = buildMatch({ ...base, kind: 'tutorial', layoutId: 'tutorial' });
     expect(b.setup.roster).toHaveLength(1);
@@ -158,10 +164,36 @@ describe('launch params / version', () => {
     const q = parseLaunchParams('?layout=nope&mode=3v3', false);
     expect(q).toMatchObject({ autotest: false, speed: 1, renderEvery: 1, layout: null, mode: null, hooks: false });
     expect(parseLaunchParams('', true).hooks).toBe(true);
+    expect(parseLaunchParams('?police=0', false).police).toBe(false);
+    expect(parseLaunchParams('', false).police).toBeNull();
   });
 
   it('GAME_VERSION matches package.json', () => {
     const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { version: string };
     expect(GAME_VERSION).toBe(pkg.version);
+  });
+});
+
+describe('camera punch requested by game flow', () => {
+  it('stays stable and settles even at the 0.1 s frame-time clamp (slow machines, ?render=N)', async () => {
+    const { GameCamera } = await import('../../src/render/camera');
+    for (const dt of [1 / 60, 0.05, 0.089, 0.1]) {
+      const cam = new GameCamera();
+      cam.setArena({ x: 60, y: 40 });
+      const goal = { target: { x: 30, y: 20 }, distance: 20, pitch: 55, fov: 38, followRate: 6, clamp: false };
+      cam.snap();
+      cam.update(dt, goal, { screenShake: 1, reducedMotion: false });
+      const rest = cam.camera.position.clone();
+      cam.punch({ x: 0, y: 1 }, 1);
+      cam.zoomPunch(0.3);
+      expect(cam.shakeTrauma).toBe(0);
+      let peak = 0;
+      for (let i = 0; i < Math.ceil(3 / dt); i++) {
+        cam.update(dt, goal, { screenShake: 1, reducedMotion: false });
+        peak = Math.max(peak, cam.camera.position.distanceTo(rest));
+      }
+      expect(peak).toBeLessThan(5);
+      expect(cam.camera.position.distanceTo(rest)).toBeLessThan(0.05);
+    }
   });
 });

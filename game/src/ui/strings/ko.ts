@@ -522,7 +522,19 @@ export const ko = {
   'error.retry': '다시 시도',
   'error.menu': '메뉴로',
   'error.detail': '게임은 그대로 있어요. 다시 시도하거나 메뉴로 돌아가요. (오류: {message})',
+  'tournament.abandon.title': '진행 중인 시리즈를 그만둘까요?',
+  'tournament.abandon.body': '{rival} 시리즈의 승패 기록이 사라져요. 이긴 라이벌은 그대로 남아요.',
+  'tournament.abandon.ok': '그만두고 시작',
   'tournament.lockedPick': '앞 라이벌을 먼저 이겨야 해요.',
+  'adapt.none.hodadak': '작전? 그런 거 없어! 이번에도 그냥 호다닥 달린다~',
+  'adapt.none.tongkeun': '바꿀 거 없지. 이번에도 은행째 통 크게 간다!',
+  'adapt.none.nunchi': '음~ 이번엔 하던 대로 할래. 눈치는 계속 보겠지만?',
+  'results.nextRival': '다음 라이벌',
+  'results.toLadder': '대회 메뉴로',
+  'tournament.forfeit.body': '라이벌전 도중에 나가면 이 판은 패배로 기록돼요.',
+  'police.dispatched.kicker': '경보가 울렸어요!',
+  'police.dispatched.title': '경찰 출동!',
+  'police.dispatched.body': '금고나 은행을 든 너구리를 쫓아와요. 대시로 넘어뜨릴 수 있어요.',
 } as const;
 
 export type StringKey = keyof typeof ko;

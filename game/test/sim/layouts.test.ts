@@ -5,7 +5,8 @@
  * proves the validator catches broken layouts (negative tests).
  */
 import { describe, expect, it } from 'vitest';
-import { BANK_MODEL, SCORE, ZONE_DEFAULT_HALF } from '../../src/sim/config';
+import { BANK_MODEL, POLICE_CAR, SCORE, ZONE_DEFAULT_HALF } from '../../src/sim/config';
+import { officerStepOutSpot } from '../../src/sim/police';
 import type { LayoutDef, LayoutId } from '../../src/sim/types';
 import { LAYOUTS, LAYOUT_META, LAYOUT_STRINGS, MATCH_LAYOUT_IDS, getChokepoint, getLayout } from '../../src/sim/layouts/index';
 import {
@@ -226,6 +227,34 @@ describe.each(ALL_IDS)('layout %s', (id) => {
     const r = report(id);
     for (const code of ['safe', 'bank', 'spawn', 'decor']) expect(errors(r, code)).toEqual([]);
   });
+
+  it('has police entries north then south at the curb outside the arena (on the mirror axis for matches)', () => {
+    const entries = def.policeEntries ?? [];
+    expect(entries.length).toBe(2);
+    // the car never sits on the play field: it parks beyond the north / south edge ...
+    expect(entries[0]!.park.y + POLICE_CAR.half.y).toBeLessThan(0);
+    expect(entries[1]!.park.y - POLICE_CAR.half.y).toBeGreaterThan(def.size.y);
+    // ... and officers hop in just inside that edge
+    for (const e of entries) {
+      for (let k = 0; k < 2; k++) {
+        const p = officerStepOutSpot(e, k, def.size);
+        expect(p.x).toBeGreaterThan(0);
+        expect(p.x).toBeLessThan(def.size.x);
+        expect(Math.min(p.y, def.size.y - p.y)).toBeCloseTo(0.75, 9);
+      }
+    }
+    if (isMatch) {
+      for (const e of entries) {
+        expect(e.park.x).toBeCloseTo(def.size.x / 2, 9);
+        expect(e.from.x).toBeCloseTo(def.size.x / 2, 9);
+      }
+    }
+    for (const e of entries) {
+      // the car drives in from off-screen on the same side, never across the arena
+      expect(e.park.y < 0 ? e.from.y : def.size.y - e.from.y).toBeLessThan(-POLICE_CAR.curb);
+    }
+    expect(errors(report(id), 'police')).toEqual([]);
+  });
 });
 
 describe('layout identities (doc §9 table)', () => {
@@ -412,6 +441,50 @@ describe('validator catches broken layouts', () => {
       console.log = quiet.log;
       console.error = quiet.error;
     }
+  });
+
+  it('flags police cars off the axis, on the field, driving across it, with a blocked or walled-off step-in, and missing entries', () => {
+    const off = clone(base);
+    off.policeEntries![0]!.park.x += 3;
+    off.policeEntries![0]!.from.x += 3;
+    expect(errors(validateLayout(off, meta, fast), 'symmetry').some((m) => m.includes('police'))).toBe(true);
+    // parked inside the arena (on the service lane / on a safe): never allowed any more
+    const inside = clone(base);
+    inside.policeEntries![0]!.park = { x: inside.size.x / 2, y: 1.25 };
+    expect(errors(validateLayout(inside, meta, fast), 'police').some((m) => m.includes('curb outside'))).toBe(true);
+    const onSafe = clone(base);
+    const large = onSafe.safes.find((sf) => sf.kind === 'largeSafe')!;
+    onSafe.policeEntries![0]!.park = { x: large.pos.x, y: large.pos.y };
+    expect(errors(validateLayout(onSafe, meta, fast), 'police').some((m) => m.includes('curb outside'))).toBe(true);
+    // too far out to hop in from
+    const far = clone(base);
+    far.policeEntries![0]!.park.y = -6;
+    expect(errors(validateLayout(far, meta, fast), 'police').some((m) => m.includes('> 3 m'))).toBe(true);
+    // drive-in through the arena (from the opposite edge)
+    const across = clone(base);
+    across.policeEntries![0]!.from = { x: across.size.x / 2, y: across.size.y + 12 };
+    expect(errors(validateLayout(across, meta, fast), 'police').some((m) => m.includes('crosses the arena'))).toBe(true);
+    // a safe parked on the step-in spot
+    const blocked = clone(base);
+    const p0 = officerStepOutSpot(blocked.policeEntries![0]!, 0, blocked.size);
+    blocked.safes.push({ kind: 'smallSafe', pos: { x: p0.x, y: p0.y + 0.3 }, angle: 0 });
+    expect(errors(validateLayout(blocked, meta, fast), 'police').some((m) => m.includes('no room to step in'))).toBe(true);
+    // a step-in pocket walled off from the field
+    const sealed = clone(base);
+    const q = officerStepOutSpot(sealed.policeEntries![0]!, 0, sealed.size);
+    // a tiny walled yard around officer 0's spot (open only to the boundary)
+    sealed.statics.push(
+      { id: 'sealS', kind: 'wall', center: { x: q.x, y: q.y + 0.9 }, half: { x: 0.9, y: 0.15 }, angle: 0, height: 1 },
+      { id: 'sealW', kind: 'wall', center: { x: q.x - 0.9, y: (q.y + 0.9) / 2 }, half: { x: 0.15, y: (q.y + 0.9) / 2 }, angle: 0, height: 1 },
+      { id: 'sealE', kind: 'wall', center: { x: q.x + 0.9, y: (q.y + 0.9) / 2 }, half: { x: 0.15, y: (q.y + 0.9) / 2 }, angle: 0, height: 1 },
+    );
+    expect(errors(validateLayout(sealed, meta, fast), 'police').some((m) => m.includes('walled off'))).toBe(true);
+    const none = clone(base);
+    delete none.policeEntries;
+    expect(errors(validateLayout(none, meta, fast), 'police').length).toBeGreaterThan(0);
+    const sameHalf = clone(base);
+    sameHalf.policeEntries![1] = structuredClone(sameHalf.policeEntries![0]!);
+    expect(errors(validateLayout(sameHalf, meta, fast), 'police').some((m) => m.includes('alternate'))).toBe(true);
   });
 
   it('flags decor dropped in a narrow alley', () => {
