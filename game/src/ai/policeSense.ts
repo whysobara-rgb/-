@@ -6,15 +6,17 @@
  * uses (who is being chased, how dangerous a spot is, how much of a planned haul will happen
  * with police on the field).
  *
- * Perception rule: an officer's target is only used for the bot's OWN team (is my mate being
- * chased?) or for an opponent the team currently sees (perception.ts); it never reveals where an
- * unseen opponent is.
+ * Perception rule: an officer's target is never read from the sim; it is inferred from what a
+ * player sees on screen — which loot-holding raccoon a chasing officer is running at (or the one a
+ * tired officer stands over). It is only used for the bot's OWN team (is my mate being chased?)
+ * or for an opponent the team currently sees (perception.ts); it never reveals where an unseen
+ * opponent is. The shift estimate likewise uses the public arrival + the fixed shift length.
  *
  * One instance per Simulation, refreshed once per tick (shared by all bots of the match).
  */
 import { POLICE, TICK_RATE } from '../sim/config';
 import type { Simulation } from '../sim/sim';
-import type { EntityId, PolicePhase, Vec2 } from '../sim/types';
+import type { CharacterState, EntityId, PolicePhase, Vec2 } from '../sim/types';
 
 export interface CopView {
   id: EntityId;
@@ -22,7 +24,10 @@ export interface CopView {
   vel: Vec2;
   facing: number;
   phase: PolicePhase;
-  /** Character the officer is running at (chase / tackle), else null. */
+  /**
+   * Raccoon the officer is visibly running at (chase / tackle) or standing over (tired), inferred
+   * from what is on screen (see visibleTarget), else null.
+   */
   target: EntityId | null;
   /** Ticks until it can lunge again (stunned / tired / stepping out), 0 = ready. */
   busyTicks: number;
@@ -33,6 +38,16 @@ export interface CopView {
    */
   shiftLeft: number;
 }
+
+/** A tired officer stands over its victim within this distance (m). */
+const TIRED_R = 2.5;
+/** A chasing officer is read as running at a carrier within this distance (m)... */
+const SEE_RUN_AT_R = 22;
+/** ... when its run points at it within this angle (rad), or when it is right next to it. */
+const RUN_AT_ANGLE = 0.75;
+const CLOSE_R = 1.8;
+/** How long a once-seen chase is remembered without a fresh clear look (ticks). */
+const MEMORY_TICKS = 4 * TICK_RATE;
 
 /** Seconds an officer spends stepping out after the car parks (sim: 0.6 s). */
 const STEP_OUT_S = 0.6;
@@ -90,7 +105,7 @@ export class PoliceSense {
         vel: o.vel,
         facing: o.facing,
         phase: o.phase,
-        target: o.phase === 'chase' || o.phase === 'tackle' || o.phase === 'tired' ? o.targetCharId : null,
+        target: this.trackTarget(o, st.characters),
         busyTicks: busy,
         shiftLeft: Math.max(0, Math.floor((POLICE.shiftTicks - (st.tick - this.firstSeen.get(o.id)!)) / TICK_RATE)),
       });
@@ -98,6 +113,69 @@ export class PoliceSense {
     this.dispatchTick = st.alarm.dispatchTick;
     this.ringing = st.alarm.ringing.length;
     this.carsActive = st.policeCars.filter((c) => c.phase === 'arriving' || c.phase === 'parked').length;
+  }
+
+  /**
+   * visibleTarget with a player's short memory: an officer seen running at a raccoon is still
+   * read as after it while it keeps chasing and that raccoon still holds loot (or lies knocked
+   * down), even when the run bends around a building for a moment.
+   */
+  private trackTarget(o: { id: EntityId; pos: Vec2; vel: Vec2; facing: number; phase: PolicePhase }, chars: ReadonlyArray<CharacterState>): EntityId | null {
+    const now = this.visibleTarget(o, chars);
+    const prev = this.memo.get(o.id);
+    let t = now;
+    if (now === null && prev && (o.phase === 'chase' || o.phase === 'tackle' || o.phase === 'tired') && this.tick - prev.tick <= MEMORY_TICKS) {
+      const c = chars.find((x) => x.id === prev.id);
+      if (c && (c.grab !== null || c.knockdownTicks > 0)) t = prev.id;
+    }
+    if (now !== null) this.memo.set(o.id, { id: now, tick: this.tick });
+    else if (t === null) this.memo.delete(o.id);
+    return t;
+  }
+  private readonly memo = new Map<EntityId, { id: EntityId; tick: number }>();
+
+  /**
+   * Whom an officer is visibly running at, as a player reads it on screen: a chasing / lunging
+   * officer runs (or faces, when standing) toward one raccoon that holds loot; a tired officer
+   * stands over the raccoon it just knocked down. The sim's own target id is never read — when
+   * the picture is ambiguous (running around a corner toward a hauler it only hears, two carriers
+   * in one direction far apart) the answer is "nobody in particular" (null), as for a player.
+   */
+  private visibleTarget(o: { pos: Vec2; vel: Vec2; facing: number; phase: PolicePhase }, chars: ReadonlyArray<CharacterState>): EntityId | null {
+    if (o.phase === 'tired') {
+      let best: EntityId | null = null;
+      let bd = TIRED_R;
+      for (const c of chars) {
+        if (c.grab === null && c.knockdownTicks <= 0) continue;
+        const d = Math.hypot(c.pos.x - o.pos.x, c.pos.y - o.pos.y);
+        if (d < bd) {
+          bd = d;
+          best = c.id;
+        }
+      }
+      return best;
+    }
+    if (o.phase !== 'chase' && o.phase !== 'tackle') return null;
+    const sp = Math.hypot(o.vel.x, o.vel.y);
+    const dir = sp > 0.6 ? { x: o.vel.x / sp, y: o.vel.y / sp } : { x: Math.cos(o.facing), y: Math.sin(o.facing) };
+    let best: EntityId | null = null;
+    let bs = Infinity;
+    for (const c of chars) {
+      // (officers only run at raccoons holding loot; one just knocked loose is still its mark)
+      if (c.grab === null && c.knockdownTicks <= 0) continue;
+      const rx = c.pos.x - o.pos.x;
+      const ry = c.pos.y - o.pos.y;
+      const d = Math.hypot(rx, ry);
+      if (d > SEE_RUN_AT_R) continue;
+      const ang = d < 1e-6 ? 0 : Math.acos(Math.max(-1, Math.min(1, (rx * dir.x + ry * dir.y) / d)));
+      if (d > CLOSE_R && ang > RUN_AT_ANGLE) continue;
+      const score = (d <= CLOSE_R ? 0 : ang) + d * 0.02;
+      if (score < bs) {
+        bs = score;
+        best = c.id;
+      }
+    }
+    return best;
   }
 
   onField(): boolean {

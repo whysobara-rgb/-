@@ -380,7 +380,10 @@ export class Bot implements BotController {
     // move in any direction while walking; a dash along the freest direction breaks out
     if (V.len(c.move) > 0.5 && V.len(me.vel) < 0.05 && !me.straining && !me.grab && !c.grab) this.pinnedTicks++;
     else this.pinnedTicks = 0;
-    if (this.pinnedTicks > 40 && me.dashCooldown === 0) {
+    // (never when an officer is what pins me: an empty-handed dash would only knock it over for
+    // nothing — the watchdog re-plans around it instead)
+    const pinCop = this.ps.onField() ? this.ps.nearest(me.pos) : null;
+    if (this.pinnedTicks > 40 && me.dashCooldown === 0 && !(pinCop && pinCop.d < 1.6)) {
       const esc = this.escapeDir(me.pos);
       if (esc) {
         this.log1(sim, `pinned at (${me.pos.x.toFixed(1)}, ${me.pos.y.toFixed(1)}): dash out`);
@@ -1862,7 +1865,10 @@ export class Bot implements BotController {
     // travel dash on a long straight stretch with nobody around (the dash is then on cooldown,
     // so bots that keep it for fights use this less)
     if (!opts.carrying && !w.nudge && mag >= 1 && me.dashCooldown === 0 && !me.grab && p && p.idx < p.pts.length && V.dist(me.pos, target) > 4.5) {
-      if (this.rngCheck(this.P.carryBoost * this.W.travelDash, 12) && !this.threatNear(sim, me.pos, 12)) this.travelDash = true;
+      // (not with an officer close by: the burst would only bump it over for nothing, and the
+      // dash is better kept for a stun when a load is in hand)
+      const copNear = this.ps.onField() && (this.ps.nearest(me.pos)?.d ?? Infinity) < 6;
+      if (!copNear && this.rngCheck(this.P.carryBoost * this.W.travelDash, 12) && !this.threatNear(sim, me.pos, 12)) this.travelDash = true;
     }
     return { move, arrived: false, stuck: w.stuck };
   }
@@ -2042,7 +2048,14 @@ export class Bot implements BotController {
     this.avoidSpots.push({ x: me.pos.x + move.x * 0.8, y: me.pos.y + move.y * 0.8, r: 1.4, cost: 3, until: tick + 240 });
     // an officer is what blocks the way (it never yields to an empty-handed raccoon): go around
     const cop = this.ps.onField() ? this.ps.nearest(me.pos) : null;
-    if (cop && cop.d < 1.8) this.avoidSpots.push({ x: cop.cop.pos.x, y: cop.cop.pos.y, r: 1.6, cost: 60, until: tick + 300 });
+    if (cop && cop.d < 1.8) {
+      this.avoidSpots.push({ x: cop.cop.pos.x, y: cop.cop.pos.y, r: 1.6, cost: 60, until: tick + 300 });
+      // (an officer that is chasing nobody may stand in a one-body alley for its whole shift:
+      // after a second failed nudge, pick another goal for a while instead of pressing on)
+      if (!me.grab && cop.cop.target === null && this.watchLevel >= 2 && this.goal && !this.goal.key.startsWith('copguard:')) {
+        this.endGoal(sim, `way blocked by officer ${cop.cop.id}`, 6 * TICK_RATE);
+      }
+    }
     this.path = null;
     const perp = { x: -move.y, y: move.x };
     const sgn = this.watchLevel % 2 === 0 ? 1 : -1;
