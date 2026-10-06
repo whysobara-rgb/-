@@ -181,6 +181,16 @@ export interface DecorDef {
   color?: string;
 }
 
+/** Where a police car enters the arena (edge point) and where it parks to drop officers. */
+export interface PoliceEntryDef {
+  /** Point on/just outside the arena edge the car drives in from (render only). */
+  from: Vec2;
+  /** Parking spot inside the arena (officers spawn beside it). Must be free space. */
+  park: Vec2;
+  /** Car heading while parked (radians). */
+  angle: number;
+}
+
 export interface LayoutDef {
   id: LayoutId;
   nameKey: string;
@@ -198,6 +208,12 @@ export interface LayoutDef {
   decor: DecorDef[];
   /** Ground paint theme for the renderer. */
   groundStyle?: 'plaza' | 'arcade' | 'square' | 'practice';
+  /**
+   * Police car entry/parking points (owner addition beyond doc v0.5). Must be mirror-symmetric
+   * (on the mirror axis) so police reach both teams equally. If absent, the sim derives the
+   * middle of the north and south arena edges.
+   */
+  policeEntries?: PoliceEntryDef[];
 }
 
 // ---------------------------------------------------------------------------
@@ -238,6 +254,12 @@ export interface RuleConfig {
   earlyDecision: boolean;
   /** false = no time limit (practice). */
   timeLimit: boolean;
+  /**
+   * Police event (owner addition beyond doc v0.5): uprooting a bank sets off its alarm and,
+   * after a delay, a police car drops officers who chase and tackle characters carrying loot.
+   * Police never touch confirmed scores. Default false (tests/tutorial); matches turn it on.
+   */
+  police: boolean;
 }
 
 export interface MatchSetup {
@@ -352,6 +374,64 @@ export interface PingState {
   expiresTick: number;
 }
 
+// ---------------------------------------------------------------------------
+// Police (owner addition beyond doc v0.5). Neutral NPCs simulated inside the sim, deterministic.
+// They chase characters that carry loot and tackle them (knockdown + forced release, the same
+// effect as an opposing dash). They never grab loot, never change scores and never block recovery.
+// ---------------------------------------------------------------------------
+
+export type PolicePhase =
+  | 'arriving' // stepping out of the car
+  | 'patrol' // walking toward hotspots (hauled banks, zones) with no carrier in sight
+  | 'chase' // pursuing targetCharId
+  | 'tackle' // lunge in progress (tackleTicks > 0)
+  | 'tired' // short recovery after a tackle attempt
+  | 'stunned' // knocked over by a raccoon dash (stunTicks > 0)
+  | 'leaving' // walking back to the car
+  | 'gone'; // removed from the field
+
+export interface PoliceOfficerState {
+  id: EntityId;
+  carId: number;
+  pos: Vec2;
+  vel: Vec2;
+  facing: number;
+  phase: PolicePhase;
+  /** Character currently pursued (null when patrolling/leaving). */
+  targetCharId: EntityId | null;
+  /** >0 while lunging. */
+  tackleTicks: number;
+  /** >0 while knocked over by a dash. */
+  stunTicks: number;
+  /** >0 while catching breath after a tackle attempt. */
+  tiredTicks: number;
+  /** Ticks this officer has been on the field (for the shift length). */
+  activeTicks: number;
+}
+
+export type PoliceCarPhase = 'arriving' | 'parked' | 'leaving' | 'gone';
+
+export interface PoliceCarState {
+  id: number;
+  /** Index into the layout's police entries. */
+  entryIndex: number;
+  pos: Vec2;
+  angle: number;
+  phase: PoliceCarPhase;
+  sirenOn: boolean;
+  /** Dispatch wave number (1 = first alarm, 2 = second alarm / getaway). */
+  wave: number;
+}
+
+export interface AlarmState {
+  /** Bank ids whose alarm is ringing (uprooted and not yet recovered). */
+  ringing: EntityId[];
+  /** Tick at which the next police car is due, or null if none is scheduled. */
+  dispatchTick: number | null;
+  /** Number of waves dispatched so far. */
+  waves: number;
+}
+
 export type EndReason = 'time' | 'allRecovered' | 'decided';
 
 export interface MatchResult {
@@ -385,6 +465,10 @@ export interface SimState {
   /** Total value at match start (3200 for full layouts). */
   totalValue: number;
   pings: PingState[];
+  /** Police officers (empty unless rules.police). Gone officers are removed. */
+  police: PoliceOfficerState[];
+  policeCars: PoliceCarState[];
+  alarm: AlarmState;
 }
 
 // ---------------------------------------------------------------------------
@@ -442,6 +526,14 @@ export type SimEvent =
       targetId: EntityId | null;
       kind: PingKind;
     }
+  | { type: 'alarm'; tick: number; bankId: EntityId; dispatchTick: number }
+  | { type: 'policeDispatched'; tick: number; carId: number; wave: number; officerIds: EntityId[]; entryIndex: number }
+  | { type: 'policeArrived'; tick: number; carId: number; pos: Vec2 }
+  | { type: 'policeSpotted'; tick: number; officerId: EntityId; charId: EntityId }
+  | { type: 'policeTackle'; tick: number; officerId: EntityId; victimId: EntityId; hit: boolean }
+  | { type: 'policeStunned'; tick: number; officerId: EntityId; byCharId: EntityId }
+  | { type: 'policeLeaving'; tick: number; carId: number }
+  | { type: 'policeGone'; tick: number; carId: number }
   | { type: 'matchEnd'; tick: number; result: MatchResult };
 
 export type SimEventType = SimEvent['type'];

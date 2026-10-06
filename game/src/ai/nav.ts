@@ -47,6 +47,9 @@ export const NAV_SAFE_CLEARANCE: Readonly<Record<NavClass, number>> = {
   large: 0.55,
 };
 
+/** Large-class step cost added within this distance of an anchored safe (tight squeeze). */
+const SQUEEZE_SAFE_DIST = 0.85;
+const SQUEEZE_COST = 4;
 /** Distances are capped here (enough for lane-centering costs). */
 const CAP = 3;
 /** Lane-centering: extra cost per meter when clearance < r + CENTER_BAND. */
@@ -145,6 +148,8 @@ export interface PathOptions {
   avoid?: ReadonlyArray<{ x: number; y: number; r: number; cost: number }>;
   /** Accept any cell within this distance of the goal (m). */
   goalRadius?: number;
+  /** Extra clearance the smoothed segments keep (m; a trailing object cuts corners). */
+  smoothMargin?: number;
 }
 
 export interface PathResult {
@@ -629,6 +634,8 @@ export class NavGrid {
     const band = r + CENTER_BAND;
     const centerK = CENTER_WEIGHT / CENTER_BAND;
     const discount = opts?.discount ?? null;
+    const sdist = this.safeDist;
+    const squeezeK = cls === 'large' ? SQUEEZE_COST : 0;
     const avoid = opts?.avoid && opts.avoid.length ? opts.avoid : null;
     const D = NAV_CELL * SQRT2;
     const offs = this.nbOff;
@@ -688,6 +695,8 @@ export class NavGrid {
         // step cost: lane-centering, trail discount, soft avoidance circles
         const c = eff[q]!;
         let mult = c < band ? 1 + centerK * (band - c) : 1;
+        // a large safe squeezing past an anchored safe snags easily: detour when there is one
+        if (squeezeK > 0 && sdist[q]! < SQUEEZE_SAFE_DIST) mult += squeezeK;
         if (discount) mult *= 1 - discount[q]!;
         if (avoid) {
           const qi = e === 0 || e === 4 || e === 6 ? i - 1 : e === 1 || e === 5 || e === 7 ? i + 1 : i;
@@ -731,14 +740,14 @@ export class NavGrid {
     const raw: Vec2[] = [{ x: from.x, y: from.y }];
     for (let q = 1; q < cells.length; q++) raw.push({ x: this.cellX(cells[q]!), y: this.cellY(cells[q]!) });
     if (!partial) raw.push({ x: to.x, y: to.y });
-    const pts = this.smooth(raw, cls);
+    const pts = this.smooth(raw, cls, opts?.smoothMargin ?? 0.03);
     let length = 0;
     for (let q = 1; q < pts.length; q++) length += Math.hypot(pts[q]!.x - pts[q - 1]!.x, pts[q]!.y - pts[q - 1]!.y);
     return { points: pts, length, partial };
   }
 
   /** Greedy line-of-sight string pulling on the clearance field. */
-  smooth(raw: Vec2[], cls: NavClass): Vec2[] {
+  smooth(raw: Vec2[], cls: NavClass, margin = 0.03): Vec2[] {
     if (raw.length <= 2) return raw;
     const out: Vec2[] = [raw[0]!];
     let a = 0;
@@ -749,7 +758,7 @@ export class NavGrid {
       for (let b = limit; b > a + 1; b--) {
         // endpoints may sit in low-clearance spots (start inside a door, goal at a safe face);
         // only the interior of the segment must be clear
-        if (this.segmentClearInterior(raw[a]!, raw[b]!, cls, a === 0, b === raw.length - 1)) {
+        if (this.segmentClearInterior(raw[a]!, raw[b]!, cls, a === 0, b === raw.length - 1, margin)) {
           best = b;
           break;
         }
@@ -760,7 +769,7 @@ export class NavGrid {
     return out;
   }
 
-  private segmentClearInterior(a: Vec2, b: Vec2, cls: NavClass, relaxStart: boolean, relaxEnd: boolean): boolean {
+  private segmentClearInterior(a: Vec2, b: Vec2, cls: NavClass, relaxStart: boolean, relaxEnd: boolean, margin = 0.03): boolean {
     const dx = b.x - a.x;
     const dy = b.y - a.y;
     const len = Math.hypot(dx, dy);
@@ -771,7 +780,11 @@ export class NavGrid {
       const dE = (1 - t) * len;
       if (relaxStart && dS < 0.6) continue;
       if (relaxEnd && dE < 0.6) continue;
-      if (!this.pointClear(a.x + dx * t, a.y + dy * t, cls, 0.03)) return false;
+      // (cells next to the raw path may be narrower than the margin: never stricter than them)
+      const x = a.x + dx * t;
+      const y = a.y + dy * t;
+      if (!this.pointClear(x, y, cls, 0.03)) return false;
+      if (margin > 0.03 && !this.pointClear(x, y, cls, margin)) return false;
     }
     return true;
   }
@@ -961,6 +974,65 @@ export class NavGrid {
       }
     }
     return best;
+  }
+
+  /**
+   * Points where the descent along a distance field from p (the carry route a field implies)
+   * squeezes past an anchored safe (safe clearance < SQUEEZE_SAFE_DIST). Up to `max` points.
+   */
+  routeSqueezes(field: Float64Array, p: Vec2, max = 4): Vec2[] {
+    const out: Vec2[] = [];
+    let k = this.cellAt(p.x, p.y);
+    if (!Number.isFinite(field[k]!)) {
+      // start from the best reached neighbour within 1.5 m
+      let best = -1;
+      let bv = Infinity;
+      const ci = k % this.nx;
+      const cj = (k - ci) / this.nx;
+      for (let dj = -3; dj <= 3; dj++) {
+        for (let di = -3; di <= 3; di++) {
+          const i = ci + di;
+          const j = cj + dj;
+          if (i < 0 || j < 0 || i >= this.nx || j >= this.ny) continue;
+          const q = j * this.nx + i;
+          if (field[q]! < bv) {
+            bv = field[q]!;
+            best = q;
+          }
+        }
+      }
+      if (best < 0) return out;
+      k = best;
+    }
+    const nx = this.nx;
+    let lastHit = -100;
+    for (let step = 0; step < 600 && field[k]! > 0; step++) {
+      const i = k % nx;
+      const j = (k - i) / nx;
+      let next = k;
+      let nv = field[k]!;
+      for (let dj = -1; dj <= 1; dj++) {
+        for (let di = -1; di <= 1; di++) {
+          if (!di && !dj) continue;
+          const ii = i + di;
+          const jj = j + dj;
+          if (ii < 0 || jj < 0 || ii >= nx || jj >= this.ny) continue;
+          const q = jj * nx + ii;
+          if (field[q]! < nv) {
+            nv = field[q]!;
+            next = q;
+          }
+        }
+      }
+      if (next === k) break;
+      k = next;
+      if (this.safeDist[k]! < SQUEEZE_SAFE_DIST && step - lastHit > 4) {
+        lastHit = step;
+        out.push({ x: this.cellX(k), y: this.cellY(k) });
+        if (out.length >= max) break;
+      }
+    }
+    return out;
   }
 
   /** Seeds: cells inside a zone rect shrunk by `inset` (deep inside, where recoveries happen). */

@@ -716,6 +716,32 @@ export class Bot implements BotController {
     return this.opponents(sim, 0).filter((o) => o.visible && o.last && o.last.holdingId === lootId);
   }
 
+  /**
+   * The anchored safe a large safe's carry route squeezes past (a 1.6 m gap a 1.4 m safe snags
+   * in): taking that one first clears the lane. Cached per large safe and nav version.
+   */
+  private routeBlocker(sim: Simulation, l: LootState): EntityId | null {
+    const key = l.id;
+    const c = this.blockers.get(key);
+    if (c && c.ver === this.nav.dynVersion && sim.state.tick - c.tick < 300) return c.id;
+    let id: EntityId | null = null;
+    const pts = this.nav.routeSqueezes(this.nav.zoneField(this.team, 'large', sim.state.tick), l.pos, 2);
+    for (const p of pts) {
+      let best: LootState | null = null;
+      for (const x of sim.state.loot) {
+        if (x.recovered || !x.anchored || x.kind === 'bank' || x.id === l.id || x.floorOf !== null) continue;
+        if (V.dist(x.pos, p) < 1.6 && (!best || V.dist(x.pos, p) < V.dist(best.pos, p))) best = x;
+      }
+      if (best) {
+        id = best.id;
+        break;
+      }
+    }
+    this.blockers.set(key, { id, ver: this.nav.dynVersion, tick: sim.state.tick });
+    return id;
+  }
+  private readonly blockers = new Map<EntityId, { id: EntityId | null; ver: number; tick: number }>();
+
   /** An opponent seen at (or holding) a bank wall: the bank race has started. */
   private oppNearBank(sim: Simulation, opps: OpponentView[]): boolean {
     for (const o of opps) {
@@ -890,6 +916,19 @@ export class Bot implements BotController {
           bankId: l.floorOf,
         }),
       );
+    }
+
+    // --- clear the lane: a small safe anchored in the squeeze of a large safe's route goes first
+    // (it is worth taking anyway, and the large one then passes without snagging) ---
+    for (const c of out) {
+      if (c.kind !== 'collectSafe' && c.kind !== 'stripBank') continue;
+      const l = c.targetId !== null ? sim.getLoot(c.targetId) : undefined;
+      if (!l || l.kind !== 'largeSafe' || myGrab === l.id) continue;
+      const blocker = this.routeBlocker(sim, l);
+      if (blocker === null) continue;
+      c.utility *= 0.6;
+      const bc = out.find((x) => x.targetId === blocker && (x.kind === 'collectSafe' || x.kind === 'stripBank'));
+      if (bc) bc.utility = Math.max(bc.utility, c.utility / 0.6) * 1.1;
     }
 
     // --- banks: haul / assist ---
@@ -1681,7 +1720,10 @@ export class Bot implements BotController {
    */
   private grabSkill(sim: Simulation, g: Goal, target: LootState, spot: GrabSpot, part: 'safe' | 'bankWall', tol: number, precise = false): { c: Command; status: 'moving' | 'aiming' | 'held' | 'blocked' } {
     const me = this.me(sim);
-    if (me.grab && me.grab.targetId === target.id) return { c: cmd({ x: 0, y: 0 }, true), status: 'held' };
+    if (me.grab && me.grab.targetId === target.id) {
+      g.nearBest = undefined;
+      return { c: cmd({ x: 0, y: 0 }, true), status: 'held' };
+    }
     if (me.grab) return { c: cmd({ x: 0, y: 0 }, false), status: 'moving' };
     const dStand = V.dist(me.pos, spot.stand);
     const toAnchor = V.sub(spot.anchor, me.pos);
@@ -1696,7 +1738,8 @@ export class Bot implements BotController {
         g.nearBest = dStand;
         g.nearTick = tick;
       }
-      if (tick - g.nearTick > 45 && !this.lastGrabCmd && V.len(V.sub(me.vel, target.vel)) < 1.1) {
+      // (not after a deliberate regrab: that face was excluded for a reason)
+      if (tick - g.nearTick > 45 && !this.lastGrabCmd && V.len(V.sub(me.vel, target.vel)) < 1.1 && !(g.regrabs && g.excluded?.size)) {
         const cand = sim.getGrabCandidate(this.id);
         if (cand && cand.targetId === target.id && cand.part === part) return { c: cmd({ x: 0, y: 0 }, true), status: 'aiming' };
       }
@@ -2174,7 +2217,7 @@ export class Bot implements BotController {
       (P !== null && age > 30 && projectOnPolyline(P, l.pos).dist > 1.6) ||
       (age > 75 && g.objPathVer !== this.nav.dynVersion);
     if (stale && (P === undefined || this.nav.astarSpentThisTick() <= ASTAR_TICK_BUDGET)) {
-      const res = this.nav.findPath(l.pos, dest, cls, { maxExpand: 25000, discount: this.trail && this.trail.length ? this.trail : null });
+      const res = this.nav.findPath(l.pos, dest, cls, { maxExpand: 25000, discount: this.trail && this.trail.length ? this.trail : null, smoothMargin: 0.25 });
       g.objPath = res && !res.partial && res.points.length >= 2 ? res.points : null;
       g.objPathTick = tick;
       g.objPathGoal = { ...dest };

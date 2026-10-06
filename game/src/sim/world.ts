@@ -318,6 +318,9 @@ export function buildContext(setup: MatchSetup): SimContext {
     remainingValue: totalValue,
     totalValue,
     pings: [],
+    police: [],
+    policeCars: [],
+    alarm: { ringing: [], dispatchTick: null, waves: 0 },
   };
 
   for (const b of physics.bodies) b.updateShapes(0);

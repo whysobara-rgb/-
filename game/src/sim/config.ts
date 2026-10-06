@@ -22,7 +22,43 @@ export const DEFAULT_RULES: RuleConfig = {
   recoveryTicks: secondsToTicks(1.5),
   earlyDecision: true,
   timeLimit: true,
+  police: false,
 };
+
+/**
+ * Police event tuning (owner addition beyond doc v0.5). First-pass values for playtests.
+ * Officers walk slower than a free raccoon (5 m/s) so an empty-handed raccoon always escapes,
+ * but faster than anyone carrying loot, so hauling is risky while police are around.
+ */
+export const POLICE = {
+  /** Delay from the first bank uproot (alarm) to the car arriving. */
+  dispatchDelayTicks: secondsToTicks(12),
+  /** Car drive-in animation length (officers step out after it). */
+  arriveTicks: secondsToTicks(2),
+  /** Officers per car in each wave. */
+  officersPerWave: [2, 2] as readonly number[],
+  /** How long a wave's officers stay before walking back to the car. */
+  shiftTicks: secondsToTicks(40),
+  /** Minimum gap between the end of one wave and the next dispatch. */
+  restTicks: secondsToTicks(15),
+  /** The final countdown ("도주 준비") always calls a wave if none is on the field. */
+  getawayWave: true,
+  radius: 0.42,
+  mass: 70,
+  /** Chase speed (m/s) — between a carrier (<= 4) and a free raccoon (5). */
+  chaseSpeed: 4.4,
+  patrolSpeed: 2.6,
+  /** Officers notice carriers within this radius with line of sight. */
+  sightRadius: 16,
+  /** Lunge when the target is within this distance and roughly ahead. */
+  tackleRange: 1.5,
+  tackleTicks: secondsToTicks(0.22),
+  tackleSpeed: 8.5,
+  /** Recovery after any tackle attempt (hit or miss). */
+  tiredTicks: secondsToTicks(1.6),
+  /** Raccoon dash into an officer knocks it over for this long. */
+  stunTicks: secondsToTicks(1.8),
+} as const;
 
 /** doc §5: unanchor first values (small 1 s, large 2 s, bank 3 s) of valid pulling by one character. */
 export const UNANCHOR_TICKS = {
