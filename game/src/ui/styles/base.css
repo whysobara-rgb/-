@@ -49,6 +49,20 @@
 
 .uh-screen[hidden] { display: none !important; }
 
+/* Shrink-to-fit measurement pass (UiScreen.fitToViewport): ignore transient geometry. */
+/* Transforms never change layout, so drop them (rotated stickers, focus lifts, entrance
+   animations) and focus rings while measuring the pure layout overflow. */
+.uh-measuring *,
+.uh-measuring *::before {
+  animation: none !important;
+  transition: none !important;
+  transform: none !important;
+  rotate: none !important;
+  scale: none !important;
+  translate: none !important;
+}
+.uh-measuring [data-nav]::after { display: none !important; }
+
 /* 16:9 safe frame centred in any aspect ratio (21:9 gets side margins, 16:10 extra height). */
 .uh-frame {
   position: relative;

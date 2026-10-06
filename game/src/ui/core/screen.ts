@@ -18,10 +18,11 @@ export const RELAYOUT_EVENT = 'uh-relayout';
 
 /** True when the frame or one of its direct (non-scrolling) children overflows. */
 function frameOverflows(frame: HTMLElement): boolean {
-  if (frame.scrollHeight > frame.clientHeight + 1 || frame.scrollWidth > frame.clientWidth + 1) return true;
+  const tol = 2;
+  if (frame.scrollHeight > frame.clientHeight + tol || frame.scrollWidth > frame.clientWidth + tol) return true;
   for (const c of Array.from(frame.children) as HTMLElement[]) {
     if (c.classList.contains('uh-scroll')) continue;
-    if (c.scrollHeight > c.clientHeight + 1 || c.scrollWidth > c.clientWidth + 1) return true;
+    if (c.scrollHeight > c.clientHeight + tol || c.scrollWidth > c.clientWidth + tol) return true;
   }
   return false;
 }
@@ -251,16 +252,23 @@ export abstract class UiScreen<P extends object> implements NavTarget {
         frame.style.setProperty('--uh-fit', k.toFixed(3));
       }
     };
-    apply(1);
-    if (!frameOverflows(frame)) return;
-    let lo = 0.5;
-    let hi = 1;
-    for (let i = 0; i < 7; i++) {
-      const mid = (lo + hi) / 2;
-      apply(mid);
-      if (frameOverflows(frame)) hi = mid;
-      else lo = mid;
+    // Measure without animations / focus lifts / focus rings (they extend overflow but are
+    // transient). Toggling within one task restarts entrance animations at most once (at show).
+    this.el.classList.add('uh-measuring');
+    try {
+      apply(1);
+      if (!frameOverflows(frame)) return;
+      let lo = 0.5;
+      let hi = 1;
+      for (let i = 0; i < 7; i++) {
+        const mid = (lo + hi) / 2;
+        apply(mid);
+        if (frameOverflows(frame)) hi = mid;
+        else lo = mid;
+      }
+      apply(lo);
+    } finally {
+      this.el.classList.remove('uh-measuring');
     }
-    apply(lo);
   }
 }

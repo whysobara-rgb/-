@@ -394,6 +394,7 @@ const CAMERAS: Record<string, CamPreset> = {
   townClose: { pos: [S + 5, 6, 58], target: [S + 5, 2.5, 45] },
   misc: { pos: [S + 12, 7, 33], target: [S + 12, 0.8, 22] },
   circles: { pos: [S + 48, 7, 34], target: [S + 48, 1.5, 22] },
+  kiosk: { pos: [S + 12, 2.2, 28.5], target: [S + 12, 1.0, 23] },
   decor: { pos: [S + 6, 5.5, 23.5], target: [S + 6, 0.4, 16], fov: 42 },
   gameShowRaccoons: gameCam(S - 2, -1),
   gameShowBank: gameCam(S + 30, 4),
