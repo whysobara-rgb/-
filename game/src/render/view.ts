@@ -61,7 +61,7 @@ import {
   type ZoneMarkerRig,
 } from './models';
 import { GameCamera, MATCH_DIST, MATCH_FOV, MATCH_PITCH, fitDistance, type CameraGoal, type ViewMode } from './camera';
-import { ViewEffects, type CharMarker, type SirenGlow } from './effects';
+import { PigeonFlock, ViewEffects, type CharMarker, type PigeonThreat, type SirenGlow } from './effects';
 import { qualityPreset, type QualityLevel, type QualityPreset } from './quality';
 import { PoseBuffer, damp, insideRect, lerpAngle, onBankSlab, pointVelocity, toLocal, wrapAngle, type Pose2 } from './sync';
 
@@ -130,6 +130,8 @@ interface CharView {
   lastY: number;
   cheerUntil: number;
   happyUntil: number;
+  flashUntil: number;
+  flashOn: boolean;
   telegraph: { kind: TelegraphKind; until: number; start: number } | null;
   poseObj: RaccoonPose;
   marker: CharMarker;
@@ -172,6 +174,8 @@ interface ResultsStage {
   team: TeamId;
   winner: TeamId | null;
   nextConfetti: number;
+  /** Built after the match ended (otherwise rebuilt once the result is known). */
+  final: boolean;
 }
 
 /** Scar footprint half extents (bank footprint + slab rim + dirt lip). */
@@ -259,6 +263,8 @@ export class GameView {
   private readonly lights: DuskLighting;
   private readonly cam: GameCamera;
   private readonly effects: ViewEffects;
+  private readonly pigeons = new PigeonFlock(24);
+  private readonly threats: PigeonThreat[] = [];
   private readonly poses = new PoseBuffer();
   private readonly resizeObserver: ResizeObserver | null = null;
   private width = 1;
@@ -283,6 +289,10 @@ export class GameView {
   private lookAhead = { x: 0, y: 0 };
   private titleCheer = new Map<EntityId, number>();
   private fontsRequested = false;
+  private readonly botTelegraph = new Map<EntityId, boolean>();
+  /** Squash/stretch "snap" pulses per entity (grab contact etc.). */
+  private readonly pulses = new Map<EntityId, { start: number; amp: number }>();
+  private hitstop = 0;
 
   constructor(container: HTMLElement, settings: ViewSettings) {
     this.container = container;
@@ -301,6 +311,7 @@ export class GameView {
     this.scene.add(this.cam.camera);
     this.effects = new ViewEffects(this.preset);
     this.scene.add(this.effects.root);
+    this.scene.add(this.pigeons.root);
 
     this.createRenderer();
     if (typeof ResizeObserver !== 'undefined') {
@@ -355,7 +366,7 @@ export class GameView {
       this.world.add(van.root);
       this.vans[z.team] = van;
       const glow = this.effects.sirenGlow(z.team);
-      glow.root.position.set(z.vanPos.x, 0.03, z.vanPos.y);
+      glow.place(z.vanPos, z.vanAngle);
       this.world.add(glow.root);
       this.glows[z.team] = glow;
     }
@@ -435,10 +446,14 @@ export class GameView {
         lastY: c.pos.y,
         cheerUntil: 0,
         happyUntil: 0,
+        flashUntil: 0,
+        flashOn: false,
         telegraph: null,
         poseObj: idleRaccoonPose(),
       });
     }
+
+    this.pigeons.reset(this.pigeonSpots(sim), layout.id.length * 7919 + layout.statics.length, this.preset.particles);
 
     this.poses.clear();
     this.poses.capture(sim);
@@ -485,7 +500,7 @@ export class GameView {
     const st = sim.state;
     const mode = this.viewMode;
 
-    if (mode === 'results' && !this.stage) this.stage = this.buildStage(sim, focus);
+    if (mode === 'results' && (!this.stage || (st.over && !this.stage.final))) this.stage = this.buildStage(sim, focus);
 
     // --- banks (first: riders depend on them) -----------------------------------------
     for (const bv of this.banks.values()) this.updateBank(bv, sim, alpha, dt);
@@ -517,7 +532,7 @@ export class GameView {
       this.cam.snap();
       this.lastFocusId = focusChar.id;
     }
-    const goal = this.cameraGoal(sim, focusChar, dt);
+    const goal = this.cameraGoal(sim, focusChar, dt, focus?.grabCandidate ?? null);
     this.cam.update(dt, goal, { screenShake: this.settings.screenShake, reducedMotion: this.settings.reducedMotion });
 
     // --- occlusion ----------------------------------------------------------------------
@@ -533,6 +548,7 @@ export class GameView {
       s.nextConfetti = this.settings.reducedMotion ? Infinity : this.time + 2.6;
     }
 
+    this.updatePigeons(sim, dt);
     this.effects.update(dt);
   }
 
@@ -575,11 +591,43 @@ export class GameView {
     if (mode !== 'results') for (const cv of this.chars.values()) cv.cheerUntil = 0;
   }
 
+  /**
+   * (extension) Suggested hit-stop (seconds) from the events since the last call
+   * (docs/ART_DIRECTION.md §2: dash hit ~70 ms, bank uproot ~120 ms, bank recovery ~150 ms).
+   * Game flow pauses the sim accumulator for that long (rules unaffected) and may keep
+   * rendering with frameDt = 0 for a freeze-frame. Always 0 with reducedMotion.
+   */
+  takeHitstop(): number {
+    const h = this.settings.reducedMotion ? 0 : this.hitstop;
+    this.hitstop = 0;
+    return h;
+  }
+
   /** (extension) Show a short preparation tell on a character (bots: 준비 동작). */
   telegraph(charId: EntityId, kind: TelegraphKind, seconds = 0.35): void {
     const cv = this.chars.get(charId);
     if (!cv) return;
     cv.telegraph = { kind, start: this.time, until: this.time + Math.max(0.05, seconds) };
+  }
+
+  /**
+   * (extension) Feed a bot's intent each tick (BotController.intent(): telegraph + goal); a
+   * rising telegraph edge plays a short personality-flavoured 준비 동작 (doc §11): 호다닥 a quick
+   * crouch, 통큰이 arms out, 눈치왕 a sly glance; intercepts always crouch like a dash wind-up.
+   */
+  setBotTelegraph(charId: EntityId, active: boolean, goal?: string | null): void {
+    const was = this.botTelegraph.get(charId) ?? false;
+    this.botTelegraph.set(charId, active);
+    if (!active || was) return;
+    const cv = this.chars.get(charId);
+    if (!cv) return;
+    const rival = cv.rig.look.rival ?? null;
+    let kind: TelegraphKind = 'grab';
+    if (goal === 'intercept') kind = 'dash';
+    else if (rival === 'hodadak') kind = 'dash';
+    else if (rival === 'nunchi') kind = 'sly';
+    else if (rival === 'tongkeun') kind = 'grab';
+    this.telegraph(charId, kind, kind === 'sly' ? 0.5 : 0.4);
   }
 
   applySettings(s: ViewSettings): void {
@@ -649,6 +697,7 @@ export class GameView {
     this.disposed = true;
     this.resizeObserver?.disconnect();
     this.effects.dispose();
+    this.pigeons.dispose();
     this.lights.dispose();
     setOcclusionFocus(null, null);
     this.scene.clear();
@@ -722,11 +771,9 @@ export class GameView {
     if (!this.layout) return;
     this.scenery?.dispose();
     const density = this.preset.decorDensity;
-    const layout = density >= 1 ? this.layout : { ...this.layout, decor: this.layout.decor.filter((_, i) => ((i * 0.6180339887) % 1) < density) };
-    this.scenery = buildStaticScenery(layout, this.signResolver());
+    this.scenery = buildStaticScenery(this.layout, this.signResolver(), { decorDensity: density });
     this.sceneryDecor = density;
     this.world.add(this.scenery.root);
-    if (!this.preset.shadows) return;
   }
 
   private unload(): void {
@@ -754,6 +801,10 @@ export class GameView {
     this.layout = null;
     this.stage = null;
     this.titleCheer.clear();
+    this.botTelegraph.clear();
+    this.pigeons.reset([], 1);
+    this.pulses.clear();
+    this.hitstop = 0;
     this.poses.clear();
   }
 
@@ -779,11 +830,25 @@ export class GameView {
         const v = sim.getCharacter(e.victimId);
         if (!v) break;
         const cv = this.chars.get(e.victimId);
+        const a = sim.getCharacter(e.attackerId);
+        const dir = a ? { x: v.pos.x - a.pos.x, y: v.pos.y - a.pos.y } : { x: 0, y: 0 };
+        const involved = e.victimId === this.lastFocusId || e.attackerId === this.lastFocusId;
         if (e.knockdown) {
           this.effects.knockdown(v.pos, cv?.y ?? 0);
+          this.pigeons.scare(v.pos, 5);
+          this.effects.fx.ring({ x: v.pos.x, y: (cv?.y ?? 0) + 0.05, z: v.pos.y }, { radius: 1.4, color: '#FFFFFF', duration: 0.25 });
+          if (cv) cv.flashUntil = this.time + 0.09;
           if (e.victimId === this.lastFocusId) this.cam.shake(0.5);
           else if (e.attackerId === this.lastFocusId) this.cam.shake(0.22);
-        } else this.effects.bump(v.pos, 0.6, cv?.y ?? 0);
+          if (involved) {
+            this.cam.punch(dir, 0.35);
+            this.hitstop = Math.max(this.hitstop, 0.07);
+          }
+        } else {
+          this.effects.bump(v.pos, 0.6, cv?.y ?? 0);
+          if (involved) this.cam.punch(dir, 0.15);
+        }
+        this.pulse(e.victimId, 0.12);
         break;
       }
       case 'bump': {
@@ -804,7 +869,11 @@ export class GameView {
           const bv = this.banks.get(l.id);
           if (bv) this.uprootBank(bv, true);
           this.effects.bankUproot(l.pos, l.angle, BANK_MODEL.half);
-          this.cam.shake(0.65 * nearFactor(l.pos, 26) + 0.08);
+          this.pigeons.scare(l.pos, 16);
+          const near = nearFactor(l.pos, 26);
+          this.cam.shake(0.65 * near + 0.08);
+          this.cam.zoomPunch(0.05 * near);
+          if (near > 0.3) this.hitstop = Math.max(this.hitstop, 0.12);
         } else {
           const sv = this.safes.get(l.id);
           if (sv) {
@@ -813,6 +882,7 @@ export class GameView {
           }
           this.effects.safeUnanchor(l.pos, l.kind === 'largeSafe');
           this.cam.shake(0.12 * nearFactor(l.pos, 10));
+          this.pulse(l.id, 0.1);
         }
         break;
       }
@@ -825,7 +895,10 @@ export class GameView {
           this.effects.fenceBreak(e.pos, burst);
         }
         this.banks.get(e.bankId)?.rig.wobbleSign(1.6);
-        this.cam.shake(0.5 * nearFactor(e.pos, 24) + 0.05);
+        this.pigeons.scare(e.pos, 11);
+        const nf = nearFactor(e.pos, 24);
+        this.cam.shake(0.5 * nf + 0.05);
+        if (bank) this.cam.punch(bank.vel, 0.4 * nf);
         break;
       }
       case 'safeLoaded': {
@@ -842,7 +915,18 @@ export class GameView {
       }
       case 'recovered':
         this.onRecovered(e, sim);
+        if (e.kind === 'bank') {
+          this.cam.zoomPunch(0.09);
+          this.hitstop = Math.max(this.hitstop, 0.15);
+        } else if (e.kind === 'largeSafe') this.cam.zoomPunch(0.03);
         break;
+      case 'grab': {
+        // The hands "snap" on: tiny squash on the raccoon and the grabbed safe.
+        this.pulse(e.charId, 0.1);
+        if (e.part === 'safe') this.pulse(e.targetId, 0.08);
+        else this.banks.get(e.targetId)?.rig.wobbleSign(0.4);
+        break;
+      }
       case 'ejected':
       case 'unstuck': {
         const id = e.type === 'ejected' ? e.charId : e.entityId;
@@ -901,6 +985,72 @@ export class GameView {
       this.effects.recoveryPop({ x: from.x, y: from.z }, e.team, false);
       this.effects.fly({ objects: [sv.rig.root], from, to, team: e.team, kind: 'safe', onArrive: () => van?.bounce(e.kind === 'largeSafe' ? 1 : 0.6) }, this.world);
     }
+  }
+
+  private pulse(id: EntityId, amp: number): void {
+    if (this.settings.reducedMotion) amp *= 0.4;
+    this.pulses.set(id, { start: this.time, amp });
+  }
+
+  /** Current snap-pulse scale (1 = none): quick squash that rebounds over ~0.18 s. */
+  private pulseScale(id: EntityId): number {
+    const p = this.pulses.get(id);
+    if (!p) return 1;
+    const k = (this.time - p.start) / 0.18;
+    if (k >= 1 || k < 0) {
+      this.pulses.delete(id);
+      return 1;
+    }
+    return 1 - p.amp * Math.sin(Math.PI * k) * (1 - k);
+  }
+
+  /** Pigeon hangouts: in front of benches and by flower beds, on free ground. */
+  private pigeonSpots(sim: Simulation): Vec2[] {
+    const out: Vec2[] = [];
+    const max = this.preset.particles >= 0.8 ? 7 : 4;
+    const ok = (p: Vec2): boolean =>
+      p.x > 1 && p.y > 1 && p.x < sim.layout.size.x - 1 && p.y < sim.layout.size.y - 1 && sim.isFree(p, 0.9) && out.every((q) => Math.hypot(q.x - p.x, q.y - p.y) > 6);
+    for (const st of sim.layout.statics) {
+      if (out.length >= max) break;
+      if (st.kind !== 'bench') continue;
+      // front of the bench = local -y side (either side works; pick the free one)
+      for (const side of [1, -1]) {
+        const lx = 0;
+        const ly = side * (st.half.y + 1.3);
+        const p = { x: st.center.x + lx * Math.cos(st.angle) - ly * Math.sin(st.angle), y: st.center.y + lx * Math.sin(st.angle) + ly * Math.cos(st.angle) };
+        if (ok(p)) {
+          out.push(p);
+          break;
+        }
+      }
+    }
+    for (const d of sim.layout.decor) {
+      if (out.length >= max) break;
+      if (d.kind !== 'flowers' && d.kind !== 'puddle') continue;
+      const p = { x: d.pos.x + 1.1, y: d.pos.y + 0.8 };
+      if (ok(p)) out.push(p);
+    }
+    return out;
+  }
+
+  private updatePigeons(sim: Simulation, dt: number): void {
+    const th = this.threats;
+    th.length = 0;
+    if (this.viewMode === 'match' || this.viewMode === 'title') {
+      for (const c of sim.state.characters) {
+        const cv = this.chars.get(c.id);
+        if (!cv) continue;
+        const sp = Math.hypot(c.vel.x, c.vel.y);
+        if (c.dashTicks > 0) th.push({ x: cv.pose.x, y: cv.pose.y, radius: 4 });
+        else if (sp > 1.2) th.push({ x: cv.pose.x, y: cv.pose.y, radius: 2.6 });
+      }
+      for (const bv of this.banks.values()) {
+        if (bv.done || !bv.uprooted) continue;
+        const l = sim.getLoot(bv.id);
+        if (l && Math.hypot(l.vel.x, l.vel.y) > 0.15) th.push({ x: bv.pose.x, y: bv.pose.y, radius: 7.5 });
+      }
+    }
+    this.pigeons.update(dt, th);
   }
 
   private uprootBank(bv: BankView, animate: boolean): void {
@@ -1005,6 +1155,8 @@ export class GameView {
     sv.y += (targetY - sv.y) * damp(18, dt);
     if (dt <= 0) sv.y = targetY;
     placeOnSim(sv.rig.root, sv.pose, sv.pose.a, sv.y);
+    const ps = this.pulseScale(sv.id);
+    sv.rig.root.scale.set(2 - ps, ps, 2 - ps);
     if (sv.anchored !== l.anchored) {
       sv.anchored = l.anchored;
       sv.rig.setAnchored(l.anchored);
@@ -1065,6 +1217,8 @@ export class GameView {
     }
 
     this.poses.sample(c.id, alpha, cv.pose, { pos: c.pos, angle: c.facing });
+    const look = cv.rig.look;
+    if (look.hat !== c.look.hat || (look.rival ?? null) !== (c.look.rival ?? null) || look.furTint !== c.look.furTint) cv.rig.setLook(c.look);
     // Facing: interpolated + a little extra smoothing for snappy turns.
     if (dt <= 0 || Math.abs(wrapAngle(cv.pose.a - cv.facing)) > 2.8 && c.knockdownTicks > 0) cv.facing = cv.pose.a;
     else cv.facing = lerpAngle(cv.facing, cv.pose.a, damp(22, dt));
@@ -1133,8 +1287,17 @@ export class GameView {
         }
       }
     }
+    const ps = this.pulseScale(c.id);
+    sqY *= ps;
+    sqXZ *= 2 - ps;
     cv.rig.root.scale.set(sqXZ, sqY, sqXZ);
     placeOnSim(cv.rig.root, cv.pose, cv.facing, cv.y);
+    // Impact frame: a white outline flash for a couple of frames on knockdown.
+    const flash = this.time < cv.flashUntil && mode === 'match';
+    if (flash !== cv.flashOn) {
+      cv.flashOn = flash;
+      cv.rig.setHighlight(flash ? '#FFFFFF' : null);
+    }
     // Ground marker: team ring under everyone, a brighter ring + facing notch for the focus.
     const showMarker = mode === 'match' || mode === 'preview';
     cv.marker.root.visible = showMarker;
@@ -1279,13 +1442,25 @@ export class GameView {
   // Camera
   // ===========================================================================
 
+  private charCentroid(): Vec2 | null {
+    let x = 0;
+    let y = 0;
+    let n = 0;
+    for (const cv of this.chars.values()) {
+      x += cv.pose.x;
+      y += cv.pose.y;
+      n++;
+    }
+    return n ? { x: x / n, y: y / n } : null;
+  }
+
   private focusPos(): Vec2 | null {
     if (this.lastFocusId === null) return null;
     const cv = this.chars.get(this.lastFocusId);
     return cv ? { x: cv.pose.x, y: cv.pose.y } : null;
   }
 
-  private cameraGoal(sim: Simulation, fc: CharacterState | null, dt: number): CameraGoal {
+  private cameraGoal(sim: Simulation, fc: CharacterState | null, dt: number, cand: GrabCandidate | null = null): CameraGoal {
     const layout = sim.layout;
     const W = layout.size.x;
     const H = layout.size.y;
@@ -1294,7 +1469,7 @@ export class GameView {
     const t = this.time;
     switch (this.viewMode) {
       case 'preview': {
-        const pitch = 60;
+        const pitch = 64;
         const fov = 38;
         const dist = fitDistance(W + 4, H + 6, pitch, fov, aspect) * 0.98;
         const drift = calm ? 0 : 1;
@@ -1309,6 +1484,18 @@ export class GameView {
       }
       case 'title': {
         const pan = calm ? 0 : 1;
+        const g = this.charCentroid();
+        if (g) {
+          // Attract shot: a slow sway around the idle raccoons.
+          return {
+            target: { x: g.x + Math.sin(t * 0.12) * 3.2 * pan, y: g.y - 0.8 + Math.sin(t * 0.09 + 0.7) * 1.2 * pan },
+            distance: 15.5 + Math.sin(t * 0.07) * 1.5 * pan,
+            pitch: 36,
+            fov: 36,
+            followRate: 1.2,
+            clamp: false,
+          };
+        }
         return {
           target: { x: W / 2 + Math.sin(t * 0.045) * W * 0.28 * pan, y: H / 2 + 3 + Math.sin(t * 0.031 + 0.6) * H * 0.14 * pan },
           distance: 25,
@@ -1324,7 +1511,7 @@ export class GameView {
         const drift = calm ? 0 : 1;
         return {
           target: { x: c.x + Math.sin(t * 0.2) * 0.5 * drift, y: c.y - 0.6 },
-          distance: 14 + Math.sin(t * 0.13) * 0.6 * drift,
+          distance: 12 + Math.sin(t * 0.13) * 0.5 * drift,
           pitch: 33,
           fov: 34,
           followRate: 2.5,
@@ -1389,6 +1576,10 @@ export class GameView {
       if (nearest && (nd < 9 || fc.floorOf === nearest.id)) {
         dist = MATCH_DIST.nearBank;
         frame(nearest.pose, fc.floorOf === nearest.id ? 0.25 : 0.12);
+      } else if (cand) {
+        // Lean a little toward what the grab button would take.
+        const view = this.safes.get(cand.targetId)?.pose;
+        if (view) frame(view, 0.15);
       }
     }
     return { target: { x: tx, y: ty }, distance: dist, pitch: MATCH_PITCH, fov: MATCH_FOV, followRate: 4.5, clamp: true };
@@ -1406,7 +1597,8 @@ export class GameView {
     const fcv = fc ? this.chars.get(fc.id) : undefined;
     if (mode === 'match' && fcv) chest = new THREE.Vector3(fcv.pose.x, fcv.y + CHEST_Y, fcv.pose.y);
     else if (mode === 'results' && this.stage) chest = new THREE.Vector3(this.stage.center.x, CHEST_Y, this.stage.center.y);
-    setOcclusionFocus(chest ? camPos : null, chest, mode === 'results' ? 3.2 : 2.4);
+
+    setOcclusionFocus(chest ? camPos : null, chest, mode === 'match' ? 2.4 : 3.4);
 
     // Interest points that must stay visible: the focus raccoon (+ held / candidate safe).
     const pts: THREE.Vector3[] = [];
@@ -1444,12 +1636,13 @@ export class GameView {
           roofT = 0;
           // Fade the walls facing the camera (front of the view) so the interior reads.
           BANK_MODEL.walls.forEach((w, i) => {
-            const len = Math.hypot(w.center.x, w.center.y) || 1;
-            const nx = w.center.x / len;
-            const ny = w.center.y / len;
+            // Outward normal (bank local): door walls face ±y, side walls ±x.
+            const alongX = w.half.x > w.half.y;
+            const nx = alongX ? 0 : Math.sign(w.center.x);
+            const ny = alongX ? Math.sign(w.center.y) : 0;
             // World normal (sim): rotate local normal by the bank angle.
             const wy = nx * Math.sin(ang) + ny * Math.cos(ang);
-            if (wy > 0.3) wallT[i] = WALL_FADE;
+            if (wy > 0.42) wallT[i] = WALL_FADE;
           });
         }
         // Ray tests: walls/roof between the camera and the interest points.
@@ -1527,6 +1720,6 @@ export class GameView {
     });
     let cx = front.x;
     if (losers.length) cx = (front.x + lx) / 2;
-    return { center: { x: cx, y: front.y + 0.3 }, spots, team, winner, nextConfetti: this.time + 0.25 };
+    return { center: { x: cx, y: front.y + 0.3 }, spots, team, winner, nextConfetti: this.time + 0.25, final: st.over };
   }
 }

@@ -56,6 +56,10 @@ export class GameCamera {
   private fov = MATCH_FOV;
   private snapNext = true;
   private trauma = 0;
+  private readonly punchOff = { x: 0, y: 0 };
+  private readonly punchVel = { x: 0, y: 0 };
+  private zoomOff = 0;
+  private zoomVel = 0;
   private time = 0;
   private bounds = { x: 80, y: 52 };
   private readonly lookAt = new THREE.Vector3();
@@ -82,6 +86,22 @@ export class GameCamera {
   /** Jump straight to the next goal (mode changes, loads, teleports of the focus). */
   snap(): void {
     this.snapNext = true;
+  }
+
+  /**
+   * Camera punch (docs/ART_DIRECTION.md §2 "카메라 펀치"): a short push along a ground
+   * direction (sim) that springs back with a little overshoot. Strength ~0.2..1 (meters-ish).
+   */
+  punch(dir: Vec2, strength: number): void {
+    const l = Math.hypot(dir.x, dir.y);
+    if (l < 1e-6 || strength <= 0) return;
+    this.punchVel.x += (dir.x / l) * strength * 9;
+    this.punchVel.y += (dir.y / l) * strength * 9;
+  }
+
+  /** Brief zoom-in (fraction of the distance, e.g. 0.1) that eases back — big recoveries. */
+  zoomPunch(amount: number): void {
+    this.zoomVel -= Math.max(0, amount) * 9;
   }
 
   /** Add shake trauma (0..1, accumulates, capped at 1). */
@@ -132,9 +152,29 @@ export class GameCamera {
       this.target.set(c.x, c.y);
     }
 
+    // Punch springs (underdamped: push, overshoot a touch, settle). Off with reduced motion.
+    const punchScale = opts.reducedMotion ? 0 : Math.min(1, Math.max(0, opts.screenShake));
+    if (dt > 0) {
+      const K = 170;
+      const C = 15;
+      this.punchVel.x += (-K * this.punchOff.x - C * this.punchVel.x) * dt;
+      this.punchVel.y += (-K * this.punchOff.y - C * this.punchVel.y) * dt;
+      this.punchOff.x += this.punchVel.x * dt;
+      this.punchOff.y += this.punchVel.y * dt;
+      this.zoomVel += (-120 * this.zoomOff - 13 * this.zoomVel) * dt;
+      this.zoomOff += this.zoomVel * dt;
+    }
+    if (punchScale === 0) {
+      this.punchOff.x = this.punchOff.y = this.punchVel.x = this.punchVel.y = 0;
+      this.zoomOff = this.zoomVel = 0;
+    }
+    const px = this.punchOff.x * punchScale;
+    const py = this.punchOff.y * punchScale;
+    const dist = this.distance * (1 + THREE.MathUtils.clamp(this.zoomOff * punchScale, -0.25, 0.25));
+
     const p = this.pitch * DEG;
     this.focusPoint.set(this.target.x, 0, this.target.y);
-    this.basePosition.set(this.target.x, Math.sin(p) * this.distance, this.target.y + Math.cos(p) * this.distance);
+    this.basePosition.set(this.target.x + px, Math.sin(p) * dist, this.target.y + py + Math.cos(p) * dist);
 
     // Translational trauma shake (never rotates the view).
     let sx = 0;
@@ -155,7 +195,7 @@ export class GameCamera {
       this.camera.updateProjectionMatrix();
     }
     this.camera.position.set(this.basePosition.x + sx, this.basePosition.y + sy, this.basePosition.z + sz);
-    this.lookAt.set(this.focusPoint.x + sx, sy, this.focusPoint.z + sz);
+    this.lookAt.set(this.focusPoint.x + px + sx, sy, this.focusPoint.z + py + sz);
     this.camera.lookAt(this.lookAt);
     this.camera.updateMatrixWorld();
   }

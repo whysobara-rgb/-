@@ -8,7 +8,7 @@
  *   layout=plaza|shortcut|counter|tutorial   quality=low|medium|high   scenario=<name>
  *   bots=0 (no AI)   hud=0 (hide overlay)   auto=0 (no rAF loop; drive via window.__harness)
  *   labels=1 (draw project() test labels)   lang=ko|en
- * Scenarios: start, strain, haul, pullSafe, fence, recover, final, preview, title, results, free
+ * Scenarios: start, strain, haul, pullSafe, fence, recover, final, ping, dash, preview, title, results, free
  *
  * Keys: WASD/arrows move, Space grab (hold), Shift dash, E ping at the mouse, Tab next focus,
  *       M cycle view mode, 1/2/3 quality, R reload scenario.
@@ -25,6 +25,7 @@ type Controller = (sim: Simulation) => Command;
 interface BotLike {
   readonly slot: number;
   update(sim: Simulation): Command;
+  intent?(): { telegraph: boolean; goal: string };
 }
 
 const params = new URLSearchParams(location.search);
@@ -162,14 +163,12 @@ function setupScenario(name: string): void {
     const b = banks()[0]!;
     d.setAnchored(b.id, false);
     const fence = L.fences[0];
-    const back = { x: b.pos.x, y: b.pos.y - 4.55 };
-    if (fence) d.teleport(b.id, { x: fence.center.x, y: fence.center.y - 4 - 1.2 }, b.angle);
+    if (fence) d.teleport(b.id, { x: fence.center.x, y: fence.center.y - 4 - 0.6 }, b.angle);
     const nb = sim.getLoot(b.id)!;
     d.teleport(charId(0), { x: nb.pos.x - 1.6, y: nb.pos.y - 4.55 }, Math.PI / 2);
     d.teleport(charId(1), { x: nb.pos.x + 1.6, y: nb.pos.y - 4.55 }, Math.PI / 2);
     controllers.set(0, holdCtl({ x: 0, y: 1 }, { x: 0, y: 1 }));
     controllers.set(1, holdCtl({ x: 0, y: 1 }, { x: 0, y: 1 }));
-    void back;
     scripted.add(0).add(1);
   } else if (name === 'recover') {
     // A large outdoor safe dragged into our zone: green outline + progress sweep, then the flight.
@@ -193,11 +192,36 @@ function setupScenario(name: string): void {
       d.setAnchored(b1.id, false);
       d.teleport(b1.id, z1.center, Math.PI / 2);
     }
-    d.teleport(charId(0), { x: z0.vanPos.x + 3.2, y: z0.vanPos.y + 6.4 }, -Math.PI / 2);
-    d.teleport(charId(1), { x: z0.vanPos.x + 4.6, y: z0.vanPos.y + 6.9 }, -Math.PI / 2);
+    d.teleport(charId(0), { x: z0.vanPos.x + 2.4, y: z0.vanPos.y + 3.6 }, -Math.PI / 2);
+    d.teleport(charId(1), { x: z0.vanPos.x + 3.6, y: z0.vanPos.y + 4.4 }, -Math.PI / 2);
     scripted.add(0).add(1);
     controllers.set(0, holdCtl({ x: 0, y: 0 }, { x: 0, y: -1 }, false));
     controllers.set(1, holdCtl({ x: 0, y: 0 }, { x: 0, y: -1 }, false));
+  } else if (name === 'ping') {
+    // Focus pings a safe ("같이 잡자") and the ground ("이쪽으로"); the safe pulses, beacons float.
+    const safe = sim.state.loot.find((l) => l.kind === 'smallSafe' && l.homeBank === null)!;
+    d.teleport(charId(0), { x: safe.pos.x + 2.5, y: safe.pos.y + 2 }, Math.PI);
+    d.teleport(charId(1), { x: safe.pos.x + 4, y: safe.pos.y + 3.5 }, Math.PI);
+    let n = 0;
+    controllers.set(0, () => {
+      n++;
+      const ping = n === 2 ? { pos: safe.pos, targetId: safe.id } : n === 4 ? { pos: { x: safe.pos.x + 5, y: safe.pos.y - 3 }, targetId: null } : null;
+      return { move: { x: 0, y: 0 }, grab: false, dash: false, aim: { x: -1, y: -0.6 }, ping };
+    });
+    scripted.add(0).add(1);
+    controllers.set(1, holdCtl({ x: 0, y: 0 }, { x: -1, y: -1 }, false));
+  } else if (name === 'dash') {
+    // Focus dashes into a rival: knockdown stars + dizzy face.
+    const p = { ...sim.state.characters[0]!.pos };
+    d.teleport(charId(0), { x: p.x + 4, y: p.y + 1 }, 0);
+    d.teleport(charId(2), { x: p.x + 6.6, y: p.y + 1 }, Math.PI);
+    let n = 0;
+    controllers.set(0, () => {
+      n++;
+      return { move: { x: 1, y: 0 }, grab: false, dash: n >= 3 && n < 6, aim: { x: 1, y: 0 }, ping: null };
+    });
+    controllers.set(2, holdCtl({ x: 0, y: 0 }, { x: -1, y: 0 }, false));
+    scripted.add(0).add(2);
   } else if (name === 'title') {
     // Idle raccoons on the plaza in front of the north bank.
     const b = banks()[0]!;
@@ -324,6 +348,10 @@ function step(n = 1, advanceView = true): SimEvent[] {
     const ev = sim.step(commands());
     view.captureTick(sim);
     view.onEvents(ev, sim);
+    for (const b of bots) {
+      const it = b.intent?.();
+      if (it) view.setBotTelegraph(sim.state.characters[b.slot]!.id, it.telegraph, it.goal);
+    }
     for (const e of ev) {
       eventTypes[e.type] = (eventTypes[e.type] ?? 0) + 1;
       all.push(e);
@@ -413,6 +441,8 @@ interface HarnessApi {
   scenario(name: string): void;
   /** Step the sim n ticks (view advanced each tick without drawing). Returns event types. */
   step(n: number): string[];
+  /** Step until an event of `type` fires (max `limit` ticks); returns ticks stepped or -1. */
+  stepUntil(type: string, limit?: number): number;
   /** Advance view animations only (sim paused). */
   advance(seconds: number): void;
   /** Draw one frame and return a PNG data URL of the canvas. */
@@ -439,6 +469,10 @@ const api: HarnessApi = {
   },
   step(n: number) {
     return step(n).map((e) => e.type);
+  },
+  stepUntil(type: string, limit = 900) {
+    for (let i = 1; i <= limit; i++) if (step(1).some((e) => e.type === type)) return i;
+    return -1;
   },
   advance(seconds: number) {
     const frames = Math.max(1, Math.round(seconds * 60));

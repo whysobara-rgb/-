@@ -72,6 +72,8 @@ export interface SlotStats {
   finalReplans: number;
   pingsAnswered: number;
   goalFails: number;
+  /** No-progress stretches > 5 s: start tick, duration (s), goal/phase at the start, position. */
+  incidents: { tick: number; dur: number; what: string; x: number; y: number }[];
 }
 
 export interface MatchStats {
@@ -158,7 +160,9 @@ export function runMatch(spec: MatchSpec): MatchStats {
     finalReplans: 0,
     pingsAnswered: 0,
     goalFails: 0,
+    incidents: [],
   }));
+  const stuckWhat: string[] = bots.map(() => '');
   // progress tracking (no meaningful progress for > 3 s)
   const ref = bots.map((b) => ({ ...sim.characterBySlot(b.slot).pos }));
   const refHeld = bots.map(() => ({ id: -1 as EntityId, x: 0, y: 0 }));
@@ -261,18 +265,20 @@ export function runMatch(spec: MatchSpec): MatchStats {
         }
         if (stuckStart[i]! >= 0) {
           const dur = (st.tick - stuckStart[i]!) / TICK_RATE;
-          closeStuck(slotStats[i]!, dur);
+          closeStuck(slotStats[i]!, dur, stuckStart[i]!, stuckWhat[i]!, ref[i]!);
           stuckStart[i] = -1;
         }
         lastProgress[i] = st.tick;
       } else if (st.tick - lastProgress[i]! > 3 * TICK_RATE && stuckStart[i]! < 0) {
         stuckStart[i] = lastProgress[i]!;
+        const d = b.debug() as { goal: { key: string; phase: string } | null };
+        stuckWhat[i] = d.goal ? `${d.goal.key}:${d.goal.phase}` : 'none';
       }
     }
     spec.onTick?.(sim, events, bots);
   }
   for (let i = 0; i < n; i++) {
-    if (stuckStart[i]! >= 0) closeStuck(slotStats[i]!, (st.tick - stuckStart[i]!) / TICK_RATE);
+    if (stuckStart[i]! >= 0) closeStuck(slotStats[i]!, (st.tick - stuckStart[i]!) / TICK_RATE, stuckStart[i]!, stuckWhat[i]!, ref[i]!);
     const b = bots[i]!;
     const s = slotStats[i]!;
     s.dashes = b.stats.dashes;
@@ -298,9 +304,253 @@ export function runMatch(spec: MatchSpec): MatchStats {
   };
 }
 
-function closeStuck(s: SlotStats, dur: number): void {
+function closeStuck(s: SlotStats, dur: number, tick: number, what: string, pos: { x: number; y: number }): void {
   // the first 3 s of a no-progress window are tolerated
   s.stuckSeconds += Math.max(0, dur - 3);
   if (dur > s.maxStuck) s.maxStuck = dur;
-  if (dur > 5) s.stuckIncidents5s++;
+  if (dur > 5) {
+    s.stuckIncidents5s++;
+    if (s.incidents.length < 20) s.incidents.push({ tick, dur: +dur.toFixed(1), what, x: +pos.x.toFixed(1), y: +pos.y.toFixed(1) });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Series of matches (A vs B, optional side swap) + aggregation
+// ---------------------------------------------------------------------------
+
+export interface SideSpec {
+  /** One entry per character on this side (1 for 1v1, 2 for 2v2). */
+  members: SlotSpec[];
+  label?: string;
+}
+
+export interface SeriesSpec {
+  layouts: LayoutId[];
+  a: SideSpec;
+  b: SideSpec;
+  seeds: number[];
+  /** Also play every seed with A on team 1. */
+  swap: boolean;
+  timing?: boolean;
+  rules?: Partial<RuleConfig>;
+  onMatch?: (m: SeriesMatch) => void;
+}
+
+export interface SeriesMatch {
+  layout: LayoutId;
+  seed: number;
+  /** Team index A played. */
+  aTeam: TeamId;
+  winner: 'A' | 'B' | null;
+  scoreA: number;
+  scoreB: number;
+  stats: MatchStats;
+}
+
+export function runSeries(spec: SeriesSpec): SeriesMatch[] {
+  const out: SeriesMatch[] = [];
+  for (const layout of spec.layouts) {
+    for (const seed of spec.seeds) {
+      for (const aTeam of spec.swap ? ([0, 1] as TeamId[]) : ([0] as TeamId[])) {
+        const team0 = aTeam === 0 ? spec.a.members : spec.b.members;
+        const team1 = aTeam === 0 ? spec.b.members : spec.a.members;
+        const stats = runMatch({ layout, team0, team1, seed, timing: spec.timing, rules: spec.rules });
+        const w = stats.result.winner;
+        const m: SeriesMatch = {
+          layout,
+          seed,
+          aTeam,
+          winner: w === null ? null : w === aTeam ? 'A' : 'B',
+          scoreA: stats.teamScores[aTeam],
+          scoreB: stats.teamScores[(1 - aTeam) as TeamId],
+          stats,
+        };
+        spec.onMatch?.(m);
+        out.push(m);
+      }
+    }
+  }
+  return out;
+}
+
+export interface PersonalityAgg {
+  key: string;
+  bots: number;
+  points: number;
+  small: number;
+  large: number;
+  bank: number;
+  banksWhole: number;
+  strips: number;
+  steals: number;
+  knockdowns: number;
+  dashes: number;
+  boosts: number;
+  stuckSeconds: number;
+  idleSeconds: number;
+  stuck5: number;
+  maxStuck: number;
+  unstuck: number;
+  scoredMatches: number;
+  firstScoreSum: number;
+  firstScoreN: number;
+  finalReplans: number;
+}
+
+export interface SeriesAggregate {
+  matches: number;
+  aWins: number;
+  bWins: number;
+  draws: number;
+  /** Win rate of whichever side played team 0 (side fairness). */
+  team0Wins: number;
+  reasons: Record<string, number>;
+  avgScoreA: number;
+  avgScoreB: number;
+  invariantViolations: number;
+  avgFirstScoreS: [number | null, number | null];
+  byKey: Record<string, PersonalityAgg>;
+  botMsAvg: number;
+  botMsMax: number;
+  stuck5: number;
+  finalReplans: number;
+  /** Human-proxy matches: share of the proxy team's points earned by the bot teammate. */
+  teammateShare: number | null;
+}
+
+export function aggregate(ms: SeriesMatch[]): SeriesAggregate {
+  const agg: SeriesAggregate = {
+    matches: ms.length,
+    aWins: 0,
+    bWins: 0,
+    draws: 0,
+    team0Wins: 0,
+    reasons: {},
+    avgScoreA: 0,
+    avgScoreB: 0,
+    invariantViolations: 0,
+    avgFirstScoreS: [null, null],
+    byKey: {},
+    botMsAvg: 0,
+    botMsMax: 0,
+    stuck5: 0,
+    finalReplans: 0,
+    teammateShare: null,
+  };
+  let msTot = 0;
+  let msTicks = 0;
+  const fs: [number[], number[]] = [[], []];
+  let shareNum = 0;
+  let shareDen = 0;
+  for (const m of ms) {
+    if (m.winner === 'A') agg.aWins++;
+    else if (m.winner === 'B') agg.bWins++;
+    else agg.draws++;
+    if (m.stats.result.winner === 0) agg.team0Wins++;
+    agg.reasons[m.stats.result.reason] = (agg.reasons[m.stats.result.reason] ?? 0) + 1;
+    agg.avgScoreA += m.scoreA / ms.length;
+    agg.avgScoreB += m.scoreB / ms.length;
+    agg.invariantViolations += m.stats.invariantViolations;
+    const fA = m.stats.firstScoreTick[m.aTeam];
+    const fB = m.stats.firstScoreTick[(1 - m.aTeam) as TeamId];
+    if (fA !== null) fs[0].push(fA / TICK_RATE);
+    if (fB !== null) fs[1].push(fB / TICK_RATE);
+    for (const s of m.stats.slots) {
+      const side = s.team === m.aTeam ? 'A' : 'B';
+      const key = s.humanProxy ? `${side}:proxy` : `${side}:${s.personality}/${s.difficulty}`;
+      const a = (agg.byKey[key] ??= {
+        key,
+        bots: 0,
+        points: 0,
+        small: 0,
+        large: 0,
+        bank: 0,
+        banksWhole: 0,
+        strips: 0,
+        steals: 0,
+        knockdowns: 0,
+        dashes: 0,
+        boosts: 0,
+        stuckSeconds: 0,
+        idleSeconds: 0,
+        stuck5: 0,
+        maxStuck: 0,
+        unstuck: 0,
+        scoredMatches: 0,
+        firstScoreSum: 0,
+        firstScoreN: 0,
+        finalReplans: 0,
+      });
+      a.bots++;
+      a.points += s.points;
+      a.small += s.recoveries.smallSafe;
+      a.large += s.recoveries.largeSafe;
+      a.bank += s.recoveries.bank;
+      a.banksWhole += s.banksWhole;
+      a.strips += s.strips;
+      a.steals += s.steals;
+      a.knockdowns += s.knockdownsDealt;
+      a.dashes += s.dashes;
+      a.boosts += s.boosts;
+      a.stuckSeconds += s.stuckSeconds;
+      a.idleSeconds += s.idleSeconds;
+      a.stuck5 += s.stuckIncidents5s;
+      a.maxStuck = Math.max(a.maxStuck, s.maxStuck);
+      a.unstuck += s.unstuckEvents;
+      a.finalReplans += s.finalReplans;
+      if (s.points > 0) a.scoredMatches++;
+      if (s.firstScoreTick !== null) {
+        a.firstScoreSum += s.firstScoreTick / TICK_RATE;
+        a.firstScoreN++;
+      }
+      if (!s.humanProxy) {
+        msTot += s.botMsTotal;
+        msTicks += s.botTicks;
+        agg.botMsMax = Math.max(agg.botMsMax, s.botMsMax);
+        agg.stuck5 += s.stuckIncidents5s;
+        agg.finalReplans += s.finalReplans;
+      }
+    }
+    const proxy = m.stats.slots.find((s) => s.humanProxy);
+    if (proxy) {
+      const mates = m.stats.slots.filter((s) => s.team === proxy.team && !s.humanProxy);
+      const matePts = mates.reduce((x, s) => x + s.points, 0);
+      shareNum += matePts;
+      shareDen += matePts + proxy.points;
+    }
+  }
+  agg.botMsAvg = msTicks > 0 ? msTot / msTicks : 0;
+  agg.avgFirstScoreS = [fs[0].length ? avg(fs[0]) : null, fs[1].length ? avg(fs[1]) : null];
+  agg.teammateShare = shareDen > 0 ? shareNum / shareDen : null;
+  return agg;
+}
+
+function avg(a: number[]): number {
+  return a.reduce((x, y) => x + y, 0) / a.length;
+}
+
+export function formatAggregate(agg: SeriesAggregate, title = ''): string {
+  const pct = (x: number): string => `${((100 * x) / Math.max(1, agg.matches)).toFixed(1)}%`;
+  const L: string[] = [];
+  if (title) L.push(`== ${title}`);
+  L.push(
+    `matches ${agg.matches}  A wins ${agg.aWins} (${pct(agg.aWins)})  B wins ${agg.bWins} (${pct(agg.bWins)})  draws ${agg.draws} (${pct(agg.draws)})  team0 wins ${pct(agg.team0Wins)}`,
+  );
+  L.push(
+    `end reasons ${Object.entries(agg.reasons)
+      .map(([k, v]) => `${k}:${v}`)
+      .join(' ')}  avg score A ${agg.avgScoreA.toFixed(0)} B ${agg.avgScoreB.toFixed(0)}  first score A ${agg.avgFirstScoreS[0]?.toFixed(1) ?? '-'}s B ${agg.avgFirstScoreS[1]?.toFixed(1) ?? '-'}s  invariant violations ${agg.invariantViolations}`,
+  );
+  L.push(
+    `bot cpu avg ${agg.botMsAvg.toFixed(3)} ms/tick/bot  max ${agg.botMsMax.toFixed(2)} ms  stuck>5s ${agg.stuck5}  final-30s re-plans ${agg.finalReplans}` +
+      (agg.teammateShare !== null ? `  teammate share ${(agg.teammateShare * 100).toFixed(1)}%` : ''),
+  );
+  L.push('  per bot (averages per match):  pts | small large bank (whole) | strips steals | KOs dashes boosts | stuck s idle s max-stuck stuck>5 unstuck | scored% first-score');
+  for (const a of Object.values(agg.byKey).sort((x, y) => (x.key < y.key ? -1 : 1))) {
+    const n = Math.max(1, a.bots);
+    L.push(
+      `  ${a.key.padEnd(26)} ${(a.points / n).toFixed(0).padStart(5)} | ${(a.small / n).toFixed(2)} ${(a.large / n).toFixed(2)} ${(a.bank / n).toFixed(2)} (${(a.banksWhole / n).toFixed(2)}) | ${(a.strips / n).toFixed(2)} ${(a.steals / n).toFixed(2)} | ${(a.knockdowns / n).toFixed(2)} ${(a.dashes / n).toFixed(2)} ${(a.boosts / n).toFixed(2)} | ${(a.stuckSeconds / n).toFixed(1)} ${(a.idleSeconds / n).toFixed(1)} ${a.maxStuck.toFixed(1)} ${a.stuck5} ${(a.unstuck / n).toFixed(2)} | ${((100 * a.scoredMatches) / n).toFixed(0)}% ${a.firstScoreN ? (a.firstScoreSum / a.firstScoreN).toFixed(1) + 's' : '-'}`,
+    );
+  }
+  return L.join('\n');
 }

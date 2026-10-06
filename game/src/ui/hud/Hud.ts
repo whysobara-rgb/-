@@ -91,6 +91,7 @@ export class Hud {
   private cClock = '';
   private cTimerState = '';
   private cBanksLen = -1;
+  private cTimed: boolean | null = null;
   private cLastBank: boolean | null = null;
   private cCarry = '';
   private cCarryProg = -1;
@@ -251,7 +252,10 @@ export class Hud {
 
   update(m: HudModel): void {
     this.model = m;
-    if (m.mode !== this.cMode || m.myTeam !== this.cMyTeam || m.banks.length !== this.cBanksLen) this.buildTop(m);
+    const timed = m.timeLeftSec !== null;
+    if (m.mode !== this.cMode || m.myTeam !== this.cMyTeam || m.banks.length !== this.cBanksLen || timed !== this.cTimed) {
+      this.buildTop(m);
+    }
 
     // Scores
     if (m.mode === 'match') {
@@ -342,6 +346,7 @@ export class Hud {
     this.cMode = m.mode;
     this.cMyTeam = m.myTeam;
     this.cBanksLen = m.banks.length;
+    this.cTimed = m.timeLeftSec !== null;
     this.cScores = [NaN, NaN];
     this.cClock = '';
     this.cTimerState = '';

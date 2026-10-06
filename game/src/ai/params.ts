@@ -87,22 +87,31 @@ export interface PersonalityWeights {
   aggression: number;
   /** Willingness to join a teammate's bank haul. */
   assist: number;
+  /** Uses the dash to move faster on long straight walks when nobody is near (0..1). */
+  travelDash: number;
+  /**
+   * "욕심내서 하나 더" (doc §10): loads a nearby small safe onto the bank it is about to haul
+   * (worth more, slower, more exposed through the open door). 0 = never.
+   */
+  greed: number;
 }
 
 export const PERSONALITY: Readonly<Record<RivalId, PersonalityWeights>> = {
   // 호다닥: frequent quick small-safe runs along favourite routes.
   hodadak: {
-    smallSafe: 1.45,
-    largeSafe: 0.85,
-    bank: 0.42,
+    smallSafe: 1.3,
+    largeSafe: 1.0,
+    bank: 0.55,
     bankContents: 0.0,
-    strip: 0.9,
+    strip: 1.15,
     intercept: 0.55,
     opportunism: 0.2,
     routeReuse: 0.35,
     commitment: 0.2,
     aggression: 0.45,
     assist: 0.7,
+    travelDash: 1,
+    greed: 0,
   },
   // 통큰이: goes for banks with contents and hauls them.
   tongkeun: {
@@ -117,12 +126,14 @@ export const PERSONALITY: Readonly<Record<RivalId, PersonalityWeights>> = {
     commitment: 0.35,
     aggression: 0.5,
     assist: 1.2,
+    travelDash: 0.5,
+    greed: 1,
   },
   // 눈치왕: waits for the opponent to commit to a big haul, then intercepts / steals.
   nunchi: {
-    smallSafe: 0.95,
-    largeSafe: 0.95,
-    bank: 0.55,
+    smallSafe: 0.9,
+    largeSafe: 0.92,
+    bank: 0.6,
     bankContents: 0.0,
     strip: 1.6,
     intercept: 1.6,
@@ -131,6 +142,8 @@ export const PERSONALITY: Readonly<Record<RivalId, PersonalityWeights>> = {
     commitment: 0.25,
     aggression: 1.0,
     assist: 0.8,
+    travelDash: 0.3,
+    greed: 0,
   },
 };
 
@@ -148,7 +161,10 @@ export interface DifficultyParams {
   dashUse: number;
   /** Lead prediction quality 0..1 (1 = full lead, plus angular noise when lower). */
   leadQuality: number;
-  /** Counter-play depth 0..2: 0 = plain collecting, 1 = reacts to visible hauls, 2 = full denial math. */
+  /**
+   * Counter-play depth 0..2 (continuous): 0 = plain collecting, 0.5 = notices obvious hauls,
+   * 1 = values denial / races for the other bank, 2 = full denial math + guard reactions.
+   */
   counterDepth: number;
   /** Telegraph pause before committing to a new target (ticks). */
   telegraphTicks: number;
@@ -165,7 +181,7 @@ export const DIFFICULTY_PARAMS: Readonly<Record<Difficulty, DifficultyParams>> =
     threatResponse: 0.4,
     dashUse: 0.3,
     leadQuality: 0.35,
-    counterDepth: 0,
+    counterDepth: 0.5,
     telegraphTicks: 27,
     carryBoost: 0.25,
   },

@@ -1,0 +1,194 @@
+{
+  "$comment": [
+    "Steamworks achievement definitions for 뿌리째 털어라 (Uproot Heist).",
+    "Enter these on partner.steamgames.com > App Admin > Stats & Achievements > Achievements (see docs/STEAM_RELEASE.md).",
+    "apiName must match src/platform/steam.ts ACHIEVEMENT_IDS. Display text must match src/ui/strings (ach.<ID>.name/.desc);",
+    "test/unit/platform-steam.test.ts fails when they drift. Icons: 64x64 JPG, unlocked + locked (greyscale) versions."
+  ],
+  "languages": [
+    "english",
+    "koreana"
+  ],
+  "achievements": [
+    {
+      "apiName": "FIRST_RECOVERY",
+      "hidden": false,
+      "name": {
+        "english": "First Haul",
+        "koreana": "첫 회수"
+      },
+      "description": {
+        "english": "Recover loot and secure points for the first time.",
+        "koreana": "처음으로 전리품을 회수해 점수를 확정했어요."
+      },
+      "icon": "icons/FIRST_RECOVERY.jpg",
+      "iconLocked": "icons/FIRST_RECOVERY_locked.jpg",
+      "unlockRule": "Any recovery by the player's team that the player was holding at completion (or released within the last 3 s)."
+    },
+    {
+      "apiName": "BANK_WHOLE",
+      "hidden": false,
+      "name": {
+        "english": "Roots and All",
+        "koreana": "뿌리째 털었다"
+      },
+      "description": {
+        "english": "Recover an entire bank at your van.",
+        "koreana": "은행을 통째로 우리 차 앞까지 회수했어요."
+      },
+      "icon": "icons/BANK_WHOLE.jpg",
+      "iconLocked": "icons/BANK_WHOLE_locked.jpg",
+      "unlockRule": "A bank body recovered by the player's team with the player participating (holding / released within 3 s)."
+    },
+    {
+      "apiName": "BANK_HEIST_TEAM",
+      "hidden": false,
+      "name": {
+        "english": "Lift With Your Buddy",
+        "koreana": "둘이 들면 가볍지"
+      },
+      "description": {
+        "english": "Recover a bank together with your teammate in 2v2.",
+        "koreana": "2:2에서 동료와 함께 은행을 회수했어요."
+      },
+      "icon": "icons/BANK_HEIST_TEAM.jpg",
+      "iconLocked": "icons/BANK_HEIST_TEAM_locked.jpg",
+      "unlockRule": "2v2 only: bank recovered by the player's team with both the player and the teammate bot participating."
+    },
+    {
+      "apiName": "STEAL_LARGE",
+      "hidden": false,
+      "name": {
+        "english": "Smooth Extraction",
+        "koreana": "쏙 빼 왔지"
+      },
+      "description": {
+        "english": "Pull a large safe out of a bank your rival was hauling, then recover it.",
+        "koreana": "상대가 옮기던 은행에서 큰 금고를 빼내 회수했어요."
+      },
+      "icon": "icons/STEAL_LARGE.jpg",
+      "iconLocked": "icons/STEAL_LARGE_locked.jpg",
+      "unlockRule": "Player pulls a large safe out of a bank the opposing team was dragging (safeUnloaded.byCharId = player, bankCarrierTeam = opponent) and the player's team later recovers that safe (alone or inside a bank)."
+    },
+    {
+      "apiName": "FENCE_BREAKER",
+      "hidden": false,
+      "name": {
+        "english": "I Make My Own Road",
+        "koreana": "길은 내가 낸다"
+      },
+      "description": {
+        "english": "Break a fence with a bank.",
+        "koreana": "은행으로 펜스를 뚫었어요."
+      },
+      "icon": "icons/FENCE_BREAKER.jpg",
+      "iconLocked": "icons/FENCE_BREAKER_locked.jpg",
+      "unlockRule": "A fence breaks against a bank the player is holding at that moment."
+    },
+    {
+      "apiName": "LAST_SECONDS",
+      "hidden": false,
+      "name": {
+        "english": "Just in Time",
+        "koreana": "아슬아슬 막차"
+      },
+      "description": {
+        "english": "Complete a recovery in the final 5 seconds of a match.",
+        "koreana": "경기 종료 5초 전 안에 회수를 완료했어요."
+      },
+      "icon": "icons/LAST_SECONDS.jpg",
+      "iconLocked": "icons/LAST_SECONDS_locked.jpg",
+      "unlockRule": "Match ends on time; a recovery the player participated in completes within the final 5 s."
+    },
+    {
+      "apiName": "COMEBACK",
+      "hidden": false,
+      "name": {
+        "english": "Comeback Kid",
+        "koreana": "대역전극"
+      },
+      "description": {
+        "english": "Win after trailing by more than 500 points.",
+        "koreana": "500점 넘게 뒤지다가 역전승했어요."
+      },
+      "icon": "icons/COMEBACK.jpg",
+      "iconLocked": "icons/COMEBACK_locked.jpg",
+      "unlockRule": "Player's team wins after trailing by more than 500 confirmed points at some point."
+    },
+    {
+      "apiName": "BEAT_HODADAK",
+      "hidden": false,
+      "name": {
+        "english": "Caught Hodadak",
+        "koreana": "호다닥 따라잡기"
+      },
+      "description": {
+        "english": "Beat Hodadak in the Rival Tournament.",
+        "koreana": "라이벌 대회에서 호다닥을 이겼어요."
+      },
+      "icon": "icons/BEAT_HODADAK.jpg",
+      "iconLocked": "icons/BEAT_HODADAK_locked.jpg",
+      "unlockRule": "Win the best-of-3 series against Hodadak in the Rival Tournament."
+    },
+    {
+      "apiName": "BEAT_TONGKEUN",
+      "hidden": false,
+      "name": {
+        "english": "Out-hauled Tongkeun",
+        "koreana": "통 크게 이겼다"
+      },
+      "description": {
+        "english": "Beat Tongkeun in the Rival Tournament.",
+        "koreana": "라이벌 대회에서 통큰이를 이겼어요."
+      },
+      "icon": "icons/BEAT_TONGKEUN.jpg",
+      "iconLocked": "icons/BEAT_TONGKEUN_locked.jpg",
+      "unlockRule": "Win the best-of-3 series against Tongkeun in the Rival Tournament."
+    },
+    {
+      "apiName": "BEAT_NUNCHI",
+      "hidden": false,
+      "name": {
+        "english": "Outsmarted Nunchi",
+        "koreana": "눈치 싸움 승리"
+      },
+      "description": {
+        "english": "Beat Nunchi in the Rival Tournament.",
+        "koreana": "라이벌 대회에서 눈치왕을 이겼어요."
+      },
+      "icon": "icons/BEAT_NUNCHI.jpg",
+      "iconLocked": "icons/BEAT_NUNCHI_locked.jpg",
+      "unlockRule": "Win the best-of-3 series against Nunchi in the Rival Tournament."
+    },
+    {
+      "apiName": "TOURNAMENT_CLEAR",
+      "hidden": false,
+      "name": {
+        "english": "Legend of the Plaza",
+        "koreana": "광장의 전설"
+      },
+      "description": {
+        "english": "Beat all three rivals and win the tournament.",
+        "koreana": "세 라이벌을 모두 이기고 대회에서 우승했어요."
+      },
+      "icon": "icons/TOURNAMENT_CLEAR.jpg",
+      "iconLocked": "icons/TOURNAMENT_CLEAR_locked.jpg",
+      "unlockRule": "All three rivals beaten."
+    },
+    {
+      "apiName": "WARDROBE",
+      "hidden": false,
+      "name": {
+        "english": "Dapper Raccoon",
+        "koreana": "멋쟁이 너구리"
+      },
+      "description": {
+        "english": "Collect all three rival hats.",
+        "koreana": "라이벌 모자 세 개를 모두 모았어요."
+      },
+      "icon": "icons/WARDROBE.jpg",
+      "iconLocked": "icons/WARDROBE_locked.jpg",
+      "unlockRule": "All three rival hats unlocked."
+    }
+  ]
+}

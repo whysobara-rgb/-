@@ -44,6 +44,8 @@ export interface LayoutPreviewProps {
   onSkip?: () => void;
   /** Called on every countdown tick (3,2,1,0=출발) — e.g. play 'countdownBeep'. */
   onTick?: (n: number) => void;
+  /** Back pressed (e.g. return to quick match setup). Omit to ignore back. */
+  onBack?: () => void;
 }
 
 /** Total value of a layout (outdoor safes + 2 banks with standard contents) for the header chip. */
@@ -200,6 +202,11 @@ export class LayoutPreview extends UiScreen<LayoutPreviewProps> {
     if (action === 'confirm') {
       if (this.props.onSkip) this.props.onSkip();
       else this.startCountdown();
+      return true;
+    }
+    if (action === 'back' && this.props.onBack && !this.finished) {
+      this.stopTimers();
+      this.props.onBack();
       return true;
     }
     return true; // swallow everything else: the preview has no menu

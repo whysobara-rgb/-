@@ -12,6 +12,8 @@ import type { TeamId, Vec2 } from '../sim';
 import { TEAM_STYLES } from '../shared/teams';
 import { FxSystem, PAL, type DebrisBurst } from './models';
 import { radialGlowTexture } from './models/textures';
+import { G, PartBuilder } from './models/geometry';
+import { createToonMaterial } from './models/materials';
 import { scaledCount, type QualityPreset } from './quality';
 
 const _v = new THREE.Vector3();
@@ -48,7 +50,8 @@ export interface CharMarker {
 
 /** Pulsing additive glow on the ground around a van while its siren runs. */
 export interface SirenGlow {
-  readonly root: THREE.Mesh;
+  readonly root: THREE.Group;
+  place(vanPos: Vec2, vanAngle: number): void;
   update(on: boolean, time: number): void;
 }
 
@@ -179,41 +182,59 @@ export class ViewEffects {
     };
   }
 
-  /** One cached glow per team (re-added to the world on every load). */
+  /** One cached siren glow per team (re-added to the world on every load). */
   sirenGlow(team: TeamId): SirenGlow {
     const hit = this.glows[team];
     if (hit) return hit;
-    const mat = new THREE.MeshBasicMaterial({
-      map: radialGlowTexture(),
+    const tex = radialGlowTexture();
+    // Ground pool (normal blending so it reads on the bright paving).
+    const poolMat = new THREE.MeshBasicMaterial({
+      map: tex,
       color: TEAM_STYLES[team].color,
       transparent: true,
       opacity: 0,
       depthWrite: false,
-      blending: THREE.AdditiveBlending,
       toneMapped: false,
       polygonOffset: true,
       polygonOffsetFactor: -3,
       polygonOffsetUnits: -3,
     });
-    this.owned.push(mat);
-    const mesh = new THREE.Mesh(this.glowGeo, mat);
-    mesh.name = 'sirenGlow';
-    mesh.userData.noOutline = true;
-    mesh.renderOrder = 2;
-    mesh.visible = false;
+    // Flashing flare at the roof beacon.
+    const flareMat = new THREE.SpriteMaterial({ map: tex, color: TEAM_STYLES[team].color, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false });
+    this.owned.push(poolMat, flareMat);
+    const root = new THREE.Group();
+    root.name = 'sirenGlow';
+    const pool = new THREE.Mesh(this.glowGeo, poolMat);
+    pool.userData.noOutline = true;
+    pool.renderOrder = 2;
+    pool.position.y = 0.03;
+    const flare = new THREE.Sprite(flareMat);
+    flare.renderOrder = 4;
+    root.add(pool, flare);
+    root.visible = false;
     const teamCol = new THREE.Color(TEAM_STYLES[team].color);
     const red = new THREE.Color('#FF4D5E');
     let level = 0;
     return (this.glows[team] = {
-      root: mesh,
+      root,
+      place: (vanPos: Vec2, vanAngle: number) => {
+        root.position.set(vanPos.x, 0, vanPos.y);
+        // Beacon sits 1.2 m toward the van's nose on the roof.
+        flare.position.set(Math.cos(vanAngle) * 1.2, 2.45, Math.sin(vanAngle) * 1.2);
+      },
       update: (on: boolean, time: number) => {
         level += ((on ? 1 : 0) - level) * 0.12;
-        mesh.visible = level > 0.01;
-        if (!mesh.visible) return;
+        root.visible = level > 0.01;
+        if (!root.visible) return;
         const phase = Math.sin(time * 9);
-        mat.color.copy(phase > 0 ? teamCol : red);
-        mat.opacity = level * (0.35 + 0.45 * Math.abs(phase));
-        mesh.scale.setScalar(7.5 + 1.2 * Math.abs(phase));
+        const col = phase > 0 ? teamCol : red;
+        poolMat.color.copy(col);
+        flareMat.color.copy(col);
+        const k = Math.abs(phase);
+        poolMat.opacity = level * (0.45 + 0.45 * k);
+        pool.scale.set(12 + 2 * k, 1, 12 + 2 * k);
+        flareMat.opacity = level * (0.75 + 0.25 * k);
+        flare.scale.setScalar(3.6 + 2.6 * k);
       },
     });
   }
@@ -485,6 +506,279 @@ export class ViewEffects {
   dispose(): void {
     this.clear();
     this.fx.dispose();
+    for (const o of this.owned) o.dispose();
+    this.root.removeFromParent();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Pigeons (docs/ART_DIRECTION.md §1 "모든 것이 반응": pigeons take off when something rushes by)
+// ---------------------------------------------------------------------------
+
+export interface PigeonThreat {
+  x: number;
+  y: number;
+  radius: number;
+}
+
+interface Pigeon {
+  home: Vec2;
+  x: number;
+  y: number;
+  h: number;
+  vx: number;
+  vy: number;
+  vh: number;
+  yaw: number;
+  state: 'idle' | 'fly' | 'gone' | 'land';
+  t: number;
+  peckT: number;
+  peck: number;
+  hopT: number;
+  flap: number;
+  respawn: number;
+  landFrom: { x: number; y: number; h: number };
+  scale: number;
+}
+
+const PIGEON_SCALE = 1.45;
+const _pm = new THREE.Matrix4();
+const _pw = new THREE.Matrix4();
+const _pq = new THREE.Quaternion();
+const _pe = new THREE.Euler();
+const _pp = new THREE.Vector3();
+const _ps = new THREE.Vector3();
+
+/** Small flocks of toy pigeons: two instanced draw calls (bodies, wings) for the whole plaza. */
+export class PigeonFlock {
+  readonly root = new THREE.Group();
+  private readonly bodies: THREE.InstancedMesh;
+  private readonly wings: THREE.InstancedMesh;
+  private readonly owned: (THREE.Material | THREE.BufferGeometry)[] = [];
+  private birds: Pigeon[] = [];
+  private seed = 1;
+  private readonly cap: number;
+
+  constructor(capacity = 24) {
+    this.cap = capacity;
+    this.root.name = 'pigeons';
+    const bb = new PartBuilder();
+    const grey = '#A7AEC2';
+    bb.add(G.sphere(12, 8), { color: grey, pos: [0, 0.11, 0], scale: [0.13, 0.085, 0.075] });
+    bb.add(G.sphere(10, 6), { color: '#E8EAF2', pos: [0.03, 0.085, 0], scale: [0.08, 0.05, 0.055] });
+    bb.add(G.torus(0.35, 6, 12), { color: '#7FC4B0', pos: [0.085, 0.165, 0], rot: [0, Math.PI / 2, 0.5], scale: [0.045, 0.045, 0.04] });
+    bb.add(G.sphere(10, 8), { color: '#8C93A8', pos: [0.115, 0.2, 0], scale: 0.05 });
+    bb.add(G.cone(8), { color: '#F2B8C6', pos: [0.17, 0.197, 0], rot: [0, 0, -Math.PI / 2], scale: [0.016, 0.04, 0.016] });
+    for (const s of [-1, 1]) bb.add(G.sphere(6, 4), { color: '#25222B', pos: [0.142, 0.212, s * 0.03], scale: 0.011 });
+    bb.add(G.box(), { color: '#6F7690', pos: [-0.14, 0.13, 0], rot: [0, 0, 0.35], scale: [0.11, 0.018, 0.08] });
+    for (const s of [-1, 1]) bb.add(G.cyl(1, 1, 5), { color: '#F28C9A', pos: [0.01, 0.03, s * 0.025], scale: [0.007, 0.06, 0.007] });
+    const bodyGeo = bb.merge('vc')!;
+    bb.clear();
+    const wb = new PartBuilder();
+    // Wing pivots at the shoulder and extends toward +z (mirrored for the right wing).
+    wb.add(G.sphere(10, 6), { color: '#949CB2', pos: [-0.02, 0, 0.075], scale: [0.09, 0.012, 0.075] });
+    wb.add(G.box(), { color: '#5E6579', pos: [-0.06, -0.002, 0.11], rot: [0, 0.3, 0], scale: [0.07, 0.01, 0.04] });
+    const wingGeo = wb.merge('vc')!;
+    wb.clear();
+    const bodyMat = createToonMaterial({ vertexColors: true, fx: true, rim: 0.6 });
+    const wingMat = createToonMaterial({ vertexColors: true, fx: true, rim: 0.6, side: THREE.DoubleSide });
+    this.owned.push(bodyGeo, wingGeo, bodyMat, wingMat);
+    this.bodies = new THREE.InstancedMesh(bodyGeo, bodyMat, capacity);
+    this.wings = new THREE.InstancedMesh(wingGeo, wingMat, capacity * 2);
+    for (const m of [this.bodies, this.wings]) {
+      m.count = 0;
+      m.frustumCulled = false;
+      m.castShadow = false;
+      m.receiveShadow = false;
+      m.userData.noOutline = true;
+      m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      this.root.add(m);
+    }
+  }
+
+  /** Place flocks at the given ground spots (deterministic per layout). */
+  reset(spots: Vec2[], seed: number, density = 1): void {
+    this.seed = seed || 1;
+    this.birds = [];
+    const per = density >= 0.9 ? 3 : 2;
+    for (const s of spots) {
+      for (let i = 0; i < per && this.birds.length < this.cap; i++) {
+        const a = this.rand() * Math.PI * 2;
+        const r = 0.25 + this.rand() * 0.55;
+        const home = { x: s.x + Math.cos(a) * r, y: s.y + Math.sin(a) * r };
+        this.birds.push({
+          home,
+          x: home.x,
+          y: home.y,
+          h: 0,
+          vx: 0,
+          vy: 0,
+          vh: 0,
+          yaw: this.rand() * Math.PI * 2,
+          state: 'idle',
+          t: 0,
+          peckT: this.rand() * 2,
+          peck: 0,
+          hopT: 1 + this.rand() * 4,
+          flap: this.rand() * 6,
+          respawn: 0,
+          landFrom: { x: 0, y: 0, h: 0 },
+          scale: 1,
+        });
+      }
+    }
+  }
+
+  private rand(): number {
+    // xorshift
+    let x = this.seed | 0;
+    x ^= x << 13;
+    x ^= x >>> 17;
+    x ^= x << 5;
+    this.seed = x;
+    return ((x >>> 0) % 100000) / 100000;
+  }
+
+  /** Startle every idle pigeon within `radius` of p (events: uproot, fence break, knockdown). */
+  scare(p: Vec2, radius: number): void {
+    for (const b of this.birds) if (b.state === 'idle' || b.state === 'land') this.takeOff(b, p, Math.hypot(b.x - p.x, b.y - p.y) <= radius);
+  }
+
+  private takeOff(b: Pigeon, from: Vec2, inRange: boolean): void {
+    if (!inRange) return;
+    let dx = b.x - from.x;
+    let dy = b.y - from.y;
+    const d = Math.hypot(dx, dy) || 1;
+    dx /= d;
+    dy /= d;
+    const sp = 2.6 + this.rand() * 1.6;
+    b.vx = dx * sp + (this.rand() - 0.5) * 1.2;
+    b.vy = dy * sp + (this.rand() - 0.5) * 1.2;
+    b.vh = 2.6 + this.rand() * 1.4;
+    b.state = 'fly';
+    b.t = 0;
+    b.yaw = Math.atan2(b.vy, b.vx);
+  }
+
+  update(dt: number, threats: readonly PigeonThreat[]): void {
+    let n = 0;
+    for (const b of this.birds) {
+      b.t += dt;
+      if (b.state === 'idle') {
+        for (const th of threats) {
+          if (Math.hypot(b.x - th.x, b.y - th.y) < th.radius) {
+            this.takeOff(b, th, true);
+            break;
+          }
+        }
+      }
+      if (b.state === 'idle') {
+        b.peckT -= dt;
+        if (b.peckT <= 0) {
+          b.peck = 0.35;
+          b.peckT = 0.6 + this.rand() * 2.4;
+        }
+        b.peck = Math.max(0, b.peck - dt);
+        b.hopT -= dt;
+        if (b.hopT <= 0) {
+          // little hop-step around home
+          b.hopT = 1.5 + this.rand() * 4;
+          const a = this.rand() * Math.PI * 2;
+          const tx = b.home.x + Math.cos(a) * 0.5;
+          const ty = b.home.y + Math.sin(a) * 0.5;
+          b.yaw = Math.atan2(ty - b.y, tx - b.x);
+          b.vx = (tx - b.x) * 2.5;
+          b.vy = (ty - b.y) * 2.5;
+          b.vh = 1.0;
+        }
+        b.x += b.vx * dt;
+        b.y += b.vy * dt;
+        b.h = Math.max(0, b.h + b.vh * dt);
+        b.vh -= 9 * dt;
+        if (b.h <= 0) {
+          b.h = 0;
+          b.vh = 0;
+          b.vx *= Math.exp(-dt * 10);
+          b.vy *= Math.exp(-dt * 10);
+        }
+      } else if (b.state === 'fly') {
+        b.vh += 2.2 * dt;
+        b.vx *= 1 + dt * 0.4;
+        b.vy *= 1 + dt * 0.4;
+        b.x += b.vx * dt;
+        b.y += b.vy * dt;
+        b.h += b.vh * dt;
+        b.flap += dt * 26;
+        if (b.t > 2.6) {
+          b.state = 'gone';
+          b.respawn = 9 + this.rand() * 9;
+        }
+      } else if (b.state === 'gone') {
+        b.respawn -= dt;
+        if (b.respawn <= 0) {
+          let clear = true;
+          for (const th of threats) if (Math.hypot(b.home.x - th.x, b.home.y - th.y) < th.radius + 4) clear = false;
+          if (clear) {
+            b.state = 'land';
+            b.t = 0;
+            const a = this.rand() * Math.PI * 2;
+            b.landFrom = { x: b.home.x + Math.cos(a) * 7, y: b.home.y + Math.sin(a) * 7, h: 6 };
+            b.yaw = Math.atan2(b.home.y - b.landFrom.y, b.home.x - b.landFrom.x);
+          } else b.respawn = 2;
+        }
+      } else if (b.state === 'land') {
+        const k = Math.min(1, b.t / 1.8);
+        const e = 1 - (1 - k) * (1 - k);
+        b.x = b.landFrom.x + (b.home.x - b.landFrom.x) * e;
+        b.y = b.landFrom.y + (b.home.y - b.landFrom.y) * e;
+        b.h = b.landFrom.h * (1 - e);
+        b.flap += dt * (k < 0.8 ? 18 : 30);
+        if (k >= 1) {
+          b.state = 'idle';
+          b.h = 0;
+          b.vx = b.vy = b.vh = 0;
+          b.peckT = 0.5;
+        }
+      }
+      if (b.state === 'gone') continue;
+      // Body
+      const flying = b.state !== 'idle' || b.h > 0.02;
+      const pitch = b.state === 'fly' ? 0.35 : b.state === 'land' ? -0.15 : -Math.sin(Math.min(1, b.peck / 0.35) * Math.PI) * 0.55;
+      _pe.set(0, -b.yaw, pitch, 'YXZ');
+      _pq.setFromEuler(_pe);
+      _pp.set(b.x, b.h, b.y);
+      _ps.setScalar(PIGEON_SCALE * b.scale);
+      _pm.compose(_pp, _pq, _ps);
+      this.bodies.setMatrixAt(n, _pm);
+      // Wings: folded when idle, flapping in flight.
+      const flapA = flying ? 0.2 + Math.sin(b.flap) * 1.0 : 0;
+      const fold = flying ? 0 : 1;
+      for (let s = 0; s < 2; s++) {
+        const side = s === 0 ? 1 : -1;
+        // Folded: the wing swings back along the body; flying: it flaps about the body axis.
+        _pe.set(side * (flapA - 0.18 * fold), -side * 1.42 * fold, 0, 'YXZ');
+        _pq.setFromEuler(_pe);
+        _pp.set(0.01, 0.15, side * 0.045);
+        _ps.set(1, 1, side);
+        _pw.compose(_pp, _pq, _ps);
+        _pw.premultiply(_pm);
+        this.wings.setMatrixAt(n * 2 + s, _pw);
+      }
+      n++;
+    }
+    this.bodies.count = n;
+    this.wings.count = n * 2;
+    this.bodies.instanceMatrix.needsUpdate = true;
+    this.wings.instanceMatrix.needsUpdate = true;
+  }
+
+  get count(): number {
+    return this.birds.length;
+  }
+
+  dispose(): void {
+    this.bodies.dispose();
+    this.wings.dispose();
     for (const o of this.owned) o.dispose();
     this.root.removeFromParent();
   }

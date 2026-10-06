@@ -13,7 +13,92 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "electron:start": "electron .",
+    "electron:selftest": "electron . --selftest",
+    "dist:dir": "npm run build && electron-builder --dir --publish never",
+    "dist:linux": "npm run build && electron-builder --linux dir AppImage --publish never",
+    "dist:win": "npm run build && electron-builder --win dir zip --publish never",
+    "dist:steam": "node tools/package-steam.mjs"
+  },
+  "build": {
+    "appId": "com.uproot.heist",
+    "productName": "뿌리째 털어라",
+    "executableName": "UprootHeist",
+    "artifactName": "UprootHeist-${version}-${os}-${arch}.${ext}",
+    "copyright": "Copyright © 2026 Uproot Heist team",
+    "directories": {
+      "output": "release",
+      "buildResources": "steam/build-resources"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json",
+      "!**/node_modules/three/**",
+      "!**/node_modules/@fontsource/**",
+      "!**/node_modules/@types/**",
+      "!**/node_modules/undici-types/**",
+      "!**/node_modules/steamworks.js/dist/win64/*.lib",
+      "!**/node_modules/steamworks.js/{README.md,*.d.ts}"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "**/node_modules/steamworks.js/**"
+    ],
+    "npmRebuild": false,
+    "nodeGypRebuild": false,
+    "buildDependenciesFromSource": false,
+    "electronLanguages": [
+      "ko",
+      "en-US",
+      "en-GB"
+    ],
+    "linux": {
+      "target": [
+        "dir",
+        "AppImage"
+      ],
+      "category": "Game",
+      "synopsis": "Uproot Heist - drag whole banks to your getaway van",
+      "files": [
+        "dist/**/*",
+        "electron/**/*",
+        "package.json",
+        "!**/node_modules/steamworks.js/dist/{win64,osx}/**"
+      ]
+    },
+    "win": {
+      "target": [
+        "dir",
+        "zip"
+      ],
+      "signAndEditExecutable": false,
+      "files": [
+        "dist/**/*",
+        "electron/**/*",
+        "package.json",
+        "!**/node_modules/steamworks.js/dist/{linux64,osx}/**"
+      ]
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.games",
+      "identity": null,
+      "hardenedRuntime": false,
+      "files": [
+        "dist/**/*",
+        "electron/**/*",
+        "package.json",
+        "!**/node_modules/steamworks.js/dist/{win64,linux64}/**"
+      ]
+    },
+    "dmg": {
+      "sign": false
+    },
+    "publish": null
   },
   "dependencies": {
     "@fontsource/jua": "^5.3.0",

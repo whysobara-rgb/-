@@ -181,6 +181,7 @@ export class NavGrid {
   private epoch = 0;
   private readonly bankPose = new Map<number, { x: number; y: number; a: number; recovered: boolean }>();
   private fenceBroken: boolean[] = [];
+  private safeSig = 0;
   private readonly zoneFields = new Map<string, ZoneField>();
   /** Instrumentation (tools). */
   stats = { astar: 0, astarExpanded: 0, dijkstra: 0, restamps: 0 };
@@ -347,6 +348,7 @@ export class NavGrid {
    */
   update(sim: Simulation, force = false): boolean {
     const st = sim.state;
+    this.lastSeenTick = st.tick;
     if (!force && st.tick === this.lastStampTick) return false;
     let dirty = force;
     if (this.fenceBroken.length !== st.fences.length) {
@@ -371,7 +373,17 @@ export class NavGrid {
       if (l.recovered) continue;
       if (Math.hypot(l.pos.x - p.x, l.pos.y - p.y) > 0.12 || Math.abs(l.angle - p.a) > 0.02) moved = true;
     }
-    // moving banks: restamp at most every 4 ticks
+    // resting safes (anchored, or loose and not held): they block like statics until moved
+    let sig = 0;
+    for (const l of st.loot) {
+      if (l.kind === 'bank' || l.recovered || !this.safeBlocks(l)) continue;
+      sig = (sig * 31 + l.id * 7 + Math.round(l.pos.x * 5) * 13 + Math.round(l.pos.y * 5) * 17 + Math.round(l.angle * 10)) | 0;
+    }
+    if (sig !== this.safeSig) {
+      this.safeSig = sig;
+      moved = true;
+    }
+    // moving banks / safes: restamp at most every 4 ticks
     if (moved && (this.lastStampTick < 0 || st.tick - this.lastStampTick >= 4)) dirty = true;
     if (!dirty) return false;
     this.lastStampTick = st.tick;
@@ -379,11 +391,23 @@ export class NavGrid {
     return true;
   }
 
+  /** Safes the grid treats as obstacles: anchored ones and loose ones nobody holds, at rest. */
+  private safeBlocks(l: { anchored: boolean }): boolean {
+    // anchored safes are as solid as statics until someone unanchors them; loose safes are
+    // pushable and handled by local avoidance (stamping them would also wall in the very
+    // safe a bot is carrying)
+    return l.anchored;
+  }
+
   private restamp(sim: Simulation): void {
     const st = sim.state;
     const dyn = this.dynDist;
     dyn.fill(CAP);
     for (const f of st.fences) if (!f.broken) this.stampOBB(dyn, f);
+    for (const l of st.loot) {
+      if (l.kind === 'bank' || l.recovered || !this.safeBlocks(l)) continue;
+      this.stampOBB(dyn, { center: l.pos, half: l.half, angle: l.angle });
+    }
     for (const l of st.loot) {
       if (l.kind !== 'bank') continue;
       this.bankPose.set(l.id, { x: l.pos.x, y: l.pos.y, a: l.angle, recovered: l.recovered });
@@ -603,8 +627,21 @@ export class NavGrid {
   }
 
   /** Multi-source Dijkstra (m) over cells passable for cls. */
+  /** Full-grid Dijkstra runs in the current tick (budgeting: callers reuse stale fields). */
+  fieldsThisTick(): number {
+    return this.fieldTick === this.lastSeenTick ? this.fieldCount : 0;
+  }
+  private fieldTick = -1;
+  private fieldCount = 0;
+  private lastSeenTick = -1;
+
   distanceField(seeds: ReadonlyArray<number>, cls: NavClass, out?: Float64Array, maxDist = Infinity): Float64Array {
     this.stats.dijkstra++;
+    if (this.fieldTick !== this.lastSeenTick) {
+      this.fieldTick = this.lastSeenTick;
+      this.fieldCount = 0;
+    }
+    this.fieldCount++;
     const r = NAV_CLEARANCE[cls];
     const n = this.n;
     const d = out ?? new Float64Array(n);
@@ -644,14 +681,29 @@ export class NavGrid {
     return d;
   }
 
-  /** Field value at a world point: nearest passable cell within 2.5 m (+ that offset), else Infinity. */
-  fieldAt(field: Float64Array, p: Vec2, cls: NavClass): number {
+  /** Field value at a world point: best (value + offset) over reached cells within 2.5 m, else Infinity. */
+  fieldAt(field: Float64Array, p: Vec2, _cls: NavClass): number {
     const k = this.cellAt(p.x, p.y);
     const v = field[k]!;
     if (Number.isFinite(v)) return v + Math.hypot(this.cellX(k) - p.x, this.cellY(k) - p.y);
-    const q = this.nearestPassable(p, cls, 2.5);
-    if (q < 0) return Infinity;
-    return field[q]! + Math.hypot(this.cellX(q) - p.x, this.cellY(q) - p.y);
+    const R = 5; // cells (2.5 m)
+    const ci = Math.round(p.x / NAV_CELL);
+    const cj = Math.round(p.y / NAV_CELL);
+    let best = Infinity;
+    for (let dj = -R; dj <= R; dj++) {
+      const j = cj + dj;
+      if (j < 0 || j >= this.ny) continue;
+      for (let di = -R; di <= R; di++) {
+        const i = ci + di;
+        if (i < 0 || i >= this.nx) continue;
+        const q = j * this.nx + i;
+        const fv = field[q]!;
+        if (!Number.isFinite(fv)) continue;
+        const d = fv + Math.hypot(i * NAV_CELL - p.x, j * NAV_CELL - p.y) * 1.2;
+        if (d < best) best = d;
+      }
+    }
+    return best;
   }
 
   /** Seeds: cells inside a zone rect shrunk by `inset` (deep inside, where recoveries happen). */
@@ -686,6 +738,8 @@ export class NavGrid {
     const key = `${team}:${cls}`;
     const f = this.zoneFields.get(key);
     if (f && (f.version === this.dynVersion || tick - f.tick < maxAgeTicks)) return f.dist;
+    // spread refreshes: at most one full-grid field per tick when a cached one exists
+    if (f && this.fieldsThisTick() >= 1) return f.dist;
     const dist = this.distanceField(this.zoneSeeds(team, cls === 'large' ? 1.6 : 1.2), cls, f?.dist);
     this.zoneFields.set(key, { dist, version: this.dynVersion, tick });
     return dist;
