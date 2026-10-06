@@ -189,3 +189,24 @@ accumulator (60 Hz) and drives GameView, Hud, AudioEngine from events.
 `results.ts`: picks the single largest real event for the results screen (doc §12).
 `tournament.ts`: 호다닥 -> 통큰이 -> 눈치왕, each best-of-3 on a fixed layout, observation-based
 adaptation between games, progress saved, hat reward per rival, draws replayed.
+
+## Police event (owner addition beyond doc v0.5)
+
+Enabled per match with `rules.police` (default false; quick match and tournament turn it on, the
+tutorial and the first match after practice keep it off). Implemented inside the sim
+(`src/sim/police.ts`, `src/sim/policeNav.ts`) so it is deterministic and authoritative.
+
+- Uprooting a bank rings its alarm (`alarm` event, `state.alarm.ringing`). If no wave is on the way,
+  a car is scheduled after `POLICE.dispatchDelayTicks` (respecting `restTicks` after the last wave).
+  The final countdown calls a wave immediately when none is on the field.
+- Cars park at the curb just outside the north/south edge on the mirror axis (`policeEntries`,
+  `POLICE_CAR`); officers hop in at `officerStepOutSpot(entry, k)`. Entries alternate by wave.
+- Officers (ids from `POLICE_ID_BASE + 1`) chase the visible carrier with the highest held estimate,
+  split targets between officers, and lunge (`policeTackle`) when close: a hit equals an opposing
+  dash hit (forced release + knockdown + protection). Empty-handed raccoons are never tackled, so
+  body-blocking is a real tactic. A raccoon dash stuns an officer (`policeStunned`).
+- After `shiftTicks` officers walk back and the car leaves (`policeLeaving` → `policeGone`).
+- Police never change scores, loot ownership or recovery; the 3200 invariant is fuzz-tested with
+  police on. Mirror-fairness tests check team 0 and team 1 get mirrored outcomes.
+- Render: `src/render/police.ts` + `models/police.ts` (puppy cops, police car with strobe light,
+  edge markers). Audio: `MatchAudioDirector` maps police events and alarm loops.
