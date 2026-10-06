@@ -8,6 +8,9 @@
  *   sfx reverb return ───┘                                            │      ─► glue comp ─► limiter
  *   ui sounds ─► uiVol ───────────────────────────────────────────────┘      ─► safety clip ─► out
  *
+ * Bus gains are calibrated at the shipped default slider positions (DEFAULT_VOLUMES): untouched
+ * settings give exactly the measured balance, and each slider scales around its default.
+ *
  * The safety clipper is a WaveShaper that is the identity below 0.7 and saturates smoothly to a
  * hard ceiling just under -1 dBFS, so nothing the game does can ever clip the output even if the
  * limiter (a DynamicsCompressor, not a true brickwall) lets a transient through.
@@ -22,6 +25,12 @@ export interface Volumes {
   ui: number;
 }
 
+/**
+ * Shipped slider positions, and the positions the mix is calibrated at. They must equal
+ * `DEFAULT_SETTINGS.volumes` in src/platform/settings.ts (a unit test checks it): with the
+ * settings untouched every bus runs at exactly its calibrated gain below, so the measured balance
+ * (music ~7 dB under the sound effects, peaks under -1 dBFS) is what players hear out of the box.
+ */
 export const DEFAULT_VOLUMES: Readonly<Volumes> = { master: 0.8, music: 0.7, sfx: 0.9, ui: 0.8 };
 
 /** Output ceiling of the safety clipper (linear). 0.875 = -1.16 dBFS. */
@@ -35,14 +44,41 @@ export function volumeToGain(v: number): number {
 }
 
 /**
- * Fixed bus trims (linear). These set the overall balance: music sits ~7 dB under the sound
- * effects (measured with the offline QA renders, see dev/audio-gallery.html).
+ * Linear gain of each bus with its slider at the default position. These set the balance:
+ * music ~7 dB under the medium sound effects, UI a little under gameplay (measured with the
+ * offline QA renders, see dev/audio-gallery.html).
  */
 export const BUS_TRIM: Readonly<Record<BusId, number>> = {
   sfx: 1,
   ui: 0.8,
   music: 0.5,
 };
+
+/**
+ * Master gain with the master slider at its default position. It sits before the glue
+ * compressor and limiter and compensates their automatic makeup gain (measured offline).
+ */
+export const MASTER_TRIM = 0.5;
+
+/**
+ * Gain multiplier of a slider relative to its calibration position: 1 at the default, square law
+ * around it (0 = silent). Raising a slider above its default makes that bus louder than the
+ * calibrated mix; the limiter and the safety clipper keep the output under the ceiling.
+ */
+export function sliderGain(slider: number, calibratedAt: number): number {
+  const ref = volumeToGain(calibratedAt);
+  return ref > 0 ? volumeToGain(slider) / ref : volumeToGain(slider);
+}
+
+/** Linear gains the mixer applies for these slider positions (exported for tests and tools). */
+export function busGains(v: Volumes): { master: number } & Record<BusId, number> {
+  return {
+    master: sliderGain(v.master, DEFAULT_VOLUMES.master) * MASTER_TRIM,
+    music: sliderGain(v.music, DEFAULT_VOLUMES.music) * BUS_TRIM.music,
+    sfx: sliderGain(v.sfx, DEFAULT_VOLUMES.sfx) * BUS_TRIM.sfx,
+    ui: sliderGain(v.ui, DEFAULT_VOLUMES.ui) * BUS_TRIM.ui,
+  };
+}
 
 export interface Mixer {
   readonly ctx: BaseAudioContext;
@@ -156,9 +192,6 @@ export function createMixer(ctx: BaseAudioContext, destination: AudioNode = ctx.
   limiter.connect(clip);
   clip.connect(destination);
 
-  // Pre-compressor trim compensating the compressors' automatic makeup gain.
-  const MASTER_TRIM = 0.5;
-
   const now = (): number => ctx.currentTime;
   const setGain = (p: AudioParam, v: number, smooth: boolean): void => {
     const t = now();
@@ -180,10 +213,11 @@ export function createMixer(ctx: BaseAudioContext, destination: AudioNode = ctx.
     sfxReverb,
     output: clip,
     setVolumes(v: Volumes, smooth = true): void {
-      setGain(master.gain, volumeToGain(v.master) * MASTER_TRIM, smooth);
-      setGain(musicVol.gain, volumeToGain(v.music) * BUS_TRIM.music, smooth);
-      setGain(sfxVol.gain, volumeToGain(v.sfx) * BUS_TRIM.sfx, smooth);
-      setGain(uiVol.gain, volumeToGain(v.ui) * BUS_TRIM.ui, smooth);
+      const g = busGains(v);
+      setGain(master.gain, g.master, smooth);
+      setGain(musicVol.gain, g.music, smooth);
+      setGain(sfxVol.gain, g.sfx, smooth);
+      setGain(uiVol.gain, g.ui, smooth);
     },
     duckMusic(t: number, db: number, hold: number, release = 0.6): void {
       const target = Math.pow(10, Math.min(0, db) / 20);

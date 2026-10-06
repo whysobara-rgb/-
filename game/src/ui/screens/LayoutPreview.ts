@@ -199,14 +199,17 @@ export class LayoutPreview extends UiScreen<LayoutPreviewProps> {
   }
 
   override handleNav(action: Parameters<UiScreen<LayoutPreviewProps>['handleNav']>[0]): boolean {
+    if (this.isLeaving || this.finished) return true;
     if (action === 'confirm') {
-      if (this.props.onSkip) this.props.onSkip();
-      else this.startCountdown();
+      if (this.props.onSkip) {
+        this.stopTimers();
+        this.leave(this.props.onSkip);
+      } else this.startCountdown();
       return true;
     }
-    if (action === 'back' && this.props.onBack && !this.finished) {
+    if (action === 'back' && this.props.onBack) {
       this.stopTimers();
-      this.props.onBack();
+      this.leave(this.props.onBack);
       return true;
     }
     return true; // swallow everything else: the preview has no menu
@@ -214,7 +217,7 @@ export class LayoutPreview extends UiScreen<LayoutPreviewProps> {
 
   /** Start 3-2-1-출발! now (idempotent). */
   startCountdown(from = this.props.countdownFrom ?? 3): void {
-    if (this.counting || this.finished) return;
+    if (this.counting || this.finished || this.isLeaving) return;
     this.counting = true;
     window.clearTimeout(this.holdTimer);
     for (let i = 0; i <= from; i++) {
@@ -224,7 +227,7 @@ export class LayoutPreview extends UiScreen<LayoutPreviewProps> {
     this.countTimers.push(
       window.setTimeout(() => {
         this.finished = true;
-        this.props.onDone();
+        this.leave(this.props.onDone);
       }, from * 1000 + 650),
     );
   }

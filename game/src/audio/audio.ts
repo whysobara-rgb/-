@@ -248,7 +248,10 @@ export class AudioEngine {
   // Mix
   // -------------------------------------------------------------------------------------------
 
-  /** Settings sliders, each 0..1 (square-law mapped to gain). */
+  /**
+   * Settings sliders, each 0..1. The mix is calibrated at DEFAULT_VOLUMES (the shipped settings
+   * defaults); sliders scale around that with a square law (see mixer.ts busGains).
+   */
   setVolumes(v: { master: number; music: number; sfx: number; ui: number }): void {
     this.volumes = { master: clamp01(v.master), music: clamp01(v.music), sfx: clamp01(v.sfx), ui: clamp01(v.ui) };
     this.mixer?.setVolumes(this.volumes, true);
@@ -324,7 +327,9 @@ export class AudioEngine {
 
     try {
       const pitch = Number.isFinite(o.pitch) && (o.pitch as number) > 0 ? (o.pitch as number) : 1;
-      const variant = o.variant !== undefined ? Math.abs(Math.floor(o.variant)) % r.variants : this.picker.next(id, this.rnd);
+      const variant = Number.isFinite(o.variant)
+        ? Math.abs(Math.floor(o.variant as number)) % r.variants
+        : this.picker.next(id, this.rnd, t);
       const voice = spawnSfx(ctx, mixer, id, {
         t,
         mix,
@@ -408,7 +413,7 @@ export class AudioEngine {
     if (!l.spawned) {
       if (i <= 0) return;
       try {
-        l.spawned = spawnLoop(ctx, mixer, id, now, this.rnd, mix);
+        l.spawned = spawnLoop(ctx, mixer, id, now, this.rnd, mix, this.music?.barGrid());
         l.spawned.voice.set(i, now);
         l.sent = mix;
       } catch (err) {

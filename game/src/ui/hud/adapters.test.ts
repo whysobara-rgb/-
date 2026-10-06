@@ -5,7 +5,8 @@
 import { describe, expect, it } from 'vitest';
 import { Simulation, type Command, type MatchSetup } from '../../sim';
 import { LAYOUTS } from '../../sim/layouts';
-import { hudModelFromSim, type SimView } from './adapters';
+import { characterNameRef, hudModelFromSim, type SimView } from './adapters';
+import { setLanguage, trName } from '../i18n';
 
 function setup(): MatchSetup {
   return {
@@ -45,6 +46,31 @@ describe('hudModelFromSim', () => {
     const bankLabels = (m.labels ?? []).filter((l) => l.kind === 'bank');
     expect(bankLabels).toHaveLength(2);
     expect(bankLabels.every((l) => l.kind === 'bank' && l.value === 1000)).toBe(true);
+  });
+
+  it('name tags follow the language (keys, not baked-in text)', () => {
+    const sim = new Simulation({
+      ...setup(),
+      roster: [
+        { team: 0, isBot: false, name: 'Player1', look: { hat: 'teamCapA' } },
+        { team: 0, isBot: true, name: 'ally-bot', look: { hat: 'teamCapA' } },
+        { team: 1, isBot: true, name: 'bot-a', look: { hat: 'hodadakBand', rival: 'hodadak' } },
+        { team: 1, isBot: true, name: 'Guest Raccoon', look: { hat: 'teamCapB' } },
+      ],
+    });
+    const meId = sim.characterBySlot(0).id;
+    const project = (p: { x: number; y: number }) => ({ x: p.x, y: p.y, onScreen: true });
+    const m = hudModelFromSim(sim, { meId, myTeam: 0, project });
+    const names = (m.labels ?? []).filter((l) => l.kind === 'name').map((l) => (l.kind === 'name' ? l.text : null));
+    expect(names).toEqual(['name.you', 'name.ally', 'rival.hodadak.name', { text: 'Guest Raccoon' }]);
+    setLanguage('en');
+    expect(trName(names[2]!)).toBe('Hodadak');
+    expect(trName(names[1]!)).toBe('Buddy Bot');
+    setLanguage('ko');
+    expect(trName(names[2]!)).toBe('호다닥');
+    // A roster name that is already a key is used as-is; unknown plain strings stay literal.
+    expect(characterNameRef({ ...sim.characterBySlot(2), name: 'rival.nunchi.name', look: { hat: 'none' } }, meId, 0)).toBe('rival.nunchi.name');
+    expect(trName('Guest Raccoon')).toBe('Guest Raccoon');
   });
 
   it('reports practice mode for untimed rules', () => {

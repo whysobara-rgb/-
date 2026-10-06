@@ -152,7 +152,7 @@
 }
 
 .uh-promptbar__item { display: inline-flex; align-items: center; gap: 0.5rem; cursor: pointer; pointer-events: auto; }
-.uh-promptbar__item .uh-glyph { font-size: 1rem; }
+.uh-promptbar__item .uh-glyph { font-size: var(--uh-fs-xs); }
 .uh-promptbar__spacer { flex: 1; }
 
 /* ---------------------------------------------------------------------------------------- */
@@ -296,7 +296,7 @@
 }
 .uh-tab .uh-icon { width: 1.4rem; height: 1.4rem; }
 .uh-tab.is-active { background: var(--uh-cream-50); color: var(--uh-ink); box-shadow: 0 0.25rem 0 var(--uh-ink); }
-.uh-tabs > .uh-glyph { font-size: 1.125rem; }
+.uh-tabs > .uh-glyph { font-size: var(--uh-fs-sm); }
 
 /* Chips / tags */
 .uh-chip {

@@ -6,10 +6,10 @@
  *   written only when they change. Unused entries are hidden and recycled.
  */
 import type { TeamId } from '../../sim/types';
-import { t } from '../i18n';
+import { t, trName, type TextRef } from '../i18n';
 import { h, setClass, setText } from '../core/dom';
 import { lootIcon, teamEmblem } from '../core/icons';
-import { fmtScore } from '../core/format';
+import { clamp01, fmtScore, finiteOrNull } from '../core/format';
 import type { WorldLabelModel } from './types';
 
 type Kind = WorldLabelModel['kind'];
@@ -35,6 +35,13 @@ interface Entry {
   ring?: SVGCircleElement;
 }
 
+/** Cheap identity for a TextRef so the label only re-resolves when the reference changes. */
+function refKey(r: TextRef): string {
+  if (typeof r === 'string') return r;
+  if ('text' in r) return `\u0001${r.text}`;
+  return r.params ? `${r.key}\u0002${JSON.stringify(r.params)}` : r.key;
+}
+
 export class WorldLabels {
   readonly el: HTMLDivElement;
   private readonly active = new Map<string, Entry>();
@@ -50,6 +57,8 @@ export class WorldLabels {
     if (labels) {
       for (let i = 0; i < labels.length; i++) {
         const m = labels[i];
+        // A label without a usable screen position is treated as absent (hidden / recycled).
+        if (!Number.isFinite(m.x) || !Number.isFinite(m.y)) continue;
         const key = `${m.kind}:${m.id}`;
         let e = this.active.get(key);
         if (!e) {
@@ -175,9 +184,10 @@ export class WorldLabels {
           e.art!.replaceChildren(lootIcon(m.loot));
           e.el.dataset.loot = m.loot;
         }
-        if (e.b !== m.value) {
-          e.b = m.value;
-          setText(e.text!, fmtScore(m.value));
+        const value = finiteOrNull(m.value);
+        if (e.b !== value) {
+          e.b = value;
+          setText(e.text!, fmtScore(value ?? NaN));
         }
         const flags = (m.loaded ? 1 : 0) | (m.focus ? 2 : 0);
         if (e.c !== flags) {
@@ -189,9 +199,10 @@ export class WorldLabels {
         break;
       }
       case 'bank': {
-        if (e.a !== m.value) {
-          e.a = m.value;
-          setText(e.text!, t('hud.estimate', { value: m.value }));
+        const value = finiteOrNull(m.value);
+        if (e.a !== value) {
+          e.a = value;
+          setText(e.text!, t('hud.estimate', { value: value ?? NaN }));
         }
         const sub = m.showBreakdown && m.building !== undefined ? `${m.building}|${m.safes ?? 0}` : '';
         if (e.b !== sub) {
@@ -209,7 +220,7 @@ export class WorldLabels {
         break;
       }
       case 'recovery': {
-        const p = Math.max(0, Math.min(1, m.progress));
+        const p = clamp01(m.progress);
         const q = Math.round(p * 100) / 100;
         if (e.a !== q) {
           e.a = q;
@@ -241,9 +252,10 @@ export class WorldLabels {
         break;
       }
       case 'name': {
-        if (e.a !== m.text) {
-          e.a = m.text;
-          setText(e.text!, m.text);
+        const ref = refKey(m.text);
+        if (e.a !== ref) {
+          e.a = ref;
+          setText(e.text!, trName(m.text));
         }
         const k = `${m.team}${m.isMe ? 'm' : ''}`;
         if (e.b !== k) {

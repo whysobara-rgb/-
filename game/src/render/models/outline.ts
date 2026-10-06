@@ -6,6 +6,15 @@
  * edged boxes do not crack open at corners). Thickness scales with view depth, giving a
  * near-constant on-screen width (~3 px at the game camera distance).
  *
+ * Silhouette only: big merged rigs (bank, van, safes) would otherwise show a hull line
+ * around every window, column and awning, because each protruding sub-part's hull sits in
+ * front of the object's own surface. Their hulls are therefore also pushed AWAY from the
+ * camera along the view ray (screen position unchanged) by a depth that grows with height:
+ * inside the object's footprint the pushed hull ends up behind the object's own surface and
+ * is hidden, while around the silhouette nothing of the object covers it. The push is
+ * capped by height (slope * worldY) so the contact edge with the ground keeps its outline.
+ * Characters keep the plain hull (inner lines around arms/hats read well on them).
+ *
  * Hulls are created lazily the first time a highlight is shown, are children of the source
  * meshes (they inherit transforms, visibility and animation), never cast shadows, and are
  * ignored by raycasts.
@@ -19,26 +28,47 @@ export const OUTLINE_THICKNESS = { value: 0.0026 };
 
 const outlineMats = new Map<string, THREE.ShaderMaterial>();
 
-/** Shared outline material per color. */
-export function outlineMaterial(color: THREE.ColorRepresentation): THREE.ShaderMaterial {
+/** Silhouette-only tuning for a Highlighter (see the header). */
+export interface OutlineOptions {
+  /** Maximum push-back along the view ray (m). 0 = plain hull (default). */
+  pushMax?: number;
+  /** Push-back per meter of world height above the ground (keeps ground contact outlined). */
+  pushSlope?: number;
+}
+
+/** Shared outline material per color + push settings. */
+export function outlineMaterial(color: THREE.ColorRepresentation, o: OutlineOptions = {}): THREE.ShaderMaterial {
   const c = new THREE.Color(color);
-  const key = c.getHexString();
+  const pushMax = o.pushMax ?? 0;
+  const pushSlope = o.pushSlope ?? 0.7;
+  const key = `${c.getHexString()}|${pushMax}|${pushSlope}`;
   let m = outlineMats.get(key);
   if (!m) {
     m = new THREE.ShaderMaterial({
       uniforms: {
         uColor: { value: c },
         uThickness: OUTLINE_THICKNESS,
+        uPushMax: { value: pushMax },
+        uPushSlope: { value: pushSlope },
       },
       vertexShader: /* glsl */ `
         attribute vec3 outlineNormal;
         uniform float uThickness;
+        uniform float uPushMax;
+        uniform float uPushSlope;
         void main() {
           vec3 n = outlineNormal;
           float l = length(n);
           n = l > 1e-5 ? normalize(normalMatrix * (n / l)) : vec3(0.0);
           vec4 mv = modelViewMatrix * vec4(position, 1.0);
           mv.xyz += n * uThickness * max(-mv.z, 2.0);
+          if (uPushMax > 0.0) {
+            // Slide away from the camera along the view ray: same pixel, deeper depth.
+            float wy = (modelMatrix * vec4(position, 1.0)).y;
+            float push = min(uPushMax, uPushSlope * max(wy - 0.03, 0.0));
+            float len = max(length(mv.xyz), 1e-3);
+            mv.xyz *= (len + push) / len;
+          }
           gl_Position = projectionMatrix * mv;
         }
       `,
@@ -100,7 +130,10 @@ export class Highlighter {
   private hulls: THREE.Mesh[] | null = null;
   private color: THREE.Color | null = null;
 
-  constructor(private readonly target: THREE.Object3D) {}
+  constructor(
+    private readonly target: THREE.Object3D,
+    private readonly options: OutlineOptions = {},
+  ) {}
 
   get active(): boolean {
     return this.color !== null;
@@ -114,7 +147,7 @@ export class Highlighter {
     }
     this.color = new THREE.Color(color);
     if (!this.hulls) this.build();
-    const mat = outlineMaterial(this.color);
+    const mat = outlineMaterial(this.color, this.options);
     for (const h of this.hulls!) {
       h.material = mat;
       h.visible = (h.userData.hullEnabled as boolean | undefined) !== false;
@@ -154,7 +187,7 @@ export class Highlighter {
     this.hulls = [];
     for (const src of sources) {
       ensureOutlineNormals(src.geometry);
-      const hull = new THREE.Mesh(src.geometry, outlineMaterial(this.color ?? 0xffffff));
+      const hull = new THREE.Mesh(src.geometry, outlineMaterial(this.color ?? 0xffffff, this.options));
       hull.name = `${src.name}:outline`;
       hull.userData.isOutlineHull = true;
       hull.castShadow = false;

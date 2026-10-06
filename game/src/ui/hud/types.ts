@@ -142,10 +142,14 @@ export interface PingLabel extends LabelBase {
   team: TeamId;
 }
 
-/** Name tag over a character (2:2 clarity). Literal text. */
+/**
+ * Name tag over a character (2:2 clarity). `text` follows the language: a dictionary key
+ * ('rival.hodadak.name', 'name.ally', 'name.you'), `{ key, params }`, or `{ text }` for a
+ * literal name. A plain string that is not a key is shown literally (see trName).
+ */
 export interface NameLabel extends LabelBase {
   kind: 'name';
-  text: string;
+  text: TextRef;
   team: TeamId;
   isMe?: boolean;
 }

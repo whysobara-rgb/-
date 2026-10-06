@@ -1084,6 +1084,11 @@ export class SignAtlas {
     this.redraw();
   }
 
+  /** Current text of every registered slot (tests / tools). */
+  texts(): string[] {
+    return this.entries.map((e) => e.text);
+  }
+
   dispose(): void {
     this.texture.dispose();
   }

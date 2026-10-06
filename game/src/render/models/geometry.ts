@@ -7,8 +7,9 @@
  * a bank wall with its windows and decor, a 20 m chunk of scenery) becomes one draw call.
  *
  * Every geometry fed into a bucket is normalised to the same attribute layout:
- *   position(3) normal(3) uv(2) color(3) fx(2)   + an index
- * so any mix of primitives merges cleanly.
+ *   position(3) normal(3) uv(2) color(3) fx(3)   + an index
+ * so any mix of primitives merges cleanly. fx = (emissive, wind sway, fade group id); the
+ * fade group lets one merged scenery chunk fade individual buildings (occlusion.ts).
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
@@ -57,6 +58,7 @@ export function prepareGeometry(
   emissive = 0,
   sway = 0,
   uvRect?: readonly [number, number, number, number],
+  fadeGroup = 0,
 ): THREE.BufferGeometry {
   const g = new THREE.BufferGeometry();
   const pos = src.getAttribute('position') as THREE.BufferAttribute;
@@ -104,15 +106,24 @@ export function prepareGeometry(
     col[i * 3 + 2] = _c.b;
   }
   g.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  const fx = new Float32Array(count * 2);
-  if (emissive || sway) {
+  const fx = new Float32Array(count * 3);
+  if (emissive || sway || fadeGroup) {
     for (let i = 0; i < count; i++) {
-      fx[i * 2] = emissive;
-      fx[i * 2 + 1] = sway;
+      fx[i * 3] = emissive;
+      fx[i * 3 + 1] = sway;
+      fx[i * 3 + 2] = fadeGroup;
     }
   }
-  g.setAttribute('fx', new THREE.BufferAttribute(fx, 2));
+  g.setAttribute('fx', new THREE.BufferAttribute(fx, 3));
   return g;
+}
+
+/** Overwrite the fade-group channel (fx.z) of a prepared geometry. */
+function stampFadeGroup(g: THREE.BufferGeometry, group: number): void {
+  const fx = g.getAttribute('fx') as THREE.BufferAttribute | undefined;
+  if (!fx || fx.itemSize < 3) return;
+  for (let i = 0; i < fx.count; i++) fx.setZ(i, group);
+  fx.needsUpdate = true;
 }
 
 /** Collects colored primitives per bucket and merges them. Supports a transform stack. */
@@ -121,6 +132,11 @@ export class PartBuilder {
   private readonly stack: THREE.Matrix4[] = [new THREE.Matrix4()];
   /** Default bucket for add() calls that do not name one. */
   defaultBucket: string;
+  /**
+   * Fade group stamped into fx.z of every part added while it is set (0 = none). Scenery
+   * sets it per building so the occlusion fade can ghost one building inside a merged chunk.
+   */
+  fadeGroup = 0;
 
   constructor(defaultBucket = 'vc') {
     this.defaultBucket = defaultBucket;
@@ -150,7 +166,7 @@ export class PartBuilder {
   add(geo: THREE.BufferGeometry, o: PartOptions): this {
     composeMatrix(o.pos, o.rot, o.scale, _m);
     const full = this.top.clone().multiply(_m);
-    const g = prepareGeometry(geo, full, o.color, o.emissive ?? 0, o.sway ?? 0, o.uvRect);
+    const g = prepareGeometry(geo, full, o.color, o.emissive ?? 0, o.sway ?? 0, o.uvRect, this.fadeGroup);
     const key = o.bucket ?? this.defaultBucket;
     let list = this.buckets.get(key);
     if (!list) this.buckets.set(key, (list = []));
@@ -175,6 +191,7 @@ export class PartBuilder {
         ia[i + 2] = t;
       }
     }
+    if (this.fadeGroup) stampFadeGroup(g, this.fadeGroup);
     const key = o.bucket ?? this.defaultBucket;
     let list = this.buckets.get(key);
     if (!list) this.buckets.set(key, (list = []));
@@ -190,8 +207,21 @@ export class PartBuilder {
       for (const g of list) {
         const c = g.clone();
         c.applyMatrix4(this.top);
+        if (this.fadeGroup) stampFadeGroup(c, this.fadeGroup);
         mine.push(c);
       }
+    }
+    return this;
+  }
+
+  /** Run `fill` with every added part stamped with `group` (see fadeGroup). */
+  withFadeGroup(group: number, fill: () => void): this {
+    const prev = this.fadeGroup;
+    this.fadeGroup = group;
+    try {
+      fill();
+    } finally {
+      this.fadeGroup = prev;
     }
     return this;
   }
@@ -250,6 +280,7 @@ export class PartBuilder {
   clear(): void {
     this.buckets.clear();
     this.stack.length = 1;
+    this.fadeGroup = 0;
   }
 }
 

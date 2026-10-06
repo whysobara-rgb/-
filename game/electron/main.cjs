@@ -26,7 +26,7 @@ const { app, BrowserWindow, Menu, dialog, ipcMain, screen, session } = require('
 const { createLogger } = require('./logger.cjs');
 const { SaveStore } = require('./save-store.cjs');
 const { createSteam } = require('./steam.cjs');
-const { loadWindowState, trackWindowState } = require('./window-state.cjs');
+const { fitToWorkArea, loadWindowState, trackWindowState } = require('./window-state.cjs');
 
 const PRODUCT_NAME = '뿌리째 털어라';
 /** ASCII folder name for userData (%APPDATA%/UprootHeist, ~/.config/UprootHeist, ...). */
@@ -193,7 +193,9 @@ function createWindow() {
   const win = mainWindow;
   win.removeMenu();
   if (ws.maximized && !startFullscreen) win.maximize();
-  trackWindowState(win, USER_DATA);
+  else if (!startFullscreen) fitToWorkArea(win, screen);
+  // ws.width/height are content sizes (useContentSize): the restore size if it starts maximized.
+  trackWindowState(win, USER_DATA, { width: ws.width, height: ws.height });
 
   win.once('ready-to-show', () => {
     if (SELFTEST) return;
@@ -201,7 +203,11 @@ function createWindow() {
     win.focus();
   });
   win.on('enter-full-screen', sendFullscreen);
-  win.on('leave-full-screen', sendFullscreen);
+  win.on('leave-full-screen', () => {
+    sendFullscreen();
+    // The windowed size may have been chosen on another monitor: keep the frame on screen.
+    setTimeout(() => fitToWorkArea(win, screen), 100);
+  });
   win.on('closed', () => {
     mainWindow = null;
   });

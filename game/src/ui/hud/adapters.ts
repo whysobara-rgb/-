@@ -26,6 +26,7 @@ import type {
   Vec2,
 } from '../../sim/types';
 import { BANK_MODEL, DASH, SAFE_SPECS, SCORE, TICK_RATE, UNANCHOR_TICKS } from '../../sim/config';
+import { hasKey, type TextRef } from '../i18n';
 import type {
   HudBank,
   HudCarry,
@@ -62,6 +63,19 @@ export interface HudAdapterOptions {
 }
 
 const dist2 = (a: Vec2, b: Vec2): number => (a.x - b.x) ** 2 + (a.y - b.y) ** 2;
+
+/**
+ * Language-following name for a character's world tag:
+ * me -> 'name.you'; a roster name that is a dictionary key -> that key; a rival bot ->
+ * 'rival.<id>.name'; a teammate bot -> 'name.ally'; anything else -> the literal name.
+ */
+export function characterNameRef(c: CharacterState, meId: EntityId | null, myTeam: TeamId): TextRef {
+  if (c.id === meId) return 'name.you';
+  if (c.name && hasKey(c.name)) return c.name;
+  if (c.look.rival) return `rival.${c.look.rival}.name`;
+  if (c.isBot && c.team === myTeam) return 'name.ally';
+  return { text: c.name };
+}
 
 export function hudBanksFromState(state: SimState): HudBank[] {
   const out: HudBank[] = [];
@@ -222,7 +236,7 @@ export function labelsFromSim(
   if (o.nameTags ?? st.characters.length > 2) {
     for (const c of st.characters) {
       const p = project(c.pos, 2.3);
-      if (p.onScreen) labels.push({ kind: 'name', id: c.id, x: p.x, y: p.y, text: c.name, team: c.team, isMe: c.id === me.id });
+      if (p.onScreen) labels.push({ kind: 'name', id: c.id, x: p.x, y: p.y, text: characterNameRef(c, me.id, me.team), team: c.team, isMe: c.id === me.id });
     }
   }
   return { labels, arrows };

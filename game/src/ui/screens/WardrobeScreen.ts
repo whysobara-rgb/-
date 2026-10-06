@@ -42,7 +42,7 @@ export class WardrobeScreen extends UiScreen<WardrobeScreenProps> {
   }
 
   protected override onBack(): boolean {
-    this.props.onBack();
+    this.leave(this.props.onBack);
     return true;
   }
 
@@ -115,7 +115,7 @@ export class WardrobeScreen extends UiScreen<WardrobeScreenProps> {
         promptBar([
           { action: 'navigate', label: 'prompt.navigate' },
           { action: 'confirm', label: 'prompt.equip' },
-          { action: 'back', label: 'prompt.back', onClick: () => this.props.onBack() },
+          { action: 'back', label: 'prompt.back', onClick: () => this.leave(this.props.onBack) },
         ]),
       ),
     );

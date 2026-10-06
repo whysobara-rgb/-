@@ -6,7 +6,7 @@
 import type { TeamId } from '../../sim/types';
 import { h, setClass, setText } from '../core/dom';
 import { icon, lootIcon, teamEmblem } from '../core/icons';
-import { fmtScore } from '../core/format';
+import { fmtScore, finiteOrNull } from '../core/format';
 import type { OffscreenTarget } from './types';
 
 interface Arrow {
@@ -47,6 +47,7 @@ export class OffscreenArrows {
       const cx = this.w / 2;
       const cy = this.h / 2;
       for (const t of targets) {
+        if (!Number.isFinite(t.x) || !Number.isFinite(t.y)) continue;
         let dx = t.x - cx;
         let dy = t.y - cy;
         if (t.behind) {
@@ -121,7 +122,7 @@ export class OffscreenArrows {
       else art = icon('hand');
       a.badge.replaceChildren(art);
     }
-    const v = t.value ?? null;
+    const v = finiteOrNull(t.value);
     if (v !== a.valueNum) {
       a.valueNum = v;
       setText(a.value, v === null ? '' : fmtScore(v));

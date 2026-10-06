@@ -11,14 +11,19 @@
  *  - Geometry and materials are cached and shared; dispose() only frees per-instance data.
  *    disposeModelCaches() frees everything (full renderer teardown).
  *  - Call setModelTime(seconds) once per frame (wind sway, water) and
- *    setOcclusionFocus(cameraPos, playerChestPos) so scenery never hides the player.
- *  - Inside a bank, raise characters and safes by BANK_FLOOR_Y.
+ *    setOcclusionFocus(cameraPos, playerChestPos) so scenery never hides the player: buildings,
+ *    kiosks, tall walls and trees between the camera and the player fade as a whole to a
+ *    translucent ghost, anything else is cut by a soft x-ray cylinder.
+ *  - Camera-facing labels (safe value coins, the bank sign) follow the render camera's
+ *    orientation automatically (captured in onBeforeRender); setViewCamera() forces it.
+ *  - Inside a bank, raise characters and safes by BANK_FLOOR_Y (or rig.floorY).
  */
 import * as THREE from 'three';
 import type { Vec2 } from '../../sim/types';
 import { disposeBankCache } from './bank';
 import { disposeGeometryCache } from './geometry';
 import { disposeMaterialCache } from './materials';
+import { disposeOcclusionCache } from './occlusion';
 import { disposeOutlineCache } from './outline';
 import { disposeRaccoonCache } from './raccoon';
 import { disposeSafeCache } from './safes';
@@ -45,11 +50,14 @@ export {
   createStaticCircle,
   createDecor,
   defaultSignResolver,
+  detectSignLanguage,
 } from './environment';
 export type { SignResolver, SceneryStats, SceneryOptions } from './environment';
+export type { SignLanguage } from './palette';
 export { FxSystem, DebrisBurst } from './fx';
 export type { FxOptions, DebrisPieceSpec, Vec3Like } from './fx';
 export { Highlighter, OUTLINE_THICKNESS } from './outline';
+export type { OutlineOptions } from './outline';
 export { createDuskLighting } from './lighting';
 export type { DuskLighting } from './lighting';
 export {
@@ -57,9 +65,11 @@ export {
   setOcclusionFocus,
   setRimLight,
   setMaterialOpacity,
+  setGhostAlpha,
   createToonMaterial,
   SHARED_UNIFORMS,
 } from './materials';
+export { setViewCamera, viewCameraPosition, cameraFacingYaw } from './occlusion';
 export { preloadModelFonts, loadJua, FONT_STACK } from './textures';
 export { PAL, HIGHLIGHT_COLORS } from './palette';
 
@@ -79,4 +89,5 @@ export function disposeModelCaches(): void {
   disposeGeometryCache();
   disposeMaterialCache();
   disposeTextureCache();
+  disposeOcclusionCache();
 }

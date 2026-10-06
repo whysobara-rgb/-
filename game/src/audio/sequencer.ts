@@ -12,6 +12,7 @@
  */
 import type { MusicId, TrackId } from './ids';
 import { INSTRUMENTS, type InstId } from './instruments';
+import type { BarGrid } from './loops';
 import { makeRng, type Rng } from './rng';
 import { LAYERS, SONGS, barSeconds, type LayerId, type NoteEvent, type SongDef } from './songs';
 import { SFX_KEY_ROOT } from './theory';
@@ -274,6 +275,12 @@ export class MusicPlayer {
 
   get currentId(): MusicId {
     return this.current ? this.current.id : 'none';
+  }
+
+  /** Bar grid of the current track (time of its bar 0, bar length), or null when silent. */
+  barGrid(): BarGrid | null {
+    const tr = this.current;
+    return tr ? { origin: tr.startTime, bar: barSeconds(tr.def) } : null;
   }
 
   /** Tonic for tonal SFX (all tracks share F major / D minor). */

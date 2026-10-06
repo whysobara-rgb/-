@@ -64,14 +64,14 @@
   align-self: flex-start;
   padding: 0 0.5rem 0 0.375rem;
   border-radius: 1rem;
-  font-size: 0.875rem;
+  font-size: var(--uh-fs-2xs);
   font-weight: 900;
   line-height: 1.5;
   color: var(--uh-ink);
   background: rgba(255, 249, 240, 0.9);
 }
 .uh-sb__team--1 .uh-sb__tag { align-self: flex-end; }
-.uh-sb__tag .uh-icon { width: 0.9rem; height: 0.9rem; color: var(--uh-mint-600); }
+.uh-sb__tag .uh-icon { width: 1em; height: 1em; color: var(--uh-mint-600); }
 .uh-sb__score {
   font-size: 3.25rem;
   line-height: 1;
@@ -90,7 +90,7 @@
   padding: 0 0.625rem;
   border-radius: 1rem;
   font-family: var(--uh-font-display);
-  font-size: 0.9375rem;
+  font-size: var(--uh-fs-2xs);
   line-height: 1.5;
   color: var(--uh-ink);
   background: var(--uh-gold-300);
@@ -127,25 +127,53 @@
 
 .uh-banks {
   display: flex;
-  gap: 0.375rem;
-  padding: 0.25rem 0.5rem;
-  border-radius: 1rem;
-  background: rgba(20, 12, 44, 0.6);
-  border: 0.125rem solid rgba(255, 249, 240, 0.25);
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.3125rem 0.875rem 0.3125rem 0.4375rem;
+  border-radius: 1.5rem;
+  background: rgba(20, 12, 44, 0.72);
+  border: 0.125rem solid rgba(255, 249, 240, 0.3);
 }
-.uh-bankicon { position: relative; width: 2.75rem; height: 2.75rem; display: grid; place-items: center; transition: opacity var(--uh-dur); }
-.uh-bankicon__art { width: 2.5rem; height: 2.5rem; }
-.uh-bankicon__badge { position: absolute; right: -0.25rem; bottom: -0.25rem; width: 1.5rem; height: 1.5rem; display: grid; place-items: center; }
-.uh-bankicon__badge:empty { display: none; }
-.uh-bankicon__badge .uh-emblem { width: 1.5rem; height: 1.5rem; filter: drop-shadow(0 0 0.1rem #fff) drop-shadow(0 0 0.1rem #fff); }
-.uh-bankicon[data-state='recovered'] .uh-bankicon__art { opacity: 0.4; filter: grayscale(0.6); }
-.uh-bankicon[data-state='recovered']::after {
-  content: '';
-  position: absolute;
-  inset: 0.3rem;
+.uh-banks__icons { display: flex; gap: 0.5rem; }
+.uh-banks__count { font-size: var(--uh-fs-md); line-height: 1; color: var(--uh-cream-50); white-space: nowrap; }
+.uh-banks.is-all { background: rgba(28, 92, 66, 0.85); border-color: var(--uh-mint-400); }
+.uh-banks.is-all .uh-banks__count { color: var(--uh-mint-300); }
+
+/* In play: the bank on a dark disc. Carried: wiggle + carrier's emblem.
+   Recovered: mint disc + check stamp + the emblem of the team that took it — reads as "done",
+   never as "disabled" (doc §4/§8: both banks' recovered state is always readable). */
+.uh-bankicon {
+  position: relative;
+  width: 3.25rem;
+  height: 3.25rem;
+  display: grid;
+  place-items: center;
   border-radius: 50%;
-  border: 0.2rem solid var(--uh-mint-400);
+  background: rgba(255, 249, 240, 0.1);
+  border: 0.15rem solid rgba(255, 249, 240, 0.35);
+  transition: background var(--uh-dur), border-color var(--uh-dur);
 }
+.uh-bankicon__art { width: 2.625rem; height: 2.625rem; }
+.uh-bankicon__badge { position: absolute; right: -0.375rem; bottom: -0.375rem; width: 1.625rem; height: 1.625rem; display: grid; place-items: center; }
+.uh-bankicon__badge:empty { display: none; }
+.uh-bankicon__badge .uh-emblem { width: 1.625rem; height: 1.625rem; filter: drop-shadow(0 0 0.1rem #fff) drop-shadow(0 0 0.1rem #fff); }
+.uh-bankicon__check {
+  position: absolute;
+  left: -0.375rem;
+  top: -0.375rem;
+  width: 1.5rem;
+  height: 1.5rem;
+  display: none;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--uh-ink);
+  background: var(--uh-cream-50);
+  border: 0.125rem solid var(--uh-ink);
+}
+.uh-bankicon__check .uh-icon { width: 1.05rem; height: 1.05rem; color: var(--uh-mint-600); }
+.uh-bankicon[data-state='recovered'] { background: var(--uh-mint-400); border-color: var(--uh-ink); }
+.uh-bankicon[data-state='recovered'] .uh-bankicon__check { display: grid; }
+.uh-bankicon[data-state='carried'] { border-style: dashed; border-color: var(--uh-gold-300); }
 .uh-bankicon[data-state='carried'] .uh-bankicon__art { animation: uh-wiggle 0.5s ease-in-out infinite; }
 
 .uh-lastbank {
@@ -210,7 +238,7 @@
 .uh-tut__sub { margin: 0.375rem 0 0; font-size: var(--uh-fs-sm); font-weight: 700; color: var(--uh-ink-700); }
 .uh-tut__actions { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; margin-top: 0.75rem; }
 .uh-tut__action { display: inline-flex; align-items: center; gap: 0.375rem; font-weight: 900; font-size: var(--uh-fs-sm); }
-.uh-tut__action .uh-glyph { font-size: 1.125rem; }
+.uh-tut__action .uh-glyph { font-size: var(--uh-fs-sm); }
 .uh-tut__skip { display: flex; align-items: center; gap: 0.375rem; margin-top: 0.75rem; font-size: var(--uh-fs-xs); font-weight: 700; color: var(--uh-ink-500); }
 
 /* ---------------------------------------------------------------------------------------- */
@@ -272,7 +300,8 @@
   flex-direction: column;
   gap: 0.25rem;
   min-width: 21rem;
-  padding: 1rem 1.5rem 0.75rem;
+  /* Room for the '운반 중' tag that straddles the top border (it grows with the text floor). */
+  padding: calc(var(--uh-fs-sm) * 0.8 + 0.375rem) 1.5rem 0.75rem;
   color: var(--uh-ink);
   background: rgba(255, 251, 244, 0.95);
   border: var(--uh-line) dashed var(--uh-ink);
@@ -283,8 +312,9 @@
 .uh-carry[hidden] { display: none; }
 .uh-carry__tag {
   position: absolute;
-  top: -0.9rem;
+  top: 0;
   left: 1.125rem;
+  transform: translateY(-55%);
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
@@ -324,7 +354,7 @@
 }
 .uh-grab[hidden] { display: none; }
 .uh-grab__main { display: flex; align-items: center; gap: 0.625rem; white-space: nowrap; }
-.uh-grab__main > .uh-glyph { font-size: 1.25rem; }
+.uh-grab__main > .uh-glyph { font-size: var(--uh-fs-md); }
 .uh-grab__verb { font-family: var(--uh-font-display); color: var(--uh-gold-300); }
 .uh-grab__icon { width: 2.25rem; height: 2.25rem; }
 .uh-grab__name { font-weight: 700; }
@@ -339,10 +369,10 @@
 /* ---------------------------------------------------------------------------------------- */
 
 .uh-actions { display: flex; align-items: flex-end; gap: 1.25rem; }
-.uh-actions__ping { display: flex; flex-direction: column; align-items: center; gap: 0.375rem; padding-bottom: 0.5rem; font-size: 1.125rem; }
+.uh-actions__ping { display: flex; flex-direction: column; align-items: center; gap: 0.375rem; padding-bottom: 0.5rem; font-size: var(--uh-fs-sm); }
 .uh-actions__pingLabel { width: 3rem; height: 3rem; display: grid; place-items: center; border-radius: 50%; background: rgba(20, 12, 44, 0.7); border: 0.15rem solid rgba(255, 249, 240, 0.35); }
 .uh-actions__pingLabel .uh-icon { width: 1.5rem; height: 1.5rem; }
-.uh-dash { display: flex; flex-direction: column; align-items: center; gap: 0.375rem; font-size: 1.125rem; }
+.uh-dash { display: flex; flex-direction: column; align-items: center; gap: 0.375rem; font-size: var(--uh-fs-sm); }
 .uh-dash__btn { position: relative; width: 6rem; height: 6rem; display: grid; place-items: center; border-radius: 50%; background: rgba(20, 12, 44, 0.75); border: var(--uh-line) solid var(--uh-ink); box-shadow: 0 0.375rem 0 var(--uh-ink); }
 .uh-dash__ring { position: absolute; inset: -0.1rem; width: calc(100% + 0.2rem); height: calc(100% + 0.2rem); transform: rotate(-90deg); }
 .uh-dash__ringBg { fill: none; stroke: rgba(255, 249, 240, 0.15); stroke-width: 6; }
@@ -411,7 +441,7 @@
 }
 .uh-wl--value .uh-loot-icon { width: 1.75rem; height: 1.75rem; }
 .uh-wl__num { font-family: var(--uh-font-display); font-size: var(--uh-fs-lg); line-height: 1.2; }
-.uh-wl__loaded { font-size: 0.8125rem; font-weight: 900; color: var(--uh-plum-500); }
+.uh-wl__loaded { margin-left: 0.125rem; padding: 0 0.375rem; border-radius: 0.75rem; font-size: var(--uh-fs-2xs); font-weight: 900; line-height: 1.5; color: var(--uh-cream-50); background: var(--uh-plum-500); }
 .uh-wl__loaded:empty { display: none; }
 .uh-wl--value.is-focus .uh-wl__in { background: var(--uh-gold-300); transform: translate(-50%, -100%) scale(1.2); transform-origin: 50% 100%; }
 .uh-wl--value.is-loaded .uh-wl__in { opacity: 0.9; }
@@ -427,7 +457,7 @@
 .uh-wl__row { display: flex; align-items: center; gap: 0.375rem; }
 .uh-wl--bank .uh-loot-icon { width: 2rem; height: 2rem; }
 .uh-wl--bank .uh-wl__num { font-size: 1.75rem; }
-.uh-wl__sub { font-size: 0.9375rem; font-weight: 900; color: var(--uh-ink-700); white-space: nowrap; }
+.uh-wl__sub { font-size: var(--uh-fs-2xs); font-weight: 900; color: var(--uh-ink-700); white-space: nowrap; }
 .uh-wl__sub:empty { display: none; }
 .uh-wl--bank.is-focus .uh-wl__in { transform: translate(-50%, -100%) scale(1.12); transform-origin: 50% 100%; }
 .uh-wl--bank.is-carried-0 .uh-wl__in { box-shadow: 0 0.25rem 0 var(--uh-ink), 0 0 0 0.25rem var(--uh-team0); }
@@ -459,7 +489,7 @@
 .uh-wl__pin { width: 2.25rem; height: 2.25rem; display: grid; place-items: center; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); background: var(--uh-gold-300); border: 0.15rem solid var(--uh-ink); }
 .uh-wl__pin .uh-emblem { width: 1.4rem; height: 1.4rem; transform: rotate(45deg); }
 
-.uh-wl--name .uh-wl__in { flex-direction: row; gap: 0.25rem; padding: 0 0.5rem 0 0.25rem; border-radius: 1rem; background: rgba(20, 12, 44, 0.6); font-weight: 900; font-size: 0.9375rem; white-space: nowrap; }
+.uh-wl--name .uh-wl__in { flex-direction: row; gap: 0.25rem; padding: 0 0.5rem 0 0.25rem; border-radius: 1rem; background: rgba(20, 12, 44, 0.6); font-weight: 900; font-size: var(--uh-fs-2xs); white-space: nowrap; }
 .uh-wl--name .uh-emblem { width: 1.1rem; height: 1.1rem; }
 .uh-wl--name.is-me .uh-wl__in { background: var(--uh-gold-300); color: var(--uh-ink); }
 

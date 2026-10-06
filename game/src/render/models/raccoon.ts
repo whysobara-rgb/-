@@ -3,8 +3,11 @@
  *
  * Silhouette first (doc §13): big round head with round ears, short limbs, chunky pear body,
  * big fluffy ringed tail. Emotions read from eyes (face decal) + body pose. Team identity is
- * never color alone: hat silhouette (team 0 pointy star beanie / team 1 round moon helmet),
- * back emblem (star / crescent) and the team-color scarf.
+ * never color alone (doc §13 "머리 장식 모양과 팀 문양"): every head decoration carries the
+ * wearer's team emblem SHAPE (star / crescent) in the team color, readable from the high
+ * camera at any facing: the team caps (pointy star beanie / round moon helmet), and on the
+ * reward hats a top-facing emblem (top-hat crown, beret badge, head clip) plus team-colored
+ * bands. The back emblem and the team-color scarf back it up.
  *
  * Frame: the model faces local +X (sim angle 0). Place with
  *   root.position.set(sim.x, floorY, sim.y); root.rotation.y = -facing;
@@ -156,6 +159,58 @@ const BODY_PROFILE: [number, number][] = [
   [0.16, 0.66],
   [0.0, 0.7],
 ];
+/** Body lathe scale (x, z) per unit girth: the body is a little narrower front-to-back. */
+const BODY_SX = 0.92;
+
+/** Lathe radius of the body profile at height y. */
+function profileRadius(y: number): number {
+  const P = BODY_PROFILE;
+  if (y <= P[0][1]) return P[0][0];
+  for (let i = 1; i < P.length; i++) {
+    if (y <= P[i][1]) {
+      const t = (y - P[i - 1][1]) / (P[i][1] - P[i - 1][1]);
+      return P[i - 1][0] + (P[i][0] - P[i - 1][0]) * t;
+    }
+  }
+  return 0;
+}
+
+/**
+ * Torso surface helper for decorations that must sit ON the body whatever the girth
+ * (belly patch, chain, medallion, bib): the scaled lathe plus the cream belly ellipsoid.
+ */
+class Torso {
+  readonly bellyC: [number, number, number];
+  readonly bellyR: [number, number, number];
+  constructor(readonly girth: number) {
+    const y = 0.37;
+    // Belly patch sits 3.5 cm proud of the fur at its center for every girth (no z-fight).
+    this.bellyR = [0.17, 0.2, 0.19 * girth];
+    this.bellyC = [this.rx(y) + 0.035 - this.bellyR[0], y, 0];
+  }
+  rx(y: number): number {
+    return profileRadius(y) * BODY_SX * this.girth;
+  }
+  rz(y: number): number {
+    return profileRadius(y) * this.girth;
+  }
+  /** Distance from the body axis to the outer surface (fur or belly) at height y, angle a (0 = front). */
+  surface(y: number, a: number): number {
+    const dx = Math.cos(a);
+    const dz = Math.sin(a);
+    const rx = Math.max(1e-3, this.rx(y));
+    const rz = Math.max(1e-3, this.rz(y));
+    let r = 1 / Math.sqrt((dx / rx) ** 2 + (dz / rz) ** 2);
+    const [bx, by] = this.bellyC;
+    const [ax, ay, az] = this.bellyR;
+    const A = (dx / ax) ** 2 + (dz / az) ** 2;
+    const B = (-2 * dx * bx) / (ax * ax);
+    const C = (bx / ax) ** 2 + ((y - by) / ay) ** 2 - 1;
+    const disc = B * B - 4 * A * C;
+    if (disc >= 0) r = Math.max(r, (-B + Math.sqrt(disc)) / (2 * A));
+    return r;
+  }
+}
 
 function buildGeoSet(p: LookParams): GeoSet {
   const key = lookKey(p);
@@ -174,9 +229,10 @@ function buildGeoSet(p: LookParams): GeoSet {
   // --- body ------------------------------------------------------------------
   const body = merge((b) => {
     const gx = p.girth;
-    b.add(lathe(BODY_PROFILE, 18), { color: fur, scale: [0.92 * gx, 1, gx] });
-    // Cream belly patch.
-    b.add(G.sphere(14, 10), { color: PAL.cream, pos: [0.105 * gx + 0.02, 0.37, 0], scale: [0.17, 0.2, 0.19 * gx] });
+    const torso = new Torso(gx);
+    b.add(lathe(BODY_PROFILE, 18), { color: fur, scale: [BODY_SX * gx, 1, gx] });
+    // Cream belly patch (placed from the actual body surface, so chubby bodies keep it proud).
+    b.add(G.sphere(14, 10), { color: PAL.cream, pos: torso.bellyC, scale: torso.bellyR });
     // Scarf ring + front knot.
     b.add(G.torus(0.26, 8, 24), { color: p.scarf, pos: [0, 0.635, 0], rot: [Math.PI / 2, 0, 0], scale: [0.245 * gx, 0.245 * gx, 0.25] });
     b.add(G.sphere(10, 8), { color: p.scarfDark, pos: [-0.17 * gx, 0.63, 0.12 * gx], scale: [0.075, 0.07, 0.075] });
@@ -192,18 +248,21 @@ function buildGeoSet(p: LookParams): GeoSet {
     }
     // Rival extras.
     if (p.rival === 'tongkeun') {
-      // Chunky gold bead chain hanging from under the scarf to a medallion on the belly.
+      // Chunky gold bead chain from under the scarf down to a medallion on the belly; every
+      // bead sits on the actual torso surface.
       for (let i = 0; i <= 10; i++) {
         const a = (-0.5 + i / 10) * Math.PI * 1.1;
-        const r = 0.215 * gx;
+        const y = 0.585 - Math.cos(a) * 0.075;
+        const r = torso.surface(y, a) + 0.018;
         b.add(G.sphere(8, 6), {
           color: i % 2 ? PAL.goldDark : PAL.gold,
-          pos: [Math.cos(a) * r * 0.95 + 0.02, 0.58 - Math.cos(a) * 0.07, Math.sin(a) * r],
+          pos: [Math.cos(a) * r, y, Math.sin(a) * r],
           scale: 0.032,
           emissive: 0.1,
         });
       }
-      b.push([0.255 * gx, 0.47, 0], [0, 0, -0.25]);
+      const my = 0.47;
+      b.push([torso.surface(my, 0) + 0.018, my, 0], [0, 0, -0.25]);
       b.add(G.cyl(1, 1, 20), { color: PAL.goldDark, rot: [0, 0, Math.PI / 2], scale: [0.075, 0.03, 0.075] });
       b.add(G.cyl(1, 1, 20), { color: PAL.gold, pos: [0.012, 0, 0], rot: [0, 0, Math.PI / 2], scale: [0.06, 0.02, 0.06], emissive: 0.15 });
       b.add(G.star(5, 0.45, 0.3), { color: PAL.goldLight, pos: [0.024, 0, 0], rot: [0, Math.PI / 2, 0], scale: 0.035, emissive: 0.2 });
@@ -211,8 +270,10 @@ function buildGeoSet(p: LookParams): GeoSet {
     }
     if (p.rival === 'hodadak') {
       // Racing number bib on the belly.
-      b.add(G.rbox(0.03, 0.15, 0.17, 0.012), { color: '#FFFFFF', pos: [0.255 * gx, 0.36, 0], rot: [0, 0, -0.12] });
-      b.add(G.rbox(0.032, 0.035, 0.1, 0.008), { color: '#E8505B', pos: [0.258 * gx, 0.4, 0], rot: [0, 0, -0.12] });
+      const by = 0.37;
+      const bx = torso.surface(by, 0) + 0.006;
+      b.add(G.rbox(0.03, 0.15, 0.17, 0.012), { color: '#FFFFFF', pos: [bx, by, 0], rot: [0, 0, -0.12] });
+      b.add(G.rbox(0.032, 0.035, 0.1, 0.008), { color: '#E8505B', pos: [bx + 0.004, by + 0.04, 0], rot: [0, 0, -0.12] });
     }
   });
 
@@ -226,7 +287,7 @@ function buildGeoSet(p: LookParams): GeoSet {
       b.add(G.cone(7), { color: fur, pos: [-0.04, -0.05, s * 0.29], rot: [s * 1.8, 0, 0.3], scale: [0.045, 0.075, 0.04] });
     }
     // Ears (pushed outward so they poke out of the bigger hats).
-    const bigHat = p.hat === 'teamCapA' || p.hat === 'tongkeunHat';
+    const bigHat = p.hat === 'teamCapA' || p.hat === 'tongkeunHat' || p.hat === 'nunchiMask';
     const helmet = p.hat === 'teamCapB';
     const earZ = helmet ? 0.25 : bigHat ? 0.235 : 0.19;
     const earTilt = helmet ? 0.82 : bigHat ? 0.62 : 0.38;
@@ -321,15 +382,53 @@ function buildGeoSet(p: LookParams): GeoSet {
   return set;
 }
 
+/** The emblem shape itself (star / crescent), extruded along local +z, size = outer radius. */
+function addEmblemShape(b: PartBuilder, emblem: 'star' | 'moon', o: { color: string; pos?: readonly [number, number, number]; rot?: readonly [number, number, number]; size: number; emissive?: number }): void {
+  if (emblem === 'star') b.add(G.star(5, 0.46, 0.3), { color: o.color, pos: o.pos, rot: o.rot, scale: o.size, emissive: o.emissive });
+  else b.add(G.crescent(0.3), { color: o.color, pos: o.pos, rot: o.rot, scale: o.size, emissive: o.emissive });
+}
+
+/**
+ * Round team badge lying in the current frame's XZ plane, facing +Y: dark rim, white disc and
+ * the team emblem in the team color, its top pointing to local +x (topDir 1: a badge lying on
+ * top of the head reads "up" toward the face) or -x (topDir -1: a badge standing on the front
+ * of a hat, tipped forward, reads upright).
+ */
+function addTeamBadge(b: PartBuilder, team: TeamId, size: number, topDir: 1 | -1 = 1): void {
+  const st = TEAM_STYLES[team];
+  b.add(G.cyl(1, 1, 24), { color: st.dark, pos: [0, 0, 0], scale: [size, size * 0.28, size] });
+  b.add(G.cyl(1, 1, 24), { color: '#FFFFFF', pos: [0, size * 0.1, 0], scale: [size * 0.84, size * 0.2, size * 0.84] });
+  b.push([0, size * 0.22, 0], [0, (-topDir * Math.PI) / 2, 0]);
+  addEmblemShape(b, st.emblem, { color: st.color, rot: [-Math.PI / 2, 0, 0], size: size * 0.66, emissive: 0.08 });
+  b.pop();
+}
+
+/**
+ * Team emblem pin on top of the head (reward hats without a crown / no hat): a badge tipped
+ * slightly forward so the high camera reads its shape at any facing.
+ */
+function addHeadPin(b: PartBuilder, p: LookParams, x = -0.035, y = 0.262): void {
+  if (p.team === null) return;
+  b.push([x, y, 0], [0, 0, -0.22]);
+  b.add(G.cyl(1, 1, 8), { color: TEAM_STYLES[p.team].dark, pos: [0, -0.02, 0], scale: [0.025, 0.05, 0.025] });
+  b.push([0, 0.012, 0]);
+  addTeamBadge(b, p.team, 0.115);
+  b.pop();
+  b.pop();
+}
+
 /** Hats, authored relative to the head center. */
 function addHat(b: PartBuilder, p: LookParams): void {
   const team0 = TEAM_STYLES[0];
   const team1 = TEAM_STYLES[1];
+  const st = p.team === null ? null : TEAM_STYLES[p.team];
   switch (p.hat) {
     case 'teamCapA': {
-      // Pointy knitted star beanie (team 0 default). Uses the wearer's team color when set.
-      const col = p.team === null ? team0.color : TEAM_STYLES[p.team].color;
-      const dark = p.team === null ? team0.dark : TEAM_STYLES[p.team].dark;
+      // Pointy knitted beanie (team 0 default). Knit in the wearer's team color, and the tip
+      // emblem is always the WEARER's emblem (a moon-team raccoon in a beanie gets a crescent).
+      const col = st?.color ?? team0.color;
+      const dark = st?.dark ?? team0.dark;
+      const emblem = st?.emblem ?? 'star';
       b.push([-0.02, 0.04, 0], [0, 0, 0.2]);
       b.add(G.torus(0.2, 8, 26), { color: '#FFF6E8', pos: [0, 0.135, 0], rot: [Math.PI / 2, 0, 0], scale: [0.245, 0.262, 0.22] });
       b.add(
@@ -353,61 +452,113 @@ function addHat(b: PartBuilder, p: LookParams): void {
         const r = y < 0.3 ? 0.225 : 0.17;
         b.add(G.torus(0.08, 5, 20), { color: dark, pos: [0, y, 0], rot: [Math.PI / 2, 0, 0], scale: [r, r * 1.07, 0.18] });
       }
-      // Big star on the tip, facing up/forward.
+      // Big emblem on the tip, facing up/forward.
       b.push([0.02, 0.6, 0], [0, 0, -0.5]);
-      b.add(G.star(5, 0.48, 0.35), { color: PAL.gold, rot: [-Math.PI / 2, 0, 0], scale: 0.105, emissive: 0.12 });
+      addEmblemShape(b, emblem, { color: PAL.gold, rot: [-Math.PI / 2, 0, 0], size: 0.105, emissive: 0.12 });
       b.pop();
       b.pop();
       break;
     }
     case 'teamCapB': {
-      // Round moon helmet with a ring brim and a crescent crest (team 1 default).
-      const col = p.team === null ? team1.color : TEAM_STYLES[p.team].color;
-      const dark = p.team === null ? team1.dark : TEAM_STYLES[p.team].dark;
+      // Round helmet with a ring brim and a crest (team 1 default). The crest is the wearer's
+      // emblem (a star-team raccoon in the helmet gets a star crest).
+      const col = st?.color ?? team1.color;
+      const dark = st?.dark ?? team1.dark;
+      const emblem = st?.emblem ?? 'moon';
       b.add(G.dome(22, 10), { color: col, pos: [-0.015, 0.145, 0], scale: [0.272, 0.215, 0.292] });
       b.add(G.torus(0.12, 8, 30), { color: '#FFF6E8', pos: [-0.015, 0.155, 0], rot: [Math.PI / 2, 0, 0], scale: [0.29, 0.31, 0.3] });
       // Top button.
       b.add(G.sphere(10, 8), { color: dark, pos: [-0.015, 0.36, 0], scale: [0.04, 0.03, 0.04] });
-      // Crescent crest standing on the front, horns up, leaning back.
+      // Crest standing on the front, leaning back.
       b.push([0.15, 0.32, 0], [0, 0, 0.6]);
-      b.add(G.crescent(0.32), { color: PAL.gold, rot: [0, Math.PI / 2, Math.PI / 2], scale: 0.12, emissive: 0.12 });
+      if (emblem === 'moon') addEmblemShape(b, 'moon', { color: PAL.gold, rot: [0, Math.PI / 2, Math.PI / 2], size: 0.12, emissive: 0.12 });
+      else addEmblemShape(b, 'star', { color: PAL.gold, rot: [0, Math.PI / 2, 0], size: 0.12, emissive: 0.12 });
       b.pop();
       break;
     }
     case 'hodadakBand': {
-      // Lightning headband with flapping knot tails.
+      // Sweatband in the team color (호다닥 red without a team), white stripe, a team badge
+      // on the forehead, gold lightning bolts on the sides and flapping knot tails.
+      const band = st?.color ?? '#E8505B';
+      const knot = st?.dark ?? '#C93F4C';
       b.push([0, 0.17, 0], [0, 0, 0.1]);
-      b.add(G.torus(0.14, 8, 28), { color: '#E8505B', rot: [Math.PI / 2, 0, 0], scale: [0.236, 0.254, 0.3] });
+      b.add(G.torus(0.14, 8, 28), { color: band, rot: [Math.PI / 2, 0, 0], scale: [0.236, 0.254, 0.3] });
       b.add(G.torus(0.05, 6, 28), { color: '#FFFFFF', pos: [0, 0.0, 0], rot: [Math.PI / 2, 0, 0], scale: [0.246, 0.264, 0.3] });
+      for (const sz of [-1, 1]) {
+        b.push([-0.02, 0.0, sz * 0.262], [0, 0, 0]);
+        b.add(G.bolt(0.3), { color: PAL.gold, rot: [0, sz > 0 ? 0 : Math.PI, 0], scale: 0.06, emissive: 0.25 });
+        b.pop();
+      }
       b.pop();
-      b.push([0.235, 0.205, 0], [0, 0, -0.5]);
-      b.add(G.cyl(1, 1, 16), { color: '#FFFFFF', rot: [0, 0, Math.PI / 2], scale: [0.085, 0.03, 0.085] });
-      b.add(G.bolt(0.3), { color: PAL.gold, pos: [0.02, 0, 0], rot: [0, Math.PI / 2, 0], scale: 0.075, emissive: 0.25 });
+      // Forehead plate: the team badge standing on the band (white disc + bolt without team).
+      b.push([0.235, 0.205, 0], [0, 0, 0.45 - Math.PI / 2]);
+      if (p.team !== null) addTeamBadge(b, p.team, 0.092, -1);
+      else {
+        b.add(G.cyl(1, 1, 16), { color: '#FFFFFF', scale: [0.085, 0.03, 0.085] });
+        b.push([0, 0.02, 0], [-Math.PI / 2, 0, Math.PI / 2]);
+        b.add(G.bolt(0.3), { color: PAL.gold, scale: 0.075, emissive: 0.25 });
+        b.pop();
+      }
       b.pop();
-      b.add(G.sphere(8, 6), { color: '#C93F4C', pos: [-0.235, 0.15, 0], scale: [0.04, 0.045, 0.05] });
-      b.add(G.rbox(0.03, 0.04, 0.17, 0.012), { color: '#E8505B', pos: [-0.29, 0.1, -0.07], rot: [0.4, 0.5, -0.3] });
-      b.add(G.rbox(0.03, 0.04, 0.15, 0.012), { color: '#E8505B', pos: [-0.29, 0.08, 0.06], rot: [-0.5, -0.4, -0.4] });
+      b.add(G.sphere(8, 6), { color: knot, pos: [-0.235, 0.15, 0], scale: [0.04, 0.045, 0.05] });
+      b.add(G.rbox(0.03, 0.04, 0.17, 0.012), { color: band, pos: [-0.29, 0.1, -0.07], rot: [0.4, 0.5, -0.3] });
+      b.add(G.rbox(0.03, 0.04, 0.15, 0.012), { color: band, pos: [-0.29, 0.08, 0.06], rot: [-0.5, -0.4, -0.4] });
+      // Emblem pin on top so the team reads from behind as well.
+      addHeadPin(b, p, -0.06, 0.258);
       break;
     }
     case 'tongkeunHat': {
-      // Big top hat with a gold band, tilted jauntily.
+      // Big top hat, tilted jauntily: team-colored band with the team badge in front, and the
+      // team emblem inlaid on the crown top (the high camera sees the crown first).
+      const band = st?.color ?? PAL.gold;
       b.push([-0.02, 0.2, 0], [0.12, 0, 0.1]);
       b.add(G.cyl(1, 1, 30), { color: PAL.ink, pos: [0, 0.0, 0], scale: [0.34, 0.035, 0.34] });
       b.add(G.cyl(0.93, 1, 30), { color: PAL.ink, pos: [0, 0.22, 0], scale: [0.225, 0.42, 0.225] });
-      b.add(G.cyl(1, 1, 30, true), { color: PAL.gold, pos: [0, 0.07, 0], scale: [0.232, 0.08, 0.232], emissive: 0.08 });
+      b.add(G.cyl(1, 1, 30, true), { color: band, pos: [0, 0.075, 0], scale: [0.232, 0.1, 0.232], emissive: st ? 0 : 0.08 });
       b.add(G.cyl(1, 1, 30), { color: '#3A3546', pos: [0, 0.43, 0], scale: [0.21, 0.012, 0.21] });
-      b.add(G.sphere(10, 8), { color: PAL.goldLight, pos: [0.225, 0.07, 0], scale: [0.03, 0.045, 0.045], emissive: 0.2 });
+      if (p.team !== null) {
+        // Crown-top emblem.
+        b.push([0, 0.437, 0]);
+        b.add(G.torus(0.08, 6, 26), { color: PAL.gold, rot: [Math.PI / 2, 0, 0], scale: [0.18, 0.18, 0.12], emissive: 0.1 });
+        b.push(undefined, [0, -Math.PI / 2, 0]);
+        addEmblemShape(b, TEAM_STYLES[p.team].emblem, { color: TEAM_STYLES[p.team].color, rot: [-Math.PI / 2, 0, 0], size: 0.15, emissive: 0.1 });
+        b.pop();
+        b.pop();
+        // Badge on the band, facing forward.
+        b.push([0.232, 0.08, 0], [0, 0, 0.2 - Math.PI / 2]);
+        addTeamBadge(b, p.team, 0.075, -1);
+        b.pop();
+      } else {
+        b.add(G.sphere(10, 8), { color: PAL.goldLight, pos: [0.225, 0.07, 0], scale: [0.03, 0.045, 0.045], emissive: 0.2 });
+      }
       b.pop();
       break;
     }
-    case 'nunchiMask':
-      // The domino mask is a decal overlay (see rig); add a little feather for the silhouette.
-      b.push([-0.05, 0.22, -0.2], [0.5, 0, 0.6]);
-      b.add(G.sphere(10, 8), { color: '#7B4FC9', scale: [0.03, 0.12, 0.03] });
+    case 'nunchiMask': {
+      // Phantom-thief look: the domino mask is a face decal (see rig); a beret in the team
+      // color (눈치왕 purple without a team) tilted on the head, team badge pinned on top and
+      // a purple feather.
+      const col = st?.color ?? '#7B4FC9';
+      const dark = st?.dark ?? '#5A3796';
+      b.push([-0.03, 0.2, -0.02], [0.2, 0, 0.12]);
+      b.add(G.dome(20, 8), { color: col, pos: [0, 0, 0], scale: [0.27, 0.1, 0.28] });
+      b.add(G.torus(0.14, 6, 26), { color: dark, pos: [0, 0.008, 0], rot: [Math.PI / 2, 0, 0], scale: [0.25, 0.26, 0.2] });
+      b.add(G.sphere(8, 6), { color: dark, pos: [0, 0.105, 0], scale: [0.03, 0.035, 0.03] });
+      if (p.team !== null) {
+        b.push([0.08, 0.09, 0.04], [0, 0, -0.3]);
+        addTeamBadge(b, p.team, 0.105);
+        b.pop();
+      }
+      b.push([-0.12, 0.06, -0.17], [0.5, 0, 0.6]);
+      b.add(G.sphere(10, 8), { color: '#7B4FC9', scale: [0.028, 0.12, 0.028] });
+      b.pop();
       b.pop();
       break;
+    }
     case 'none':
     default:
+      // No hat: the team emblem pin alone carries the team on the head.
+      addHeadPin(b, p);
       break;
   }
 }

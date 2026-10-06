@@ -42,6 +42,11 @@ export interface NavTarget {
   handleNav(action: NavAction): boolean;
   /** Called for `MenuNav.any` frames that carried no specific action. */
   handleAnyInput?(): boolean;
+  /**
+   * This target became the top of the stack again because something above it (a dialog, a
+   * sub-screen) was removed. Screens use it to re-arm their one-shot actions.
+   */
+  onNavResume?(): void;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -73,13 +78,24 @@ export class NavRouter {
   private readonly stack: NavTarget[] = [];
 
   push(target: NavTarget): void {
-    this.remove(target);
+    const i = this.stack.indexOf(target);
+    if (i >= 0) this.stack.splice(i, 1);
     this.stack.push(target);
   }
 
   remove(target: NavTarget): void {
     const i = this.stack.indexOf(target);
-    if (i >= 0) this.stack.splice(i, 1);
+    if (i < 0) return;
+    const wasTop = i === this.stack.length - 1;
+    this.stack.splice(i, 1);
+    const next = this.top();
+    if (wasTop && next) {
+      try {
+        next.onNavResume?.();
+      } catch (err) {
+        console.error('[ui] onNavResume failed', err);
+      }
+    }
   }
 
   top(): NavTarget | null {

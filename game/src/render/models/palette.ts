@@ -152,45 +152,97 @@ export function buildingStyle(style: string | undefined): BuildingStyle {
   return (style && BUILDING_STYLES[style]) || BUILDING_STYLES.default;
 }
 
-/** Korean fallback shop names when no sign resolver/key is provided. */
-export const STYLE_FALLBACK_NAMES: Record<string, string> = {
-  cafe: '너굴 카페',
-  tea: '찻집',
-  bakery: '꼬리 빵집',
-  toy: '장난감 가게',
-  arcade: '오락실',
-  flower: '꽃집',
-  icecream: '아이스크림',
-  books: '책방',
-  music: '음반가게',
-  ramen: '라멘',
-  laundry: '빨래방',
-  grocery: '채소가게',
-  pharmacy: '약국',
-  bike: '자전거',
-  glass: '상가',
-  brick: '우체국',
-  hanok: '떡집',
-  tteokbokki: '떡볶이',
-  lemonade: '레모네이드',
-  default: '동네 가게',
+/** Languages the built-in fallback sign names exist in (matches LAYOUT_STRINGS / ui i18n). */
+export type SignLanguage = 'ko' | 'en';
+
+/**
+ * Fallback shop names per building/kiosk style, used when a sign has no signKey (kiosks,
+ * unnamed buildings) and the sign resolver does not know 'sign.style.<style>'.
+ */
+export const STYLE_FALLBACK_NAMES_BY_LANG: Readonly<Record<SignLanguage, Readonly<Record<string, string>>>> = {
+  ko: {
+    cafe: '너굴 카페',
+    tea: '찻집',
+    bakery: '꼬리 빵집',
+    toy: '장난감 가게',
+    arcade: '오락실',
+    flower: '꽃집',
+    icecream: '아이스크림',
+    books: '책방',
+    music: '음반가게',
+    ramen: '라멘',
+    laundry: '빨래방',
+    grocery: '채소가게',
+    pharmacy: '약국',
+    bike: '자전거',
+    glass: '상가',
+    brick: '우체국',
+    hanok: '떡집',
+    tteokbokki: '떡볶이',
+    lemonade: '레모네이드',
+    default: '동네 가게',
+  },
+  en: {
+    cafe: 'Raccoon Café',
+    tea: 'Tea House',
+    bakery: 'Tail Bakery',
+    toy: 'Toy Shop',
+    arcade: 'Arcade',
+    flower: 'Florist',
+    icecream: 'Ice Cream',
+    books: 'Book Nook',
+    music: 'Records',
+    ramen: 'Ramen',
+    laundry: 'Laundromat',
+    grocery: 'Greengrocer',
+    pharmacy: 'Pharmacy',
+    bike: 'Bikes',
+    glass: 'Shops',
+    brick: 'Post Office',
+    hanok: 'Rice Cakes',
+    tteokbokki: 'Tteokbokki',
+    lemonade: 'Lemonade',
+    default: 'Corner Shop',
+  },
 };
 
-/** Backdrop (outside the arena) shop names; i18n keys 'sign.backdrop.N' override them. */
-export const BACKDROP_SIGNS: readonly { text: string; style: string }[] = [
-  { text: '도토리 우체국', style: 'brick' },
-  { text: '보들 세탁소', style: 'laundry' },
-  { text: '냠냠 분식', style: 'ramen' },
-  { text: '토닥 약국', style: 'pharmacy' },
-  { text: '사각 문구점', style: 'books' },
-  { text: '찰칵 사진관', style: 'glass' },
-  { text: '몽실 미용실', style: 'flower' },
-  { text: '달콤 케이크', style: 'bakery' },
-  { text: '반짝 철물점', style: 'bike' },
-  { text: '포근 이불가게', style: 'icecream' },
-  { text: '쫀득 떡집', style: 'hanok' },
-  { text: '빙글 음반', style: 'music' },
+/** Korean fallback names (kept for callers of the original export). */
+export const STYLE_FALLBACK_NAMES: Readonly<Record<string, string>> = STYLE_FALLBACK_NAMES_BY_LANG.ko;
+
+export function styleFallbackName(style: string | undefined, lang: SignLanguage): string {
+  const table = STYLE_FALLBACK_NAMES_BY_LANG[lang] ?? STYLE_FALLBACK_NAMES_BY_LANG.ko;
+  return table[style ?? 'default'] ?? table.default;
+}
+
+/**
+ * Backdrop (outside the arena) shop names. A sign resolver that knows 'sign.backdrop.N'
+ * overrides them; otherwise the detected sign language picks `ko` / `en`.
+ */
+export const BACKDROP_SIGNS: readonly { text: string; en: string; style: string }[] = [
+  { text: '도토리 우체국', en: 'Acorn Post', style: 'brick' },
+  { text: '보들 세탁소', en: 'Fluffy Cleaners', style: 'laundry' },
+  { text: '냠냠 분식', en: 'Yum-Yum Snacks', style: 'ramen' },
+  { text: '토닥 약국', en: 'Pat-Pat Pharmacy', style: 'pharmacy' },
+  { text: '사각 문구점', en: 'Scribble Stationery', style: 'books' },
+  { text: '찰칵 사진관', en: 'Snap Photo', style: 'glass' },
+  { text: '몽실 미용실', en: 'Puffy Salon', style: 'flower' },
+  { text: '달콤 케이크', en: 'Sweet Cakes', style: 'bakery' },
+  { text: '반짝 철물점', en: 'Shiny Hardware', style: 'bike' },
+  { text: '포근 이불가게', en: 'Cozy Bedding', style: 'icecream' },
+  { text: '쫀득 떡집', en: 'Chewy Rice Cakes', style: 'hanok' },
+  { text: '빙글 음반', en: 'Spin Records', style: 'music' },
 ];
+
+/** Hanok (giwa) roof colors: tile valleys, raised tile rows, ridge, eave wood. */
+export const HANOK_ROOF = {
+  valley: '#62719A',
+  tile: '#96A3C8',
+  tileEnd: '#45506B',
+  ridge: '#3F4963',
+  mortar: '#F3EEE2',
+  wood: '#A9714A',
+  rafterEnd: '#F4D9A8',
+} as const;
 
 /**
  * Recommended outline colors for setHighlight() (doc §4 grab outline, §8 "들어간 순간 윤곽이

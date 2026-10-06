@@ -273,6 +273,145 @@ describe('InputManager match polling', () => {
     s.advance(1000);
     expect(s.input.pollMatch().move.x).toBe(1);
   });
+
+  it('a grab held through pause and resume keeps holding (hold mode does not drop the bank)', () => {
+    const s = setup();
+    const latch = new GrabLatch('hold');
+    s.input.pollMatch();
+    s.down('Space');
+    s.advance(16);
+    expect(latch.update(s.input.pollMatch(), false)).toBe(true);
+    s.advance(16);
+    expect(latch.update(s.input.pollMatch(), true)).toBe(true);
+    // Esc pauses; the pause menu runs for a while; Esc again resumes. Space never released.
+    s.down('Escape');
+    s.advance(16);
+    expect(s.input.pollMatch().pausePressed).toBe(true);
+    s.up('Escape');
+    for (let i = 0; i < 40; i++) {
+      s.advance(16);
+      s.input.pollMenu();
+    }
+    s.down('Escape');
+    s.advance(16);
+    expect(s.input.pollMenu().pause).toBe(true);
+    s.advance(16);
+    const f = s.input.pollMatch();
+    expect(f.grabDown).toBe(true);
+    expect(f.grabPressed).toBe(false);
+    expect(f.pausePressed).toBe(false); // the resuming Esc is still held: not a new pause
+    expect(latch.update(f, true)).toBe(true);
+  });
+
+  it('a long frame stall does not release a held grab', () => {
+    const s = setup();
+    s.input.pollMatch();
+    s.down('Space');
+    s.advance(16);
+    expect(s.input.pollMatch().grabDown).toBe(true);
+    s.advance(650); // > reactivateAfterMs, nothing polled in between
+    expect(s.input.pollMatch()).toMatchObject({ grabDown: true, grabPressed: false });
+  });
+
+  it('a grab key released and pressed again during the pause is a new press (ignored until released)', () => {
+    const s = setup();
+    s.input.pollMatch();
+    s.down('Space');
+    s.advance(16);
+    s.input.pollMatch();
+    s.down('Escape');
+    s.advance(16);
+    s.input.pollMatch();
+    s.up('Escape');
+    s.up('Space');
+    s.advance(300);
+    s.input.pollMenu();
+    s.down('Space'); // confirms "Resume" in the pause menu
+    s.advance(16);
+    expect(s.input.pollMenu().confirm).toBe(true);
+    s.advance(16);
+    expect(s.input.pollMatch()).toMatchObject({ grabDown: false, grabPressed: false });
+  });
+
+  it('a quick pause / resume does not re-pause on the resuming Esc', () => {
+    const s = setup();
+    s.input.pollMatch();
+    s.down('Escape');
+    s.advance(16);
+    expect(s.input.pollMatch().pausePressed).toBe(true);
+    s.up('Escape');
+    s.advance(16);
+    s.input.pollMenu();
+    s.advance(150);
+    s.down('Escape');
+    s.up('Escape');
+    expect(s.input.pollMenu()).toMatchObject({ pause: true, back: true });
+    s.advance(16);
+    expect(s.input.pollMatch().pausePressed).toBe(false); // well under reactivateAfterMs (500)
+  });
+
+  it('keeps edges when a game flow polls both consumers every frame', () => {
+    const s = setup();
+    for (let i = 0; i < 3; i++) {
+      s.advance(16);
+      s.input.pollMatch();
+      s.input.pollMenu();
+    }
+    s.down('KeyK');
+    s.advance(16);
+    expect(s.input.pollMatch()).toMatchObject({ dashPressed: true, dashDown: true });
+    s.input.pollMenu();
+    s.advance(16);
+    expect(s.input.pollMatch().dashDown).toBe(true);
+  });
+
+  it('flush() ignores even continuing holds', () => {
+    const s = setup();
+    s.input.pollMatch();
+    s.down('Space');
+    s.advance(16);
+    expect(s.input.pollMatch().grabDown).toBe(true);
+    s.input.flush();
+    s.advance(16);
+    expect(s.input.pollMatch().grabDown).toBe(false);
+    s.up('Space');
+    s.down('Space');
+    s.advance(16);
+    expect(s.input.pollMatch()).toMatchObject({ grabDown: true, grabPressed: true });
+  });
+
+  it('a pad button held through pause and resume keeps holding; a fresh one is ignored', () => {
+    const pad = new FakePad();
+    const s = setup({ pads: [pad] });
+    s.input.pollMatch();
+    pad.set(0, true); // A: grab
+    s.advance(16);
+    expect(s.input.pollMatch().grabDown).toBe(true);
+    pad.set(9, true); // Start: pause
+    s.advance(16);
+    expect(s.input.pollMatch().pausePressed).toBe(true);
+    pad.set(9, false);
+    s.advance(16);
+    s.input.pollMenu();
+    expect(s.input.pollMenu().confirm).toBe(false); // the held A does not confirm in the menu
+    s.advance(200);
+    pad.set(9, true);
+    expect(s.input.pollMenu().pause).toBe(true);
+    s.advance(16);
+    expect(s.input.pollMatch()).toMatchObject({ grabDown: true, grabPressed: false, pausePressed: false });
+    // Now release A, pause, and resume with A: that A must not grab.
+    pad.set(9, false);
+    pad.set(0, false);
+    s.advance(16);
+    s.input.pollMatch();
+    s.advance(300);
+    s.input.pollMenu();
+    pad.set(0, true);
+    s.advance(16);
+    expect(s.input.pollMenu().confirm).toBe(true);
+    s.advance(16);
+    expect(s.input.pollMatch().grabDown).toBe(false);
+  });
 });
 
 describe('InputManager menu polling', () => {
@@ -307,6 +446,90 @@ describe('InputManager menu polling', () => {
     expect(s.input.pollMenu().tabNext).toBe(true);
     s.down('KeyZ');
     expect(s.input.pollMenu()).toMatchObject({ any: true, confirm: false });
+  });
+});
+
+describe('InputManager hard-wired pause', () => {
+  it('Start / Esc close the pause menu even when pause is rebound', () => {
+    const pad = new FakePad();
+    const s = setup({ pads: [pad] });
+    const b = defaultBindings();
+    b.gamepad.pause = ['button:8'];
+    b.keyboard.pause = ['KeyO'];
+    s.input.setBindings(b);
+    s.input.pollMenu();
+    pad.set(9, true);
+    expect(s.input.pollMenu().pause).toBe(true);
+    pad.set(9, false);
+    s.input.pollMenu();
+    pad.set(8, true);
+    expect(s.input.pollMenu().pause).toBe(true);
+    pad.set(8, false);
+    s.down('Escape');
+    expect(s.input.pollMenu().pause).toBe(true);
+    s.down('KeyO');
+    expect(s.input.pollMenu().pause).toBe(true);
+  });
+});
+
+describe('InputManager keyboard layout labels', () => {
+  const AZERTY: Array<[string, string]> = [
+    ['KeyW', 'z'],
+    ['KeyA', 'q'],
+    ['KeyS', 's'],
+    ['KeyD', 'd'],
+    ['KeyQ', 'a'],
+    ['KeyZ', 'w'],
+    ['Digit2', 'é'],
+    ['Semicolon', 'm'],
+  ];
+  const source = (entries: Array<[string, string]>) => ({
+    getLayoutMap: () => Promise.resolve({ forEach: (cb: (v: string, k: string) => void) => entries.forEach(([k, v]) => cb(v, k)) }),
+  });
+
+  it('labels prompts from the Keyboard Map API (AZERTY: ZQSD)', async () => {
+    const target = new EventTarget();
+    const input = new InputManager({ target, doc: null, getGamepads: () => [], keyboard: source(AZERTY) });
+    const changes: string[] = [];
+    input.onDeviceChange(() => changes.push(input.promptGlyph('move').label));
+    await input.refreshKeyboardLayout();
+    expect(input.promptGlyph('move').label).toBe('ZQSD');
+    expect(input.bindingGlyph('keyboard', 'KeyW').label).toBe('Z');
+    expect(input.bindingGlyph('keyboard', 'Digit2').label).toBe('É');
+    expect(input.bindingGlyph('keyboard', 'Space').label).toBe('Space');
+    expect(input.promptGlyph('grab').label).toBe('Space');
+    expect(changes).toContain('ZQSD');
+    input.dispose();
+  });
+
+  it('learns labels from key presses and ignores IME / modified input', () => {
+    const target = new EventTarget();
+    const input = new InputManager({ target, doc: null, getGamepads: () => [], keyboard: null });
+    const key = (code: string, k: string, extra: Record<string, unknown> = {}) =>
+      target.dispatchEvent(Object.assign(new Event('keydown', { cancelable: true }), { code, key: k, repeat: false, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, ...extra }));
+    expect(input.bindingGlyph('keyboard', 'KeyW').label).toBe('W');
+    key('KeyW', 'ㅈ'); // Korean IME in Hangul mode: keep the Latin legend
+    expect(input.bindingGlyph('keyboard', 'KeyW').label).toBe('W');
+    key('KeyW', 'Process');
+    key('KeyW', 'Z', { shiftKey: true });
+    expect(input.bindingGlyph('keyboard', 'KeyW').label).toBe('W');
+    key('KeyW', 'z'); // QWERTZ/AZERTY
+    expect(input.bindingGlyph('keyboard', 'KeyW').label).toBe('Z');
+    key('ShiftLeft', 'Shift');
+    expect(input.bindingGlyph('keyboard', 'ShiftLeft').label).toBe('Shift');
+    input.dispose();
+  });
+
+  it('keeps physical labels when the layout API is unavailable or throws', async () => {
+    const input = new InputManager({
+      target: new EventTarget(),
+      doc: null,
+      getGamepads: () => [],
+      keyboard: { getLayoutMap: () => Promise.reject(new Error('SecurityError')) },
+    });
+    expect(await input.refreshKeyboardLayout()).toBe(false);
+    expect(input.promptGlyph('move').label).toBe('WASD');
+    input.dispose();
   });
 });
 

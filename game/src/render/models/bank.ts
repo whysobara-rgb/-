@@ -28,6 +28,7 @@ import { G, PartBuilder, rampSway, taperedTube, rng, type V3 } from './geometry'
 import { createToonMaterial, matVC, matWater, setMaterialOpacity } from './materials';
 import { bankFloorTexture, bankSignTexture, dashedLineTexture } from './textures';
 import { Highlighter } from './outline';
+import { cameraFacingYaw, trackViewCamera } from './occlusion';
 
 /** Height of the bank floor surface (slab top). Raise characters/safes on the floor by this. */
 export const BANK_FLOOR_Y = 0.06;
@@ -464,8 +465,9 @@ function buildSignBoard(): THREE.BufferGeometry {
 // Roots / pipes / cables
 // ---------------------------------------------------------------------------
 
-type RootKind = 'root' | 'pipe' | 'cable';
+type RootKind = 'root' | 'corner' | 'pipe' | 'cable';
 interface RootSpot {
+  /** Point on the slab edge (bank local). */
   x: number;
   z: number;
   /** Outward yaw (frame +x = outward). */
@@ -474,150 +476,196 @@ interface RootSpot {
   seed: number;
 }
 
+/**
+ * Where the bank is "plugged into" the ground. Everything stays within ~0.35 m of the slab
+ * edge (0.6 m on the diagonal at the corners) and below ~0.12 m, because raccoons stand
+ * ~0.55 m from the walls to grab them: they step over the roots instead of clipping through.
+ */
 function rootSpots(): RootSpot[] {
   const spots: RootSpot[] = [];
-  const ex = HX + RIM - 0.04;
-  const ez = HZ + RIM - 0.04;
+  const ex = HX + RIM - 0.06;
+  const ez = HZ + RIM - 0.06;
   let seed = 0;
   // yaw: frame +x -> world direction (cos yaw, 0, -sin yaw); outward (dx, dz) => atan2(-dz, dx).
   const yawOf = (dx: number, dz: number): number => Math.atan2(-dz, dx);
-  // Big root flares at the four corners (two roots fanning out of each corner).
+  // Corner flares: three roots fanning out of each corner.
   for (const sx of [-1, 1]) {
     for (const sz of [-1, 1]) {
       const base = yawOf(sx, sz);
-      for (const off of [-0.5, 0.5]) {
-        spots.push({ x: sx * (ex - 0.1), z: sz * (ez - 0.1), yaw: base + off, kind: 'root', seed: seed++ });
-      }
+      for (const off of [-0.45, 0, 0.45]) spots.push({ x: sx * ex, z: sz * ez, yaw: base + off, kind: 'corner', seed: seed++ });
     }
   }
-  // Utilities along the sides (away from the door gaps).
+  // Root arches + utilities along the sides (never in the door gaps, |x| < door/2 + 0.3).
   const side: [number, number, number, number, RootKind][] = [
     // x, z, outward dx, dz, kind
-    [-2.5, ez, 0, 1, 'pipe'],
-    [2.6, ez, 0, 1, 'cable'],
-    [-2.3, -ez, 0, -1, 'cable'],
-    [2.4, -ez, 0, -1, 'pipe'],
-    [-ex, 0.3, -1, 0, 'root'],
-    [-ex, -1.4, -1, 0, 'cable'],
-    [ex, -0.4, 1, 0, 'root'],
-    [ex, 1.3, 1, 0, 'pipe'],
+    [-2.9, ez, 0, 1, 'root'],
+    [-1.75, ez, 0, 1, 'root'],
+    [1.8, ez, 0, 1, 'root'],
+    [2.85, ez, 0, 1, 'pipe'],
+    [-2.6, -ez, 0, -1, 'cable'],
+    [-1.6, -ez, 0, -1, 'root'],
+    [1.7, -ez, 0, -1, 'root'],
+    [2.9, -ez, 0, -1, 'root'],
+    [-ex, -1.6, -1, 0, 'root'],
+    [-ex, -0.2, -1, 0, 'pipe'],
+    [-ex, 1.3, -1, 0, 'root'],
+    [ex, -1.2, 1, 0, 'root'],
+    [ex, 0.4, 1, 0, 'cable'],
+    [ex, 1.7, 1, 0, 'root'],
   ];
-  for (const [x, z, dx, dz, kind] of side) spots.push({ x, z, yaw: yawOf(dx, dz) + (kind === 'root' ? 0.25 : 0), kind, seed: seed++ });
+  for (const [x, z, dx, dz, kind] of side) spots.push({ x, z, yaw: yawOf(dx, dz), kind, seed: seed++ });
   return spots;
 }
 
 const v3 = (x: number, y: number, z: number): THREE.Vector3 => new THREE.Vector3(x, y, z);
 
-/** Anchored: runs from the slab side out and down into the ground. */
+/** Flat cracked-earth patch where something dives into the paving. */
+function addDirtPatch(b: PartBuilder, x: number, z: number, size: number, r: () => number): void {
+  b.add(G.disc(9), { color: PAL.dirtDark, pos: [x, 0.004, z], rot: [0, r() * 3, 0], scale: [size, 1, size * (0.7 + r() * 0.3)] });
+  b.add(G.disc(7), { color: PAL.dirt, pos: [x + 0.02, 0.008, z - 0.01], rot: [0, r() * 3, 0], scale: [size * 0.6, 1, size * 0.45] });
+  for (let i = 0; i < 2; i++) {
+    b.add(G.ico(0), { color: PAL.dirt, pos: [x + (r() - 0.5) * size * 1.6, 0.015, z + (r() - 0.5) * size * 1.6], rot: [r() * 3, r() * 3, 0], scale: [0.045, 0.022, 0.04] });
+  }
+}
+
+/** Anchored: a root / pipe / cable emerging from under the slab and diving into the ground. */
 function addAttached(b: PartBuilder, s: RootSpot): void {
   const r = rng(101 + s.seed * 17);
-  const side = (r() - 0.5) * 0.5;
+  const side = (r() - 0.5) * 0.6;
   b.push([s.x, 0, s.z], [0, s.yaw, 0]);
-  if (s.kind === 'root') {
-    // Chunky gnarled root hugging the ground, diving into a dirt mound.
+  if (s.kind === 'root' || s.kind === 'corner') {
+    // Gnarled root arching out of the slab's underside and back into the ground.
+    const big = s.kind === 'corner';
+    const reach = big ? 0.34 + r() * 0.1 : 0.26 + r() * 0.06;
+    const lift = big ? 0.1 : 0.075;
+    const r0 = big ? 0.085 : 0.06;
     const curve = new THREE.CatmullRomCurve3([
-      v3(-0.15, 0.07, 0),
-      v3(0.22, 0.11, side * 0.2),
-      v3(0.55, 0.08, side * 0.7),
-      v3(0.85, 0.02, side * 1.1),
-      v3(1.05, -0.14, side * 1.3),
+      v3(-0.12, 0.02, 0),
+      v3(reach * 0.35, lift, side * 0.08),
+      v3(reach * 0.75, lift * 0.7, side * 0.18),
+      v3(reach, -0.05, side * 0.24),
     ]);
-    b.add(taperedTube(curve, (t) => 0.12 - t * 0.07, 12, 7), { color: PAL.root });
-    for (const t0 of [0.28, 0.6]) {
-      const p = curve.getPointAt(t0);
-      b.add(G.sphere(8, 6), { color: PAL.rootDark, pos: [p.x, p.y + 0.03, p.z], scale: [0.07, 0.055, 0.07] });
+    b.add(taperedTube(curve, (t) => r0 * (1 - t * 0.55), 10, 7), { color: PAL.root });
+    // Knots + bark stripe for a woody read from the high camera.
+    const k = curve.getPointAt(0.42);
+    b.add(G.sphere(8, 6), { color: PAL.rootDark, pos: [k.x, k.y + r0 * 0.55, k.z], scale: [r0 * 0.9, r0 * 0.55, r0 * 0.8] });
+    if (big) {
+      // Thin side rootlet.
+      const p = curve.getPointAt(0.55);
+      const dir = r() < 0.5 ? -1 : 1;
+      const c2 = new THREE.CatmullRomCurve3([p, v3(p.x + 0.08, 0.05, p.z + dir * 0.12), v3(p.x + 0.14, -0.03, p.z + dir * 0.2)]);
+      b.add(taperedTube(c2, (t) => 0.032 - t * 0.016, 6, 5), { color: PAL.rootDark });
     }
-    const p = curve.getPointAt(0.45);
-    const dir = r() < 0.5 ? -1 : 1;
-    const c2 = new THREE.CatmullRomCurve3([p, v3(p.x + 0.15, 0.05, p.z + dir * 0.2), v3(p.x + 0.32, -0.06, p.z + dir * 0.34)]);
-    b.add(taperedTube(c2, (t) => 0.05 - t * 0.03, 8, 6), { color: PAL.rootDark });
-    // Dirt mound + clods + cracked paving chips where it dives in.
-    const end = curve.getPointAt(0.93);
-    b.add(G.sphere(12, 6), { color: PAL.dirt, pos: [end.x, 0.0, end.z], scale: [0.28, 0.08, 0.24] });
-    for (let i = 0; i < 3; i++) {
-      b.add(G.ico(0), { color: PAL.dirtDark, pos: [end.x + (r() - 0.5) * 0.4, 0.03, end.z + (r() - 0.5) * 0.4], scale: 0.05 + r() * 0.03 });
+    const end = curve.getPointAt(0.97);
+    addDirtPatch(b, end.x, end.z, big ? 0.16 : 0.11, r);
+    if (big && s.seed % 3 === 1) {
+      // A paving tile lifted by the root (low, tilted) sells "plugged into the ground".
+      b.add(G.rbox(0.28, 0.035, 0.24, 0.012), { color: PAL.pavingLine, pos: [reach * 0.55, 0.035, -side * 0.5 - 0.12], rot: [0.22, r() * 0.6, 0.18] });
     }
-    b.add(G.box(), { color: PAL.pavingLine, pos: [end.x + 0.18, 0.03, end.z - 0.12], rot: [0.25, r() * 3, 0.2], scale: [0.2, 0.04, 0.16] });
   } else if (s.kind === 'pipe') {
+    // Short elbow: out of the slab, down into a flanged ground socket, red valve on top.
     const col = s.seed % 2 ? PAL.pipeCopper : PAL.pipe;
-    b.add(G.cyl(1, 1, 12), { color: col, pos: [0.22, 0.12, 0], rot: [0, 0, Math.PI / 2], scale: [0.085, 0.6, 0.085] });
-    b.add(G.sphere(12, 8), { color: col, pos: [0.52, 0.12, 0], scale: 0.095 });
-    b.add(G.cyl(1, 1, 12), { color: col, pos: [0.52, 0.0, 0], scale: [0.085, 0.26, 0.085] });
-    for (const x of [0.05, 0.38]) {
-      b.add(G.cyl(1, 1, 12), { color: PAL.pipeDark, pos: [x, 0.12, 0], rot: [0, 0, Math.PI / 2], scale: [0.1, 0.05, 0.1] });
-    }
-    // Valve wheel.
-    b.add(G.torus(0.2, 6, 14), { color: '#E8505B', pos: [0.25, 0.26, 0], rot: [Math.PI / 2, 0, 0], scale: 0.09 });
-    b.add(G.cyl(1, 1, 6), { color: PAL.pipeDark, pos: [0.25, 0.2, 0], scale: [0.015, 0.12, 0.015] });
-    b.add(G.sphere(10, 6), { color: PAL.dirt, pos: [0.52, -0.01, 0], scale: [0.2, 0.05, 0.2] });
+    b.add(G.cyl(1, 1, 12), { color: col, pos: [0.06, 0.08, 0], rot: [0, 0, Math.PI / 2], scale: [0.06, 0.3, 0.06] });
+    b.add(G.sphere(12, 8), { color: col, pos: [0.21, 0.08, 0], scale: 0.066 });
+    b.add(G.cyl(1, 1, 12), { color: col, pos: [0.21, 0.035, 0], scale: [0.06, 0.09, 0.06] });
+    b.add(G.cyl(1, 1, 14), { color: PAL.pipeDark, pos: [0.21, 0.012, 0], scale: [0.11, 0.024, 0.11] });
+    b.add(G.cyl(1, 1, 12), { color: PAL.pipeDark, pos: [0.0, 0.08, 0], rot: [0, 0, Math.PI / 2], scale: [0.075, 0.04, 0.075] });
+    b.add(G.torus(0.22, 6, 14), { color: '#E8505B', pos: [0.08, 0.16, 0], rot: [Math.PI / 2, 0, 0], scale: 0.065 });
+    b.add(G.cyl(1, 1, 6), { color: PAL.pipeDark, pos: [0.08, 0.125, 0], scale: [0.012, 0.07, 0.012] });
   } else {
-    const curve = new THREE.CatmullRomCurve3([v3(-0.1, 0.04, 0), v3(0.3, 0.2, side * 0.4), v3(0.75, 0.08, side), v3(1.1, -0.12, side * 1.2)]);
-    b.add(taperedTube(curve, () => 0.035, 14, 6), { color: PAL.cable });
-    for (const t of [0.2, 0.45, 0.7]) {
-      const p = curve.getPointAt(t);
-      const tan = curve.getTangentAt(t);
-      const q = new THREE.Quaternion().setFromUnitVectors(v3(0, 0, 1), tan);
-      const e = new THREE.Euler().setFromQuaternion(q);
-      b.add(G.torus(0.25, 5, 12), { color: PAL.cableStripe, pos: [p.x, p.y, p.z], rot: [e.x, e.y, e.z], scale: [0.04, 0.04, 0.06] });
-    }
-    // Connector box at the slab.
-    b.add(G.rbox(0.16, 0.12, 0.14, 0.03), { color: PAL.cableStripe, pos: [0.0, 0.05, 0] });
+    // Utility cable hugging the ground into a little hatch.
+    const curve = new THREE.CatmullRomCurve3([v3(-0.06, 0.04, 0), v3(0.12, 0.035, side * 0.2), v3(0.26, 0.03, side * 0.35)]);
+    b.add(taperedTube(curve, () => 0.028, 10, 6), { color: PAL.cable });
+    b.add(G.rbox(0.12, 0.08, 0.12, 0.025), { color: PAL.cableStripe, pos: [-0.02, 0.05, 0] });
+    const end = curve.getPointAt(1);
+    b.add(G.rbox(0.2, 0.025, 0.2, 0.01), { color: PAL.steel, pos: [end.x + 0.04, 0.012, end.z] });
+    b.add(G.box(), { color: PAL.steelDark, pos: [end.x + 0.04, 0.026, end.z], scale: [0.12, 0.006, 0.03] });
   }
   b.pop();
 }
 
-/** Uprooted: short snapped stubs dragging on the ground (sway ramps toward the tip). */
+/** Uprooted: short snapped stubs hanging off the slab edge (sway ramps toward the tip). */
 function snappedPart(s: RootSpot): THREE.BufferGeometry {
   const r = rng(303 + s.seed * 13);
   const b = new PartBuilder();
   const side = (r() - 0.5) * 0.3;
-  if (s.kind === 'root') {
-    const curve = new THREE.CatmullRomCurve3([v3(-0.15, 0.06, 0), v3(0.18, 0.09, side), v3(0.45, 0.06, side * 1.6)]);
-    b.add(taperedTube(curve, (t) => 0.12 - t * 0.04, 8, 8), { color: PAL.root });
+  if (s.kind === 'root' || s.kind === 'corner') {
+    const big = s.kind === 'corner';
+    const len = big ? 0.26 : 0.18;
+    const r0 = big ? 0.07 : 0.05;
+    const curve = new THREE.CatmullRomCurve3([v3(-0.1, 0.05, 0), v3(len * 0.5, 0.05, side * 0.3), v3(len, 0.02, side * 0.6)]);
+    b.add(taperedTube(curve, (t) => r0 * (1 - t * 0.3), 6, 7), { color: PAL.root });
     const tip = curve.getPointAt(1);
-    b.add(G.cyl(1, 1, 8), { color: PAL.woodLight, pos: [tip.x + 0.005, tip.y, tip.z], rot: [0, 0, Math.PI / 2], scale: [0.075, 0.02, 0.075] });
+    b.add(G.cyl(1, 1, 8), { color: PAL.woodLight, pos: [tip.x + 0.004, tip.y, tip.z], rot: [0, 0, Math.PI / 2], scale: [r0 * 0.75, 0.016, r0 * 0.75] });
     for (let i = 0; i < 4; i++) {
       const a = (i / 4) * Math.PI * 2 + r();
       b.add(G.cone(5), {
         color: PAL.woodLight,
-        pos: [tip.x + 0.04, tip.y + Math.sin(a) * 0.03, tip.z + Math.cos(a) * 0.03],
+        pos: [tip.x + 0.03, tip.y + Math.sin(a) * r0 * 0.4, tip.z + Math.cos(a) * r0 * 0.4],
         rot: [a, 0, -Math.PI / 2],
-        scale: [0.018, 0.08 + r() * 0.05, 0.018],
+        scale: [0.014, 0.05 + r() * 0.04, 0.014],
       });
     }
   } else if (s.kind === 'pipe') {
     const col = s.seed % 2 ? PAL.pipeCopper : PAL.pipe;
-    b.add(G.cyl(1, 1, 12), { color: col, pos: [0.12, 0.12, 0], rot: [0, 0, Math.PI / 2], scale: [0.075, 0.38, 0.075] });
-    b.add(G.cyl(1, 1, 12), { color: PAL.pipeDark, pos: [0.05, 0.12, 0], rot: [0, 0, Math.PI / 2], scale: [0.1, 0.05, 0.1] });
+    b.add(G.cyl(1, 1, 12), { color: col, pos: [0.06, 0.08, 0], rot: [0, 0, Math.PI / 2], scale: [0.06, 0.24, 0.06] });
+    b.add(G.cyl(1, 1, 12), { color: PAL.pipeDark, pos: [0.0, 0.08, 0], rot: [0, 0, Math.PI / 2], scale: [0.075, 0.04, 0.075] });
     // Jagged torn end.
     for (let i = 0; i < 6; i++) {
       const a = (i / 6) * Math.PI * 2;
       b.add(G.cone(4), {
         color: col,
-        pos: [0.33, 0.12 + Math.sin(a) * 0.06, Math.cos(a) * 0.06],
+        pos: [0.19, 0.08 + Math.sin(a) * 0.045, Math.cos(a) * 0.045],
         rot: [a, 0, -Math.PI / 2],
-        scale: [0.025, 0.06 + (i % 2) * 0.05, 0.025],
+        scale: [0.018, 0.04 + (i % 2) * 0.035, 0.018],
       });
     }
     // Drip.
-    b.add(G.sphere(8, 6), { color: PAL.water, pos: [0.36, 0.03, 0], scale: [0.04, 0.03, 0.04], emissive: 0.3 });
+    b.add(G.sphere(8, 6), { color: PAL.water, pos: [0.22, 0.02, 0], scale: [0.03, 0.022, 0.03], emissive: 0.3 });
   } else {
-    const curve = new THREE.CatmullRomCurve3([v3(-0.1, 0.04, 0), v3(0.2, 0.14, side), v3(0.45, 0.06, side * 2)]);
-    b.add(taperedTube(curve, () => 0.035, 10, 6), { color: PAL.cable });
+    const curve = new THREE.CatmullRomCurve3([v3(-0.06, 0.04, 0), v3(0.1, 0.06, side), v3(0.22, 0.03, side * 1.6)]);
+    b.add(taperedTube(curve, () => 0.028, 8, 6), { color: PAL.cable });
     const tip = curve.getPointAt(1);
     for (let i = 0; i < 3; i++) {
       const a = -0.5 + i * 0.5;
-      b.add(G.cyl(1, 1, 4), { color: PAL.pipeCopper, pos: [tip.x + 0.05, tip.y + a * 0.05, tip.z + a * 0.04], rot: [a, 0, Math.PI / 2 + a * 0.6], scale: [0.008, 0.1, 0.008] });
+      b.add(G.cyl(1, 1, 4), { color: PAL.pipeCopper, pos: [tip.x + 0.04, tip.y + a * 0.04, tip.z + a * 0.03], rot: [a, 0, Math.PI / 2 + a * 0.6], scale: [0.007, 0.08, 0.007] });
     }
-    b.add(G.rbox(0.16, 0.12, 0.14, 0.03), { color: PAL.cableStripe, pos: [0.0, 0.05, 0] });
+    b.add(G.rbox(0.12, 0.08, 0.12, 0.025), { color: PAL.cableStripe, pos: [-0.02, 0.05, 0] });
   }
   const g = b.merge('vc')!;
-  rampSway(g, 'x', 0.05, 0.5, 2.2);
+  rampSway(g, 'x', 0.02, 0.3, 1.6);
   return g;
+}
+
+/** Strip of fresh soil along the slab edges (the bank is "planted"), skipping the doors. */
+function addSoilSeam(b: PartBuilder): void {
+  const r = rng(909);
+  const ox = HX + RIM;
+  const oz = HZ + RIM;
+  const gap = DOOR_W / 2 + 0.25;
+  const run = (x0: number, z0: number, x1: number, z1: number, nx: number, nz: number): void => {
+    const len = Math.hypot(x1 - x0, z1 - z0);
+    const yaw = -Math.atan2(z1 - z0, x1 - x0);
+    b.add(G.box(), { color: PAL.dirtDark, pos: [(x0 + x1) / 2 + nx * 0.07, 0.006, (z0 + z1) / 2 + nz * 0.07], rot: [0, yaw, 0], scale: [len, 0.012, 0.15] });
+    const n = Math.max(2, Math.round(len / 0.28));
+    for (let i = 0; i < n; i++) {
+      const t = (i + r()) / n;
+      const x = x0 + (x1 - x0) * t + nx * (0.05 + r() * 0.1);
+      const z = z0 + (z1 - z0) * t + nz * (0.05 + r() * 0.1);
+      const sz = 0.04 + r() * 0.04;
+      b.add(G.ico(0), { color: r() < 0.5 ? PAL.dirt : PAL.dirtDark, pos: [x, 0.012, z], rot: [r() * 3, r() * 3, r() * 3], scale: [sz * 1.4, sz * 0.5, sz] });
+    }
+  };
+  for (const sz of [-1, 1]) {
+    run(-ox, sz * oz, -gap, sz * oz, 0, sz);
+    run(gap, sz * oz, ox, sz * oz, 0, sz);
+  }
+  for (const sx of [-1, 1]) run(sx * ox, -oz, sx * ox, oz, sx, 0);
 }
 
 function buildRoots(snapped: boolean): THREE.BufferGeometry {
   const b = new PartBuilder();
+  if (!snapped) addSoilSeam(b);
   for (const s of rootSpots()) {
     if (snapped) b.addPrepared(snappedPart(s), { pos: [s.x, 0, s.z], rot: [0, s.yaw, 0] });
     else addAttached(b, s);
@@ -626,12 +674,12 @@ function buildRoots(snapped: boolean): THREE.BufferGeometry {
     // Dirt clinging to the slab edges.
     const r = rng(77);
     const per = (len: number) => Math.round(len * 2.2);
-    const edges: [number, number, number, number, number][] = [
-      // x0, z0, x1, z1, outward yaw
-      [-HX, HZ + RIM, HX, HZ + RIM, -Math.PI / 2],
-      [-HX, -HZ - RIM, HX, -HZ - RIM, Math.PI / 2],
-      [-HX - RIM, -HZ, -HX - RIM, HZ, Math.PI],
-      [HX + RIM, -HZ, HX + RIM, HZ, 0],
+    const edges: [number, number, number, number][] = [
+      // x0, z0, x1, z1
+      [-HX, HZ + RIM, HX, HZ + RIM],
+      [-HX, -HZ - RIM, HX, -HZ - RIM],
+      [-HX - RIM, -HZ, -HX - RIM, HZ],
+      [HX + RIM, -HZ, HX + RIM, HZ],
     ];
     for (const [x0, z0, x1, z1] of edges) {
       const n = per(Math.hypot(x1 - x0, z1 - z0));
@@ -639,8 +687,8 @@ function buildRoots(snapped: boolean): THREE.BufferGeometry {
         const t = (i + r()) / n;
         const x = x0 + (x1 - x0) * t;
         const z = z0 + (z1 - z0) * t;
-        const sz = 0.07 + r() * 0.09;
-        b.add(G.ico(0), { color: r() < 0.5 ? PAL.dirt : PAL.dirtDark, pos: [x, 0.02 + r() * 0.04, z], rot: [r() * 3, r() * 3, r() * 3], scale: [sz * 1.3, sz * 0.7, sz] });
+        const sz = 0.06 + r() * 0.06;
+        b.add(G.ico(0), { color: r() < 0.5 ? PAL.dirt : PAL.dirtDark, pos: [x, 0.02 + r() * 0.03, z], rot: [r() * 3, r() * 3, r() * 3], scale: [sz * 1.3, sz * 0.7, sz] });
       }
     }
   }
@@ -653,8 +701,8 @@ function buildSparks(): THREE.BufferGeometry {
   for (const s of rootSpots()) {
     if (s.kind !== 'cable') continue;
     b.push([s.x, 0, s.z], [0, s.yaw, 0]);
-    b.add(G.star(4, 0.3, 0.2), { color: PAL.spark, pos: [0.58, 0.12, 0.0], rot: [0, 0.6, 0.3], scale: 0.12, emissive: 1.5 });
-    b.add(G.star(4, 0.3, 0.2), { color: '#FFFFFF', pos: [0.62, 0.2, 0.08], rot: [0.4, -0.5, 0], scale: 0.07, emissive: 1.5 });
+    b.add(G.star(4, 0.3, 0.2), { color: PAL.spark, pos: [0.3, 0.1, 0.0], rot: [0, 0.6, 0.3], scale: 0.11, emissive: 1.5 });
+    b.add(G.star(4, 0.3, 0.2), { color: '#FFFFFF', pos: [0.33, 0.18, 0.07], rot: [0.4, -0.5, 0], scale: 0.065, emissive: 1.5 });
     b.pop();
   }
   return b.merge('vc')!;
@@ -780,6 +828,9 @@ export function createBank(): BankRig {
   signBoardMat.emissiveIntensity = 0.28;
   const board = mesh(geo.signBoard, signBoardMat, 'signBoard', signTilt);
   board.userData.noOutline = true;
+  // Remember the render camera so the sign can swivel toward it (results / title shots aim
+  // the camera from other directions than the match camera).
+  trackViewCamera(board);
 
   const rootsAttached = mesh(geo.rootsAttached, matVC(), 'rootsAttached', body);
   rootsAttached.userData.noOutline = true;
@@ -794,7 +845,8 @@ export function createBank(): BankRig {
   labelAnchor.position.y = BANK_LABEL_HEIGHT;
   root.add(labelAnchor);
 
-  const highlighter = new Highlighter(body);
+  // Silhouette-only outline: hulls slide back behind the building's own surface (outline.ts).
+  const highlighter = new Highlighter(body, { pushMax: 1.6, pushSlope: 0.75 });
 
   // --- state -----------------------------------------------------------------------
   const wallAlpha = [1, 1, 1, 1, 1, 1];
@@ -848,11 +900,11 @@ export function createBank(): BankRig {
       prevPos.copy(curPos);
       prevVel.copy(vel);
     }
-    // Swivel the sign so it keeps facing world +Z (the camera side; the game camera never
-    // rotates), lagging a little behind the bank's turns like a weather vane.
+    // Swivel the sign toward the camera (world +Z for the fixed match camera), lagging a
+    // little behind the bank's turns like a weather vane.
     root.getWorldQuaternion(q);
     eul.setFromQuaternion(q, 'YXZ');
-    const target = -eul.y;
+    const target = cameraFacingYaw() - eul.y;
     if (!signYawInit) {
       signYawAngle = target;
       signYawInit = true;
@@ -861,7 +913,8 @@ export function createBank(): BankRig {
     dYaw = Math.atan2(Math.sin(dYaw), Math.cos(dYaw));
     signYawAngle += dYaw * (1 - Math.exp(-dt * 5));
     signYaw.rotation.y = signYawAngle;
-    sp.vz += dYaw * 2.5 * dt * 10;
+    // Swivelling rocks the sign a little (bounded, so a camera cut's half-turn stays cute).
+    sp.vz += THREE.MathUtils.clamp(dYaw, -0.35, 0.35) * 25 * dt;
     const k = 70;
     const c = 2.6;
     const gain = 0.06;
@@ -1009,7 +1062,7 @@ function getScarGeo(): { soil: THREE.BufferGeometry; water: THREE.BufferGeometry
   // Snapped ends poking out of the soil where the roots were.
   for (const s of rootSpots()) {
     b.push([s.x * 0.93, 0, s.z * 0.93], [0, s.yaw + Math.PI, 0]);
-    if (s.kind === 'root') {
+    if (s.kind === 'root' || s.kind === 'corner') {
       const curve = new THREE.CatmullRomCurve3([v3(-0.6, -0.1, 0), v3(-0.3, 0.06, 0), v3(-0.05, 0.16, 0.03)]);
       b.add(taperedTube(curve, (t) => 0.06 - t * 0.02, 8, 6), { color: PAL.root });
       b.add(G.cyl(1, 1, 8), { color: PAL.woodLight, pos: [-0.04, 0.17, 0.03], rot: [0, 0, -0.6], scale: [0.04, 0.02, 0.04] });

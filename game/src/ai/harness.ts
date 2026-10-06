@@ -67,6 +67,10 @@ export interface SlotStats {
   unstuckEvents: number;
   botMsTotal: number;
   botMsMax: number;
+  /** Max after the first 2 s (JIT warm-up excluded). */
+  botMsMaxWarm: number;
+  /** Updates slower than 2 ms (after warm-up). */
+  botSlow2ms: number;
   botTicks: number;
   goals: Record<string, number>;
   finalReplans: number;
@@ -155,6 +159,8 @@ export function runMatch(spec: MatchSpec): MatchStats {
     unstuckEvents: 0,
     botMsTotal: 0,
     botMsMax: 0,
+    botMsMaxWarm: 0,
+    botSlow2ms: 0,
     botTicks: 0,
     goals: {},
     finalReplans: 0,
@@ -186,6 +192,10 @@ export function runMatch(spec: MatchSpec): MatchStats {
         s.botMsTotal += dt;
         s.botTicks++;
         if (dt > s.botMsMax) s.botMsMax = dt;
+        if (st.tick > 2 * TICK_RATE) {
+          if (dt > s.botMsMaxWarm) s.botMsMaxWarm = dt;
+          if (dt > 2) s.botSlow2ms++;
+        }
       } else commands[i] = b.update(sim);
     }
     const events = sim.step(commands);
@@ -255,7 +265,9 @@ export function runMatch(spec: MatchSpec): MatchStats {
           if (l.recovery && l.recovery.team === ch.team) progress = true;
         }
       }
-      const waiting = intent.telegraph || ['guard', 'wait', 'recover', 'escort'].includes(intent.phase) || intent.goal === 'idle' && false;
+      // declared waiting (guarding a door / watching a chokepoint / escorting); a 'recover' phase
+      // counts as progress only through the real recovery dwell above
+      const waiting = intent.telegraph || ['guard', 'wait', 'escort'].includes(intent.phase);
       if (waiting) slotStats[i]!.idleSeconds += 1 / TICK_RATE;
       if (progress || waiting) {
         ref[i] = { ...ch.pos };
@@ -412,6 +424,9 @@ export interface SeriesAggregate {
   byKey: Record<string, PersonalityAgg>;
   botMsAvg: number;
   botMsMax: number;
+  botMsMaxWarm: number;
+  /** Share of bot updates slower than 2 ms (after warm-up). */
+  botSlowShare: number;
   stuck5: number;
   finalReplans: number;
   /** Human-proxy matches: share of the proxy team's points earned by the bot teammate. */
@@ -433,12 +448,15 @@ export function aggregate(ms: SeriesMatch[]): SeriesAggregate {
     byKey: {},
     botMsAvg: 0,
     botMsMax: 0,
+    botMsMaxWarm: 0,
+    botSlowShare: 0,
     stuck5: 0,
     finalReplans: 0,
     teammateShare: null,
   };
   let msTot = 0;
   let msTicks = 0;
+  let slow = 0;
   const fs: [number[], number[]] = [[], []];
   let shareNum = 0;
   let shareDen = 0;
@@ -507,6 +525,8 @@ export function aggregate(ms: SeriesMatch[]): SeriesAggregate {
         msTot += s.botMsTotal;
         msTicks += s.botTicks;
         agg.botMsMax = Math.max(agg.botMsMax, s.botMsMax);
+        agg.botMsMaxWarm = Math.max(agg.botMsMaxWarm, s.botMsMaxWarm);
+        slow += s.botSlow2ms;
         agg.stuck5 += s.stuckIncidents5s;
         agg.finalReplans += s.finalReplans;
       }
@@ -520,6 +540,7 @@ export function aggregate(ms: SeriesMatch[]): SeriesAggregate {
     }
   }
   agg.botMsAvg = msTicks > 0 ? msTot / msTicks : 0;
+  agg.botSlowShare = msTicks > 0 ? slow / msTicks : 0;
   agg.avgFirstScoreS = [fs[0].length ? avg(fs[0]) : null, fs[1].length ? avg(fs[1]) : null];
   agg.teammateShare = shareDen > 0 ? shareNum / shareDen : null;
   return agg;
@@ -542,7 +563,7 @@ export function formatAggregate(agg: SeriesAggregate, title = ''): string {
       .join(' ')}  avg score A ${agg.avgScoreA.toFixed(0)} B ${agg.avgScoreB.toFixed(0)}  first score A ${agg.avgFirstScoreS[0]?.toFixed(1) ?? '-'}s B ${agg.avgFirstScoreS[1]?.toFixed(1) ?? '-'}s  invariant violations ${agg.invariantViolations}`,
   );
   L.push(
-    `bot cpu avg ${agg.botMsAvg.toFixed(3)} ms/tick/bot  max ${agg.botMsMax.toFixed(2)} ms  stuck>5s ${agg.stuck5}  final-30s re-plans ${agg.finalReplans}` +
+    `bot cpu avg ${agg.botMsAvg.toFixed(3)} ms/tick/bot  max ${agg.botMsMax.toFixed(2)} ms (after warm-up ${agg.botMsMaxWarm.toFixed(2)} ms, ${(agg.botSlowShare * 100).toFixed(3)}% of updates > 2 ms)  stuck>5s ${agg.stuck5}  final-30s re-plans ${agg.finalReplans}` +
       (agg.teammateShare !== null ? `  teammate share ${(agg.teammateShare * 100).toFixed(1)}%` : ''),
   );
   L.push('  per bot (averages per match):  pts | small large bank (whole) | strips steals | KOs dashes boosts | stuck s idle s max-stuck stuck>5 unstuck | scored% first-score');

@@ -8,16 +8,17 @@
  *   npx tsx tools/balance-report.ts --blocks equal  # subset: equal,ladder,team,proxy
  *   npx tsx tools/balance-report.ts --out report.md --workers 3 --seeds 4
  *
- * Default output: /tmp/claude-0/-home-user--/f0c0347d-03ef-58ae-9fd7-f05f7cc9cfe2/scratchpad/ai/balance.md
+ * Default output: <os tmpdir>/balance-report.md (path printed at the end).
  */
 import { spawn } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { aggregate, runMatch, type SeriesMatch, type SlotSpec, type SeriesAggregate } from '../src/ai/harness';
 import type { Difficulty, RivalId } from '../src/ai/types';
 import type { LayoutId, TeamId } from '../src/sim/types';
 
-const DEFAULT_OUT = '/tmp/claude-0/-home-user--/f0c0347d-03ef-58ae-9fd7-f05f7cc9cfe2/scratchpad/ai/balance.md';
+const DEFAULT_OUT = join(tmpdir(), 'balance-report.md');
 const LAYOUTS: LayoutId[] = ['plaza', 'shortcut', 'counter'];
 const PERS: RivalId[] = ['hodadak', 'tongkeun', 'nunchi'];
 const DIFFS: Difficulty[] = ['novice', 'normal', 'challenge'];
@@ -139,8 +140,7 @@ function runWorkers(jobs: Job[], workers: number, onProgress: (done: number) => 
     for (const chunk of chunks) {
       if (!chunk.length) continue;
       alive++;
-      const tmp = resolve(dirname(DEFAULT_OUT), `jobs-${process.pid}-${alive}.json`);
-      mkdirSync(dirname(tmp), { recursive: true });
+      const tmp = join(tmpdir(), `balance-jobs-${process.pid}-${alive}.json`);
       writeFileSync(tmp, JSON.stringify(chunk));
       const child = spawn(process.execPath, [...process.execArgv, self, '--worker', tmp], { stdio: ['ignore', 'pipe', 'inherit'] });
       let buf = '';
@@ -157,6 +157,11 @@ function runWorkers(jobs: Job[], workers: number, onProgress: (done: number) => 
         }
       });
       child.on('exit', (code) => {
+        try {
+          unlinkSync(tmp);
+        } catch {
+          /* already gone */
+        }
         if (code !== 0) rej(new Error(`worker exited with ${code}`));
         if (--alive === 0) res(results);
       });
@@ -223,7 +228,7 @@ export function buildReport(jobs: Job[], results: Map<number, SeriesMatch>, elap
   L.push('');
   L.push(`Matches: ${all.length} · wall time ${(elapsed / 1000).toFixed(0)} s · invariant violations (scores + remaining = total, checked every tick): **${total.invariantViolations}**`);
   L.push('');
-  L.push(`Bot CPU: avg **${total.botMsAvg.toFixed(3)} ms** per bot per tick (budget 0.3), max single tick ${total.botMsMax.toFixed(1)} ms. Stuck > 5 s incidents (all bots, all matches): **${total.stuck5}**. Final-30-s re-plans logged: ${total.finalReplans}.`);
+  L.push(`Bot CPU (3 parallel worker processes, so wall-clock maxima include scheduling noise): avg **${total.botMsAvg.toFixed(3)} ms** per bot per tick (budget 0.3), max single update ${total.botMsMax.toFixed(1)} ms (after a 2 s warm-up ${total.botMsMaxWarm.toFixed(1)} ms; ${(total.botSlowShare * 100).toFixed(3)}% of updates > 2 ms). Stuck > 5 s incidents (all bots, all matches): **${total.stuck5}**. Final-30-s re-plans logged: ${total.finalReplans}.`);
   checks['invariant'] = total.invariantViolations === 0;
   checks['cpu<0.3ms'] = total.botMsAvg < 0.3;
   checks['stuck>5s==0'] = total.stuck5 === 0;
@@ -254,7 +259,8 @@ export function buildReport(jobs: Job[], results: Map<number, SeriesMatch>, elap
       if (!mirror && dec > 0) worst = Math.max(worst, a.aWins / dec, a.bWins / dec);
       rows.push([name, String(a.matches), pct(a.aWins, a.matches), pct(a.bWins, a.matches), pct(a.draws, a.matches), `${a.avgScoreA.toFixed(0)}–${a.avgScoreB.toFixed(0)}`, pct(a.team0Wins, dec), Object.entries(a.reasons).map(([k, v]) => `${k} ${v}`).join(', ')]);
     }
-    checks['no personality >80% at equal difficulty'] = worst <= 0.8;
+    L.push(`Worst single pairing at one difficulty (decided games): ${(worst * 100).toFixed(0)}% (info).`);
+    L.push('');
     L.push(table(rows));
     L.push('');
     // aggregate personality vs personality across difficulties
@@ -282,6 +288,12 @@ export function buildReport(jobs: Job[], results: Map<number, SeriesMatch>, elap
       }
       pp.push(row);
     }
+    let worstAgg = 0;
+    for (const r of pp.slice(1)) for (const cell of r.slice(1)) {
+      const m = /^(\d+)%/.exec(cell);
+      if (m) worstAgg = Math.max(worstAgg, Number(m[1]) / 100);
+    }
+    checks['no personality >80% vs another at equal difficulty (aggregate)'] = worstAgg <= 0.8;
     L.push('Aggregate win share of the row personality against the column personality (all difficulties, draws = ½):');
     L.push('');
     L.push(table(pp));

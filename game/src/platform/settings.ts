@@ -57,6 +57,11 @@ export interface LanguageHints {
  * Steam client), then the OS/browser preference list. Korean players get Korean, everyone
  * else gets English; with no locale information at all we fall back to Korean, the game's
  * primary language.
+ *
+ * Deliberate reading of the spec's "default from navigator, ko fallback": a Japanese, German
+ * or Chinese locale IS locale information, and those players are far better served by English
+ * (the only other shipped language) than by Korean. The UI's own `detectLanguage` (src/ui/i18n)
+ * makes the same choice, so the two never disagree. The player can switch in Settings anyway.
  */
 export function detectLanguage(hints: LanguageHints = defaultLanguageHints()): Language {
   const steam = hints.steamLanguage?.toLowerCase();

@@ -11,6 +11,7 @@
 import { AudioEngine, type CaptionEvent } from '../audio';
 import { captionText } from '../captions';
 import { LOOP_IDS, SFX_IDS, TRACK_IDS, type LoopId, type MusicId, type SfxId, type TrackId } from '../ids';
+import { DEFAULT_VOLUMES, type Volumes } from '../mixer';
 import { encodeWav, renderLoop, renderMusic, renderScene, renderSfx, type SceneOptions } from '../offline';
 import { SFX_RECIPES } from '../sfx';
 import { SPATIAL } from '../spatial';
@@ -34,15 +35,27 @@ function section(title: string, ...kids: Node[]): HTMLElement {
   return el('section', {}, el('h2', {}, title), ...kids);
 }
 
-function slider(label: string, value: number, onInput: (v: number) => void): HTMLElement {
+interface Slider {
+  el: HTMLElement;
+  set(v: number): void;
+}
+
+function slider(label: string, value: number, onInput: (v: number) => void, mark?: number): Slider {
   const input = el('input', { type: 'range', min: '0', max: '1', step: '0.01', value: String(value) });
   const out = el('span', {}, value.toFixed(2));
+  if (mark !== undefined) input.title = `default ${mark.toFixed(2)}`;
   input.addEventListener('input', () => {
     const v = Number(input.value);
     out.textContent = v.toFixed(2);
     onInput(v);
   });
-  return el('label', { class: 'slider' }, el('span', {}, label), input, out);
+  return {
+    el: el('label', { class: 'slider' }, el('span', {}, label), input, out),
+    set(v: number): void {
+      input.value = String(v);
+      out.textContent = v.toFixed(2);
+    },
+  };
 }
 
 async function ensureUnlocked(): Promise<void> {
@@ -65,16 +78,34 @@ engine.setCaptionListener((e: CaptionEvent) => {
 });
 
 // ---- volumes ---------------------------------------------------------------------------------
-const vols = { master: 1, music: 1, sfx: 1, ui: 1 };
+// Start at the shipped defaults: that is the calibrated mix a new player hears.
+const VOL_KEYS = ['master', 'music', 'sfx', 'ui'] as const;
+const vols: Volumes = { ...DEFAULT_VOLUMES };
 engine.setVolumes(vols);
-const volSection = section(
-  'Volumes',
-  ...(['master', 'music', 'sfx', 'ui'] as const).map((k) =>
-    slider(k, vols[k], (v) => {
+const volSliders = VOL_KEYS.map((k) =>
+  slider(
+    k,
+    vols[k],
+    (v) => {
       vols[k] = v;
       engine.setVolumes(vols);
-    }),
+    },
+    DEFAULT_VOLUMES[k],
   ),
+);
+function applyVolumes(v: Volumes): void {
+  Object.assign(vols, v);
+  VOL_KEYS.forEach((k, i) => volSliders[i].set(vols[k]));
+  engine.setVolumes(vols);
+}
+const defaultsBtn = el('button', {}, 'Defaults');
+defaultsBtn.addEventListener('click', () => applyVolumes({ ...DEFAULT_VOLUMES }));
+const fullBtn = el('button', {}, 'All 1.0');
+fullBtn.addEventListener('click', () => applyVolumes({ master: 1, music: 1, sfx: 1, ui: 1 }));
+const volSection = section(
+  'Volumes (start at the shipped defaults)',
+  ...volSliders.map((x) => x.el),
+  el('div', { class: 'row' }, defaultsBtn, fullBtn),
   el('div', { class: 'row' }),
 );
 const muffleBtn = el('button', {}, 'Pause muffle');
@@ -167,11 +198,14 @@ sfxSection.classList.add('wide');
 const loopLevels: Record<LoopId, number> = { drag: 0, bankRumble: 0, strain: 0, sirenLoop: 0 };
 const loopSection = section(
   'Loops (intensity)',
-  ...LOOP_IDS.map((id) => slider(id, 0, (v) => {
-    loopLevels[id] = v;
-    void ensureUnlocked();
-  })),
-  el('p', { class: 'hint' }, 'Loops follow the spatial pad position. Drag the strain slider up slowly to hear the rising creak.'),
+  ...LOOP_IDS.map(
+    (id) =>
+      slider(id, 0, (v) => {
+        loopLevels[id] = v;
+        void ensureUnlocked();
+      }).el,
+  ),
+  el('p', { class: 'hint' }, 'Loops follow the spatial pad position. Drag the strain slider up slowly to hear the rising creak. The siren phrases with the music playing (one wail per 4 bars); above 0.8 the gaps fill in.'),
 );
 function tickLoops(): void {
   for (const id of LOOP_IDS) engine.setLoop(id, loopLevels[id], soundPos ?? undefined);
@@ -196,7 +230,7 @@ for (const id of [...TRACK_IDS, 'none'] as MusicId[]) {
 const musicSection = section(
   'Music',
   musicRow,
-  slider('intensity', 0.5, (v) => engine.setMusicIntensity(v)),
+  slider('intensity', 0.5, (v) => engine.setMusicIntensity(v)).el,
   el('p', { class: 'hint' }, "'match' layers: base (bass, clav, shaker) → drums ≥0.1 → lead ≥0.35 → extra ≥0.65. Tonal SFX are tuned to the track key."),
 );
 engine.setMusicIntensity(0.5);
@@ -247,22 +281,33 @@ const qa = {
   loopIds: LOOP_IDS as readonly LoopId[],
   trackIds: TRACK_IDS as readonly TrackId[],
   recipes: Object.fromEntries(SFX_IDS.map((id) => [id, { variants: SFX_RECIPES[id].variants, bus: SFX_RECIPES[id].bus, length: SFX_RECIPES[id].length }])),
-  async renderSfx(id: SfxId, variant = 0, seed = 1, extra: { step?: number; pitch?: number; pos?: { x: number; y: number } } = {}): Promise<string> {
+  async renderSfx(
+    id: SfxId,
+    variant = 0,
+    seed = 1,
+    extra: { step?: number; pitch?: number; pos?: { x: number; y: number }; volumes?: Volumes } = {},
+  ): Promise<string> {
     return toBase64(encodeWav(await renderSfx(id, { variant, seed, ...extra }), 32));
   },
-  async renderMusic(id: TrackId, seconds: number, intensity = 0.75, seed = 7, only?: string[]): Promise<string> {
-    return toBase64(encodeWav(await renderMusic(id, seconds, { intensity, seed, only }), 32));
+  async renderMusic(id: TrackId, seconds: number, intensity = 0.75, seed = 7, only?: string[], volumes?: Volumes): Promise<string> {
+    return toBase64(encodeWav(await renderMusic(id, seconds, { intensity, seed, only, volumes }), 32));
   },
   /** Intensity ramps 0 -> 1 over the first 80 % then holds (shows the whole range). */
-  async renderMusicRamp(id: TrackId, seconds: number, seed = 7): Promise<string> {
-    return toBase64(encodeWav(await renderMusic(id, seconds, { intensity: (t) => Math.min(1, t / (seconds * 0.8)), seed }), 32));
+  async renderMusicRamp(id: TrackId, seconds: number, seed = 7, volumes?: Volumes): Promise<string> {
+    return toBase64(encodeWav(await renderMusic(id, seconds, { intensity: (t) => Math.min(1, t / (seconds * 0.8)), seed, volumes }), 32));
   },
   async renderScene(seconds: number, o: SceneOptions): Promise<string> {
     return toBase64(encodeWav(await renderScene(seconds, o), 32));
   },
-  async renderLoop(id: LoopId, seconds: number, shape: 'ramp' | 'full' = 'ramp'): Promise<string> {
-    const intensity = shape === 'full' ? () => 1 : (t: number) => (t < seconds * 0.85 ? t / (seconds * 0.85) : 0);
-    return toBase64(encodeWav(await renderLoop(id, seconds, { intensity }), 32));
+  /** 'ramp': 0 -> 1 over 85 % then silent; 'full': held at 1; 'urgency': 0.25 -> 1 (the director's siren). */
+  async renderLoop(id: LoopId, seconds: number, shape: 'ramp' | 'full' | 'urgency' = 'ramp', volumes?: Volumes): Promise<string> {
+    const intensity =
+      shape === 'full'
+        ? () => 1
+        : shape === 'urgency'
+          ? (t: number) => 0.25 + (0.75 * t) / seconds
+          : (t: number) => (t < seconds * 0.85 ? t / (seconds * 0.85) : 0);
+    return toBase64(encodeWav(await renderLoop(id, seconds, { intensity, volumes }), 32));
   },
 };
 (window as unknown as { audioQA: typeof qa }).audioQA = qa;

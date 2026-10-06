@@ -6,6 +6,9 @@
  * - update(patch) merges props and re-renders, keeping focus and scroll positions.
  * - Language changes re-render automatically.
  * - While visible, the screen is on the nav stack and receives MenuNav actions.
+ * - Terminal actions (start, rematch, next, back...) go through `leave()`: they fire once,
+ *   then the screen ignores input until it is shown again, regains the top of the nav stack,
+ *   or `rearm()` is called. Mashing confirm during a fade can never start two matches.
  */
 import { onLanguageChange } from '../i18n';
 import { FocusScope, navRouter, uiSound, type NavTarget } from './nav';
@@ -23,6 +26,13 @@ function frameOverflows(frame: HTMLElement): boolean {
   }
   return false;
 }
+
+/**
+ * Safety net for `leave()`: if the screen is still visible and on top this long after a
+ * terminal action fired (game flow ignored or cancelled it without calling `rearm()`), input
+ * is accepted again so the player is never soft-locked.
+ */
+export const LEAVE_FAILSAFE_MS = 4000;
 
 export interface ScreenOptions {
   /** Modifier for the root class: 'uh-screen--<name>'. */
@@ -48,6 +58,8 @@ export abstract class UiScreen<P extends object> implements NavTarget {
   /** Cleanups for resources created by render() (observers, timers); run before each re-render. */
   private renderDisposers: (() => void)[] = [];
   private fitRaf = 0;
+  private leaving = false;
+  private leaveTimer = 0;
   private readonly onRelayout = (): void => {
     if (this.visible) this.scheduleFit();
   };
@@ -81,8 +93,32 @@ export abstract class UiScreen<P extends object> implements NavTarget {
     return this.visible;
   }
 
+  /** True after a terminal action fired, until the screen is re-armed. */
+  get isLeaving(): boolean {
+    return this.leaving;
+  }
+
+  /**
+   * Accept terminal actions again. Called automatically by show() and when this screen
+   * becomes the top of the nav stack again; game flow calls it when it cancels a transition
+   * while keeping this screen up (e.g. a rematch that failed to start).
+   */
+  rearm(): void {
+    window.clearTimeout(this.leaveTimer);
+    this.leaveTimer = 0;
+    if (!this.leaving) return;
+    this.leaving = false;
+    this.el.classList.remove('is-exiting');
+  }
+
+  /** NavTarget hook: a dialog / sub-screen above this one closed. */
+  onNavResume(): void {
+    this.rearm();
+  }
+
   show(): this {
     if (this.destroyed) return this;
+    this.rearm();
     if (!this.el.isConnected) this.mount();
     if (!this.rendered) this.rerender();
     if (this.visible) return this;
@@ -104,6 +140,8 @@ export abstract class UiScreen<P extends object> implements NavTarget {
     this.visible = false;
     this.el.hidden = true;
     this.el.classList.remove('is-entering');
+    window.clearTimeout(this.leaveTimer);
+    this.leaveTimer = 0;
     navRouter.remove(this);
     this.onHide();
     return this;
@@ -114,6 +152,7 @@ export abstract class UiScreen<P extends object> implements NavTarget {
     this.hide();
     this.destroyed = true;
     window.clearTimeout(this.enterTimer);
+    window.clearTimeout(this.leaveTimer);
     this.unsubLang?.();
     this.unsubLang = null;
     cancelAnimationFrame(this.fitRaf);
@@ -143,6 +182,8 @@ export abstract class UiScreen<P extends object> implements NavTarget {
   // --- navigation -----------------------------------------------------------------------
 
   handleNav(action: NavAction): boolean {
+    // A terminal action already fired: swallow everything until re-armed.
+    if (this.leaving) return true;
     switch (action) {
       case 'navUp':
         return this.focus.move('up');
@@ -189,6 +230,29 @@ export abstract class UiScreen<P extends object> implements NavTarget {
   protected onShow(): void {}
   protected onHide(): void {}
   protected onDestroy(): void {}
+
+  /**
+   * Run a terminal action (one that leaves this screen) at most once: further confirms,
+   * clicks and back presses are ignored (and pointer input disabled) until the screen is
+   * re-armed — see `rearm()`. Returns true when `fn` ran.
+   */
+  protected leave(fn: (() => void) | null | undefined): boolean {
+    if (this.leaving || this.destroyed) return false;
+    this.leaving = true;
+    this.el.classList.add('is-exiting');
+    window.clearTimeout(this.leaveTimer);
+    this.leaveTimer = window.setTimeout(() => {
+      this.leaveTimer = 0;
+      if (this.visible && navRouter.top() === this) this.rearm();
+    }, LEAVE_FAILSAFE_MS);
+    try {
+      fn?.();
+    } catch (err) {
+      this.rearm();
+      throw err;
+    }
+    return true;
+  }
 
   /** Register a cleanup for something render() created; it runs before the next render/destroy. */
   protected own(dispose: () => void): void {

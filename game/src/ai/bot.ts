@@ -20,6 +20,7 @@ import {
   obbInside,
   rayOBB,
   safeGrabSpots,
+  STAND_OFF,
   wrapAngle,
   zoneOBB,
   zoneOf,
@@ -84,6 +85,10 @@ interface Goal {
   spotRef?: Vec2;
   excluded?: Set<string>;
   aimTicks?: number;
+  fineBest?: number;
+  fineTick?: number;
+  fineSeen?: number;
+  yielding?: boolean;
   stallRef?: Vec2;
   stallTick?: number;
   stalls?: number;
@@ -105,6 +110,7 @@ interface Goal {
   stallLimit?: number;
   /** Load this safe onto that bank's floor instead of recovering it (욕심내서 하나 더). */
   loadInto?: EntityId;
+  forcedReleases?: number;
 }
 
 export interface BotStats {
@@ -170,6 +176,7 @@ export class Bot implements BotController {
   private lastEventIdx = 0;
   private readonly blacklist = new Map<string, number>();
   private prevDash = false;
+  private proxyPinged: EntityId | null = null;
   /** Tick at which a pending urgent re-plan is taken (reaction delay), -1 = none. */
   private urgentAt = -1;
   private travelDash = false;
@@ -299,6 +306,12 @@ export class Bot implements BotController {
     }
     this.prevDash = c.dash;
     this.lastGrabCmd = c.grab && !me.grab;
+    // scripted human stand-in: asks its teammate for help when it starts on a bank (같이 잡자)
+    if (this.isProxy && this.goal && this.goal.kind === 'haulBank' && this.goal.targetId !== null && this.proxyPinged !== this.goal.targetId && this.goal.phase === 'approach') {
+      const b = sim.getLoot(this.goal.targetId);
+      if (b && this.rng() < 0.5) c = { ...c, ping: { pos: { ...b.pos }, targetId: b.id } };
+      this.proxyPinged = this.goal.targetId;
+    }
     if (this.trail && me.grab) {
       const l = sim.getLoot(me.grab.targetId);
       if (l && l.kind === 'smallSafe') this.markTrail(me.pos);
@@ -409,7 +422,10 @@ export class Bot implements BotController {
           this.finalPending = true;
           break;
         case 'release':
-          if (e.charId === this.id && e.forced) this.urgent = true;
+          if (e.charId === this.id && e.forced) {
+            this.urgent = true;
+            if (g) g.forcedReleases = (g.forcedReleases ?? 0) + 1;
+          }
           break;
         case 'dashHit':
           if (e.attackerId === this.id && e.knockdown) {
@@ -432,6 +448,13 @@ export class Bot implements BotController {
   }
 
   private finalPending = false;
+  /** Bank stand spots chosen by the bots of this sim (slot -> spot), shared via a static map. */
+  private get claimedSpots(): Map<number, Vec2> {
+    let m = Bot.spotBoard.get(this.board);
+    if (!m) Bot.spotBoard.set(this.board, (m = new Map()));
+    return m;
+  }
+  private static readonly spotBoard = new WeakMap<TeamBoard, Map<number, Vec2>>();
   /** Last ambush watch shift (adaptation ambushChoke). */
   private lastAmbushTick = -1e9;
   /** Endgame posture (decided once in the last ~40 s). */
@@ -502,12 +525,14 @@ export class Bot implements BotController {
     }
     cands.sort((a, b) => b.utility - a.utility || (a.key < b.key ? -1 : 1));
     let pick: Goal | null = cands[0] ?? null;
+    // a human teammate's request is never second-guessed by choice noise
+    const requested = pick !== null && pick.pingId !== undefined;
     // near-ties are broken at random (no quality loss: these options are equally good)
-    if (pick && (!cur || pick.key !== cur.key)) {
+    if (pick && !requested && (!cur || pick.key !== cur.key)) {
       const near = cands.filter((c) => c.kind !== 'idle' && c.utility >= pick!.utility * 0.94);
       if (near.length > 1) pick = near[Math.floor(this.rng() * near.length)]!;
     }
-    if (pick && this.rng() > this.P.bestChoiceProb) {
+    if (pick && !requested && this.rng() > this.P.bestChoiceProb) {
       const decent = cands.filter((c) => c !== pick && c.utility >= pick!.utility * this.P.decentRatio && c.kind !== 'idle');
       if (decent.length) pick = decent[Math.floor(this.rng() * decent.length)]!;
     }
@@ -560,6 +585,7 @@ export class Bot implements BotController {
     const tick = sim.state.tick;
     const prev = this.goal;
     if (prev && prev.key !== g.key) this.abandoned.set(prev.key, tick);
+    this.claimedSpots.delete(this.slot);
     g.started = tick;
     g.phase = 'start';
     this.goal = g;
@@ -595,6 +621,7 @@ export class Bot implements BotController {
       this.stats.goalFails++;
     }
     this.log1(sim, `end ${g.key}: ${why}`);
+    this.claimedSpots.delete(this.slot);
     this.goal = null;
     this.path = null;
     if (!this.isProxy) this.board.setClaim(this.slot, null, null, sim.state.tick);
@@ -726,6 +753,10 @@ export class Bot implements BotController {
           bankMoving = !bank.anchored;
           const oppHaul = this.oppHolding(sim, bank.id).length > 0;
           strip = oppHaul || bankMoving;
+          // a loose bank nobody is hauling (ours, or abandoned) is worth more hauled whole than
+          // emptied — and never unpack a bank that already sits in our zone
+          if (!holdingIt && !oppHaul && !bank.anchored && Math.hypot(bank.vel.x, bank.vel.y) < 0.25) continue;
+          if (!holdingIt && this.bankInZone(sim, bank, -3)) continue;
           if (bank.recovery && bank.recovery.team === this.team && !holdingIt) continue;
           if (strip && !holdingIt) {
             // can I get it out before they recover the bank?
@@ -949,7 +980,7 @@ export class Bot implements BotController {
           let best = 0;
           for (const c of out) if (c.kind !== 'idle' && c.kind !== 'reposition') best = Math.max(best, c.utility);
           const dueShift = tick - this.lastAmbushTick > 20 * TICK_RATE;
-          let rate = dueShift ? Math.max(5.5, best * 0.95) : 4;
+          let rate = dueShift ? Math.max(5.5, best * 1.08) : 4;
           const seenNear = freshOpps.some((o) => o.last && o.age < 600 && V.dist(o.last.pos, ch.pos) < ch.radius + 14);
           if (seenNear) rate *= 1.6;
           const carrying = freshOpps.some((o) => o.last && o.age < 60 && o.last.holdingId !== null && V.dist(o.last.pos, ch.pos) < ch.radius + 12);
@@ -1203,7 +1234,13 @@ export class Bot implements BotController {
         const ref = g.phaseRef ?? this.me(sim).pos;
         const tp = this.goalTargetPos(sim, g);
         const d = tp ? V.dist(ref, tp) : 20;
-        return Math.max(9 * s, ((d * 2.2) / WALK + 5) * s);
+        // a target riding a moving bank can run away from (or straight at) the approacher
+        const moving = g.targetId !== null && (() => {
+          const l = sim.getLoot(g.targetId!);
+          const b = l && l.floorOf !== null ? sim.getLoot(l.floorOf) : undefined;
+          return !!b && !b.anchored && Math.hypot(b.vel.x, b.vel.y) > 0.25;
+        })();
+        return Math.max((moving ? 6 : 9) * s, ((d * 2.2) / WALK + (moving ? 2 : 5)) * s);
       }
       case 'grab':
         return 4 * s;
@@ -1304,7 +1341,31 @@ export class Bot implements BotController {
     const slow = opts.slow ?? 0.7;
     const isLast = !p || p.idx >= p.pts.length - 1;
     if (isLast && dGoal < slow) mag = Math.max(0.35, dGoal / slow);
-    dir = this.avoid(sim, dir, cls, opts.carrying === true);
+    // head-on in a one-lane alley: the one without right of way backs out and steps aside
+    if (tick < this.backoffUntil) {
+      let bd = this.backoffDir;
+      if (nav.clearanceAt(me.pos.x, me.pos.y) >= 1.0) {
+        const perp = { x: -bd.y, y: bd.x };
+        const l = nav.clearanceAt(me.pos.x + perp.x * 0.8, me.pos.y + perp.y * 0.8);
+        const r = nav.clearanceAt(me.pos.x - perp.x * 0.8, me.pos.y - perp.y * 0.8);
+        bd = l >= r ? perp : V.scale(perp, -1);
+      }
+      this.watchRef = { ...me.pos };
+      this.watchTick = tick;
+      return { move: bd, arrived: false, stuck: false };
+    }
+    if (tick - this.backoffWindow > 10 * TICK_RATE) {
+      this.backoffWindow = tick;
+      this.backoffCount = 0;
+    }
+    if (this.backoffCount < 3 && this.headOnYield(sim, dir, opts.carrying === true)) {
+      this.backoffCount++;
+      this.backoffDir = V.scale(dir, -1);
+      this.backoffUntil = tick + 45;
+      this.path = null;
+      return { move: this.backoffDir, arrived: false, stuck: false };
+    }
+    dir = this.avoid(sim, dir, cls, opts.carrying === true, dGoal > 0.9);
     let move = V.scale(dir, mag);
     // watchdog
     const w = this.watchdog(sim, move);
@@ -1334,8 +1395,46 @@ export class Bot implements BotController {
     this.path = { goal: { ...goal }, cls, pts: res.points, idx: 1, tick, dynVersion: this.nav.dynVersion, partial: res.partial };
   }
 
+  /**
+   * Someone is coming at me inside a passage too narrow to pass (a 1.1 m alley): true when I
+   * should be the one to back out. Right of way: whoever carries something, then a human, then
+   * the lower slot. Opponents count only while visible (their velocity is public when seen).
+   */
+  private headOnYield(sim: Simulation, dir: Vec2, carrying: boolean): boolean {
+    const me = this.me(sim);
+    if (carrying || me.grab) return false;
+    if (this.nav.clearanceAt(me.pos.x, me.pos.y) >= 0.9) return false;
+    const check = (pos: Vec2, vel: Vec2, facing: number, isBot: boolean, slot: number, theyCarry: boolean): boolean => {
+      const rel = V.sub(pos, me.pos);
+      const d = V.len(rel);
+      if (d > 1.9 || d < 1e-6) return false;
+      const u = V.scale(rel, 1 / d);
+      if (V.dot(u, dir) < 0.6) return false;
+      const vl = V.len(vel);
+      // coming toward me (someone just standing there is handled by avoidance / the watchdog)
+      if (vl <= 0.3 || V.dot(V.scale(vel, 1 / vl), u) > -0.4) return false;
+      if (Math.cos(facing - Math.atan2(-u.y, -u.x)) < 0) return false;
+      if (theyCarry) return true;
+      if (!isBot) return true;
+      return slot < this.slot;
+    };
+    for (const ch of this.mates(sim)) {
+      // (a teammate's intent is team knowledge: two mates shoving each other have no velocity)
+      if (check(ch.pos, V.len(ch.moveIntent) > 0.3 ? ch.moveIntent : ch.vel, ch.facing, ch.isBot, ch.slot, ch.grab !== null)) return true;
+    }
+    for (const o of this.perception.opponents(sim.state.tick, 0)) {
+      if (!o.visible || !o.last) continue;
+      if (check(o.last.pos, o.last.vel, o.last.facing, o.isBot, o.slot, o.last.holdingId !== null)) return true;
+    }
+    return false;
+  }
+  private backoffUntil = -1;
+  private backoffWindow = 0;
+  private backoffCount = 0;
+  private backoffDir: Vec2 = { x: 0, y: 0 };
+
   /** Local avoidance of characters and loose safes (cheap whiskers). */
-  private avoid(sim: Simulation, dir: Vec2, cls: Cls, carrying: boolean): Vec2 {
+  private avoid(sim: Simulation, dir: Vec2, cls: Cls, carrying: boolean, avoidTarget = false): Vec2 {
     const me = this.me(sim);
     const perp = { x: -dir.y, y: dir.x };
     let side = 0;
@@ -1362,7 +1461,8 @@ export class Bot implements BotController {
     const holding = me.grab ? me.grab.targetId : null;
     const goalTarget = this.goal ? this.goal.targetId : null;
     for (const l of sim.state.loot) {
-      if (l.recovered || l.kind === 'bank' || l.id === holding || l.id === goalTarget) continue;
+      // (the goal's own target too while walking around it to a grab spot on its far side)
+      if (l.recovered || l.kind === 'bank' || l.id === holding || (l.id === goalTarget && (!avoidTarget || l.floorOf !== null))) continue;
       if (Math.abs(l.pos.x - me.pos.x) > 3.5 || Math.abs(l.pos.y - me.pos.y) > 3.5) continue;
       consider(l.pos, Math.hypot(l.half.x, l.half.y), 1);
     }
@@ -1447,6 +1547,17 @@ export class Bot implements BotController {
       if (dStand < 1.2 && this.nav.segmentClear(me.pos, spot.stand, 'walk', -0.05)) {
         // fine positioning (P-control): the grab direction decides how the target is driven
         const mag = Math.max(0.12, Math.min(1, dStand / 0.7));
+        // no progress for ~1.2 s (someone else is standing on the spot, e.g. an opponent going for
+        // the same handle): give the spot up instead of shoving forever
+        const tick = sim.state.tick;
+        if (g.fineSeen === undefined || tick - g.fineSeen > 2 || g.fineBest === undefined || g.fineTick === undefined || dStand < g.fineBest - 0.08) {
+          g.fineBest = dStand;
+          g.fineTick = tick;
+        } else if (tick - g.fineTick > 72) {
+          g.fineSeen = undefined;
+          return { c: cmd({ x: 0, y: 0 }, false), status: 'blocked' };
+        }
+        g.fineSeen = tick;
         return { c: cmd(V.scale(V.norm(V.sub(spot.stand, me.pos)), mag), false), status: 'moving' };
       }
       const m = this.moveTo(sim, spot.stand, 'walk', 0.1, { slow: 0.9 });
@@ -1477,7 +1588,13 @@ export class Bot implements BotController {
     if (this.nav.clearanceAt(p.x, p.y) < 0.44) return false;
     if (!sim.isFree(p, 0.42)) return false;
     if (!ignoreMate) {
-      for (const ch of this.mates(sim)) if (V.dist(ch.pos, p) < 0.85 && ch.grab) return false;
+      // a teammate standing (or holding) there owns that spot
+      for (const ch of this.mates(sim)) if (V.dist(ch.pos, p) < (ch.grab ? 0.85 : 0.95)) return false;
+      // ... or is heading to it (team claims carry the spot through the goal key)
+      for (const c of this.board.otherClaims(this.slot)) {
+        const mate = sim.state.characters[c.slot];
+        if (mate && mate.team === this.team && c.targetId !== null && this.claimedSpots.get(c.slot) && V.dist(this.claimedSpots.get(c.slot)!, p) < 0.9) return false;
+      }
     }
     return true;
   }
@@ -1534,10 +1651,28 @@ export class Bot implements BotController {
     const spots = safeGrabSpots(l);
     let best: GrabSpot | null = null;
     let bestS = -Infinity;
-    for (const s of spots) {
-      const k = `f${s.face}`;
+    for (const s0 of spots) {
+      const k = `f${s0.face}`;
       if (g.excluded?.has(k)) continue;
-      if (!this.spotFree(sim, s.stand)) continue;
+      // a safe pressed against a wall at an alley mouth: the centered stand may be too tight,
+      // so try anchors slid along the face (the pull then just turns the safe a little)
+      let s = s0;
+      if (!this.spotFree(sim, s.stand)) {
+        const t = { x: -s0.normal.y, y: s0.normal.x };
+        const tl = V.rot(t, -l.angle);
+        const span = Math.abs(tl.x) * l.half.x + Math.abs(tl.y) * l.half.y - 0.1;
+        let found: GrabSpot | null = null;
+        for (const off of [0.2, -0.2, 0.35, -0.35]) {
+          if (Math.abs(off) > span) continue;
+          const anchor = V.add(s0.anchor, V.scale(t, off));
+          const stand = V.add(anchor, V.scale(s0.normal, STAND_OFF));
+          if (!this.spotFree(sim, stand)) continue;
+          found = { ...s0, anchor, stand, anchorLocal: V.add(s0.anchorLocal, V.scale(tl, off)) };
+          break;
+        }
+        if (!found) continue;
+        s = found;
+      }
       // anchor reachable from the stand without a wall in between
       if (!sim.lineOfSight(s.stand, V.add(s.anchor, V.scale(s.normal, 0.05)))) continue;
       if (!Number.isFinite(this.walkDist(sim, s.stand))) continue;
@@ -1620,7 +1755,8 @@ export class Bot implements BotController {
     }
     const zone = zoneOBB(sim.layout, this.team);
     const obb = sim.lootOBB(l.id);
-    if (obbInside(obb, zone, -0.1)) {
+    // (a safe loaded on a bank floor is only ever recovered with its bank)
+    if (obbInside(obb, zone, -0.1) && l.loadedIn === null) {
       g.phase = 'recover';
       // inside: hold still once it is deep inside, else walk past the center so it trails in
       if (obbInside(obb, zone, -1.0)) return cmd({ x: 0, y: 0 }, true);
@@ -1656,7 +1792,7 @@ export class Bot implements BotController {
       if (g.stalls % 3 === 0) {
         // regrab from another side
         g.regrabs = (g.regrabs ?? 0) + 1;
-        g.excluded = new Set([`f${this.heldFace(sim, l)}`]);
+        (g.excluded ??= new Set()).add(`f${this.heldFace(sim, l)}`); // faces that already failed stay out
         g.spot = null;
         if (g.regrabs > 3) {
           this.endGoal(sim, 'carry stalled', 360);
@@ -1728,6 +1864,21 @@ export class Bot implements BotController {
     return { dir, remaining: remaining + proj.dist };
   }
 
+  /** Another bank of ours (held by a teammate) that is closer to finishing into the same zone. */
+  private mateBankAhead(sim: Simulation, bank: LootState, remaining: number): LootState | null {
+    const zone = zoneOf(sim.layout, this.team);
+    for (const b of sim.state.loot) {
+      if (b.kind !== 'bank' || b.id === bank.id || b.recovered || b.anchored) continue;
+      if (V.dist(b.pos, zone.center) > Math.max(zone.half.x, zone.half.y) + 6) continue;
+      if (!b.grabbedBy.some((id) => { const c = sim.getCharacter(id); return !!c && c.team === this.team && c.id !== this.id; })) continue;
+      const route = this.routeFor(sim, b);
+      if (!route) continue;
+      const r2 = this.haulDirection(sim, b, route).remaining;
+      if (r2 < remaining - 0.5 || (Math.abs(r2 - remaining) <= 0.5 && b.id < bank.id)) return b;
+    }
+    return null;
+  }
+
   private fenceAhead(sim: Simulation, bank: LootState, dir: Vec2): boolean {
     const perp = { x: -dir.y, y: dir.x };
     for (const f of sim.state.fences) {
@@ -1741,8 +1892,8 @@ export class Bot implements BotController {
     return false;
   }
 
-  private bankInZone(sim: Simulation, bank: LootState): boolean {
-    return obbInside(sim.lootOBB(bank.id), zoneOBB(sim.layout, this.team), -0.2);
+  private bankInZone(sim: Simulation, bank: LootState, tol = -0.2): boolean {
+    return obbInside(sim.lootOBB(bank.id), zoneOBB(sim.layout, this.team), tol);
   }
 
   private execHaul(sim: Simulation, g: Goal): Command {
@@ -1789,7 +1940,7 @@ export class Bot implements BotController {
       // tug of war (an opponent seen on it, or felt: the bank does not follow my pull): give up
       // after a random patience so two stubborn bots never deadlock (doc §8 교착: 같은 물건에서
       // 줄다리기만 하는 대신 다른 전리품을 가져갈 선택)
-      const pulledBack = !bank.anchored && V.dot(bank.vel, dir) < 0.15 && tick - g.started > 60;
+      const pulledBack = !bank.anchored && V.dot(bank.vel, dir) < 0.15 && tick - g.started > 60 && !g.yielding;
       if (this.oppHolding(sim, bank.id).length > 0 || pulledBack) {
         g.tugTicks = (g.tugTicks ?? 0) + 1;
         g.tugPatience ??= Math.round((1.5 + this.rng() * 2.2) * TICK_RATE);
@@ -1811,6 +1962,27 @@ export class Bot implements BotController {
         return cmd(n, true);
       }
       g.phase = 'haul';
+      // two banks never fit into one zone at once: when a teammate's bank is ahead of mine on
+      // the way in, wait short of the zone (backing out if mine is already in its way)
+      g.yielding = false;
+      if (!human && remaining < 11) {
+        const ahead = this.mateBankAhead(sim, bank, remaining);
+        if (ahead) {
+          g.yielding = true;
+          g.stallRef = undefined;
+          g.stallTick = undefined;
+          if (remaining < 8.5) {
+            g.phase = 'yield';
+            const anchor = V.toWorld(me.grab!.anchorLocal, bank.pos, bank.angle);
+            const away = V.norm(V.sub(bank.pos, ahead.pos));
+            // walk so the bank moves away from the other one (pull if I am on that side, else push)
+            const pullSide = V.dot(V.sub(anchor, bank.pos), away) > 0;
+            return cmd(pullSide ? away : V.norm(V.add(V.norm(V.sub(anchor, me.pos)), V.scale(away, 0.6))), true);
+          }
+          g.phase = 'wait';
+          return cmd({ x: 0, y: 0 }, true);
+        }
+      }
       // drive with the face we hold: pull when it faces the travel direction, push when it is
       // the rear face (no regrab needed) — except that a puller cannot walk through a fence
       const nd = V.dot(n, dir);
@@ -1860,7 +2032,7 @@ export class Bot implements BotController {
         g.stallRef = { ...bank.pos };
         g.stallTick = tick;
       }
-      if (V.dist(bank.pos, g.stallRef) > 0.35) {
+      if (V.dist(bank.pos, g.stallRef) > 0.6) {
         g.stallRef = { ...bank.pos };
         g.stallTick = tick;
       } else if (tick - g.stallTick > (g.stallLimit ??= 110 + Math.floor(this.rng() * 60))) {
@@ -1883,6 +2055,16 @@ export class Bot implements BotController {
       return cmd(move, true, null, dash);
     }
     // --- approach a face ---
+    // squeezed (grip keeps breaking): the way is blocked, e.g. by another bank parked on the
+    // route — leave it for now instead of grinding
+    if ((g.forcedReleases ?? 0) >= 3) {
+      this.endGoal(sim, 'pinned while hauling', 8 * TICK_RATE);
+      return cmd({ x: 0, y: 0 }, false);
+    }
+    // (a fresh grab starts a fresh stall / tug measurement)
+    g.stallRef = undefined;
+    g.stallTick = undefined;
+    g.tugTicks = 0;
     if (inZone && !bank.anchored) {
       g.phase = 'guard';
       return this.guardBank(sim, bank);
@@ -1967,7 +2149,10 @@ export class Bot implements BotController {
       }
     }
     if (best && !human && bestS < -0.2 && mates.length === 0) return best; // still better than nothing
-    if (best) g.spotKey = best.slotKey;
+    if (best) {
+      g.spotKey = best.slotKey;
+      this.claimedSpots.set(this.slot, best.stand);
+    }
     return best;
   }
 

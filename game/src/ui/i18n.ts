@@ -111,6 +111,8 @@ export function listKeys(lang: Language): string[] {
 }
 
 export function formatNumber(n: number, lang: Language = current): string {
+  // Never render "NaN" / "∞" from a bad value; a neutral dash reads as "not available".
+  if (!Number.isFinite(n)) return '–';
   let f = numberFormats[lang];
   if (!f) {
     f = new Intl.NumberFormat(lang === 'ko' ? 'ko-KR' : 'en-US', { maximumFractionDigits: 0 });
@@ -158,6 +160,17 @@ export function tr(ref: TextRef | null | undefined): string {
   if (typeof ref === 'string') return t(ref);
   if ('text' in ref) return ref.text;
   return t(ref.key, ref.params);
+}
+
+/**
+ * Resolve a name that may be either an i18n key or literal text: like tr(), except that a
+ * plain string which is NOT a dictionary key is shown as-is (no missing-key marker). Used for
+ * character names: 'rival.hodadak.name' / 'name.ally' follow the language, a player-entered
+ * name stays literal.
+ */
+export function trName(ref: TextRef | null | undefined): string {
+  if (typeof ref === 'string') return hasKey(ref) ? t(ref) : ref;
+  return tr(ref);
 }
 
 /** Like t() but returns null instead of a fallback when the key does not exist. */

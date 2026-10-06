@@ -70,6 +70,7 @@ export class ResultsScreen extends UiScreen<ResultsScreenProps> {
     return `res:${primary}`;
   }
 
+  /** Back never leaves directly: it moves focus to 메뉴 (one more confirm to leave). */
   protected override onBack(): boolean {
     return this.focus.focus('res:menu');
   }
@@ -151,7 +152,7 @@ export class ResultsScreen extends UiScreen<ResultsScreenProps> {
     const buttons = h(
       'div',
       { class: 'uh-res__buttons' },
-      button({ id: 'res:menu', label: 'results.menu', icon: 'home', variant: 'night', onActivate: () => p.onMenu() }),
+      button({ id: 'res:menu', label: 'results.menu', icon: 'home', variant: 'night', onActivate: () => this.leave(p.onMenu) }),
       p.actions.rematch
         ? button({
             id: 'res:rematch',
@@ -160,11 +161,11 @@ export class ResultsScreen extends UiScreen<ResultsScreenProps> {
             variant: p.actions.next ? 'default' : 'primary',
             size: p.actions.next ? 'md' : 'lg',
             glyph: p.actions.next ? undefined : 'confirm',
-            onActivate: () => p.onRematch?.(),
+            onActivate: () => this.leave(p.onRematch),
           })
         : null,
       p.actions.next
-        ? button({ id: 'res:next', label: 'results.next', icon: 'play', variant: 'primary', size: 'lg', glyph: 'confirm', onActivate: () => p.onNext?.() })
+        ? button({ id: 'res:next', label: 'results.next', icon: 'play', variant: 'primary', size: 'lg', glyph: 'confirm', onActivate: () => this.leave(p.onNext) })
         : null,
     );
 

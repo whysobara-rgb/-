@@ -66,10 +66,16 @@
   --uh-sp-7: 2.5rem;
   --uh-sp-8: 3.5rem;
 
-  /* Type scale */
-  --uh-fs-xs: 1rem;
-  --uh-fs-sm: 1.125rem;
-  --uh-fs-md: 1.3125rem;
+  /* Type scale.
+     The small steps carry a pixel floor (times the player's UI scale) so body text stays
+     legible where 1rem gets small: 1280x720 and the Steam Deck's 1280x800 give 1rem = 10.7px,
+     which would put tags at ~9px. At 1080p and above the rem value wins and nothing changes.
+     Because the floor scales with --uh-ui-scale exactly like rem does, the text/layout ratio
+     on a given screen is the same at every UI size. */
+  --uh-fs-2xs: max(0.875rem, calc(13px * var(--uh-ui-scale)));
+  --uh-fs-xs: max(1rem, calc(14px * var(--uh-ui-scale)));
+  --uh-fs-sm: max(1.125rem, calc(15px * var(--uh-ui-scale)));
+  --uh-fs-md: max(1.3125rem, calc(16px * var(--uh-ui-scale)));
   --uh-fs-lg: 1.625rem;
   --uh-fs-xl: 2.125rem;
   --uh-fs-2xl: 3rem;

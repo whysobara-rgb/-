@@ -202,8 +202,8 @@ export function mockLabels(w: number, h: number, variant: string): WorldLabelMod
     { kind: 'value', id: 26, ...P(1260, 610), loot: 'largeSafe', value: 300, focus: true },
     { kind: 'bank', id: 5, ...P(960, 330), value: 1000, building: 500, safes: 500, showBreakdown: true, carriedBy: 1 },
     { kind: 'ping', id: 1, ...P(1500, 420), ping: 'grabTogether', team: 0 },
-    { kind: 'name', id: 2, ...P(760, 700), text: '동료 봇', team: 0 },
-    { kind: 'name', id: 3, ...P(1100, 470), text: '호다닥', team: 1 },
+    { kind: 'name', id: 2, ...P(760, 700), text: 'name.ally', team: 0 },
+    { kind: 'name', id: 3, ...P(1100, 470), text: 'rival.hodadak.name', team: 1 },
   ];
   if (variant === 'final' || variant === 'bank') {
     labels.push({ kind: 'recovery', id: 30, ...P(420, 640), progress: 0.62, team: 0 });

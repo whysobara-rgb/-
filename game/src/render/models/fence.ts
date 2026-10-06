@@ -163,7 +163,7 @@ export function createFence(def: FenceDef): FenceRig {
   stumps.userData.noOutline = true;
   root.add(stumps);
 
-  const highlighter = new Highlighter(intact);
+  const highlighter = new Highlighter(intact, { pushMax: 0.4, pushSlope: 0.6 });
   let broken = false;
 
   return {

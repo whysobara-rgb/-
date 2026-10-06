@@ -8,23 +8,81 @@
  * a full layout costs a few dozen draw calls; the single-object factories (createStaticBox,
  * createStaticCircle, createDecor) use the same builders for previews/tools.
  *
- * Materials use the occlusion x-ray (materials.ts setOcclusionFocus), so tall buildings
- * and trees between the camera and the player dissolve without per-object fading.
+ * Occlusion (types.ts: a building "fades when between camera and player"): every building,
+ * kiosk, tall wall, tree canopy and clock tower gets its own fade group inside the merged
+ * chunks. StaticScenery is an occlusion client: each frame (setOcclusionFocus) it fades the
+ * groups standing between the camera and the player as a whole, and shows per-chunk ghost
+ * twins that redraw the faded / x-rayed parts as translucent shapes (occlusion.ts).
+ *
+ * Shop signs: layout signKeys go through the sign resolver; kiosks and unnamed buildings
+ * ask it for 'sign.style.<style>' and the backdrop for 'sign.backdrop.<n>'; unknown keys fall
+ * back to built-in names in the resolver's language (detected from LAYOUT_STRINGS).
  *
  * Sim -> world: (x, y) -> (x, 0, y); an object with sim angle a gets rotation.y = -a.
  */
 import * as THREE from 'three';
 import type { DecorDef, LayoutDef, StaticBoxDef, StaticCircleDef, Vec2 } from '../../sim/types';
 import { LAYOUT_STRINGS } from '../../sim/layouts/strings';
-import { PAL, BACKDROP_SIGNS, STYLE_FALLBACK_NAMES, buildingStyle, type BuildingStyle } from './palette';
+import { PAL, BACKDROP_SIGNS, HANOK_ROOF, buildingStyle, styleFallbackName, type BuildingStyle, type SignLanguage } from './palette';
 import { G, PartBuilder, hashString, lathe, rng, type V3 } from './geometry';
-import { createToonMaterial, matGlow, matScenery, matSceneryDouble, matWater } from './materials';
+import {
+  createGhostMaterial,
+  createToonMaterial,
+  matGlow,
+  matScenery,
+  matSceneryDouble,
+  matSceneryDoubleGhost,
+  matSceneryGhost,
+  matWater,
+} from './materials';
 import { SignAtlas, asphaltTexture, pavingTexture, radialGlowTexture, PAVING_TILE_METERS, type GroundStyle } from './textures';
+import {
+  addOcclusionClient,
+  allocFadeGroup,
+  focusTouchesBox,
+  releaseFadeGroup,
+  removeOcclusionClient,
+  segmentHitsAABB,
+  setGroupFade,
+  type OcclusionClient,
+  type OcclusionFocus,
+} from './occlusion';
 
 export type SignResolver = (key: string) => string;
 
 /** Default resolver: Korean layout strings, else the key's fallback. */
 export const defaultSignResolver: SignResolver = (key) => LAYOUT_STRINGS.ko[key] ?? key;
+
+const HANGUL = /[\u3131-\u318E\uAC00-\uD7A3]/;
+
+/**
+ * Which language a sign resolver speaks: compares its answers for the layout sign keys with
+ * LAYOUT_STRINGS (the view's resolver returns the key itself for unknown keys, so built-in
+ * fallback names must follow the same language). Defaults to Korean.
+ */
+export function detectSignLanguage(resolver: SignResolver): SignLanguage {
+  const langs = Object.keys(LAYOUT_STRINGS) as SignLanguage[];
+  const keys = Object.keys(LAYOUT_STRINGS.ko).filter((k) => k.startsWith('sign.') || k.startsWith('layout.'));
+  const score: Record<string, number> = {};
+  let hangul = 0;
+  let latin = 0;
+  for (const k of keys) {
+    let v: string;
+    try {
+      v = resolver(k);
+    } catch {
+      continue;
+    }
+    if (!v || v === k) continue;
+    if (HANGUL.test(v)) hangul++;
+    else if (/[A-Za-z]/.test(v)) latin++;
+    for (const l of langs) if (LAYOUT_STRINGS[l]?.[k] === v) score[l] = (score[l] ?? 0) + 1;
+  }
+  let best: SignLanguage | null = null;
+  for (const l of langs) if ((score[l] ?? 0) > 0 && (!best || (score[l] ?? 0) > (score[best] ?? 0))) best = l;
+  if (best) return best;
+  return latin > hangul ? 'en' : 'ko';
+}
 
 const HALF_PI = Math.PI / 2;
 /** Camera-facing tilt for glow halos (the game camera never rotates; pitch ~55°). */
@@ -33,18 +91,32 @@ const HALO_TILT = -THREE.MathUtils.degToRad(55);
 interface Ctx {
   atlas: SignAtlas;
   resolve: SignResolver;
+  /** Language of the built-in fallback names (follows the resolver, see detectSignLanguage). */
+  lang: () => SignLanguage;
   /** World-plane point the shop fronts should face (arena center), or null = local +z. */
   center: Vec2 | null;
 }
 
+/** Ask the resolver for a key; null when it does not know it (returns the key or nothing). */
+function tryResolve(ctx: Ctx, key: string): string | null {
+  const t = ctx.resolve(key);
+  return t && t !== key ? t : null;
+}
+
+/** Sign text for a layout signKey, else the style's name, in the resolver's language. */
 function resolveSign(ctx: Ctx, key: string | undefined, style: string | undefined): string {
   if (key) {
-    const t = ctx.resolve(key);
-    if (t && t !== key) return t;
-    const ko = LAYOUT_STRINGS.ko[key];
-    if (ko) return ko;
+    const t = tryResolve(ctx, key);
+    if (t) return t;
   }
-  return STYLE_FALLBACK_NAMES[style ?? 'default'] ?? STYLE_FALLBACK_NAMES.default;
+  const styled = tryResolve(ctx, `sign.style.${style ?? 'default'}`);
+  if (styled) return styled;
+  const lang = ctx.lang();
+  if (key) {
+    const own = LAYOUT_STRINGS[lang]?.[key] ?? LAYOUT_STRINGS.ko[key];
+    if (own) return own;
+  }
+  return styleFallbackName(style, lang);
 }
 
 /** Push the def's world transform (center + angle) onto the builder. */
@@ -142,18 +214,170 @@ function addRooftop(b: PartBuilder, W: number, D: number, h: number, st: Buildin
   }
 }
 
-function hanokRoofShape(D: number): THREE.Shape {
-  // Profile in (z, y): swooping eaves curling up at both ends.
-  const s = new THREE.Shape();
-  const e = D / 2 + 0.7;
-  s.moveTo(-e, 0.25);
-  s.quadraticCurveTo(-e * 0.55, -0.05, 0, 1.4);
-  s.quadraticCurveTo(e * 0.55, -0.05, e, 0.25);
-  s.lineTo(e - 0.1, 0.05);
-  s.quadraticCurveTo(e * 0.5, -0.25, 0, 1.15);
-  s.quadraticCurveTo(-e * 0.5, -0.25, -e + 0.1, 0.05);
-  s.closePath();
-  return s;
+/** Rise of a hanok roof over a building of depth D (also used for its fade box). */
+function hanokRise(D: number): number {
+  return THREE.MathUtils.clamp(D * 0.34, 1.5, 2.3);
+}
+
+/**
+ * Curved giwa roof surface (facade frame: ridge along x, slopes toward ±z, y = 0 at the eave
+ * line). Concave slopes that flatten toward the eaves, eave tips curling up, corners swept up
+ * (처마 앙곡) and corrugated tile rows (raised light rows over dark valleys) baked into one
+ * vertex-colored grid + a wooden underside, eave rims and gable edges.
+ */
+function hanokRoofGeometry(W: number, D: number): THREE.BufferGeometry {
+  const L = W + 1.1; // ridge length incl. gable overhang
+  const e = D / 2 + 0.8; // eave half depth
+  const rise = hanokRise(D);
+  const period = 0.42; // tile row spacing
+  // 3 samples per tile row keep the corrugation readable at ~half the triangles of 4.
+  const nu = Math.max(18, Math.round((L / period) * 3));
+  const nv = 22;
+  const thick = 0.16;
+  const tile = new THREE.Color(HANOK_ROOF.tile);
+  const valley = new THREE.Color(HANOK_ROOF.valley);
+  const tileEnd = new THREE.Color(HANOK_ROOF.tileEnd);
+  const wood = new THREE.Color(HANOK_ROOF.wood);
+  const pos: number[] = [];
+  const col: number[] = [];
+  const idx: number[] = [];
+  const surf = (u: number, v: number, top: boolean, out: THREE.Vector3): number => {
+    const au = Math.abs(2 * u - 1);
+    const av = Math.abs(v);
+    // Eaves flare outward a little at the corners (plan curve).
+    const x = (u - 0.5) * L * (1 + 0.035 * av * av);
+    const z = v * e * (1 + 0.05 * Math.pow(au, 4));
+    let y = rise * Math.pow(1 - av, 1.45) + 0.24 * Math.pow(av, 8) + 0.6 * Math.pow(au, 5) * Math.pow(av, 3);
+    let ridge = 0;
+    if (top) {
+      // Tile rows: rounded convex tiles, flat valleys.
+      const ph = (x / period) * Math.PI * 2;
+      ridge = Math.max(0, Math.cos(ph));
+      y += 0.045 * Math.sqrt(ridge);
+    } else {
+      y -= thick;
+    }
+    out.set(x, y, z);
+    return ridge;
+  };
+  const p = new THREE.Vector3();
+  const pushGrid = (top: boolean, cu: number, cv: number, color: (ridge: number, u: number, v: number) => THREE.Color): void => {
+    const base = pos.length / 3;
+    for (let j = 0; j <= cv; j++) {
+      const v = -1 + (2 * j) / cv;
+      for (let i = 0; i <= cu; i++) {
+        const u = i / cu;
+        const ridge = surf(u, v, top, p);
+        pos.push(p.x, p.y, p.z);
+        const c = color(ridge, u, v);
+        col.push(c.r, c.g, c.b);
+      }
+    }
+    const row = cu + 1;
+    for (let j = 0; j < cv; j++) {
+      for (let i = 0; i < cu; i++) {
+        const a = base + j * row + i;
+        const b = a + 1;
+        const c = a + row;
+        const d = c + 1;
+        // Top faces up (+y), underside faces down.
+        if (top) idx.push(a, c, b, b, c, d);
+        else idx.push(a, b, c, b, d, c);
+      }
+    }
+  };
+  const tmp = new THREE.Color();
+  pushGrid(true, nu, nv, (ridge, _u, v) => {
+    // Darker tile ends along the eave lip (막새 row).
+    const lip = THREE.MathUtils.smoothstep(Math.abs(v), 0.93, 0.985);
+    tmp.copy(valley).lerp(tile, Math.min(1, ridge * 1.3));
+    return tmp.lerp(tileEnd, lip * 0.8);
+  });
+  pushGrid(false, Math.max(8, Math.round(L / 0.6)), 12, () => wood);
+  // Edge strips joining top and underside: eave rims (v = ±1) and gable edges (u = 0, 1).
+  const strip = (n: number, at: (k: number) => [number, number], color: THREE.Color, flip: boolean): void => {
+    const base = pos.length / 3;
+    for (let k = 0; k <= n; k++) {
+      const [u, v] = at(k / n);
+      surf(u, v, true, p);
+      pos.push(p.x, p.y + 0.01, p.z);
+      col.push(color.r, color.g, color.b);
+      surf(u, v, false, p);
+      pos.push(p.x, p.y, p.z);
+      col.push(color.r, color.g, color.b);
+    }
+    for (let k = 0; k < n; k++) {
+      const a = base + k * 2;
+      if (flip) idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+      else idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    }
+  };
+  const lipColor = new THREE.Color(HANOK_ROOF.mortar);
+  strip(nu, (t) => [t, 1], lipColor, true);
+  strip(nu, (t) => [t, -1], lipColor, false);
+  strip(nv, (t) => [0, -1 + 2 * t], tileEnd, true);
+  strip(nv, (t) => [1, -1 + 2 * t], tileEnd, false);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array((pos.length / 3) * 2), 2));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setAttribute('fx', new THREE.Float32BufferAttribute(new Float32Array(pos.length), 3));
+  return g;
+}
+
+/** Height of the hanok roof surface above the eave line at depth z (facade frame). */
+function hanokRoofY(D: number, z: number): number {
+  const e = D / 2 + 0.8;
+  const av = Math.min(1, Math.abs(z) / e);
+  return hanokRise(D) * Math.pow(1 - av, 1.45) + 0.24 * Math.pow(av, 8);
+}
+
+/** Giwa roof with ridge ornaments, gable panels and rafter ends (hanok style). */
+function addHanokRoof(b: PartBuilder, W: number, D: number, h: number, st: BuildingStyle): void {
+  const base = h - 0.05;
+  const rise = hanokRise(D);
+  const L = W + 1.1;
+  b.push([0, base, 0]);
+  const roofGeo = hanokRoofGeometry(W, D);
+  b.addPrepared(roofGeo);
+  roofGeo.dispose();
+  // Ridge (용마루): dark tiled beam with a white mortar band and upturned ends (취두).
+  b.add(G.rbox(L - 0.3, 0.26, 0.36, 0.08, 1), { color: HANOK_ROOF.ridge, pos: [0, rise + 0.12, 0] });
+  b.add(G.box(), { color: HANOK_ROOF.mortar, pos: [0, rise + 0.02, 0], scale: [L - 0.35, 0.07, 0.4] });
+  for (const sx of [-1, 1]) {
+    b.add(G.rbox(0.42, 0.42, 0.4, 0.1, 1), { color: HANOK_ROOF.ridge, pos: [sx * (L / 2 - 0.2), rise + 0.27, 0], rot: [0, 0, sx * -0.35] });
+    b.add(G.cone(10), { color: HANOK_ROOF.ridge, pos: [sx * (L / 2 - 0.02), rise + 0.52, 0], rot: [0, 0, sx * -0.75], scale: [0.13, 0.36, 0.13] });
+  }
+  // Gable panels (박공) under the roof at both ends: plaster triangle with a timber frame.
+  const zr = D / 2;
+  const tri = new THREE.Shape();
+  const steps = 10;
+  for (let i = 0; i <= steps; i++) {
+    const z = -zr + (2 * zr * i) / steps;
+    const y = Math.max(0.05, hanokRoofY(D, z) - 0.2);
+    if (i === 0) tri.moveTo(z, 0);
+    tri.lineTo(z, y);
+  }
+  tri.lineTo(zr, 0);
+  tri.closePath();
+  const panel = new THREE.ShapeGeometry(tri, 2);
+  for (const sx of [-1, 1]) {
+    b.add(panel, { color: st.body, pos: [sx * (W / 2 + 0.02), 0, 0], rot: [0, sx > 0 ? HALF_PI : -HALF_PI, 0] });
+    b.add(G.box(), { color: st.accent, pos: [sx * (W / 2 + 0.04), 0.06, 0], scale: [0.04, 0.12, D] });
+    b.add(G.box(), { color: st.accent, pos: [sx * (W / 2 + 0.04), Math.min(rise * 0.55, 1.1), 0], scale: [0.04, 0.1, D * 0.36] });
+  }
+  panel.dispose();
+  // Rafter ends (서까래) peeking out under the front and back eaves.
+  const n = Math.max(6, Math.round(W / 0.38));
+  for (const sz of [-1, 1]) {
+    for (let i = 0; i < n; i++) {
+      const x = -W / 2 + (i + 0.5) * (W / n);
+      b.add(G.cyl(1, 1, 8), { color: HANOK_ROOF.rafterEnd, pos: [x, -0.02, sz * (D / 2 + 0.42)], rot: [HALF_PI, 0, 0], scale: [0.055, 0.5, 0.055] });
+    }
+  }
+  b.pop();
 }
 
 function addBuilding(b: PartBuilder, def: StaticBoxDef, ctx: Ctx, frontOnly = false): void {
@@ -225,7 +449,10 @@ function addBuilding(b: PartBuilder, def: StaticBoxDef, ctx: Ctx, frontOnly = fa
   // Awning + sign.
   addAwning(b, shopX, 2.55, zF + 0.04, shopW + 0.3, 0.55, st.awning);
   const signW = Math.min(3.4, Math.max(1.6, W * 0.55));
-  addSignBoard(b, ctx, 0, Math.min(h - 0.5, 3.15), zF + 0.04, signW, () => resolveSign(ctx, def.signKey, def.style), st, def.signKey ?? `style:${def.style ?? 'default'}`);
+  const signY = Math.min(h - 0.5, 3.15);
+  // Top of the sign frame: facade window boxes above it must clear it.
+  const signTop = signY + signW / 8 + 0.08;
+  addSignBoard(b, ctx, 0, signY, zF + 0.04, signW, () => resolveSign(ctx, def.signKey, def.style), st, def.signKey ?? `style:${def.style ?? 'default'}`);
   // Little lamp over the door.
   b.add(G.sphere(10, 8), { color: '#FFF1C2', pos: [doorX, 2.45, zF + 0.2], scale: 0.09, emissive: 1.2 });
   // --- upper floor windows on all faces + ground-floor windows on the other faces ----------
@@ -253,7 +480,10 @@ function addBuilding(b: PartBuilder, def: StaticBoxDef, ctx: Ctx, frontOnly = fa
           b.add(G.sphere(6, 4), { color: '#FFF1C2', pos: [x, 2.25, z + 0.15], scale: 0.07, emissive: 1.0 });
           continue;
         }
-        addWindowBox(b, x, y, z, 0.85, f === 0 ? 0.9 : 1.1, r() < 0.7, st.trim, face.facade && f >= 1 && !frontOnly && r() < 0.6, r);
+        const wh = f === 0 ? 0.9 : 1.1;
+        // No flower box where it would hang over the shop sign.
+        const overSign = face.facade && Math.abs(x) < signW / 2 + 0.6 && y - wh / 2 - 0.34 < signTop;
+        addWindowBox(b, x, y, z, 0.85, wh, r() < 0.7, st.trim, face.facade && f >= 1 && !frontOnly && !overSign && r() < 0.6, r);
       }
     }
     // Drain pipe on a back corner.
@@ -265,13 +495,7 @@ function addBuilding(b: PartBuilder, def: StaticBoxDef, ctx: Ctx, frontOnly = fa
   }
   // --- roof ---------------------------------------------------------------------------
   if (hanok) {
-    const roof = new THREE.ExtrudeGeometry(hanokRoofShape(D), { depth: W + 0.9, bevelEnabled: false, curveSegments: 10 });
-    roof.translate(0, 0, -(W + 0.9) / 2);
-    b.add(roof, { color: st.roof, pos: [0, h - 0.05, 0], rot: [0, HALF_PI, 0] });
-    b.add(G.cyl(1, 1, 10), { color: shade(st.roof, -0.18), pos: [0, h + 1.38, 0], rot: [0, 0, HALF_PI], scale: [0.13, W + 1.0, 0.13] });
-    for (const sx of [-1, 1]) b.add(G.sphere(10, 8), { color: '#FFFFFF', pos: [sx * (W / 2 + 0.5), h + 1.4, 0], scale: 0.2 });
-    // White plaster eave trim under the tiles.
-    for (const sz of [-1, 1]) b.add(G.box(), { color: '#FFFFFF', pos: [0, h + 0.12, sz * (D / 2 + 0.05)], scale: [W + 0.4, 0.14, 0.1] });
+    addHanokRoof(b, W, D, h, st);
   } else if (st.roofKind === 'gable') {
     const tri = new THREE.Shape();
     tri.moveTo(-D / 2 - 0.35, 0);
@@ -530,10 +754,14 @@ function addTree(b: PartBuilder, def: StaticCircleDef): void {
   const leafB = blossom ? '#FFA8C5' : PAL.leafDark;
   const leafC = blossom ? '#FFE0EB' : PAL.leafLight;
   b.push([def.center.x, 0, def.center.y]);
+  // Only trunk + canopy join the occlusion fade group; the ground patch stays solid.
+  const group = b.fadeGroup;
+  b.fadeGroup = 0;
   // Grass patch + stone ring (the collider radius).
   b.add(G.disc(20), { color: PAL.grass, pos: [0, 0.006, 0], scale: [def.radius + 0.9, 1, def.radius + 0.9] });
   b.add(G.torus(0.22, 6, 20), { color: PAL.stone, pos: [0, 0.08, 0], rot: [HALF_PI, 0, 0], scale: [def.radius, def.radius, 0.6] });
   b.add(G.cyl(1, 1, 16), { color: PAL.soil, pos: [0, 0.05, 0], scale: [def.radius * 0.95, 0.1, def.radius * 0.95] });
+  b.fadeGroup = group;
   // Trunk with a slight bend.
   const trunkH = h * 0.5;
   b.add(G.cyl(0.7, 1, 10), { color: PAL.trunk, pos: [0, trunkH / 2, 0], rot: [0, 0, (r() - 0.5) * 0.12], scale: [0.16, trunkH, 0.16] });
@@ -1018,12 +1246,14 @@ function addBackdrop(chunks: ChunkGrid, layout: LayoutDef, ctx: Ctx, density = 1
         style: sgn.style,
         signKey: key,
       };
+      // Resolver first ('sign.backdrop.N'), else the built-in name in the resolver's language.
       const local: Ctx = {
         ...ctx,
         resolve: (k) => {
           if (k !== key) return ctx.resolve(k);
           const t = ctx.resolve(k);
-          return t && t !== k ? t : sgn.text;
+          if (t && t !== k) return t;
+          return ctx.lang() === 'en' ? sgn.en : sgn.text;
         },
       };
       addBuilding(chunks.at(center.x, center.y), def, local, true);
@@ -1083,8 +1313,11 @@ const CHUNK = 32;
 
 class ChunkGrid {
   readonly builders = new Map<string, PartBuilder>();
+  keyAt(x: number, z: number): string {
+    return `${Math.floor(x / CHUNK)},${Math.floor(z / CHUNK)}`;
+  }
   at(x: number, z: number): PartBuilder {
-    const key = `${Math.floor(x / CHUNK)},${Math.floor(z / CHUNK)}`;
+    const key = this.keyAt(x, z);
     let b = this.builders.get(key);
     if (!b) this.builders.set(key, (b = new PartBuilder()));
     return b;
@@ -1098,25 +1331,206 @@ export interface SceneryStats {
   shadowCasters: number;
   triangles: number;
   chunks: number;
+  /** Objects that fade as a whole when they hide the player (buildings, kiosks, trees...). */
+  fadeGroups: number;
+  /** Ghost twins (hidden unless something is faded / x-rayed in their chunk). */
+  ghosts: number;
+}
+
+// ---------------------------------------------------------------------------
+// Occlusion fade groups + ghost twins
+// ---------------------------------------------------------------------------
+
+interface FadeGroupInfo {
+  id: number;
+  /** Scenery-local AABB of the whole object. */
+  min: THREE.Vector3;
+  max: THREE.Vector3;
+  fade: number;
+  chunk: string;
+}
+
+interface GhostChunk {
+  ghosts: THREE.Mesh[];
+  /** Scenery-local bounds of the chunk geometry. */
+  box: THREE.Box3;
+  groups: FadeGroupInfo[];
+}
+
+/** Fade box (scenery-local AABB) for a static box that should fade as a whole, or null. */
+function fadeBoxForStatic(def: StaticBoxDef): THREE.Box3 | null {
+  let margin = 0;
+  let top = 0;
+  const h = def.height;
+  if (def.kind === 'building') {
+    const st = buildingStyle(def.style);
+    const D = 2 * Math.min(def.half.x, def.half.y);
+    margin = st.roofKind === 'hanok' ? 1.2 : 0.9;
+    top = Math.max(2.5, h) + (st.roofKind === 'hanok' ? hanokRise(D) + 0.8 : st.roofKind === 'gable' ? Math.min(2.2, D * 0.55) + 0.3 : 1.9);
+  } else if (def.kind === 'kiosk') {
+    margin = 0.75;
+    top = Math.max(2, h) + 1.3;
+  } else if (def.kind === 'wall' && h >= 2) {
+    margin = 0.2;
+    top = h + 0.25;
+  } else {
+    return null;
+  }
+  const c = Math.abs(Math.cos(def.angle));
+  const sn = Math.abs(Math.sin(def.angle));
+  const ex = def.half.x * c + def.half.y * sn + margin;
+  const ez = def.half.x * sn + def.half.y * c + margin;
+  return new THREE.Box3(new THREE.Vector3(def.center.x - ex, 0, def.center.y - ez), new THREE.Vector3(def.center.x + ex, top, def.center.y + ez));
+}
+
+/** Fade box for a static circle (tree canopy, clock tower / statue), or null. */
+function fadeBoxForCircle(def: StaticCircleDef): THREE.Box3 | null {
+  let r = 0;
+  let top = 0;
+  if (def.kind === 'tree') {
+    const h = Math.max(2.5, def.height);
+    r = Math.max(1.1, h * 0.3) * 1.45;
+    top = h + 0.3;
+  } else if (def.kind === 'statue' && def.height >= 2.4) {
+    const R = Math.max(0.5, def.radius);
+    r = R * 1.3 + 0.4;
+    top = def.height >= 4 ? def.height + 2.2 : def.height + 0.3;
+  } else {
+    return null;
+  }
+  return new THREE.Box3(new THREE.Vector3(def.center.x - r, 0, def.center.y - r), new THREE.Vector3(def.center.x + r, top, def.center.y + r));
+}
+
+function ghostMaterialFor(bucket: string, signGhost: THREE.Material): THREE.Material | null {
+  switch (bucket) {
+    case 'vc':
+      return matSceneryGhost();
+    case 'double':
+      return matSceneryDoubleGhost();
+    case 'sign':
+      return signGhost;
+    default:
+      return null;
+  }
+}
+
+/** Add hidden ghost twins (shared geometry) for every occlusion-capable mesh of a chunk. */
+function attachGhosts(group: THREE.Group, signGhost: THREE.Material): GhostChunk {
+  const ghosts: THREE.Mesh[] = [];
+  const box = new THREE.Box3();
+  const meshes: THREE.Mesh[] = [];
+  group.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (m.isMesh) meshes.push(m);
+  });
+  for (const m of meshes) {
+    m.geometry.computeBoundingBox();
+    if (m.geometry.boundingBox) box.union(m.geometry.boundingBox);
+    const bucket = m.name.split(':').pop() ?? '';
+    const mat = ghostMaterialFor(bucket, signGhost);
+    if (!mat) continue;
+    const gm = new THREE.Mesh(m.geometry, mat);
+    gm.name = `${m.name}:ghost`;
+    gm.visible = false;
+    gm.castShadow = false;
+    gm.receiveShadow = true;
+    gm.renderOrder = 1;
+    gm.userData.noOutline = true;
+    gm.userData.ghost = true;
+    group.add(gm);
+    ghosts.push(gm);
+  }
+  return { ghosts, box, groups: [] };
+}
+
+const _inv = new THREE.Matrix4();
+const _cam = new THREE.Vector3();
+const _tgt = new THREE.Vector3();
+const _dir = new THREE.Vector3();
+const _right = new THREE.Vector3();
+const _samples = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+const _wbox = new THREE.Box3();
+const FADE_IN_RATE = 9;
+const FADE_OUT_RATE = 3.5;
+
+/**
+ * Per-frame occlusion for one scenery: fade every group that stands between the camera and
+ * the focus (or the area just around it: the carried safe, the feet, a step to each side),
+ * then show the ghost twins of chunks that have something faded or x-rayed.
+ */
+function updateSceneryOcclusion(root: THREE.Object3D, chunks: Iterable<GhostChunk>, groups: readonly FadeGroupInfo[], focus: Readonly<OcclusionFocus>, dt: number): void {
+  let samples = 0;
+  if (focus.active) {
+    _inv.copy(root.matrixWorld).invert();
+    _cam.copy(focus.camera).applyMatrix4(_inv);
+    _tgt.copy(focus.target).applyMatrix4(_inv);
+    _dir.set(_cam.x - _tgt.x, 0, _cam.z - _tgt.z);
+    if (_dir.lengthSq() < 1e-6) _dir.set(0, 0, 1);
+    _dir.normalize();
+    _right.set(_dir.z, 0, -_dir.x);
+    _samples[0].copy(_tgt);
+    _samples[1].set(_tgt.x, Math.max(0.15, _tgt.y - 0.45), _tgt.z);
+    _samples[2].copy(_tgt).addScaledVector(_right, 1.0);
+    _samples[3].copy(_tgt).addScaledVector(_right, -1.0);
+    _samples[4].copy(_tgt).addScaledVector(_dir, 0.9);
+    samples = 5;
+  }
+  for (const g of groups) {
+    let hit = false;
+    for (let i = 0; i < samples && !hit; i++) {
+      const p = _samples[i];
+      // A sample inside the object itself (player hugging a wall) says nothing about occlusion.
+      if (p.x > g.min.x - 0.1 && p.x < g.max.x + 0.1 && p.z > g.min.z - 0.1 && p.z < g.max.z + 0.1 && p.y < g.max.y) continue;
+      hit = segmentHitsAABB(_cam, p, g.min, g.max, 0, 0.995);
+    }
+    const target = hit ? 1 : 0;
+    const rate = target > g.fade ? FADE_IN_RATE : FADE_OUT_RATE;
+    g.fade += (target - g.fade) * (1 - Math.exp(-rate * dt));
+    if (target === 0 && g.fade < 0.01) g.fade = 0;
+    if (target === 1 && g.fade > 0.99) g.fade = 1;
+    setGroupFade(g.id, g.fade);
+  }
+  for (const c of chunks) {
+    let on = false;
+    for (const g of c.groups) if (g.fade > 0.004) on = true;
+    if (!on && focus.active) {
+      _wbox.copy(c.box).applyMatrix4(root.matrixWorld);
+      on = focusTouchesBox(_wbox);
+    }
+    for (const gm of c.ghosts) gm.visible = on;
+  }
 }
 
 /**
  * The merged static scenery of a layout. It IS a THREE.Group (add it to the scene directly),
- * with draw-call stats, a sign-text refresh for language changes, and dispose().
+ * with draw-call stats, a sign-text refresh for language changes, and dispose(). It fades
+ * occluding buildings/trees automatically from setOcclusionFocus() (occlusion client).
  */
-export class StaticScenery extends THREE.Group {
-  stats: SceneryStats = { meshes: 0, drawCalls: 0, shadowCasters: 0, triangles: 0, chunks: 0 };
+export class StaticScenery extends THREE.Group implements OcclusionClient {
+  stats: SceneryStats = { meshes: 0, drawCalls: 0, shadowCasters: 0, triangles: 0, chunks: 0, fadeGroups: 0, ghosts: 0 };
   /** Same object (kept for call sites that prefer `.root`). */
   get root(): THREE.Group {
     return this;
   }
   private refreshSigns: (r: SignResolver) => void = () => {};
   private disposeOwned: () => void = () => {};
+  private occlusion: (focus: Readonly<OcclusionFocus>, dt: number) => void = () => {};
+  private signList: () => string[] = () => [];
+  private occDebug: () => { groups: number; faded: number; fading: number; ghostsVisible: number } = () => ({ groups: 0, faded: 0, fading: 0, ghostsVisible: 0 });
 
   /** @internal */
-  bind(refresh: (r: SignResolver) => void, dispose: () => void): void {
+  bind(
+    refresh: (r: SignResolver) => void,
+    dispose: () => void,
+    occlusion: (focus: Readonly<OcclusionFocus>, dt: number) => void,
+    signs: () => string[],
+    occDebug: () => { groups: number; faded: number; fading: number; ghostsVisible: number },
+  ): void {
     this.refreshSigns = refresh;
     this.disposeOwned = dispose;
+    this.occlusion = occlusion;
+    this.signList = signs;
+    this.occDebug = occDebug;
   }
 
   /** Re-resolve every shop sign (e.g. after a language change). */
@@ -1124,10 +1538,26 @@ export class StaticScenery extends THREE.Group {
     this.refreshSigns(resolver);
   }
 
-  /** Frees the merged geometries, sign atlas and ground materials (shared caches stay). */
+  /** Current text of every sign slot (tests / tools). */
+  signTexts(): string[] {
+    return this.signList();
+  }
+
+  /** Occlusion state (tests / tools): fade groups, fully faded, partially faded, visible ghosts. */
+  occlusionState(): { groups: number; faded: number; fading: number; ghostsVisible: number } {
+    return this.occDebug();
+  }
+
+  /** @internal OcclusionClient (called from setOcclusionFocus). */
+  occlusionUpdate(focus: Readonly<OcclusionFocus>, dt: number): void {
+    this.occlusion(focus, dt);
+  }
+
+  /** Frees the merged geometries, sign atlas, fade groups and ground materials (shared caches stay). */
   override dispose(): void {
     this.disposeOwned();
     this.disposeOwned = () => {};
+    this.occlusion = () => {};
     this.removeFromParent();
     super.dispose();
   }
@@ -1148,19 +1578,22 @@ function sceneryMaterial(bucket: string, signMat: THREE.Material): THREE.Materia
   }
 }
 
-function signMaterial(atlas: SignAtlas): THREE.MeshToonMaterial {
-  const m = createToonMaterial({ map: atlas.texture, occlusion: true, rim: 0.1, polygonOffset: -1 });
-  // Signs glow softly at dusk so they stay readable.
-  m.emissiveMap = atlas.texture;
-  m.emissive.set('#FFFFFF');
-  m.emissiveIntensity = 0.3;
-  return m;
+/** Sign atlas material + its ghost twin. Signs glow softly at dusk so they stay readable. */
+function signMaterials(atlas: SignAtlas): { mat: THREE.MeshToonMaterial; ghost: THREE.MeshToonMaterial } {
+  const mat = createToonMaterial({ map: atlas.texture, fx: true, occlusion: true, rim: 0.1, polygonOffset: -1 });
+  const ghost = createGhostMaterial({ map: atlas.texture, fx: true, rim: 0.1, polygonOffset: -1 });
+  for (const m of [mat, ghost]) {
+    m.emissiveMap = atlas.texture;
+    m.emissive.set('#FFFFFF');
+    m.emissiveIntensity = 0.3;
+  }
+  return { mat, ghost };
 }
 
 function finishMeshes(group: THREE.Group): void {
   group.traverse((o) => {
     const m = o as THREE.Mesh;
-    if (!m.isMesh) return;
+    if (!m.isMesh || m.userData.ghost) return;
     const bucket = m.name.split(':').pop();
     m.userData.noOutline = true;
     m.castShadow = bucket === 'vc' || bucket === 'double';
@@ -1180,6 +1613,11 @@ export interface SceneryOptions {
    * Deterministic per item, so the same props survive at a given density. Default 1.
    */
   decorDensity?: number;
+  /**
+   * Language of the built-in fallback sign names (kiosks, unnamed shops, backdrop) when the
+   * resolver does not know their keys. Default: detected from the resolver.
+   */
+  language?: SignLanguage;
 }
 
 /** Deterministic keep/drop for decor density thinning. */
@@ -1199,10 +1637,27 @@ export function buildStaticScenery(layout: LayoutDef, signResolver: SignResolver
   root.name = `scenery:${layout.id}`;
   const atlas = new SignAtlas(4, 12);
   let resolver = signResolver;
-  const ctx: Ctx = { atlas, resolve: (k) => resolver(k), center: { x: layout.size.x / 2, y: layout.size.y / 2 } };
+  let lang: SignLanguage = opts.language ?? detectSignLanguage(signResolver);
+  const ctx: Ctx = { atlas, resolve: (k) => resolver(k), lang: () => lang, center: { x: layout.size.x / 2, y: layout.size.y / 2 } };
   const chunks = new ChunkGrid();
-  for (const s of layout.statics) addStaticBox(chunks.at(s.center.x, s.center.y), s, ctx);
-  for (const c of layout.circles) addStaticCircle(chunks.at(c.center.x, c.center.y), c);
+  const groups: FadeGroupInfo[] = [];
+  const fadeGroupFor = (box: THREE.Box3 | null, chunk: string): number => {
+    if (!box) return 0;
+    const id = allocFadeGroup();
+    if (!id) return 0;
+    groups.push({ id, min: box.min, max: box.max, fade: 0, chunk });
+    return id;
+  };
+  for (const s of layout.statics) {
+    const b = chunks.at(s.center.x, s.center.y);
+    const gid = fadeGroupFor(fadeBoxForStatic(s), chunks.keyAt(s.center.x, s.center.y));
+    b.withFadeGroup(gid, () => addStaticBox(b, s, ctx));
+  }
+  for (const c of layout.circles) {
+    const b = chunks.at(c.center.x, c.center.y);
+    const gid = fadeGroupFor(fadeBoxForCircle(c), chunks.keyAt(c.center.x, c.center.y));
+    b.withFadeGroup(gid, () => addStaticCircle(b, c));
+  }
   const density = THREE.MathUtils.clamp(opts.decorDensity ?? 1, 0, 1);
   layout.decor.forEach((d, i) => {
     if (keepDecor(`${layout.id}|decor|${i}`, density)) addDecor(chunks.at(d.pos.x, d.pos.y), d, String(i));
@@ -1212,35 +1667,48 @@ export function buildStaticScenery(layout: LayoutDef, signResolver: SignResolver
     addBackdrop(chunks, layout, ctx, density);
   }
   atlas.redraw();
-  const signMat = signMaterial(atlas);
+  const signMats = signMaterials(atlas);
+  const ghostChunks = new Map<string, GhostChunk>();
   for (const [key, b] of chunks.builders) {
-    const g = b.build((bucket) => sceneryMaterial(bucket, signMat), { name: `chunk${key}` });
+    const g = b.build((bucket) => sceneryMaterial(bucket, signMats.mat), { name: `chunk${key}` });
     b.clear();
     finishMeshes(g);
+    ghostChunks.set(key, attachGhosts(g, signMats.ghost));
     root.add(g);
   }
+  for (const gr of groups) ghostChunks.get(gr.chunk)?.groups.push(gr);
   if (opts.ground !== false) root.add(createGround(layout));
   let meshes = 0;
   let casters = 0;
   let tris = 0;
+  let ghosts = 0;
   root.traverse((o) => {
     const m = o as THREE.Mesh;
     if (!m.isMesh) return;
+    if (m.userData.ghost) {
+      ghosts++;
+      return;
+    }
     meshes++;
     if (m.castShadow) casters++;
     const g = m.geometry;
     tris += (g.index ? g.index.count : g.getAttribute('position').count) / 3;
   });
-  root.stats = { meshes, drawCalls: meshes, shadowCasters: casters, triangles: Math.round(tris), chunks: chunks.builders.size };
+  root.stats = { meshes, drawCalls: meshes, shadowCasters: casters, triangles: Math.round(tris), chunks: chunks.builders.size, fadeGroups: groups.length, ghosts };
+  const chunkList = [...ghostChunks.values()];
   root.bind(
     (next) => {
       resolver = next;
+      lang = opts.language ?? detectSignLanguage(next);
       atlas.refresh();
     },
     () => {
+      removeOcclusionClient(root);
+      for (const gr of groups) releaseFadeGroup(gr.id);
+      groups.length = 0;
       root.traverse((o) => {
         const m = o as THREE.Mesh;
-        if (m.isMesh) {
+        if (m.isMesh && !m.userData.ghost) {
           m.geometry.dispose();
           // Ground materials + sign material are owned here; shared ones are cached.
           if (m.name.startsWith('ground:')) {
@@ -1250,10 +1718,24 @@ export function buildStaticScenery(layout: LayoutDef, signResolver: SignResolver
           }
         }
       });
-      signMat.dispose();
+      signMats.mat.dispose();
+      signMats.ghost.dispose();
       atlas.dispose();
     },
+    (focus, dt) => updateSceneryOcclusion(root, chunkList, groups, focus, dt),
+    () => atlas.texts(),
+    () => {
+      let ghostsVisible = 0;
+      for (const c of chunkList) for (const g of c.ghosts) if (g.visible) ghostsVisible++;
+      return {
+        groups: groups.length,
+        faded: groups.filter((g) => g.fade >= 0.99).length,
+        fading: groups.filter((g) => g.fade > 0 && g.fade < 0.99).length,
+        ghostsVisible,
+      };
+    },
   );
+  addOcclusionClient(root);
   return root;
 }
 
@@ -1263,17 +1745,25 @@ export function buildStaticScenery(layout: LayoutDef, signResolver: SignResolver
 
 function buildSingle(fill: (b: PartBuilder, ctx: Ctx) => void, name: string): THREE.Group {
   const atlas = new SignAtlas(1, 2);
-  const ctx: Ctx = { atlas, resolve: defaultSignResolver, center: null };
+  const ctx: Ctx = { atlas, resolve: defaultSignResolver, lang: () => 'ko', center: null };
   const b = new PartBuilder();
   fill(b, ctx);
   atlas.redraw();
-  const signMat = signMaterial(atlas);
-  const g = b.build((bucket) => sceneryMaterial(bucket, signMat), { name });
+  const signMats = signMaterials(atlas);
+  const g = b.build((bucket) => sceneryMaterial(bucket, signMats.mat), { name });
   b.clear();
   finishMeshes(g);
+  // Ghost twins so the x-ray cut shows a translucent shape (previews have no fade groups).
+  const chunk = attachGhosts(g, signMats.ghost);
+  const client: OcclusionClient = {
+    occlusionUpdate: (focus, dt) => updateSceneryOcclusion(g, [chunk], [], focus, dt),
+  };
+  addOcclusionClient(client);
   g.userData.dispose = () => {
-    g.traverse((o) => (o as THREE.Mesh).isMesh && (o as THREE.Mesh).geometry.dispose());
-    signMat.dispose();
+    removeOcclusionClient(client);
+    g.traverse((o) => (o as THREE.Mesh).isMesh && !o.userData.ghost && (o as THREE.Mesh).geometry.dispose());
+    signMats.mat.dispose();
+    signMats.ghost.dispose();
     atlas.dispose();
   };
   return g;
@@ -1284,7 +1774,8 @@ function buildSingle(fill: (b: PartBuilder, ctx: Ctx) => void, name: string): TH
  * Call `group.userData.dispose()` to free it.
  */
 export function createStaticBox(def: StaticBoxDef, signResolver: SignResolver = defaultSignResolver, faceToward: Vec2 | null = null): THREE.Group {
-  return buildSingle((b, ctx) => addStaticBox(b, def, { ...ctx, resolve: signResolver, center: faceToward }), `static:${def.id}`);
+  const lang = detectSignLanguage(signResolver);
+  return buildSingle((b, ctx) => addStaticBox(b, def, { ...ctx, resolve: signResolver, lang: () => lang, center: faceToward }), `static:${def.id}`);
 }
 
 export function createStaticCircle(def: StaticCircleDef): THREE.Group {

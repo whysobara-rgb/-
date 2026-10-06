@@ -73,6 +73,7 @@ export class MockNode {
   constructor(ctx: MockAudioContext) {
     this.ctx = ctx;
     ctx.nodesCreated++;
+    ctx.nodes.push(this);
   }
   connect<T>(dest: T): T {
     if (!(dest instanceof MockNode) && !(dest instanceof MockParam)) throw new TypeError('connect() to a non-node');
@@ -193,6 +194,8 @@ export class MockAudioContext {
   readonly destination: MockNode;
   nodesCreated = 0;
   sourcesStarted = 0;
+  /** Every node created, in order (graph inspection in tests). */
+  readonly nodes: MockNode[] = [];
 
   constructor(sampleRate = 48000) {
     this.sampleRate = sampleRate;
@@ -246,6 +249,27 @@ export class MockAudioContext {
   createPeriodicWave(): object {
     return {};
   }
+}
+
+/**
+ * A compact description of everything scheduled on the context so far (node types, start
+ * times and every parameter automation, rounded), starting at node index `from`. Two renders of
+ * a sound with different random seeds should differ here when the recipe is randomized; noise
+ * buffer read offsets are deliberately left out (they always differ).
+ */
+export function graphFingerprint(ctx: MockAudioContext, from = 0): string {
+  const r = (x: number): string => (Math.round(x * 1e4) / 1e4).toString();
+  const parts: string[] = [];
+  for (const n of ctx.nodes.slice(from)) {
+    parts.push(n.constructor.name);
+    if (n instanceof MockSource) parts.push(`@${r(n.startTime)}`);
+    for (const [k, p] of Object.entries(n)) {
+      if (!(p instanceof MockParam)) continue;
+      parts.push(`${k}=${r(p.value)}`);
+      for (const e of p.events) parts.push(`${e.kind}:${r(e.value)}@${r(e.time)}`);
+    }
+  }
+  return parts.join(' ');
 }
 
 /** Typed as a real AudioContext for code under test. */

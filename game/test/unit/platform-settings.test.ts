@@ -17,7 +17,7 @@ import {
   detectLanguage,
   sanitizeSettings,
 } from '../../src/platform/settings';
-import { actionGlyph, bindingGlyph, detectPadFamily } from '../../src/platform/glyphs';
+import { actionGlyph, bindingGlyph, detectPadFamily, isLayoutDependentCode, normalizeKeyLabel } from '../../src/platform/glyphs';
 
 describe('detectLanguage', () => {
   it('prefers the Steam game language', () => {
@@ -141,6 +141,50 @@ describe('bindings', () => {
     expect(listDuplicateBindings(r.bindings)).toEqual([]);
   });
 
+  it('never leaves another action unbound: an empty alternate slot takes the only binding', () => {
+    // Ping adds A as an alternate (slot 1 was empty): grab cannot receive anything back by swap.
+    const r = assignBinding(defaultBindings(), 'ping', 'gamepad', 'button:0', 1);
+    expect(r.ok).toBe(true);
+    expect(r.bindings.gamepad.ping).toEqual(['button:3', 'button:0']);
+    expect(r.bindings.gamepad.grab.length).toBe(1);
+    expect(r.bindings.gamepad.grab[0]).not.toBe('button:0');
+    expect(r.swaps).toEqual([{ action: 'grab', replacement: r.bindings.gamepad.grab[0] }]);
+    expect(listDuplicateBindings(r.bindings)).toEqual([]);
+  });
+
+  it('never leaves another action unbound: the previous code is hard-wired pause', () => {
+    // Pause's previous primary is Start, which grab may not hold.
+    const r = assignBinding(defaultBindings(), 'pause', 'gamepad', 'button:0');
+    expect(r.ok).toBe(true);
+    expect(r.bindings.gamepad.pause).toEqual(['button:0']);
+    expect(r.bindings.gamepad.grab).toHaveLength(1);
+    expect(isBindable('grab', 'gamepad', r.bindings.gamepad.grab[0])).toBe(true);
+    expect(listDuplicateBindings(r.bindings)).toEqual([]);
+    // Taking pause's only button back is a plain swap (pause receives grab's replacement).
+    const back = assignBinding(r.bindings, 'grab', 'gamepad', 'button:0');
+    expect(back.bindings.gamepad.grab).toEqual(['button:0']);
+    expect(back.bindings.gamepad.pause).toEqual(r.bindings.gamepad.grab);
+    // With no swap possible (alternate slot), pause falls back to its hard-wired Start.
+    const alt = assignBinding(r.bindings, 'dash', 'gamepad', 'button:0', 2);
+    expect(alt.bindings.gamepad.pause).toEqual(['button:9']);
+  });
+
+  it('every action keeps a code after any single rebind (exhaustive over defaults)', () => {
+    const codes = {
+      keyboard: ['KeyW', 'Space', 'KeyK', 'KeyE', 'KeyP', 'Escape', 'Mouse2', 'KeyZ', 'ArrowDown'],
+      gamepad: ['button:0', 'button:1', 'button:2', 'button:3', 'button:5', 'button:9', 'axis:1:-', 'button:12'],
+    } as const;
+    for (const device of ['keyboard', 'gamepad'] as const)
+      for (const action of MATCH_ACTIONS)
+        for (const code of codes[device])
+          for (const slot of [0, 1, 3, 9]) {
+            const r = assignBinding(defaultBindings(), action, device, code, slot);
+            for (const a of MATCH_ACTIONS) expect(r.bindings[device][a].length, `${action} ${code} ${slot} -> ${a}`).toBeGreaterThan(0);
+            expect(listDuplicateBindings(r.bindings)).toEqual([]);
+            if (r.ok) expect(r.bindings[device][action]).toContain(code);
+          }
+  });
+
   it('moves a code inside the same action instead of duplicating it', () => {
     const r = assignBinding(defaultBindings(), 'moveUp', 'keyboard', 'ArrowUp');
     expect(r.bindings.keyboard.moveUp).toEqual(['ArrowUp']);
@@ -186,6 +230,21 @@ describe('bindings', () => {
     }
     expect(listDuplicateBindings(b)).toEqual([]);
   });
+
+  it('gives an action a free code when earlier actions claimed all of its codes and defaults', () => {
+    const b = sanitizeBindings({ keyboard: { moveUp: ['KeyS', 'ArrowDown'] } });
+    expect(b.keyboard.moveUp).toEqual(['KeyS', 'ArrowDown']);
+    expect(b.keyboard.moveDown).toHaveLength(1);
+    expect(isBindable('moveDown', 'keyboard', b.keyboard.moveDown[0])).toBe(true);
+    expect(listDuplicateBindings(b)).toEqual([]);
+    // A later action that explicitly claims a code keeps it; the empty action gets another one.
+    const c = sanitizeBindings({ keyboard: { moveUp: ['KeyS', 'ArrowDown'], grab: ['KeyF'] } });
+    expect(c.keyboard.grab).toEqual(['KeyF']);
+    expect(c.keyboard.moveDown).not.toContain('KeyF');
+    expect(listDuplicateBindings(c)).toEqual([]);
+    // Sanitizing a valid table is the identity.
+    expect(sanitizeBindings(b)).toEqual(b);
+  });
 });
 
 describe('glyphs', () => {
@@ -211,6 +270,33 @@ describe('glyphs', () => {
     expect(actionGlyph('back', 'gamepad', b).label).toBe('B');
     const rebound = assignBinding(b, 'moveUp', 'keyboard', 'KeyI').bindings;
     expect(actionGlyph('move', 'keyboard', rebound).label).toBe('IASD');
+  });
+
+  it('follows the keyboard layout when a layout map is given', () => {
+    const azerty = new Map([
+      ['KeyW', 'Z'],
+      ['KeyA', 'Q'],
+      ['KeyQ', 'A'],
+    ]);
+    expect(bindingGlyph('keyboard', 'KeyW', 'xbox', azerty).label).toBe('Z');
+    expect(bindingGlyph('keyboard', 'KeyS', 'xbox', azerty).label).toBe('S'); // not in the map: physical
+    expect(bindingGlyph('keyboard', 'Space', 'xbox', azerty).label).toBe('Space');
+    expect(actionGlyph('move', 'keyboard', defaultBindings(), 'xbox', azerty).label).toBe('ZQSD');
+    expect(actionGlyph('tabPrev', 'keyboard', defaultBindings(), 'xbox', azerty).label).toBe('A');
+    expect(isLayoutDependentCode('KeyQ')).toBe(true);
+    expect(isLayoutDependentCode('Digit7')).toBe(true);
+    expect(isLayoutDependentCode('Semicolon')).toBe(true);
+    expect(isLayoutDependentCode('ShiftLeft')).toBe(false);
+    expect(isLayoutDependentCode('Numpad1')).toBe(false);
+    expect(normalizeKeyLabel('z')).toBe('Z');
+    expect(normalizeKeyLabel('é')).toBe('É');
+    expect(normalizeKeyLabel('ß')).toBe('ß');
+    expect(normalizeKeyLabel(';')).toBe(';');
+    expect(normalizeKeyLabel('ㅈ')).toBeNull();
+    expect(normalizeKeyLabel('ц')).toBeNull();
+    expect(normalizeKeyLabel('Dead')).toBeNull();
+    expect(normalizeKeyLabel(' ')).toBeNull();
+    expect(normalizeKeyLabel(7)).toBeNull();
   });
 
   it('detects pad families', () => {

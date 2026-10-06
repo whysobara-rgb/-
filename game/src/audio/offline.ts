@@ -6,7 +6,8 @@
  */
 import type { Vec2 } from '../sim/types';
 import type { LoopId, SfxId, TrackId } from './ids';
-import { createMixer, type Volumes } from './mixer';
+import type { BarGrid } from './loops';
+import { createMixer, DEFAULT_VOLUMES, type Volumes } from './mixer';
 import { makeRng } from './rng';
 import { MusicPlayer } from './sequencer';
 import { SFX_RECIPES } from './sfx';
@@ -21,14 +22,25 @@ export const QA_SAMPLE_RATE = 48000;
  * time anything plays, so renders start after this pre-roll to measure what players hear.
  */
 export const PRE_ROLL = 0.6;
-const FULL: Volumes = { master: 1, music: 1, sfx: 1, ui: 1 };
+
+/** Every render goes through the mixer at these slider positions unless told otherwise. */
+export interface RenderVolumeOptions {
+  /** Settings sliders (default: the shipped defaults, i.e. what a new player hears). */
+  volumes?: Volumes;
+}
+
+const mixerFor = (ctx: OfflineAudioContext, o: RenderVolumeOptions): ReturnType<typeof createMixer> => {
+  const mixer = createMixer(ctx);
+  mixer.setVolumes(o.volumes ?? DEFAULT_VOLUMES, false);
+  return mixer;
+};
 
 function offline(seconds: number, sampleRate: number): OfflineAudioContext {
   const length = Math.max(1, Math.ceil(seconds * sampleRate));
   return new OfflineAudioContext({ numberOfChannels: 2, length, sampleRate });
 }
 
-export interface SfxRenderOptions {
+export interface SfxRenderOptions extends RenderVolumeOptions {
   variant?: number;
   seed?: number;
   pitch?: number;
@@ -45,8 +57,7 @@ export async function renderSfx(id: SfxId, o: SfxRenderOptions = {}): Promise<Au
   const r = SFX_RECIPES[id];
   const sr = o.sampleRate ?? QA_SAMPLE_RATE;
   const ctx = offline(PRE_ROLL + r.length + (o.tail ?? 0.8), sr);
-  const mixer = createMixer(ctx);
-  mixer.setVolumes(FULL, false);
+  const mixer = mixerFor(ctx, o);
   const mix = r.global ? spatialMix(o.listener ?? { x: 0, y: 0 }, null) : spatialMix(o.listener ?? { x: 0, y: 0 }, o.pos);
   spawnSfx(ctx, mixer, id, {
     t: PRE_ROLL,
@@ -61,7 +72,7 @@ export async function renderSfx(id: SfxId, o: SfxRenderOptions = {}): Promise<Au
   return ctx.startRendering();
 }
 
-export interface MusicRenderOptions {
+export interface MusicRenderOptions extends RenderVolumeOptions {
   /** Constant intensity, or a function of time (s). */
   intensity?: number | ((t: number) => number);
   seed?: number;
@@ -73,8 +84,7 @@ export interface MusicRenderOptions {
 export async function renderMusic(id: TrackId, seconds: number, o: MusicRenderOptions = {}): Promise<AudioBuffer> {
   const sr = o.sampleRate ?? QA_SAMPLE_RATE;
   const ctx = offline(PRE_ROLL + seconds, sr);
-  const mixer = createMixer(ctx);
-  mixer.setVolumes(FULL, false);
+  const mixer = mixerFor(ctx, o);
   const player = new MusicPlayer({ ctx, input: mixer.inputs.music, reverb: mixer.musicReverb }, o.seed ?? 7);
   const only = o.only;
   if (only) player.eventFilter = (ev) => only.includes(ev.inst);
@@ -90,11 +100,13 @@ export async function renderMusic(id: TrackId, seconds: number, o: MusicRenderOp
   return ctx.startRendering();
 }
 
-export interface LoopRenderOptions {
+export interface LoopRenderOptions extends RenderVolumeOptions {
   /** Intensity as a function of time (s). */
   intensity: (t: number) => number;
   /** Position as a function of time (listener at origin). */
   pos?: (t: number) => Vec2 | undefined;
+  /** Bar grid of an (imaginary) music track for rhythmic loops; default: none playing. */
+  grid?: BarGrid | null;
   seed?: number;
   sampleRate?: number;
 }
@@ -102,10 +114,9 @@ export interface LoopRenderOptions {
 export async function renderLoop(id: LoopId, seconds: number, o: LoopRenderOptions): Promise<AudioBuffer> {
   const sr = o.sampleRate ?? QA_SAMPLE_RATE;
   const ctx = offline(seconds, sr);
-  const mixer = createMixer(ctx);
-  mixer.setVolumes(FULL, false);
+  const mixer = mixerFor(ctx, o);
   const origin = { x: 0, y: 0 };
-  const l = spawnLoop(ctx, mixer, id, 0, makeRng(o.seed ?? 3), spatialMix(origin, o.pos?.(0)));
+  const l = spawnLoop(ctx, mixer, id, 0, makeRng(o.seed ?? 3), spatialMix(origin, o.pos?.(0)), o.grid);
   for (let t = 0; t < seconds; t += 1 / 30) {
     l.voice.set(Math.max(0, Math.min(1, o.intensity(t))), t);
     updateLoopSpatial(ctx, l, spatialMix(origin, o.pos?.(t)), t);
@@ -123,12 +134,22 @@ export interface SceneCue {
   step?: number;
 }
 
-export interface SceneOptions {
+export interface SceneLoop {
+  id: LoopId;
+  /** Intensity when the loop starts (held for the whole scene unless `to` is given). */
+  intensity: number;
+  /** Intensity reached at the end of the scene (linear ramp from `start`). */
+  to?: number;
+  /** Seconds into the scene when the loop starts (default 0). */
+  start?: number;
+  pos?: Vec2;
+}
+
+export interface SceneOptions extends RenderVolumeOptions {
   music?: TrackId;
   intensity?: number;
   cues: readonly SceneCue[];
-  /** Loops held at a constant intensity for the whole scene. */
-  loops?: readonly { id: LoopId; intensity: number; pos?: Vec2 }[];
+  loops?: readonly SceneLoop[];
   seed?: number;
   sampleRate?: number;
 }
@@ -140,8 +161,7 @@ export interface SceneOptions {
 export async function renderScene(seconds: number, o: SceneOptions): Promise<AudioBuffer> {
   const sr = o.sampleRate ?? QA_SAMPLE_RATE;
   const ctx = offline(PRE_ROLL + seconds, sr);
-  const mixer = createMixer(ctx);
-  mixer.setVolumes(FULL, false);
+  const mixer = mixerFor(ctx, o);
   const rnd = makeRng(o.seed ?? 11);
   const origin = { x: 0, y: 0 };
   for (const c of [...o.cues].sort((a, b) => a.t - b.t)) {
@@ -157,15 +177,23 @@ export async function renderScene(seconds: number, o: SceneOptions): Promise<Aud
       rnd,
     });
   }
-  for (const l of o.loops ?? []) {
-    const sp = spawnLoop(ctx, mixer, l.id, PRE_ROLL, rnd, spatialMix(origin, l.pos));
-    sp.voice.set(l.intensity, PRE_ROLL);
-    sp.voice.stop(PRE_ROLL + seconds);
-  }
+  // Music first, so rhythmic loops (the siren) can lock to its bar grid like in the game.
+  let player: MusicPlayer | null = null;
   if (o.music) {
-    const player = new MusicPlayer({ ctx, input: mixer.inputs.music, reverb: mixer.musicReverb }, o.seed ?? 7);
+    player = new MusicPlayer({ ctx, input: mixer.inputs.music, reverb: mixer.musicReverb }, o.seed ?? 7);
     player.setIntensity(o.intensity ?? 0.75, PRE_ROLL);
     player.play(o.music, PRE_ROLL);
+  }
+  for (const l of o.loops ?? []) {
+    const t0 = PRE_ROLL + Math.max(0, l.start ?? 0);
+    const t1 = PRE_ROLL + seconds;
+    const sp = spawnLoop(ctx, mixer, l.id, t0, rnd, spatialMix(origin, l.pos), player?.barGrid());
+    const to = l.to ?? l.intensity;
+    // Same update rate as the game's frame loop would give, sampled at 30 Hz.
+    for (let t = t0; t < t1; t += 1 / 30) sp.voice.set(l.intensity + ((to - l.intensity) * (t - t0)) / Math.max(1e-3, t1 - t0), t);
+    sp.voice.stop(t1);
+  }
+  if (player) {
     for (let t = 0; t < seconds; t += 0.25) player.schedule(PRE_ROLL + Math.min(seconds, t + 0.3), PRE_ROLL + t);
   }
   return ctx.startRendering();

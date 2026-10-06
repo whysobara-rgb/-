@@ -17,6 +17,7 @@ import { G, PartBuilder } from './geometry';
 import { createToonMaterial, matTextured, matVC } from './materials';
 import { blobShadowTexture, valueCoinTexture, valuePlateTexture } from './textures';
 import { Highlighter } from './outline';
+import { cameraFacingYaw, trackViewCamera } from './occlusion';
 
 export interface SafeRig {
   readonly root: THREE.Group;
@@ -40,63 +41,82 @@ interface SafeGeo {
   /** Round coin on the top face; the rig keeps it upright toward the camera. */
   coin: THREE.BufferGeometry;
   coinY: number;
+  /** Coin center z (the body sits slightly behind the collider center). */
+  coinZ: number;
   anchors: THREE.BufferGeometry;
 }
 
 const geoCache = new Map<SafeKind, SafeGeo>();
+
+/**
+ * Body frame inside the collider (SAFE_SPECS half extents): the box is inset so that every
+ * protrusion (dial, wheel, handles, rings) stays within the collider, so safes pushed against
+ * each other or a bank wall touch visually instead of interpenetrating.
+ */
+interface BodyFrame {
+  /** Half width of the body box (x). */
+  hx: number;
+  /** Back face z and front (door) face z. */
+  back: number;
+  front: number;
+}
 
 function buildSmall(): SafeGeo {
   const col = LOOT_STYLE.smallSafe.color;
   const dark = LOOT_STYLE.smallSafe.dark;
   const light = new THREE.Color(col).lerp(new THREE.Color('#FFFFFF'), 0.35);
   const H = SAFE_SPECS.smallSafe.height; // 0.8
-  const hx = SAFE_SPECS.smallSafe.half.x;
-  const hz = SAFE_SPECS.smallSafe.half.y;
+  const spec = SAFE_SPECS.smallSafe.half;
+  // Side handles stick out 0.027, door hardware 0.072.
+  const f: BodyFrame = { hx: spec.x - 0.031, back: -spec.y + 0.005, front: spec.y - 0.076 };
+  const hx = f.hx;
+  const depth = f.front - f.back;
+  const zc = (f.front + f.back) / 2;
   const foot = 0.07;
   const bodyH = H - foot;
   const cy = foot + bodyH / 2;
   const b = new PartBuilder();
   // Feet.
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-    b.add(G.cyl(0.8, 1, 10), { color: PAL.steelDark, pos: [sx * (hx - 0.12), foot / 2 + 0.005, sz * (hz - 0.12)], scale: [0.065, foot + 0.01, 0.065] });
+    b.add(G.cyl(0.8, 1, 10), { color: PAL.steelDark, pos: [sx * (hx - 0.12), foot / 2 + 0.005, zc + sz * (depth / 2 - 0.12)], scale: [0.065, foot + 0.01, 0.065] });
   }
   // Body.
-  b.add(G.rbox(hx * 2, bodyH, hz * 2, 0.09, 3), { color: col, pos: [0, cy, 0] });
+  b.add(G.rbox(hx * 2, bodyH, depth, 0.09, 3), { color: col, pos: [0, cy, zc] });
   // Top lid band (lighter) for a chunky toy look.
-  b.add(G.rbox(hx * 2 - 0.1, 0.03, hz * 2 - 0.1, 0.012), { color: light, pos: [0, H - 0.012, 0] });
+  b.add(G.rbox(hx * 2 - 0.1, 0.03, depth - 0.1, 0.012), { color: light, pos: [0, H - 0.012, zc] });
   // Door.
-  const fz = hz;
-  b.add(G.rbox(0.6, 0.56, 0.06, 0.04, 2), { color: dark, pos: [0, cy - 0.02, fz - 0.015] });
-  b.add(G.rbox(0.54, 0.5, 0.06, 0.035, 2), { color: col, pos: [0, cy - 0.02, fz + 0.0] });
-  // Dial.
+  const fz = f.front;
+  b.add(G.rbox(0.58, 0.56, 0.06, 0.04, 2), { color: dark, pos: [0, cy - 0.02, fz - 0.015] });
+  b.add(G.rbox(0.52, 0.5, 0.06, 0.035, 2), { color: col, pos: [0, cy - 0.02, fz + 0.0] });
+  // Dial (flat, chunky).
   const dial: [number, number] = [-0.07, cy - 0.08];
-  b.add(G.cyl(1, 1, 22), { color: PAL.silver, pos: [dial[0], dial[1], fz + 0.04], rot: [Math.PI / 2, 0, 0], scale: [0.105, 0.04, 0.105] });
-  b.add(G.cyl(1, 1, 22), { color: PAL.steel, pos: [dial[0], dial[1], fz + 0.062], rot: [Math.PI / 2, 0, 0], scale: [0.07, 0.012, 0.07] });
-  b.add(G.sphere(10, 8), { color: PAL.ink, pos: [dial[0], dial[1], fz + 0.07], scale: [0.03, 0.03, 0.02] });
+  b.add(G.cyl(1, 1, 22), { color: PAL.silver, pos: [dial[0], dial[1], fz + 0.03], rot: [Math.PI / 2, 0, 0], scale: [0.105, 0.03, 0.105] });
+  b.add(G.cyl(1, 1, 22), { color: PAL.steel, pos: [dial[0], dial[1], fz + 0.05], rot: [Math.PI / 2, 0, 0], scale: [0.07, 0.012, 0.07] });
+  b.add(G.sphere(10, 8), { color: PAL.ink, pos: [dial[0], dial[1], fz + 0.058], scale: [0.03, 0.03, 0.014] });
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2;
     b.add(G.box(), {
       color: i === 0 ? '#E85D6A' : PAL.ink,
-      pos: [dial[0] + Math.cos(a) * 0.088, dial[1] + Math.sin(a) * 0.088, fz + 0.062],
+      pos: [dial[0] + Math.cos(a) * 0.088, dial[1] + Math.sin(a) * 0.088, fz + 0.05],
       rot: [0, 0, a],
       scale: [0.022, 0.008, 0.006],
     });
   }
   // Handle lever.
-  b.add(G.cyl(1, 1, 10), { color: PAL.steelDark, pos: [0.17, dial[1], fz + 0.045], rot: [Math.PI / 2, 0, 0], scale: [0.03, 0.05, 0.03] });
-  b.add(G.rbox(0.05, 0.17, 0.035, 0.016), { color: PAL.silver, pos: [0.17, dial[1] - 0.05, fz + 0.075] });
+  b.add(G.cyl(1, 1, 10), { color: PAL.steelDark, pos: [0.17, dial[1], fz + 0.035], rot: [Math.PI / 2, 0, 0], scale: [0.03, 0.04, 0.03] });
+  b.add(G.rbox(0.05, 0.17, 0.03, 0.014), { color: PAL.silver, pos: [0.17, dial[1] - 0.05, fz + 0.055] });
   // Hinges.
   for (const y of [cy - 0.2, cy + 0.16]) {
-    b.add(G.cyl(1, 1, 10), { color: PAL.steelDark, pos: [-0.31, y, fz + 0.02], scale: [0.026, 0.1, 0.026] });
+    b.add(G.cyl(1, 1, 10), { color: PAL.steelDark, pos: [-0.3, y, fz + 0.02], scale: [0.026, 0.1, 0.026] });
   }
   // Rivets on the front corners and door corners.
   for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
-    b.add(G.sphere(8, 6), { color: PAL.silver, pos: [sx * (hx - 0.07), cy + sy * (bodyH / 2 - 0.07), fz + 0.004], scale: 0.022 });
-    b.add(G.sphere(8, 6), { color: dark, pos: [sx * 0.235, cy - 0.02 + sy * 0.215, fz + 0.03], scale: 0.016 });
+    b.add(G.sphere(8, 6), { color: PAL.silver, pos: [sx * (hx - 0.06), cy + sy * (bodyH / 2 - 0.07), fz + 0.004], scale: 0.022 });
+    b.add(G.sphere(8, 6), { color: dark, pos: [sx * 0.225, cy - 0.02 + sy * 0.215, fz + 0.03], scale: 0.016 });
   }
   // Side carry handles (cute, also shows the sides from above).
   for (const sx of [-1, 1]) {
-    b.add(G.torus(0.22, 6, 14, Math.PI), { color: PAL.steelDark, pos: [sx * (hx + 0.005), cy + 0.12, 0], rot: [0, Math.PI / 2, 0], scale: [0.11, 0.08, 0.1] });
+    b.add(G.torus(0.22, 6, 14, Math.PI), { color: PAL.steelDark, pos: [sx * (hx + 0.005), cy + 0.12, zc], rot: [0, Math.PI / 2, 0], scale: [0.11, 0.08, 0.1] });
   }
   const body = b.merge('vc')!;
 
@@ -104,10 +124,10 @@ function buildSmall(): SafeGeo {
   const pb = new PartBuilder('plate');
   pb.add(G.plane(), { color: '#FFFFFF', pos: [0, cy + 0.17, fz + 0.034], scale: [0.3, 0.15, 1] });
   const plates = pb.merge('plate')!;
-  const coin = new THREE.CircleGeometry(0.3, 28).rotateX(-Math.PI / 2);
+  const coin = new THREE.CircleGeometry(0.29, 28).rotateX(-Math.PI / 2);
 
-  const anchors = buildAnchors(hx, hz, 2);
-  return { body, plates, coin, coinY: H + 0.006, anchors };
+  const anchors = buildAnchors(hx, depth / 2, zc, 2);
+  return { body, plates, coin, coinY: H + 0.006, coinZ: zc, anchors };
 }
 
 function buildLarge(): SafeGeo {
@@ -115,33 +135,38 @@ function buildLarge(): SafeGeo {
   const dark = LOOT_STYLE.largeSafe.dark;
   const light = new THREE.Color(col).lerp(new THREE.Color('#FFFFFF'), 0.3);
   const H = SAFE_SPECS.largeSafe.height; // 1.3
-  const hx = SAFE_SPECS.largeSafe.half.x; // 0.7
-  const hz = SAFE_SPECS.largeSafe.half.y; // 0.6
+  const spec = SAFE_SPECS.largeSafe.half; // 0.7 x 0.6
+  // Lifting rings stick out 0.045, the wheel 0.138.
+  const f: BodyFrame = { hx: spec.x - 0.046, back: -spec.y + 0.016, front: spec.y - 0.142 };
+  const hx = f.hx;
+  const depth = f.front - f.back;
+  const zc = (f.front + f.back) / 2;
   const plinth = 0.13;
   const crown = 0.08;
   const bodyH = H - plinth - crown;
   const cy = plinth + bodyH / 2;
   const b = new PartBuilder();
   // Plinth + chunky feet.
-  b.add(G.rbox(hx * 2 - 0.04, plinth, hz * 2 - 0.04, 0.04), { color: PAL.steelDark, pos: [0, plinth / 2, 0] });
+  b.add(G.rbox(hx * 2 - 0.04, plinth, depth - 0.04, 0.04), { color: PAL.steelDark, pos: [0, plinth / 2, zc] });
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-    b.add(G.rbox(0.2, 0.06, 0.2, 0.025), { color: PAL.ink, pos: [sx * (hx - 0.12), 0.03, sz * (hz - 0.12)] });
+    b.add(G.rbox(0.2, 0.06, 0.2, 0.025), { color: PAL.ink, pos: [sx * (hx - 0.12), 0.03, zc + sz * (depth / 2 - 0.12)] });
   }
   // Body + crown molding.
-  b.add(G.rbox(hx * 2 - 0.02, bodyH, hz * 2 - 0.02, 0.1, 3), { color: col, pos: [0, cy, 0] });
-  b.add(G.rbox(hx * 2, crown, hz * 2, 0.035), { color: dark, pos: [0, H - crown / 2, 0] });
-  b.add(G.rbox(hx * 2 - 0.16, 0.025, hz * 2 - 0.16, 0.01), { color: light, pos: [0, H + 0.005, 0] });
+  b.add(G.rbox(hx * 2 - 0.02, bodyH, depth - 0.02, 0.1, 3), { color: col, pos: [0, cy, zc] });
+  b.add(G.rbox(hx * 2, crown, depth, 0.035), { color: dark, pos: [0, H - crown / 2, zc] });
+  b.add(G.rbox(hx * 2 - 0.16, 0.025, depth - 0.16, 0.01), { color: light, pos: [0, H + 0.005, zc] });
   // Corner guards.
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-    b.add(G.rbox(0.12, bodyH + 0.02, 0.12, 0.04), { color: dark, pos: [sx * (hx - 0.045), cy, sz * (hz - 0.045)] });
+    const gz = zc + sz * (depth / 2 - 0.045);
+    b.add(G.rbox(0.12, bodyH + 0.02, 0.12, 0.04), { color: dark, pos: [sx * (hx - 0.045), cy, gz] });
     for (const y of [cy - bodyH * 0.35, cy, cy + bodyH * 0.35]) {
-      b.add(G.sphere(8, 6), { color: PAL.silver, pos: [sx * (hx - 0.01), y, sz * (hz - 0.045)], scale: 0.022 });
+      b.add(G.sphere(8, 6), { color: PAL.silver, pos: [sx * (hx - 0.01), y, gz], scale: 0.022 });
     }
   }
   // Strap band (lower) around the body.
-  b.add(G.rbox(hx * 2 + 0.02, 0.07, hz * 2 + 0.02, 0.03), { color: dark, pos: [0, plinth + 0.17, 0] });
+  b.add(G.rbox(hx * 2 + 0.02, 0.07, depth + 0.02, 0.03), { color: dark, pos: [0, plinth + 0.17, zc] });
   // Double doors.
-  const fz = hz;
+  const fz = f.front;
   const doorY = cy + 0.03;
   const doorH = bodyH - 0.2;
   for (const sx of [-1, 1]) {
@@ -164,32 +189,33 @@ function buildLarge(): SafeGeo {
   for (let i = 0; i < 5; i++) {
     const a = (i / 5) * Math.PI * 2 + Math.PI / 2;
     b.add(G.cyl(1, 1, 8), { color: PAL.gold, pos: [Math.cos(a) * 0.12, wy + Math.sin(a) * 0.12, wz], rot: [0, 0, a + Math.PI / 2], scale: [0.018, 0.22, 0.018] });
-    b.add(G.sphere(10, 8), { color: PAL.goldLight, pos: [Math.cos(a) * 0.29, wy + Math.sin(a) * 0.29, wz], scale: 0.038, emissive: 0.08 });
+    b.add(G.sphere(10, 8), { color: PAL.goldLight, pos: [Math.cos(a) * 0.29, wy + Math.sin(a) * 0.29, wz], scale: 0.036, emissive: 0.08 });
   }
   // Keyhole plate on the right door.
   b.add(G.rbox(0.07, 0.12, 0.02, 0.02), { color: PAL.silver, pos: [0.17, wy + 0.02, fz + 0.04] });
   b.add(G.sphere(8, 6), { color: PAL.ink, pos: [0.17, wy + 0.04, fz + 0.052], scale: [0.012, 0.012, 0.006] });
   // Side lifting rings.
   for (const sx of [-1, 1]) {
-    b.add(G.torus(0.2, 6, 16), { color: PAL.steelDark, pos: [sx * (hx + 0.03), cy + 0.2, 0], rot: [0, Math.PI / 2, 0], scale: 0.1 });
+    b.add(G.torus(0.2, 6, 16), { color: PAL.steelDark, pos: [sx * (hx + 0.024), cy + 0.2, zc], rot: [0, Math.PI / 2, 0], scale: 0.1 });
   }
   const body = b.merge('vc')!;
 
   const pb = new PartBuilder('plate');
   pb.add(G.plane(), { color: '#FFFFFF', pos: [0, doorY + doorH / 2 - 0.13, fz + 0.042], scale: [0.4, 0.2, 1] });
   const plates = pb.merge('plate')!;
-  const coin = new THREE.CircleGeometry(0.47, 32).rotateX(-Math.PI / 2);
+  const coin = new THREE.CircleGeometry(0.45, 32).rotateX(-Math.PI / 2);
 
-  const anchors = buildAnchors(hx, hz, 3);
-  return { body, plates, coin, coinY: H + 0.022, anchors };
+  const anchors = buildAnchors(hx, depth / 2, zc, 3);
+  return { body, plates, coin, coinY: H + 0.022, coinZ: zc, anchors };
 }
 
 /**
  * Anchor hardware: a steel base plate under the safe plus L-brackets with chunky bolt heads
  * on the two long sides (visible from the high camera).
  */
-function buildAnchors(hx: number, hz: number, perSide: number): THREE.BufferGeometry {
+function buildAnchors(hx: number, hz: number, zc: number, perSide: number): THREE.BufferGeometry {
   const b = new PartBuilder();
+  b.push([0, 0, zc]);
   b.add(G.rbox(hx * 2 + 0.36, 0.025, hz * 2 + 0.2, 0.012), { color: PAL.steel, pos: [0, 0.0125, 0] });
   // Hazard corner marks on the plate.
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
@@ -208,6 +234,7 @@ function buildAnchors(hx: number, hz: number, perSide: number): THREE.BufferGeom
       b.add(G.cyl(1, 1, 6), { color: '#FFD84D', pos: [x + sx * 0.015, 0.18, z], rot: [0, 0, Math.PI / 2], scale: [0.025, 0.03, 0.025] });
     }
   }
+  b.pop();
   return b.merge('vc')!;
 }
 
@@ -248,9 +275,10 @@ export function createSafe(kind: SafeKind): SafeRig {
   // camera without looking misaligned with the box.
   const coin = new THREE.Mesh(geo.coin, matTextured(valueCoinTexture(value), { alphaTest: 0.35, rim: 0.2, polygonOffset: -1 }));
   coin.name = `${kind}:coin`;
-  coin.position.y = geo.coinY;
+  coin.position.set(0, geo.coinY, geo.coinZ);
   coin.userData.noOutline = true;
   coin.receiveShadow = true;
+  trackViewCamera(coin);
   body.add(coin);
 
   // Per-instance material so the bolts can glow with strain.
@@ -284,7 +312,8 @@ export function createSafe(kind: SafeKind): SafeRig {
   labelAnchor.position.y = spec.height + 0.45;
   root.add(labelAnchor);
 
-  const highlighter = new Highlighter(body);
+  // Silhouette-only outline (the dial / wheel / hinges do not get inner lines).
+  const highlighter = new Highlighter(body, { pushMax: 0.4, pushSlope: 0.8 });
 
   let anchored = true;
   let strain = 0;
@@ -297,10 +326,11 @@ export function createSafe(kind: SafeKind): SafeRig {
   const we = new THREE.Euler();
   const update = (dt: number): void => {
     time += dt;
-    // Keep the coin's number upright toward the camera (world +Z side).
+    // Keep the coin's number upright on screen for the current camera (north-looking match
+    // camera: world yaw 0; results / title shots may look from elsewhere).
     root.getWorldQuaternion(wq);
     we.setFromQuaternion(wq, 'YXZ');
-    coin.rotation.y = -we.y - body.rotation.y;
+    coin.rotation.y = cameraFacingYaw() - we.y - body.rotation.y;
     const s = anchored ? strain : 0;
     // Tremble + rocking while being pulled.
     body.position.x = Math.sin(time * 47) * 0.012 * s;

@@ -37,6 +37,9 @@ import {
   type UiSettings,
 } from '../index';
 import { mockHudModel, mockLabels, mockMinimap, mockPlazaLayout, mockTutorialLayout } from './mockData';
+// Dev only: the platform's real (pure, DOM-free) binding rules, so the controls tab shows the
+// same conflict swaps the game will make.
+import { MATCH_ACTIONS, assignBinding, defaultBindings, type Bindings, type MatchAction } from '../../platform/bindings';
 import { drawBackground, drawBank, drawLayoutBase, drawSafe, fitTransform, setupCanvas, bankInteriorWorld } from '../hud/mapDraw';
 
 // ---------------------------------------------------------------------------------------------
@@ -94,16 +97,11 @@ async function loadLayouts(): Promise<Partial<Record<LayoutId, LayoutDef>>> {
   return out;
 }
 
-const DEFAULT_BINDINGS: BindingRow[] = [
-  { action: 'moveUp', keyboard: 'KeyW', gamepad: 'axis:1:-' },
-  { action: 'moveDown', keyboard: 'KeyS', gamepad: 'axis:1:+' },
-  { action: 'moveLeft', keyboard: 'KeyA', gamepad: 'axis:0:-' },
-  { action: 'moveRight', keyboard: 'KeyD', gamepad: 'axis:0:+' },
-  { action: 'grab', keyboard: 'Space', gamepad: 'button:0' },
-  { action: 'dash', keyboard: 'ShiftLeft', gamepad: 'button:2' },
-  { action: 'ping', keyboard: 'KeyF', gamepad: 'button:5' },
-  { action: 'pause', keyboard: 'Escape', gamepad: 'button:9' },
-];
+/** Primary binding per action, as the platform's InputManager.bindingRows() reports it. */
+function rowsOf(b: Bindings): BindingRow[] {
+  return MATCH_ACTIONS.map((action) => ({ action, keyboard: b.keyboard[action][0] ?? null, gamepad: b.gamepad[action][0] ?? null }));
+}
+let galleryBindings: Bindings = defaultBindings();
 
 function devLog(msg: string): void {
   console.info(`[gallery] ${msg}`);
@@ -158,6 +156,7 @@ const ROUTES = [
   'wardrobe',
   'settings-game',
   'settings-controls',
+  'settings-controls-clash',
   'settings-audio',
   'settings-display',
   'pause',
@@ -340,12 +339,16 @@ async function main(): Promise<void> {
       break;
     case 'settings-game':
     case 'settings-controls':
+    case 'settings-controls-clash':
     case 'settings-audio':
     case 'settings-display': {
-      const tab = route.replace('settings-', '') as 'game' | 'controls' | 'audio' | 'display';
+      const tab = (route === 'settings-controls-clash' ? 'controls' : route.replace('settings-', '')) as 'game' | 'controls' | 'audio' | 'display';
+      // The clash route shows a legacy/broken table (same key on two actions) as the screen flags it.
+      const rows = rowsOf(galleryBindings);
+      if (route === 'settings-controls-clash') rows[6] = { ...rows[6], keyboard: rows[4].keyboard };
       new SettingsScreen({
         settings,
-        bindings: DEFAULT_BINDINGS,
+        bindings: rows,
         tab,
         onChange: (k, v) => {
           devLog(`onChange ${String(k)} = ${JSON.stringify(v)}`);
@@ -353,17 +356,31 @@ async function main(): Promise<void> {
           if (k === 'uiScale') root.setUiScale(v as number);
           if (k === 'reducedMotion') root.setReducedMotion(v as boolean);
         },
+        // Same contract game flow uses: capture, apply with the platform rules, return the table.
         onRebind: (action, device) =>
           new Promise((resolve) => {
             devLog(`capture ${action} (${device}) — press a key, Esc cancels`);
             const onKey = (e: KeyboardEvent): void => {
+              // The captured key must not leak into menu navigation (the platform suppresses
+              // it the same way): E would otherwise also switch the settings tab.
               e.preventDefault();
+              e.stopImmediatePropagation();
               window.removeEventListener('keydown', onKey, true);
-              resolve(e.code === 'Escape' ? null : device === 'keyboard' ? e.code : 'button:3');
+              if (e.code === 'Escape') return resolve(null);
+              // Gamepad capture in the gallery: digits pick a pad button ('3' -> button:3).
+              const code = device === 'keyboard' ? e.code : `button:${/^Digit(\d)$/.exec(e.code)?.[1] ?? '3'}`;
+              const res = assignBinding(galleryBindings, action as MatchAction, device, code);
+              if (!res.ok) return resolve(null);
+              galleryBindings = res.bindings;
+              devLog(`bound ${code}; swaps: ${JSON.stringify(res.swaps)}`);
+              resolve({ bindings: rowsOf(galleryBindings) });
             };
             window.addEventListener('keydown', onKey, true);
           }),
-        onResetBindings: () => DEFAULT_BINDINGS,
+        onResetBindings: () => {
+          galleryBindings = defaultBindings();
+          return rowsOf(galleryBindings);
+        },
         onBack: () => go('menu'),
       }).show();
       break;
@@ -431,9 +448,10 @@ async function main(): Promise<void> {
     case 'toasts': {
       new MainMenu({ onSelect: () => undefined }).show();
       const toasts = new Toasts(root.layer('toasts'));
-      toasts.achievement('BANK_WHOLE');
-      toasts.hatUnlocked('tongkeunHat');
-      toasts.achievement('FENCE_BREAKER');
+      // Long-lived so screenshots catch them even when the page is slow to settle.
+      toasts.achievement('BANK_WHOLE', 60000);
+      toasts.hatUnlocked('tongkeunHat', 60000);
+      toasts.achievement('FENCE_BREAKER', 60000);
       break;
     }
     case 'hud':

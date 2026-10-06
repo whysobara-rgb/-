@@ -31,9 +31,9 @@
         z-index: 5;
         display: flex;
         flex-wrap: wrap;
-        gap: 12px 20px;
+        gap: 8px 20px;
         align-items: center;
-        padding: 12px 20px;
+        padding: 12px 16px;
         background: #171130;
         border-bottom: 1px solid #3c3170;
       }
@@ -43,11 +43,12 @@
       }
       main {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr));
         gap: 16px;
-        padding: 16px 20px 80px;
+        padding: 16px 16px 80px;
       }
       section {
+        min-width: 0;
         background: var(--panel);
         border-radius: 14px;
         padding: 14px 16px;
@@ -90,12 +91,12 @@
       }
       .sfx-list {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));
         column-gap: 24px;
       }
       .sfx {
         display: grid;
-        grid-template-columns: 130px 1fr;
+        grid-template-columns: 130px minmax(0, 1fr);
         align-items: center;
         gap: 6px;
         padding: 3px 0;
@@ -107,7 +108,7 @@
       }
       label.slider {
         display: grid;
-        grid-template-columns: 90px 1fr 46px;
+        grid-template-columns: 90px minmax(0, 1fr) 46px;
         gap: 8px;
         align-items: center;
       }
@@ -144,6 +145,19 @@
       .hint {
         color: var(--muted);
         font-size: 12px;
+      }
+      @media (max-width: 520px) {
+        /* Phones: sound name above its buttons, narrower slider labels. */
+        .sfx {
+          grid-template-columns: minmax(0, 1fr);
+          gap: 2px;
+        }
+        label.slider {
+          grid-template-columns: 72px minmax(0, 1fr) 40px;
+        }
+        section {
+          padding: 12px;
+        }
       }
       #unlock.ready {
         background: #2f6b4f;

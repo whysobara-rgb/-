@@ -38,7 +38,7 @@ export class PauseMenu extends UiScreen<PauseMenuProps> {
   }
 
   protected override onBack(): boolean {
-    this.props.onResume();
+    this.leave(this.props.onResume);
     return true;
   }
 
@@ -56,8 +56,8 @@ export class PauseMenu extends UiScreen<PauseMenuProps> {
       h(
         'div',
         { class: 'uh-pause__buttons' },
-        button({ id: 'pause:resume', label: 'pause.resume', variant: 'primary', size: 'lg', icon: 'play', onActivate: () => p.onResume() }),
-        button({ id: 'pause:settings', label: 'pause.settings', icon: 'settings', onActivate: () => p.onSettings() }),
+        button({ id: 'pause:resume', label: 'pause.resume', variant: 'primary', size: 'lg', icon: 'play', onActivate: () => this.leave(p.onResume) }),
+        button({ id: 'pause:settings', label: 'pause.settings', icon: 'settings', onActivate: () => this.leave(p.onSettings) }),
         p.showRestart === false
           ? null
           : button({ id: 'pause:restart', label: 'pause.restart', icon: 'reset', onActivate: () => this.ask('restart') }),
@@ -90,7 +90,7 @@ export class PauseMenu extends UiScreen<PauseMenuProps> {
         ),
         promptBar([
           { action: 'confirm', label: 'prompt.select' },
-          { action: 'back', label: 'pause.resume', onClick: () => p.onResume() },
+          { action: 'back', label: 'pause.resume', onClick: () => this.leave(p.onResume) },
         ]),
       ),
     );
@@ -99,7 +99,7 @@ export class PauseMenu extends UiScreen<PauseMenuProps> {
   private ask(kind: 'restart' | 'menu'): void {
     const act = kind === 'restart' ? this.props.onRestart : this.props.onMenu;
     if (this.props.confirmDestructive === false) {
-      act();
+      this.leave(act);
       return;
     }
     this.closeDialog();
@@ -110,7 +110,7 @@ export class PauseMenu extends UiScreen<PauseMenuProps> {
       danger: true,
       onConfirm: () => {
         this.closeDialog();
-        act();
+        this.leave(act);
       },
       onCancel: () => this.closeDialog(),
     });

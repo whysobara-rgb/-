@@ -4,7 +4,11 @@
  * The returned objects are structurally identical to the UI's `PromptGlyph`
  * (src/ui/core/prompts.ts), so game flow can install them directly:
  *   setPromptGlyphProvider((a) => input.promptGlyph(a));
- *   setBindingLabelFormatter((device, code) => bindingGlyph(device, code, input.padFamily));
+ *   setBindingLabelFormatter((device, code) => input.bindingGlyph(device, code));
+ *
+ * Keyboard bindings are stored as physical positions (`KeyboardEvent.code`, named after the US
+ * QWERTY layout). Pass a layout map (InputManager.keyboardLayout) so a player on AZERTY sees
+ * "Z" for the key in the W position; without one, the QWERTY name is shown.
  * Pure functions: no DOM access.
  */
 import {
@@ -24,6 +28,9 @@ export interface Glyph {
   className?: string;
   title?: string;
 }
+
+/** Physical key code -> label on the player's keyboard layout (see `normalizeKeyLabel`). */
+export type KeyLabelMap = ReadonlyMap<string, string>;
 
 /** Face-button naming family, detected from `Gamepad.id`. */
 export type PadFamily = 'xbox' | 'playstation' | 'nintendo';
@@ -75,6 +82,31 @@ const KEY_NAMES: Readonly<Record<string, string>> = {
   Lang1: '한/영',
   Lang2: '한자',
 };
+
+const LAYOUT_PUNCTUATION = new Set([
+  'Comma', 'Period', 'Slash', 'Semicolon', 'Quote', 'BracketLeft', 'BracketRight', 'Backslash',
+  'IntlBackslash', 'IntlRo', 'IntlYen', 'Minus', 'Equal', 'Backquote',
+]);
+
+/** Whether the character a key produces depends on the keyboard layout (letters, digits, punctuation). */
+export function isLayoutDependentCode(code: string): boolean {
+  return /^Key[A-Z]$/.test(code) || /^Digit[0-9]$/.test(code) || LAYOUT_PUNCTUATION.has(code);
+}
+
+/**
+ * Turn a layout character into a chip label, or null when it is unusable: one Latin letter,
+ * digit, punctuation mark or symbol, upper-cased ('é' -> 'É'; 'ß' stays 'ß'). Hangul jamo from
+ * an active IME, Cyrillic/Greek letters, dead keys ('Dead'), 'Process' and whitespace are
+ * rejected, so those players keep the Latin legends printed on their keycaps.
+ */
+export function normalizeKeyLabel(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const v = value.normalize('NFC');
+  if ([...v].length !== 1) return null;
+  if (!/^[\p{Script=Latin}\p{Nd}\p{P}\p{S}]$/u.test(v)) return null;
+  const up = v.toLocaleUpperCase('en-US');
+  return [...up].length === 1 ? up : v;
+}
 
 const MOUSE_NAMES: readonly string[] = ['LMB', 'MMB', 'RMB', 'M4', 'M5'];
 const MOUSE_TITLES: readonly string[] = ['Left mouse button', 'Middle mouse button', 'Right mouse button', 'Mouse button 4', 'Mouse button 5'];
@@ -155,8 +187,13 @@ export function detectPadFamily(id: string | null | undefined): PadFamily {
   return 'xbox';
 }
 
-/** Label for one binding code. */
-export function bindingGlyph(device: BindingDevice, code: string | null | undefined, family: PadFamily = 'xbox'): Glyph {
+/** Label for one binding code (`layout`: the player's keyboard layout, if known). */
+export function bindingGlyph(
+  device: BindingDevice,
+  code: string | null | undefined,
+  family: PadFamily = 'xbox',
+  layout: KeyLabelMap | null = null,
+): Glyph {
   if (!code) return { label: '—', variant: 'key' };
   if (device === 'keyboard') {
     const m = /^Mouse([0-4])$/.exec(code);
@@ -164,7 +201,8 @@ export function bindingGlyph(device: BindingDevice, code: string | null | undefi
       const i = Number(m[1]);
       return { label: MOUSE_NAMES[i], variant: 'mouse', title: MOUSE_TITLES[i] };
     }
-    let label = KEY_NAMES[code];
+    const layoutLabel = layout && isLayoutDependentCode(code) ? layout.get(code) : undefined;
+    let label = layoutLabel ?? KEY_NAMES[code];
     if (!label) {
       if (code.startsWith('Key')) label = code.slice(3);
       else if (code.startsWith('Digit')) label = code.slice(5);
@@ -191,11 +229,17 @@ const MOVE_ACTIONS: readonly MatchAction[] = ['moveUp', 'moveLeft', 'moveDown', 
  * Glyph for an action on a device, using the player's bindings for match actions and the
  * fixed menu bindings for navigation.
  */
-export function actionGlyph(action: GlyphAction, device: BindingDevice, bindings: Readonly<Bindings>, family: PadFamily = 'xbox'): Glyph {
-  if (isMatchAction(action)) return bindingGlyph(device, bindings[device][action][0], family);
+export function actionGlyph(
+  action: GlyphAction,
+  device: BindingDevice,
+  bindings: Readonly<Bindings>,
+  family: PadFamily = 'xbox',
+  layout: KeyLabelMap | null = null,
+): Glyph {
+  if (isMatchAction(action)) return bindingGlyph(device, bindings[device][action][0], family, layout);
   switch (action) {
     case 'move':
-      return moveGlyph(device, bindings, family);
+      return moveGlyph(device, bindings, family, layout);
     case 'navigate':
       return device === 'gamepad' ? { label: 'D-Pad', variant: 'wide' } : { label: '↑↓←→', variant: 'wide' };
     case 'adjust':
@@ -203,11 +247,11 @@ export function actionGlyph(action: GlyphAction, device: BindingDevice, bindings
     case 'any':
       return device === 'gamepad' ? bindingGlyph('gamepad', MENU_BINDINGS.gamepad.confirm[0], family) : { label: 'Any', variant: 'wide' };
     default:
-      return bindingGlyph(device, MENU_BINDINGS[device][action][0], family);
+      return bindingGlyph(device, MENU_BINDINGS[device][action][0], family, layout);
   }
 }
 
-function moveGlyph(device: BindingDevice, bindings: Readonly<Bindings>, family: PadFamily): Glyph {
+function moveGlyph(device: BindingDevice, bindings: Readonly<Bindings>, family: PadFamily, layout: KeyLabelMap | null): Glyph {
   const primaries = MOVE_ACTIONS.map((a) => bindings[device][a][0] ?? null);
   if (device === 'gamepad') {
     const first = primaries[0] ? parsePadCode(primaries[0]) : null;
@@ -215,7 +259,7 @@ function moveGlyph(device: BindingDevice, bindings: Readonly<Bindings>, family: 
     return { label: 'D-Pad', variant: 'wide' };
   }
   // Keyboard: "WASD" style when all four primaries are single characters, arrows otherwise.
-  const labels = primaries.map((c) => (c ? bindingGlyph('keyboard', c).label : '—'));
+  const labels = primaries.map((c) => (c ? bindingGlyph('keyboard', c, family, layout).label : '—'));
   if (labels.every((l) => [...l].length === 1)) return { label: labels.join(''), variant: 'wide' };
   return { label: '↑←↓→', variant: 'wide' };
 }

@@ -4,7 +4,7 @@
  *   drag       safe scraping over paving; intensity = drag speed (rate, brightness, level)
  *   bankRumble a whole building grinding along; intensity = bank speed
  *   strain     rising creak while pulling an anchored target; intensity = unanchor progress
- *   sirenLoop  continuous wail during "30초 뒤 출발!"; intensity = urgency / proximity
+ *   sirenLoop  police wailing in the distance during "30초 뒤 출발!"; intensity = urgency
  *
  * A LoopVoice owns long-running looped sources; the engine creates one per (id, key) on demand,
  * feeds it intensity changes and destroys it after it has been silent for a while.
@@ -21,6 +21,56 @@ export interface LoopVoice {
   /** Stop every source at time t (after fading). */
   stop(t: number): void;
 }
+
+const smoothstep = (e0: number, e1: number, x: number): number => {
+  const k = Math.max(0, Math.min(1, (x - e0) / (e1 - e0)));
+  return k * k * (3 - 2 * k);
+};
+
+/** WaveShaper curve sampling fn over [-1, 1] (odd length, so input 0 maps to fn(0) exactly). */
+function shaperCurve(fn: (x: number) => number, n = 1025): Float32Array<ArrayBuffer> {
+  const c = new Float32Array(new ArrayBuffer(n * 4));
+  for (let k = 0; k < n; k++) c[k] = fn((k / (n - 1)) * 2 - 1);
+  return c;
+}
+
+/** Bar grid of the music playing when a loop starts: time (s) of bar 0 and bar length (s). */
+export interface BarGrid {
+  origin: number;
+  bar: number;
+}
+
+/** Siren wail range: A4 -> A5 (the A is a chord tone or a 9th over every 'final' chord). */
+export const SIREN_LOW_HZ = 440;
+export const SIREN_HIGH_HZ = 880;
+/** Tempo the siren phrases at when no music is playing (the 'final' track's). */
+const SIREN_FALLBACK_BPM = 148;
+/** Bars per siren phrase: one wail over the first two bars, then two bars of room for the music. */
+export const SIREN_PHRASE_BARS = 4;
+
+/**
+ * When the siren's first wail starts: the next phrase boundary (every SIREN_PHRASE_BARS bars from
+ * the track's bar 0), so the wails always land on the same bars of the music. Without music the
+ * phrase starts right away at the fallback tempo.
+ */
+export function sirenPhraseStart(grid: BarGrid | null | undefined, t: number): { start: number; bar: number } {
+  const earliest = t + 0.05;
+  if (!grid || !Number.isFinite(grid.origin) || !(grid.bar > 0.5 && grid.bar < 8)) {
+    return { start: earliest, bar: 240 / SIREN_FALLBACK_BPM };
+  }
+  const phrase = SIREN_PHRASE_BARS * grid.bar;
+  const n = Math.max(0, Math.ceil((earliest - grid.origin) / phrase - 1e-9));
+  return { start: grid.origin + n * phrase, bar: grid.bar };
+}
+
+/**
+ * Siren wail level at a given urgency (linear, before LOOP_GAIN). Measured against the 'final'
+ * track at default volumes: the wails sit ~9 dB under the music at the start of the countdown and
+ * ~4 dB under it at the end, so they build tension without masking the melody.
+ */
+export const sirenLevel = (i: number): number => 0.03 + 0.09 * i;
+/** Level of the in-between wails (0 = silent gaps) at a given urgency: only in the last seconds. */
+export const sirenGapFill = (i: number): number => 0.5 * smoothstep(0.8, 1, i);
 
 /** Relative loudness of each loop at intensity 1 (loudness-matched offline). */
 export const LOOP_GAIN: Readonly<Record<LoopId, number>> = {
@@ -71,7 +121,11 @@ function noiseLoop(g: Graph, color: NoiseColor, t: number, rnd: () => number): A
   return loopSource(g, noiseBuffer(g.ctx, color), t, rnd);
 }
 
-export function createLoop(ctx: BaseAudioContext, id: LoopId, t: number, rnd: () => number): LoopVoice {
+/**
+ * Build a loop voice starting at time t. `grid` is the bar grid of the music playing now; loops
+ * with a musical rhythm (the siren) lock their phrasing to it.
+ */
+export function createLoop(ctx: BaseAudioContext, id: LoopId, t: number, rnd: () => number, grid?: BarGrid | null): LoopVoice {
   const g: Graph = { ctx, out: gainNode(ctx, LOOP_GAIN[id]), sources: [] };
   let set: (i: number, t: number) => void;
 
@@ -160,41 +214,68 @@ export function createLoop(ctx: BaseAudioContext, id: LoopId, t: number, rnd: ()
       break;
     }
     case 'sirenLoop': {
-      const lfo = ctx.createOscillator();
-      lfo.frequency.value = 0.48; // ~2 s wail cycle
-      const lfoDepth = gainNode(ctx, 380);
-      chain(lfo, lfoDepth);
+      // Police wailing in the distance, not a wall of sound. One rising-and-falling wail per
+      // 4-bar phrase, locked to the music's bar grid: two bars of wail, two bars of room for the
+      // 'final' melody. A single slow sine drives both pitch and level through wave shapers, so
+      // the phrasing runs sample-accurately on the audio clock with no per-frame scheduling.
+      // Urgency brings it nearer (louder, brighter); in the last seconds a softer second wail
+      // fills the gaps.
+      const { start, bar } = sirenPhraseStart(grid, t);
+      const phase = ctx.createOscillator();
+      phase.frequency.value = 1 / (SIREN_PHRASE_BARS * bar);
+      // Gate: open while the phase sine is clearly positive (the first two bars of the phrase).
+      // curve(0) = 0, so nothing sounds before the phase oscillator starts.
+      const gate = ctx.createWaveShaper();
+      gate.curve = shaperCurve((x) => smoothstep(0, 0.55, x));
+      // Pitch: |sin| rises over one bar and falls over the next (low A -> high A -> low A).
+      const sweep = ctx.createWaveShaper();
+      sweep.curve = shaperCurve((x) => Math.abs(x));
+      const span = gainNode(ctx, SIREN_HIGH_HZ - SIREN_LOW_HZ);
+      chain(phase, sweep, span);
+      chain(phase, gate);
       const vib = ctx.createOscillator();
-      vib.frequency.value = 7;
-      const vibDepth = gainNode(ctx, 12);
+      vib.frequency.value = 6.5;
+      const vibDepth = gainNode(ctx, 9);
       chain(vib, vibDepth);
       const tri = ctx.createOscillator();
       tri.type = 'triangle';
-      tri.frequency.value = 900;
+      tri.frequency.value = SIREN_LOW_HZ;
       const sq = ctx.createOscillator();
       sq.type = 'square';
-      sq.frequency.value = 900;
+      sq.frequency.value = SIREN_LOW_HZ;
       for (const o of [tri, sq]) {
-        lfoDepth.connect(o.frequency);
+        span.connect(o.frequency);
         vibDepth.connect(o.frequency);
       }
-      const sqLp = filter(ctx, 'lowpass', 1800, 0.7);
-      const sqLvl = gainNode(ctx, 0.25);
+      const sqLp = filter(ctx, 'lowpass', 1500, 0.7);
+      const sqLvl = gainNode(ctx, 0.2);
       chain(sq, sqLp, sqLvl);
       const mix = gainNode(ctx, 1);
       tri.connect(mix);
       sqLvl.connect(mix);
-      const tone = filter(ctx, 'lowpass', 2000, 0.6);
+      const tone = filter(ctx, 'lowpass', 1200, 0.6);
+      // amp = fill + (1 - fill) * gate: fill is the level of the in-between wails.
+      const amp = gainNode(ctx, 0);
+      const gateDepth = gainNode(ctx, 1);
+      chain(gate, gateDepth);
+      gateDepth.connect(amp.gain);
       const lvl = gainNode(ctx);
-      chain(mix, tone, lvl, g.out);
-      for (const o of [lfo, vib, tri, sq]) {
+      chain(mix, tone, amp, lvl, g.out);
+      for (const o of [vib, tri, sq]) {
         o.start(t);
         g.sources.push(o);
       }
+      phase.start(start);
+      g.sources.push(phase);
       set = (i, at) => {
-        const tau = 0.25;
-        to(lvl.gain, 0.3 * i, at, tau);
-        to(tone.frequency, 1300 + 1700 * i, at, tau);
+        const tau = 0.4;
+        to(lvl.gain, i > 0 ? sirenLevel(i) : 0, at, tau);
+        to(tone.frequency, 1000 + 1500 * i, at, tau);
+        // Gap fill only once the phrase has begun (before that the oscillators sit at the low A).
+        const fill = sirenGapFill(i);
+        const ft = Math.max(at, start);
+        to(amp.gain, fill, ft, tau);
+        to(gateDepth.gain, 1 - fill, ft, tau);
       };
       break;
     }

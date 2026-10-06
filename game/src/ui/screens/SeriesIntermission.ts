@@ -41,7 +41,7 @@ export class SeriesIntermission extends UiScreen<SeriesIntermissionProps> {
   }
 
   protected override onBack(): boolean {
-    this.props.onQuit();
+    this.leave(this.props.onQuit);
     return true;
   }
 
@@ -90,12 +90,12 @@ export class SeriesIntermission extends UiScreen<SeriesIntermissionProps> {
         h(
           'div',
           { class: 'uh-inter__buttons' },
-          button({ id: 'inter:quit', label: 'intermission.quit', variant: 'night', onActivate: () => p.onQuit() }),
-          button({ id: 'inter:next', label: 'intermission.next', variant: 'primary', size: 'lg', glyph: 'confirm', onActivate: () => p.onContinue() }),
+          button({ id: 'inter:quit', label: 'intermission.quit', variant: 'night', onActivate: () => this.leave(p.onQuit) }),
+          button({ id: 'inter:next', label: 'intermission.next', variant: 'primary', size: 'lg', glyph: 'confirm', onActivate: () => this.leave(p.onContinue) }),
         ),
         promptBar([
           { action: 'confirm', label: 'prompt.select' },
-          { action: 'back', label: 'intermission.quit', onClick: () => p.onQuit() },
+          { action: 'back', label: 'intermission.quit', onClick: () => this.leave(p.onQuit) },
         ]),
       ),
     );

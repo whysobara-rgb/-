@@ -9,6 +9,7 @@ import './styles';
 export {
   t,
   tr,
+  trName,
   tMaybe,
   setLanguage,
   getLanguage,
@@ -28,7 +29,7 @@ export type { StringKey } from './strings/ko';
 // core
 export { UiRoot, createUiRoot, getUiRoot, UI_SCALE_MIN, UI_SCALE_MAX } from './core/root';
 export type { UiLayerName } from './core/root';
-export { UiScreen } from './core/screen';
+export { UiScreen, LEAVE_FAILSAFE_MS } from './core/screen';
 export type { ScreenOptions } from './core/screen';
 export {
   handleMenuNav,
@@ -87,7 +88,7 @@ export type { SeriesIntermissionProps } from './screens/SeriesIntermission';
 export { WardrobeScreen } from './screens/WardrobeScreen';
 export type { WardrobeScreenProps, WardrobeHat } from './screens/WardrobeScreen';
 export { SettingsScreen, BINDABLE_ACTIONS } from './screens/SettingsScreen';
-export type { SettingsScreenProps, UiSettings, UiVolumes, BindingRow, BindableAction, SettingsTab } from './screens/SettingsScreen';
+export type { SettingsScreenProps, UiSettings, UiVolumes, BindingRow, BindableAction, SettingsTab, RebindOutcome } from './screens/SettingsScreen';
 export { PauseMenu } from './screens/PauseMenu';
 export type { PauseMenuProps } from './screens/PauseMenu';
 export { ResultsScreen } from './screens/ResultsScreen';
@@ -102,7 +103,7 @@ export { Hud } from './hud/Hud';
 export { Minimap } from './hud/Minimap';
 export { WorldLabels } from './hud/WorldLabels';
 export { OffscreenArrows } from './hud/OffscreenArrows';
-export { hudModelFromSim, hudBanksFromState, minimapFromState, carryFromState, grabFromState, labelsFromSim, carrierTeam } from './hud/adapters';
+export { hudModelFromSim, hudBanksFromState, minimapFromState, carryFromState, grabFromState, labelsFromSim, carrierTeam, characterNameRef } from './hud/adapters';
 export type { SimView, Projector, HudAdapterOptions } from './hud/adapters';
 export type {
   HudModel,

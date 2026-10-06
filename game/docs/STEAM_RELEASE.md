@@ -131,6 +131,7 @@ npm run dist:steam -- --appid=<ID> --depot-windows=<ID> --depot-linux=<ID> --sel
 `steam/achievements.json`이 원본이다. `test/unit/platform-steam.test.ts`가 API 이름(`src/platform/steam.ts`)과 한/영 문구(`src/ui/strings`)가 서로 맞는지 검사하므로, 문구를 바꾸면 세 곳을 함께 고친다.
 
 - [ ] 12개 업적 입력: API Name = `apiName`, Display Name / Description을 english·koreana로 각각 입력, Hidden = `hidden`(현재 모두 공개).
+  - 한국어 설명은 `achievements.json`의 문구("…하세요")를 그대로 쓴다. 게임 안 업적 토스트(`src/ui/strings/ko.ts`)는 달성 순간에만 보이므로 "…했어요"이지만, Steam은 **잠긴 업적의 설명도** 보여 주므로 지시형이어야 한다. 이름과 영어 설명은 게임 문자열과 같아야 하며 `test/unit/platform-steam.test.ts`가 검사한다.
 - [ ] 아이콘 24장(64×64, 해금·잠김) 업로드.
 - [ ] Publish 후, 실제 App ID 빌드로 해금 테스트:
   - 경기 업적(`FIRST_RECOVERY` 등)은 경기 이벤트 기록으로 판정한다(`src/platform/progress.ts`, 조건은 json의 `unlockRule`).

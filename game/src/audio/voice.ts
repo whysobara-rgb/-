@@ -6,7 +6,7 @@
  *                         └─► reverb send ─► bus reverb
  */
 import type { LoopId } from './ids';
-import { createLoop, type LoopVoice } from './loops';
+import { createLoop, type BarGrid, type LoopVoice } from './loops';
 import type { Mixer } from './mixer';
 import type { Rng } from './rng';
 import { SFX_RECIPES } from './sfx';
@@ -93,9 +93,20 @@ export interface SpawnedLoop {
   nodes: AudioNode[];
 }
 
-/** A loop with a fixed spatial chain whose parameters are updated smoothly afterwards. */
-export function spawnLoop(ctx: BaseAudioContext, mixer: Mixer, id: LoopId, t: number, rnd: Rng, mix: SpatialMix): SpawnedLoop {
-  const voice = createLoop(ctx, id, t, rnd);
+/**
+ * A loop with a fixed spatial chain whose parameters are updated smoothly afterwards. `grid` is
+ * the bar grid of the music playing now (rhythmic loops phrase with it).
+ */
+export function spawnLoop(
+  ctx: BaseAudioContext,
+  mixer: Mixer,
+  id: LoopId,
+  t: number,
+  rnd: Rng,
+  mix: SpatialMix,
+  grid?: BarGrid | null,
+): SpawnedLoop {
+  const voice = createLoop(ctx, id, t, rnd, grid);
   const gain = ctx.createGain();
   gain.gain.value = mix.gain;
   const lp = ctx.createBiquadFilter();

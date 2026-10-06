@@ -35,8 +35,6 @@ const ROOTS_SVG = `<svg viewBox="0 0 600 130" xmlns="http://www.w3.org/2000/svg"
 </svg>`;
 
 export class TitleScreen extends UiScreen<TitleScreenProps> {
-  private started = false;
-
   constructor(props: TitleScreenProps) {
     super(props, { name: 'title' });
     this.el.addEventListener('pointerdown', (e) => {
@@ -74,10 +72,6 @@ export class TitleScreen extends UiScreen<TitleScreenProps> {
     );
   }
 
-  protected override onShow(): void {
-    this.started = false;
-  }
-
   override handleNav(_action: NavAction): boolean {
     this.start();
     return true;
@@ -88,11 +82,10 @@ export class TitleScreen extends UiScreen<TitleScreenProps> {
     return true;
   }
 
+  /** Fires onStart once per show (any key, pad button, click or touch). */
   private start(): void {
-    if (this.started || !this.isVisible) return;
-    this.started = true;
+    if (!this.isVisible || this.isLeaving) return;
     uiSound('confirm');
-    this.el.classList.add('is-leaving');
-    this.props.onStart();
+    this.leave(() => this.props.onStart());
   }
 }

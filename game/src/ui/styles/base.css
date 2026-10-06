@@ -48,6 +48,9 @@
 }
 
 .uh-screen[hidden] { display: none !important; }
+/* A terminal action fired (UiScreen.leave): ignore the pointer until game flow moves on. */
+.uh-screen.is-exiting { pointer-events: none; }
+.uh-screen.is-exiting * { pointer-events: none !important; }
 
 /* Shrink-to-fit measurement pass (UiScreen.fitToViewport): ignore transient geometry. */
 /* Transforms never change layout, so drop them (rotated stickers, focus lifts, entrance
@@ -133,7 +136,8 @@
   height: 1.75em;
   padding: 0 0.45em;
   font-family: var(--uh-font-display);
-  font-size: 0.85em;
+  /* Key caps stay legible on 720p / Steam Deck (same floor as --uh-fs-2xs). */
+  font-size: max(0.85em, calc(13px * var(--uh-ui-scale)));
   line-height: 1;
   color: var(--g-ink);
   background: var(--g-face);

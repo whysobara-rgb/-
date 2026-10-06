@@ -75,7 +75,8 @@ export class MainMenu extends UiScreen<MainMenuProps> {
           h('span', { class: 'uh-menuitem__paw', 'aria-hidden': 'true' }, icon('chevRight')),
         );
         return navigable(el, `menu:${it.id}`, {
-          onActivate: () => this.props.onSelect(it.id),
+          // One-shot: re-armed when this menu is shown again or a screen/dialog above it closes.
+          onActivate: () => this.leave(() => this.props.onSelect(it.id)),
         });
       }),
     );
@@ -113,7 +114,7 @@ export class MainMenu extends UiScreen<MainMenuProps> {
 
   protected override onBack(): boolean {
     if (this.props.onBack) {
-      this.props.onBack();
+      this.leave(this.props.onBack);
       return true;
     }
     if (this.props.showQuit === false) return false;

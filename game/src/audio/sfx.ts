@@ -44,6 +44,11 @@ export interface SfxRecipe {
   duck?: { db: number; hold: number };
   /** Ignore positions (always centered, full level): global signals and rewards. */
   global?: boolean;
+  /**
+   * Seconds during which a retrigger reuses the previous variation instead of picking a new one
+   * (a "3, 2, 1, GO" countdown keeps one timbre; the next countdown may use the other).
+   */
+  holdVariant?: number;
   play(v: SfxVoice): number;
 }
 
@@ -99,6 +104,16 @@ function crackles(
     });
   }
 }
+
+/** Ping figures (pentatonic degrees): two per meaning, chosen at random. */
+const PING_RISING = [
+  [9, 12],
+  [9, 10, 12],
+] as const;
+const PING_FALLING = [
+  [12, 9],
+  [12, 11, 9],
+] as const;
 
 const twinkleNotes = [
   [10, 12, 11, 13, 12],
@@ -464,9 +479,10 @@ export const SFX_RECIPES: Record<SfxId, SfxRecipe> = {
       // Riser that lasts exactly the recovery dwell: tone climbing an octave, tremolo speeding up.
       const g = v.ctx.createGain();
       g.gain.value = 1;
+      // The pitch stays on the scale; only the tremolo rates and the noise sweep are jittered.
       const trem = v.ctx.createOscillator();
-      trem.frequency.setValueAtTime(5, v.t);
-      trem.frequency.exponentialRampToValueAtTime(18, v.t + D);
+      trem.frequency.setValueAtTime(rrange(v.rnd, 4.5, 5.5), v.t);
+      trem.frequency.exponentialRampToValueAtTime(rrange(v.rnd, 16.5, 19.5), v.t + D);
       const tremDepth = v.ctx.createGain();
       tremDepth.gain.value = 0.35;
       trem.connect(tremDepth);
@@ -480,7 +496,7 @@ export const SFX_RECIPES: Record<SfxId, SfxRecipe> = {
       tone(body, { freq: [[0, f0 * 1.5], [D, f0 * 3]], amp: amp.map(([t, a]) => [t, a * 0.35] as const) });
       noise(v, {
         color: 'white',
-        filters: [{ type: 'bandpass', freq: [[0, 900], [D, 5200]], q: 1.5 }],
+        filters: [{ type: 'bandpass', freq: [[0, 900], [D, 5200 * jitter(v.rnd, 0.1)]], q: 1.5 }],
         amp: [[0, 0], [D * 0.95, 0.09], [D + 0.02, 0]],
       });
       return D + 0.05;
@@ -616,9 +632,10 @@ export const SFX_RECIPES: Record<SfxId, SfxRecipe> = {
     },
   },
   countdownBeep: {
-    bus: 'sfx', variants: 2, gain: 0.37, maxVoices: 2, minInterval: 0.1, priority: 8, length: 0.5, global: true,
+    bus: 'sfx', variants: 2, gain: 0.37, maxVoices: 2, minInterval: 0.1, priority: 8, length: 0.5, global: true, holdVariant: 2.5,
     play(v) {
-      // A5 (the 3rd of F major); pass pitch 2 for the final "GO" beep.
+      // A5 (the 3rd of F major); pass pitch 2 for the final "GO" beep. Variation 1 adds a soft
+      // octave partial (rounder bell); holdVariant keeps one timbre for a whole countdown.
       const f = midiToHz(v.key + 16) * v.pitch;
       const len = v.pitch > 1.5 ? 0.32 : 0.14;
       tone(v, { type: 'square', freq: f, amp: ahr(0.004, 0.13, len, 0.06, 0.85), filter: { type: 'lowpass', freq: 3200 } });
@@ -666,29 +683,31 @@ export const SFX_RECIPES: Record<SfxId, SfxRecipe> = {
     },
   },
   victory: {
-    bus: 'music', variants: 1, gain: 0.93, maxVoices: 1, minInterval: 0.5, priority: 10, length: 4.6, global: true,
+    bus: 'music', variants: 3, gain: 0.93, maxVoices: 1, minInterval: 0.5, priority: 10, length: 4.6, global: true,
     duck: { db: -40, hold: 3.6 },
-    play: (v) => playJingle(v, 'victory', v.key),
+    play: (v) => playJingle(v, 'victory', v.key, v.variant),
   },
   defeat: {
-    bus: 'music', variants: 1, gain: 0.89, maxVoices: 1, minInterval: 0.5, priority: 10, length: 4.6, global: true,
+    bus: 'music', variants: 2, gain: 0.89, maxVoices: 1, minInterval: 0.5, priority: 10, length: 4.6, global: true,
     duck: { db: -40, hold: 3.6 },
-    play: (v) => playJingle(v, 'defeat', v.key),
+    play: (v) => playJingle(v, 'defeat', v.key, v.variant),
   },
   draw: {
-    bus: 'music', variants: 1, gain: 0.93, maxVoices: 1, minInterval: 0.5, priority: 10, length: 3.8, global: true,
+    bus: 'music', variants: 2, gain: 0.93, maxVoices: 1, minInterval: 0.5, priority: 10, length: 3.8, global: true,
     duck: { db: -40, hold: 3 },
-    play: (v) => playJingle(v, 'draw', v.key),
+    play: (v) => playJingle(v, 'draw', v.key, v.variant),
   },
   ping: {
     bus: 'sfx', variants: 2, gain: 0.92, maxVoices: 3, minInterval: 0.08, priority: 6, length: 1.2,
     play(v) {
-      // Bright "pip-pip" with a short echo so it reads as a call-out.
+      // Bright "pip-pip" call-out with a short echo. The variation is the meaning (0 = "grab
+      // together": rising, 1 = every other ping: falling); each meaning has two figures picked
+      // at random, plus timing / velocity / echo jitter, so repeated pings never sound stamped.
       const ctx = v.ctx;
       const delay = ctx.createDelay(1);
-      delay.delayTime.value = 0.13;
+      delay.delayTime.value = rrange(v.rnd, 0.115, 0.14);
       const fb = ctx.createGain();
-      fb.gain.value = 0.32;
+      fb.gain.value = rrange(v.rnd, 0.28, 0.34);
       const damp = ctx.createBiquadFilter();
       damp.type = 'lowpass';
       damp.frequency.value = 3500;
@@ -703,10 +722,16 @@ export const SFX_RECIPES: Record<SfxId, SfxRecipe> = {
       bus.connect(v.out);
       bus.connect(delay);
       const sv = sub(v, bus);
-      const [a, b] = v.variant === 0 ? [9, 12] : [12, 9];
+      const figures = v.variant === 0 ? PING_RISING : PING_FALLING;
+      const fig = figures[v.rnd() < 0.5 ? 0 : 1];
       const shift = Math.round(12 * Math.log2(v.pitch > 0 ? v.pitch : 1));
-      marimba(sv, 0, scaleNote(v.key, a) + shift, 0.1, 0.55);
-      marimba(sv, 0.075, scaleNote(v.key, b) + shift, 0.1, 0.6);
+      // Three-note figures are a touch quicker and softer so both figures match in loudness.
+      const gap = (fig.length === 2 ? 0.075 : 0.06) * jitter(v.rnd, 0.08);
+      const soft = fig.length === 2 ? 1 : 0.88;
+      fig.forEach((deg, k) => {
+        const vel = (k === fig.length - 1 ? 0.6 : 0.55) * soft * jitter(v.rnd, 0.06);
+        marimba(sv, k * gap, scaleNote(v.key, deg) + shift, 0.1, vel);
+      });
       return 0.9;
     },
   },
@@ -781,17 +806,27 @@ export const SFX_RECIPES: Record<SfxId, SfxRecipe> = {
   },
 };
 
-/** Picks variation indices without immediate repeats. */
+/**
+ * Picks variation indices without immediate repeats. Recipes with `holdVariant` keep the
+ * previous variation while they are retriggered within that many seconds (pass `now`).
+ */
 export class VariantPicker {
-  private last = new Map<SfxId, number>();
-  next(id: SfxId, rnd: () => number): number {
-    const n = SFX_RECIPES[id].variants;
+  private last = new Map<SfxId, { k: number; at: number }>();
+  next(id: SfxId, rnd: () => number, now = Number.NaN): number {
+    const r = SFX_RECIPES[id];
+    const n = r.variants;
     if (n <= 1) return 0;
     const prev = this.last.get(id);
+    if (prev && r.holdVariant !== undefined) {
+      const since = now - prev.at;
+      if (since >= 0 && since < r.holdVariant) {
+        prev.at = now;
+        return prev.k;
+      }
+    }
     let k = Math.floor(rnd() * n);
-    if (k === prev) k = (k + 1 + Math.floor(rnd() * (n - 1))) % n;
-    this.last.set(id, k);
+    if (prev && k === prev.k) k = (k + 1 + Math.floor(rnd() * (n - 1))) % n;
+    this.last.set(id, { k, at: now });
     return k;
   }
 }
-

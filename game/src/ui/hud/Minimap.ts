@@ -102,11 +102,13 @@ export class Minimap {
     for (const mk of this.markers.values()) mk.seen = false;
     for (const c of m.characters) {
       if (c.team !== myTeam && !c.visible) continue;
+      if (!Number.isFinite(c.x) || !Number.isFinite(c.y)) continue;
       const mk = this.marker(`c:${c.id}`, c.isMe ? 'me' : 'char', c.team);
       this.place(mk, tf.ox + c.x * tf.scale, tf.oy + c.y * tf.scale, c.isMe ? c.facing : 0);
     }
     if (m.pings) {
       for (const p of m.pings) {
+        if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
         const mk = this.marker(`p:${p.id}`, 'ping', p.team);
         this.place(mk, tf.ox + p.x * tf.scale, tf.oy + p.y * tf.scale, 0);
       }
@@ -157,7 +159,7 @@ export class Minimap {
       mk.el.style.transform = `translate3d(${sx}px,${sy}px,0)`;
     }
     if (mk.rot) {
-      const a = Math.round(angle * 50) / 50;
+      const a = Number.isFinite(angle) ? Math.round(angle * 50) / 50 : 0;
       if (a !== mk.a) {
         mk.a = a;
         mk.rot.style.transform = `rotate(${a}rad)`;

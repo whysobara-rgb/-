@@ -1,7 +1,9 @@
 /**
  * Settings with four tabs (doc §13 accessibility first):
  *  게임  — language, grab mode hold/toggle, tutorial hints
- *  조작  — keyboard + gamepad rebinding ("키를 누르세요" capture via onRebind promise), reset
+ *  조작  — keyboard + gamepad rebinding ("키를 누르세요" capture via onRebind promise), reset.
+ *          Rows the platform changed as a side effect (conflict swaps) are highlighted with a
+ *          short note, and any input still bound to two actions is flagged (icon + text).
  *  오디오 — master / music / sfx / ui volume, subtitles
  *  화면  — fullscreen, quality, screen shake, reduced motion, UI scale, vibration
  *
@@ -55,6 +57,17 @@ export interface BindingRow {
   gamepad: string | null;
 }
 
+/**
+ * What `onRebind` resolves with:
+ * - `null` — cancelled (Esc, timeout): nothing changed.
+ * - `{ bindings }` — PREFERRED: the complete table after the change (e.g. the platform's
+ *   `input.bindingRows()`), so swaps the platform made on other actions show up at once.
+ * - a code string — minimal form: only the captured code. The screen then mirrors the
+ *   platform's swap rule locally (an action that used the same code receives the captured
+ *   action's previous code) and flags anything that still clashes.
+ */
+export type RebindOutcome = { bindings: readonly BindingRow[] } | string | null;
+
 export type SettingsTab = 'game' | 'controls' | 'audio' | 'display';
 const TABS: readonly { key: SettingsTab; label: string; icon: 'settings' | 'gamepad' | 'speaker' | 'display' }[] = [
   { key: 'game', label: 'settings.tab.game', icon: 'settings' },
@@ -73,16 +86,19 @@ export interface SettingsScreenProps {
   showVibration?: boolean;
   onChange: <K extends keyof UiSettings>(key: K, value: UiSettings[K]) => void;
   /**
-   * Start capturing a new binding. Resolve with the new code, or null when cancelled
-   * (Esc / timeout). The platform input module owns the actual capture.
+   * Start capturing a new binding; the platform input module owns the actual capture.
+   * Resolve with the full binding table after the change (preferred), the new code, or null
+   * when cancelled — see RebindOutcome. Typical wiring:
+   *   onRebind: async (a, d) => (await input.startRebind(a, d)) ? { bindings: input.bindingRows() } : null
    */
-  onRebind: (action: string, device: BindingDevice) => Promise<string | null>;
+  onRebind: (action: string, device: BindingDevice) => Promise<RebindOutcome>;
   /** Restore default bindings; return the new rows. */
   onResetBindings: () => Promise<readonly BindingRow[]> | readonly BindingRow[];
   onBack: () => void;
 }
 
 const pct = (v: number): string => `${Math.round(v * 100)}`;
+const actionLabelKey = (b: BindingRow): string => b.labelKey ?? `action.${b.action}`;
 
 export class SettingsScreen extends UiScreen<SettingsScreenProps> {
   private tab: SettingsTab;
@@ -90,6 +106,10 @@ export class SettingsScreen extends UiScreen<SettingsScreenProps> {
   private bindings: BindingRow[];
   private capturing: { action: string; device: BindingDevice } | null = null;
   private dialog: ConfirmDialog | null = null;
+  /** Cells changed as a side effect of the last rebind ("action:device"). */
+  private swapped = new Set<string>();
+  /** Action whose input was taken by the last rebind (for the swap note). */
+  private swapNote: string | null = null;
 
   constructor(props: SettingsScreenProps) {
     super(props, { name: 'settings' });
@@ -112,6 +132,7 @@ export class SettingsScreen extends UiScreen<SettingsScreenProps> {
   setTab(tab: SettingsTab): void {
     if (tab === this.tab) return;
     this.tab = tab;
+    this.clearSwapNote();
     uiSound('tab');
     this.rerender();
     this.focus.ensure(`tab:${tab}`);
@@ -123,7 +144,7 @@ export class SettingsScreen extends UiScreen<SettingsScreenProps> {
 
   protected override onBack(): boolean {
     if (this.capturing) return true;
-    this.props.onBack();
+    this.leave(this.props.onBack);
     return true;
   }
 
@@ -198,7 +219,7 @@ export class SettingsScreen extends UiScreen<SettingsScreenProps> {
           { action: 'tabPrev', label: 'prompt.tabs' },
           { action: 'adjust', label: 'prompt.adjust' },
           { action: 'confirm', label: this.tab === 'controls' ? 'prompt.rebind' : 'prompt.select' },
-          { action: 'back', label: 'prompt.back', onClick: () => this.props.onBack() },
+          { action: 'back', label: 'prompt.back', onClick: () => this.leave(this.props.onBack) },
         ]),
       ),
     );
@@ -318,15 +339,26 @@ export class SettingsScreen extends UiScreen<SettingsScreenProps> {
       h('span', null, icon('keyboard'), t('settings.controls.keyboard')),
       h('span', null, icon('gamepad'), t('settings.controls.gamepad')),
     );
+    const clashes = this.findClashes();
     const rows = this.bindings.map((b) =>
       h(
         'div',
         { class: 'uh-binds__row' },
-        h('span', { class: 'uh-binds__label' }, t(b.labelKey ?? `action.${b.action}`)),
-        this.bindCell(b, 'keyboard'),
-        this.bindCell(b, 'gamepad'),
+        h('span', { class: 'uh-binds__label' }, t(actionLabelKey(b))),
+        this.bindCell(b, 'keyboard', clashes),
+        this.bindCell(b, 'gamepad', clashes),
       ),
     );
+    // One message slot (same height whatever it says): a clash warning wins, then the note
+    // about a swap the last rebind caused, otherwise the usage hint.
+    const swapRow = this.swapNote ? this.bindings.find((r) => r.action === this.swapNote) : undefined;
+    const message = clashes.size
+      ? h('p', { class: 'uh-binds__msg uh-binds__note uh-binds__note--clash' }, icon('alert'), t('settings.controls.conflict'))
+      : swapRow
+        ? h('p', { class: 'uh-binds__msg uh-binds__note uh-binds__note--swap' }, icon('swap'), t('settings.controls.swapped', { action: actionLabelKey(swapRow) }))
+        : h('p', { class: 'uh-binds__msg uh-binds__hint' }, t('settings.controls.hint'));
+    message.setAttribute('role', 'status');
+    message.setAttribute('aria-live', 'polite');
     const reset = button({
       id: 'bind:reset',
       label: 'settings.controls.reset',
@@ -338,49 +370,106 @@ export class SettingsScreen extends UiScreen<SettingsScreenProps> {
     return h(
       'div',
       { class: 'uh-binds' },
-      h('p', { class: 'uh-binds__hint' }, t('settings.controls.hint')),
+      message,
       head,
       stagger(h('div', { class: 'uh-binds__rows' }, rows)),
       h('div', { class: 'uh-binds__foot' }, reset),
     );
   }
 
-  private bindCell(b: BindingRow, device: BindingDevice): HTMLElement {
+  private bindCell(b: BindingRow, device: BindingDevice, clashes: ReadonlySet<string>): HTMLElement {
     const code = device === 'keyboard' ? b.keyboard : b.gamepad;
+    const cellKey = `${b.action}:${device}`;
     const capturingThis = this.capturing?.action === b.action && this.capturing.device === device;
+    const clash = !capturingThis && clashes.has(cellKey);
+    const swapped = !capturingThis && !clash && this.swapped.has(cellKey);
     const cell = h(
       'div',
-      { class: ['uh-binds__cell', capturingThis ? 'is-capturing' : ''], role: 'button' },
+      {
+        class: ['uh-binds__cell', capturingThis ? 'is-capturing' : '', clash ? 'is-clash' : '', swapped ? 'is-swapped' : ''],
+        role: 'button',
+        title: clash ? t('settings.controls.conflict') : null,
+      },
       capturingThis
         ? h('span', { class: 'uh-binds__capture' }, t(device === 'keyboard' ? 'settings.controls.pressKey' : 'settings.controls.pressButton'))
         : code
           ? bindingChip(device, code)
           : h('span', { class: 'uh-binds__unbound' }, t('settings.controls.unbound')),
+      // Never color alone: a clash / swap carries an icon + word tag.
+      clash
+        ? h('span', { class: 'uh-binds__tag uh-binds__tag--clash' }, icon('alert'), t('settings.controls.conflictTag'))
+        : swapped
+          ? h('span', { class: 'uh-binds__tag uh-binds__tag--swap' }, icon('swap'), t('settings.controls.swappedTag'))
+          : null,
     );
     return navigable(cell, `bind:${b.action}:${device}`, { onActivate: () => void this.capture(b.action, device) });
+  }
+
+  /** Cells ("action:device") whose input is also bound to another action on that device. */
+  private findClashes(): Set<string> {
+    const out = new Set<string>();
+    for (const device of ['keyboard', 'gamepad'] as const) {
+      const byCode = new Map<string, string[]>();
+      for (const r of this.bindings) {
+        const code = device === 'keyboard' ? r.keyboard : r.gamepad;
+        if (!code) continue;
+        const list = byCode.get(code) ?? [];
+        list.push(r.action);
+        byCode.set(code, list);
+      }
+      for (const list of byCode.values()) if (list.length > 1) for (const a of list) out.add(`${a}:${device}`);
+    }
+    return out;
+  }
+
+  private clearSwapNote(): void {
+    this.swapped.clear();
+    this.swapNote = null;
   }
 
   private async capture(action: string, device: BindingDevice): Promise<void> {
     if (this.capturing) return;
     this.capturing = { action, device };
+    this.clearSwapNote();
     this.rerender();
-    let code: string | null = null;
+    let outcome: RebindOutcome = null;
     try {
-      code = await this.props.onRebind(action, device);
+      outcome = await this.props.onRebind(action, device);
     } catch (err) {
       console.error('[ui] rebind failed', err);
     }
     this.capturing = null;
-    if (code) {
-      const row = this.bindings.find((r) => r.action === action);
-      if (row) {
-        if (device === 'keyboard') row.keyboard = code;
-        else row.gamepad = code;
-      }
-    }
+    if (outcome !== null && outcome !== undefined && outcome !== '') this.applyRebind(action, device, outcome);
     if (!this.isVisible) return;
     this.rerender();
     this.focus.ensure(`bind:${action}:${device}`);
+  }
+
+  /** Apply a rebind outcome and remember which OTHER cells changed because of it. */
+  private applyRebind(action: string, device: BindingDevice, outcome: Exclude<RebindOutcome, null>): void {
+    const before = this.bindings.map((r) => ({ ...r }));
+    if (typeof outcome === 'string') {
+      const row = this.bindings.find((r) => r.action === action);
+      if (!row) return;
+      const previous = row[device];
+      row[device] = outcome;
+      // Mirror the platform's rule: whoever used this code gets our previous one (swap).
+      for (const other of this.bindings) {
+        if (other !== row && other[device] === outcome) other[device] = previous !== outcome ? previous : null;
+      }
+    } else {
+      this.bindings = outcome.bindings.map((r) => ({ ...r }));
+    }
+    for (const r of this.bindings) {
+      if (r.action === action) continue;
+      const old = before.find((x) => x.action === r.action);
+      for (const d of ['keyboard', 'gamepad'] as const) {
+        if (old && old[d] !== r[d]) {
+          this.swapped.add(`${r.action}:${d}`);
+          if (d === device && !this.swapNote) this.swapNote = r.action;
+        }
+      }
+    }
   }
 
   private confirmReset(): void {
@@ -395,6 +484,7 @@ export class SettingsScreen extends UiScreen<SettingsScreenProps> {
         this.dialog = null;
         const rows = await this.props.onResetBindings();
         this.bindings = rows.map((r) => ({ ...r }));
+        this.clearSwapNote();
         this.rerender();
         this.focus.ensure('bind:reset');
       },

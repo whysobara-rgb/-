@@ -34,7 +34,7 @@ export class ConfirmDialog extends UiScreen<ConfirmDialogProps> {
   }
 
   protected override onBack(): boolean {
-    this.props.onCancel();
+    this.leave(this.props.onCancel);
     return true;
   }
 
@@ -46,7 +46,7 @@ export class ConfirmDialog extends UiScreen<ConfirmDialogProps> {
         {
           class: 'uh-dialog-backdrop',
           onClick: (e: Event) => {
-            if (e.target === e.currentTarget) p.onCancel();
+            if (e.target === e.currentTarget) this.leave(p.onCancel);
           },
         },
         h(
@@ -57,8 +57,8 @@ export class ConfirmDialog extends UiScreen<ConfirmDialogProps> {
           h(
             'div',
             { class: 'uh-dialog__buttons' },
-            button({ id: 'dlg:cancel', label: p.cancelKey ?? 'common.cancel', onActivate: () => p.onCancel() }),
-            button({ id: 'dlg:confirm', label: p.confirmKey ?? 'common.confirm', variant: p.danger ? 'danger' : 'primary', onActivate: () => p.onConfirm() }),
+            button({ id: 'dlg:cancel', label: p.cancelKey ?? 'common.cancel', onActivate: () => this.leave(p.onCancel) }),
+            button({ id: 'dlg:confirm', label: p.confirmKey ?? 'common.confirm', variant: p.danger ? 'danger' : 'primary', onActivate: () => this.leave(p.onConfirm) }),
           ),
         ),
       ),

@@ -12,6 +12,6 @@ export {
 } from './audio';
 export { LOOP_IDS, MUSIC_IDS, SFX_IDS, TRACK_IDS, UI_SOUND_SFX, isLoopId, isMusicId, isSfxId, type LoopId, type MusicId, type SfxId, type TrackId } from './ids';
 export { CAPTION_FALLBACK, LOOP_CAPTION_KEYS, SFX_CAPTION_KEYS, captionText } from './captions';
-export { DEFAULT_VOLUMES, volumeToGain, type Volumes } from './mixer';
+export { DEFAULT_VOLUMES, busGains, volumeToGain, type Volumes } from './mixer';
 export { SPATIAL, spatialMix, distanceGain, captionSide, type SpatialMix } from './spatial';
 export { MatchAudioDirector, type DirectorOptions, type AudioSimView } from './director';

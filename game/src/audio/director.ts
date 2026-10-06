@@ -42,6 +42,10 @@ const COMBO_MAX = 6;
 /** Bump impulse (N*s) mapped to full volume; the sim only reports approaches > 2.5 m/s. */
 const BUMP_FULL_IMPULSE = 400;
 const FINAL_COUNTDOWN_SECONDS = 30;
+/** Music intensity at kick-off (before anything happens). */
+const START_INTENSITY = 0.4;
+/** The siren loop takes over this long after the one-shot siren of the final countdown. */
+const SIREN_LOOP_DELAY = 2;
 
 const len = (v: Vec2): number => Math.hypot(v.x, v.y);
 const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x);
@@ -54,7 +58,7 @@ export class MatchAudioDirector {
   private activeLoops = new Set<string>();
   private combo = 0;
   private lastOwnScoreTick = -Infinity;
-  private intensity = 0.4;
+  private intensity = START_INTENSITY;
   private ended = false;
 
   constructor(engine: AudioEngine, opts: DirectorOptions) {
@@ -71,6 +75,19 @@ export class MatchAudioDirector {
   /** Change which character the listener follows (e.g. spectating after a series). */
   setListenerChar(id: EntityId | null): void {
     this.opts.listenerCharId = id;
+  }
+
+  /**
+   * Forget everything about the previous match (combo climb, footstep strides, music intensity,
+   * running loops). Called on 'matchStart', so one director can serve a whole series / rematches.
+   */
+  reset(): void {
+    this.silenceLoops(new Set());
+    this.stride.clear();
+    this.combo = 0;
+    this.lastOwnScoreTick = -Infinity;
+    this.intensity = START_INTENSITY;
+    this.ended = false;
   }
 
   /** Pre-match "3, 2, 1, GO": call with 3, 2, 1, 0. */
@@ -96,9 +113,12 @@ export class MatchAudioDirector {
     const a = this.engine;
     switch (e.type) {
       case 'matchStart':
-        this.ended = false;
+        this.reset();
         a.play('whistleStart');
-        if (this.opts.driveMusic) a.playMusic('match');
+        if (this.opts.driveMusic) {
+          a.setMusicIntensity(this.intensity);
+          a.playMusic('match');
+        }
         break;
       case 'grab':
         a.play('grab', { pos: this.charPos(sim, e.charId), volume: e.part === 'bankWall' ? 1 : 0.9 });
@@ -152,7 +172,9 @@ export class MatchAudioDirector {
         const own = e.team === this.opts.localTeam;
         let step = -2;
         if (own) {
-          this.combo = e.tick - this.lastOwnScoreTick <= COMBO_WINDOW * TICK_RATE ? Math.min(COMBO_MAX, this.combo + 1) : 0;
+          // A negative gap means the tick counter restarted (new match without reset): no combo.
+          const gap = e.tick - this.lastOwnScoreTick;
+          this.combo = gap >= 0 && gap <= COMBO_WINDOW * TICK_RATE ? Math.min(COMBO_MAX, this.combo + 1) : 0;
           this.lastOwnScoreTick = e.tick;
           step = this.combo;
         }
@@ -234,9 +256,11 @@ export class MatchAudioDirector {
 
     if (st.finalCountdown && st.finalCountdownTick !== null) {
       const since = (st.tick - st.finalCountdownTick) / TICK_RATE;
-      if (since > 2) {
+      if (since > SIREN_LOOP_DELAY) {
+        // Urgency 0.25 -> 1 over the last 30 s: the distant wails come nearer, and only in the
+        // last seconds do they fill the gaps between phrases (see loops.ts sirenLoop).
         const left = Number.isFinite(st.endTick) ? (st.endTick - st.tick) / TICK_RATE : FINAL_COUNTDOWN_SECONDS;
-        loop('sirenLoop', 0.15 + 0.35 * clamp01(1 - left / FINAL_COUNTDOWN_SECONDS), undefined, 'final');
+        loop('sirenLoop', 0.25 + 0.75 * clamp01(1 - left / FINAL_COUNTDOWN_SECONDS), undefined, 'final');
       }
     }
     this.silenceLoops(live);

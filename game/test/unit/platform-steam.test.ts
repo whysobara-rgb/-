@@ -48,8 +48,14 @@ describe('achievement catalogue', () => {
       expect(a.hidden).toBe(def.hidden);
       expect(a.name.koreana).toBe(k[def.nameKey]);
       expect(a.name.english).toBe(e[def.nameKey]);
-      expect(a.description.koreana).toBe(k[def.descKey]);
       expect(a.description.english).toBe(e[def.descKey]);
+      // Steam shows descriptions of LOCKED achievements too, so the Korean text is an
+      // instruction ("…하세요"), not the in-game unlock toast's past tense ("…했어요").
+      const koDesc = a.description.koreana;
+      expect(koDesc, a.apiName).toMatch(/세요\.$/);
+      expect(koDesc, a.apiName).not.toMatch(/(었|았|였|했)어요/);
+      // Same subject as the UI text (cheap drift guard: identical first word).
+      expect(koDesc.split(' ')[0], a.apiName).toBe(k[def.descKey].split(' ')[0]);
     }
   });
 

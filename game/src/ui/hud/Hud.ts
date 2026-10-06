@@ -17,7 +17,7 @@ import { TEAM_STYLES } from '../../shared/teams';
 import { onLanguageChange, t, tr, type TextRef, type TParams } from '../i18n';
 import { animateEl, h, setChildren, setClass, setText } from '../core/dom';
 import { icon, lootIcon, teamEmblem } from '../core/icons';
-import { fmtClock, fmtScore } from '../core/format';
+import { clamp01, fmtClock, fmtScore, finiteOrNull } from '../core/format';
 import { glyphChip, type PromptAction } from '../core/prompts';
 import { getUiRoot, type UiRoot } from '../core/root';
 import { Minimap } from './Minimap';
@@ -77,6 +77,7 @@ export class Hud {
   private timerEl: HTMLElement | null = null;
   private timerText: HTMLElement | null = null;
   private banksEl: HTMLElement | null = null;
+  private banksCountEl: HTMLElement | null = null;
   private bankIcons: BankIcon[] = [];
   private practiceScore: HTMLElement | null = null;
 
@@ -87,10 +88,12 @@ export class Hud {
   // diff cache
   private cMode: HudModel['mode'] | null = null;
   private cMyTeam: TeamId | null = null;
-  private cScores: [number, number] = [NaN, NaN];
+  /** undefined = not painted yet; null = invalid value (shown as "–"). */
+  private cScores: (number | null | undefined)[] = [undefined, undefined];
   private cClock = '';
   private cTimerState = '';
   private cBanksLen = -1;
+  private cBanksDone = -1;
   private cTimed: boolean | null = null;
   private cLastBank: boolean | null = null;
   private cCarry = '';
@@ -252,35 +255,38 @@ export class Hud {
 
   update(m: HudModel): void {
     this.model = m;
-    const timed = m.timeLeftSec !== null;
+    // +Infinity behaves like "no limit"; NaN shows "–:––" (see fmtClock).
+    const timeLeft = m.timeLeftSec === Infinity ? null : m.timeLeftSec;
+    const timed = timeLeft !== null;
     if (m.mode !== this.cMode || m.myTeam !== this.cMyTeam || m.banks.length !== this.cBanksLen || timed !== this.cTimed) {
       this.buildTop(m);
     }
 
-    // Scores
+    // Scores (non-finite values show "–" and never re-write every frame)
     if (m.mode === 'match') {
       for (const id of [0, 1] as const) {
-        const v = m.scores[id];
-        if (v !== this.cScores[id]) {
-          const grew = v > this.cScores[id];
+        const v = finiteOrNull(m.scores[id]);
+        const prev = this.cScores[id];
+        if (v !== prev) {
+          const grew = v !== null && typeof prev === 'number' && v > prev;
           this.cScores[id] = v;
           const el = this.teams[id].score;
-          setText(el, fmtScore(v));
+          setText(el, v === null ? fmtScore(NaN) : fmtScore(v));
           if (grew) animateEl(el, [{ transform: 'scale(1.35)' }, { transform: 'scale(1)' }], { duration: 380, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' });
         }
       }
     } else if (this.practiceScore) {
-      const v = m.scores[m.myTeam];
+      const v = finiteOrNull(m.scores[m.myTeam]);
       if (v !== this.cScores[m.myTeam]) {
         this.cScores[m.myTeam] = v;
-        setText(this.practiceScore, fmtScore(v));
+        setText(this.practiceScore, v === null ? fmtScore(NaN) : fmtScore(v));
         animateEl(this.practiceScore, [{ transform: 'scale(1.3)' }, { transform: 'scale(1)' }], 360);
       }
     }
 
     // Timer
     if (this.timerEl && this.timerText) {
-      const sec = m.timeLeftSec;
+      const sec = timeLeft;
       const clock = sec === null ? '∞' : fmtClock(sec);
       const state = sec === null ? 'none' : m.finalCountdown ? 'final' : sec <= URGENT_SEC ? 'urgent' : 'normal';
       if (clock !== this.cClock) {
@@ -296,8 +302,17 @@ export class Hud {
       }
     }
 
-    // Banks
-    for (let i = 0; i < this.bankIcons.length; i++) this.paintBank(this.bankIcons[i], m.banks[i]);
+    // Banks (doc §8: the recovered count is always readable — icons + "회수 n/2")
+    let done = 0;
+    for (let i = 0; i < this.bankIcons.length; i++) {
+      this.paintBank(this.bankIcons[i], m.banks[i]);
+      if (m.banks[i]?.recovered) done++;
+    }
+    if (done !== this.cBanksDone && this.banksCountEl && this.banksEl) {
+      this.cBanksDone = done;
+      setText(this.banksCountEl, t('hud.banksCount', { n: done, total: this.bankIcons.length }));
+      setClass(this.banksEl, 'is-all', done > 0 && done === this.bankIcons.length);
+    }
 
     if (m.lastBankWarning !== this.cLastBank) {
       this.cLastBank = m.lastBankWarning;
@@ -307,8 +322,8 @@ export class Hud {
     this.paintCarry(m);
     this.paintGrab(m);
 
-    // Dash cooldown ring (quantized to 1/120 to limit writes)
-    const d = Math.round(Math.max(0, Math.min(1, m.dashCooldown)) * 120) / 120;
+    // Dash cooldown ring (quantized to 1/120 to limit writes; bad input reads as ready)
+    const d = Math.round(clamp01(m.dashCooldown) * 120) / 120;
     if (d !== this.cDash) {
       const wasReady = this.cDash === 0;
       this.cDash = d;
@@ -346,8 +361,8 @@ export class Hud {
     this.cMode = m.mode;
     this.cMyTeam = m.myTeam;
     this.cBanksLen = m.banks.length;
-    this.cTimed = m.timeLeftSec !== null;
-    this.cScores = [NaN, NaN];
+    this.cTimed = m.timeLeftSec !== null && m.timeLeftSec !== Infinity;
+    this.cScores = [undefined, undefined];
     this.cClock = '';
     this.cTimerState = '';
     this.teams = [];
@@ -357,10 +372,24 @@ export class Hud {
     this.timerEl = h('div', { class: 'uh-timer', role: 'timer' }, h('span', { class: 'uh-timer__icon' }, icon('clock')), this.timerText);
     this.bankIcons = m.banks.map(() => {
       const badge = h('span', { class: 'uh-bankicon__badge' });
-      const root = h('span', { class: 'uh-bankicon' }, lootIcon('bank', 'uh-bankicon__art'), badge);
+      const root = h(
+        'span',
+        { class: 'uh-bankicon' },
+        lootIcon('bank', 'uh-bankicon__art'),
+        // Recovered = a check stamp (shape, not just color) + the team that took it.
+        h('span', { class: 'uh-bankicon__check' }, icon('check')),
+        badge,
+      );
       return { root, badge, key: '' };
     });
-    this.banksEl = h('div', { class: 'uh-banks', title: t('hud.banks') }, this.bankIcons.map((b) => b.root));
+    this.cBanksDone = -1;
+    this.banksCountEl = h('span', { class: 'uh-banks__count uh-num' });
+    this.banksEl = h(
+      'div',
+      { class: 'uh-banks', title: t('hud.banks') },
+      h('span', { class: 'uh-banks__icons' }, this.bankIcons.map((b) => b.root)),
+      this.banksCountEl,
+    );
     const center = h('div', { class: 'uh-sb__center' }, this.timerEl, this.bankIcons.length ? this.banksEl : null);
 
     if (m.mode === 'practice') {
@@ -380,9 +409,9 @@ export class Hud {
           ),
           h('span', { class: 'uh-practice__note' }, t('hud.practiceNote')),
         ),
-        m.timeLeftSec === null ? (this.bankIcons.length ? h('div', { class: 'uh-sb__center' }, this.banksEl) : null) : center,
+        !this.cTimed ? (this.bankIcons.length ? h('div', { class: 'uh-sb__center' }, this.banksEl) : null) : center,
       );
-      if (m.timeLeftSec === null) {
+      if (!this.cTimed) {
         this.timerEl = null;
         this.timerText = null;
       }
@@ -463,7 +492,7 @@ export class Hud {
       }
     }
     if (c) {
-      const p = c.recovering === null || c.recovering === undefined ? -1 : Math.round(c.recovering * 100) / 100;
+      const p = c.recovering === null || c.recovering === undefined ? -1 : Math.round(clamp01(c.recovering) * 100) / 100;
       if (p !== this.cCarryProg) {
         this.cCarryProg = p;
         setClass(this.carryEl, 'is-recovering', p >= 0);
@@ -505,7 +534,7 @@ export class Hud {
       }
     }
     if (g && g.anchored) {
-      const p = g.unanchorProgress === null || g.unanchorProgress === undefined ? -1 : Math.round(g.unanchorProgress * 100) / 100;
+      const p = g.unanchorProgress === null || g.unanchorProgress === undefined ? -1 : Math.round(clamp01(g.unanchorProgress) * 100) / 100;
       if (p !== this.cGrabProg) {
         this.cGrabProg = p;
         setClass(this.grabEl, 'is-straining', p >= 0);

@@ -13,6 +13,12 @@
  *  - Escape always pauses a match / backs out of a menu (and cancels a rebind capture).
  *  - Gamepad Start (button 9) always pauses; Guide/Home (button 16) belongs to the OS/Steam.
  *  - F11 toggles fullscreen in the desktop build.
+ * The hard-wired pause inputs (HARDWIRED_PAUSE) work even after the pause action's slots are
+ * rebound to something else: InputManager checks them in both pollMatch().pausePressed and
+ * pollMenu().pause, so the button that opened the pause menu always closes it too.
+ *
+ * Invariants kept by assignBinding / sanitizeBindings: per device, every code belongs to at
+ * most one match action, and every match action has at least one code.
  */
 
 export const MATCH_ACTIONS = ['moveUp', 'moveDown', 'moveLeft', 'moveRight', 'grab', 'dash', 'ping', 'pause'] as const;
@@ -212,7 +218,11 @@ export function listDuplicateBindings(bindings: Readonly<Bindings>): BindingRef[
 export interface SwapRecord {
   /** Action that lost `code`. */
   action: MatchAction;
-  /** The code it received instead (the rebound action's previous code), or null if it just lost it. */
+  /**
+   * The code it received instead, or null if it simply lost the code (it still has others).
+   * Usually the rebound action's previous code (a swap); when that is impossible and the
+   * action would be left with nothing, a free default or fallback code (see `pickReplacement`).
+   */
   replacement: string | null;
 }
 
@@ -228,10 +238,52 @@ export interface AssignResult {
 }
 
 /**
+ * Spare codes handed to an action that would otherwise end up with no binding at all on a
+ * device (see `pickReplacement`). Ordered by reach from the default hand position. Only codes
+ * no other action uses are ever picked, so these never create conflicts.
+ */
+const FALLBACK_CODES: Readonly<Record<BindingDevice, readonly string[]>> = {
+  keyboard: [
+    'KeyF', 'KeyR', 'KeyG', 'KeyQ', 'KeyC', 'KeyV', 'KeyX', 'KeyZ', 'KeyT', 'KeyH', 'KeyU', 'KeyI',
+    'KeyO', 'KeyN', 'KeyM', 'KeyB', 'KeyY', 'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Tab',
+  ],
+  gamepad: [
+    btn(PAD.LB), btn(PAD.LT), btn(PAD.RT), btn(PAD.B), btn(PAD.LS), btn(PAD.RS), btn(PAD.VIEW),
+    btn(PAD.X), btn(PAD.Y), btn(PAD.A), btn(PAD.RB),
+    btn(PAD.DPAD_UP), btn(PAD.DPAD_DOWN), btn(PAD.DPAD_LEFT), btn(PAD.DPAD_RIGHT),
+  ],
+};
+
+/**
+ * A code for `action` on `device` that is not in `taken`: `preferred` first, then the action's
+ * own defaults (for pause this includes the hard-wired Esc / Start, which no other action may
+ * hold), then FALLBACK_CODES. Null only if every candidate is taken (cannot happen with eight
+ * actions, but callers handle it).
+ */
+export function pickReplacement(
+  device: BindingDevice,
+  action: MatchAction,
+  taken: ReadonlySet<string>,
+  preferred: string | null = null,
+): string | null {
+  const candidates = [...(preferred ? [preferred] : []), ...DEFAULT_BINDINGS[device][action], ...FALLBACK_CODES[device]];
+  for (const c of candidates) if (!taken.has(c) && isBindable(action, device, c)) return c;
+  return null;
+}
+
+function codesInUse(table: Readonly<ActionBindings>): Set<string> {
+  const out = new Set<string>();
+  for (const a of MATCH_ACTIONS) for (const c of table[a]) out.add(c);
+  return out;
+}
+
+/**
  * Bind `code` to `action` at `slot` (0 = primary) on `device` and return a NEW table.
  * If another action already uses the code, the two swap: that action receives the code this
- * action had in the slot (unless it already has it), otherwise it simply loses the code.
- * This keeps every code mapped to at most one action without silently unbinding things.
+ * action had in the slot (unless it already has it or may not hold it). Otherwise it simply
+ * loses the code — but never its last one: an action that would be left unbound on the device
+ * gets a free replacement (`pickReplacement`), reported in `swaps` so the UI can show it.
+ * Every code stays mapped to at most one action and every action keeps at least one code.
  */
 export function assignBinding(
   bindings: Readonly<Bindings>,
@@ -245,30 +297,41 @@ export function assignBinding(
   const previous = list[slot] ?? null;
   if (!isBindable(action, device, code)) return { bindings: next, ok: false, conflicts: [], swaps: [], previous };
   const conflicts = findBindingConflicts(bindings, device, code, action);
+
+  // 1. Place the code. Move (not copy) it if this action already had it in another slot; an
+  //    out-of-range slot appends, but never past MAX_BINDINGS_PER_ACTION (the new code must win).
+  const existing = list.indexOf(code);
+  if (existing >= 0 && existing !== slot) list.splice(existing, 1);
+  const s = Math.max(0, Math.min(slot, list.length, MAX_BINDINGS_PER_ACTION - 1));
+  if (s < list.length) list[s] = code;
+  else list.push(code);
+  next[device][action] = dedupe(list).slice(0, MAX_BINDINGS_PER_ACTION);
+
+  // 2. Take the code away from every other action that had it.
   const swaps: SwapRecord[] = [];
   for (const other of new Set(conflicts.map((c) => c.action))) {
     const otherList = next[device][other];
     const idx = otherList.indexOf(code);
     if (idx < 0) continue;
+    const taken = codesInUse(next[device]);
     const canSwap =
-      previous !== null && previous !== code && !otherList.includes(previous) && isBindable(other, device, previous);
+      previous !== null && previous !== code && !taken.has(previous) && isBindable(other, device, previous);
+    let replacement: string | null = null;
     if (canSwap) {
       otherList[idx] = previous;
-      swaps.push({ action: other, replacement: previous });
+      replacement = previous;
     } else {
       otherList.splice(idx, 1);
-      swaps.push({ action: other, replacement: null });
+      if (otherList.length === 0) {
+        // `taken` still holds `code` (now owned by `action`) and everything else in use.
+        replacement = pickReplacement(device, other, taken);
+        if (replacement) otherList.push(replacement);
+      }
     }
+    swaps.push({ action: other, replacement });
     // Remove any later duplicates the other action might still hold.
     next[device][other] = dedupe(otherList);
   }
-  // Move (not copy) the code if this action already had it in another slot.
-  const existing = list.indexOf(code);
-  if (existing >= 0 && existing !== slot) list.splice(existing, 1);
-  const s = Math.max(0, Math.min(slot, list.length));
-  if (s < list.length) list[s] = code;
-  else list.push(code);
-  next[device][action] = dedupe(list).slice(0, MAX_BINDINGS_PER_ACTION);
   return { bindings: next, ok: true, conflicts, swaps, previous };
 }
 
@@ -279,7 +342,9 @@ function dedupe(list: string[]): string[] {
 /**
  * Validate an unknown value (e.g. from a save file) into a complete, conflict-free table.
  * Invalid / reserved codes are dropped, missing or empty actions fall back to their defaults,
- * and a code bound to several actions stays only on the first (in MATCH_ACTIONS order).
+ * and a code bound to several actions stays only on the first (in MATCH_ACTIONS order). An
+ * action whose codes and defaults were all claimed by earlier actions (a hand-edited save)
+ * gets a free code (`pickReplacement`), so no action is ever left unbound.
  */
 export function sanitizeBindings(raw: unknown): Bindings {
   const src = isRecord(raw) ? raw : {};
@@ -296,14 +361,19 @@ export function sanitizeBindings(raw: unknown): Bindings {
     }
     // Pass 2: cross-action uniqueness (first action wins).
     const used = new Set<string>();
-    for (const action of MATCH_ACTIONS) {
+    MATCH_ACTIONS.forEach((action, i) => {
       const kept = out[device][action].filter((c) => !used.has(c));
       if (!kept.length) {
-        for (const c of DEFAULT_BINDINGS[device][action]) if (!used.has(c)) kept.push(c);
+        // Own defaults first, then any code neither an earlier action kept nor a later one claims.
+        const taken = new Set(used);
+        for (const later of MATCH_ACTIONS.slice(i + 1)) for (const c of out[device][later]) taken.add(c);
+        for (const c of DEFAULT_BINDINGS[device][action]) if (!taken.has(c)) kept.push(c);
+        const pick = kept.length ? null : pickReplacement(device, action, taken);
+        if (pick) kept.push(pick);
       }
       kept.forEach((c) => used.add(c));
       out[device][action] = kept;
-    }
+    });
   }
   return out;
 }

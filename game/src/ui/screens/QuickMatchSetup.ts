@@ -60,7 +60,7 @@ export class QuickMatchSetup extends UiScreen<QuickMatchSetupProps> {
   }
 
   protected override onBack(): boolean {
-    this.props.onBack();
+    this.leave(this.props.onBack);
     return true;
   }
 
@@ -121,7 +121,7 @@ export class QuickMatchSetup extends UiScreen<QuickMatchSetupProps> {
       size: 'lg',
       glyph: 'confirm',
       className: 'uh-quick__start',
-      onActivate: () => this.props.onStart(this.getValue()),
+      onActivate: () => this.leave(() => this.props.onStart(this.getValue())),
     });
 
     this.side = h('aside', { class: 'uh-quick__side' });
@@ -142,7 +142,7 @@ export class QuickMatchSetup extends UiScreen<QuickMatchSetupProps> {
         promptBar([
           { action: 'adjust', label: 'prompt.adjust' },
           { action: 'confirm', label: 'prompt.select' },
-          { action: 'back', label: 'prompt.back', onClick: () => this.props.onBack() },
+          { action: 'back', label: 'prompt.back', onClick: () => this.leave(this.props.onBack) },
         ]),
       ),
     );

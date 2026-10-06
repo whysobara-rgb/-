@@ -11,7 +11,7 @@ import { VAN } from '../../sim/config';
 import { TEAM_STYLES } from '../../shared/teams';
 import { PAL } from './palette';
 import { G, PartBuilder } from './geometry';
-import { createToonMaterial, matScenery } from './materials';
+import { createToonMaterial, matVan } from './materials';
 import { Highlighter } from './outline';
 
 export interface VanRig {
@@ -161,7 +161,7 @@ export function createVan(team: TeamId): VanRig {
   root.add(mover);
   mover.add(chassis);
 
-  const bodyMat = matScenery();
+  const bodyMat = matVan();
   const body = new THREE.Mesh(geo.body, bodyMat);
   body.name = 'van:body';
   body.castShadow = true;
@@ -186,7 +186,7 @@ export function createVan(team: TeamId): VanRig {
   labelAnchor.position.set(0, HGT + 1.2, 0);
   mover.add(labelAnchor);
 
-  const highlighter = new Highlighter(mover);
+  const highlighter = new Highlighter(mover, { pushMax: 1.1, pushSlope: 0.7 });
   const teamColor = new THREE.Color(TEAM_STYLES[team].color);
 
   let siren = false;

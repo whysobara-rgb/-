@@ -36,17 +36,18 @@ export class Toasts {
   }
 
   /** Achievement unlocked: uses 'ach.<ID>.name' / 'ach.<ID>.desc'. */
-  achievement(id: string): void {
-    this.show({ kicker: 'toast.achievement', title: `ach.${id}.name`, body: `ach.${id}.desc`, icon: 'trophy' });
+  achievement(id: string, durationMs?: number): void {
+    this.show({ kicker: 'toast.achievement', title: `ach.${id}.name`, body: `ach.${id}.desc`, icon: 'trophy', durationMs });
   }
 
   /** Hat unlocked (cosmetic). */
-  hatUnlocked(hat: HatId): void {
+  hatUnlocked(hat: HatId, durationMs?: number): void {
     this.show({
       kicker: 'toast.hat',
       title: `hat.${hat}.name`,
       body: 'toast.hat.body',
       art: () => raccoon({ hat, expression: 'happy' }),
+      durationMs,
     });
   }
 

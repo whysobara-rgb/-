@@ -41,7 +41,7 @@ export class ScorePopups {
     const now = performance.now();
     if (now - this.lastAt > 1400) this.stackY = 0;
     this.lastAt = now;
-    if (o.x !== undefined && o.y !== undefined) {
+    if (o.x !== undefined && o.y !== undefined && Number.isFinite(o.x) && Number.isFinite(o.y)) {
       el.classList.add('is-world');
       el.style.left = `${o.x}px`;
       el.style.top = `${o.y}px`;

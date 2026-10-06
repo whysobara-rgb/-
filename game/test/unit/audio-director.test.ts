@@ -116,6 +116,55 @@ describe('event mapping', () => {
     expect(eng.calls.at(-1)).toMatchObject({ id: 'scoreBank', o: { step: -2, volume: 0.7 } });
   });
 
+  it('a new matchStart resets the combo climb (rematch with the same director)', () => {
+    const eng = new RecordingEngine();
+    const dir = new MatchAudioDirector(eng as unknown as AudioEngine, { localTeam: 0 });
+    const sim = view([char(1, 0, { x: 0, y: 0 }, { vel: { x: 5, y: 0 }, moveIntent: { x: 1, y: 0 } })], [loot(10, 'smallSafe', { x: 0, y: 0 })]);
+    const rec = (tick: number): SimEvent => ({
+      type: 'recovered', tick, lootId: 10, kind: 'smallSafe', team: 0, value: 100, safeIds: [], safesValue: 0, holders: [],
+    });
+    const lastStep = (): number | undefined => eng.calls.filter((c) => c.id === 'scoreSmall').at(-1)?.o?.step;
+    dir.onEvents([{ type: 'matchStart', tick: 0 }], sim);
+    const steps: (number | undefined)[] = [];
+    for (const tick of [14000, 14100, 14200, 14300]) {
+      dir.onEvents([rec(tick)], sim);
+      steps.push(lastStep());
+    }
+    expect(steps).toEqual([0, 1, 2, 3]);
+    for (let i = 0; i < 20; i++) dir.update(sim, 1 / 60);
+    dir.onEvents([{ type: 'matchEnd', tick: 14400, result: { reason: 'time', winner: 0, scores: [400, 0], endTick: 14400 } }], sim);
+    eng.calls = [];
+    dir.onEvents([{ type: 'matchStart', tick: 0 }], sim);
+    // Music intensity is re-armed for the new match.
+    expect(eng.calls.find((c) => c.fn === 'intensity')?.i).toBeCloseTo(0.4);
+    dir.onEvents([rec(600)], sim);
+    expect(lastStep()).toBe(0);
+    // Even without a matchStart, a tick counter that went backwards never continues a combo.
+    const dir2 = new MatchAudioDirector(eng as unknown as AudioEngine, { localTeam: 0 });
+    dir2.onEvents([rec(14000), rec(14100)], sim);
+    expect(lastStep()).toBe(1);
+    dir2.onEvents([rec(600)], sim);
+    expect(lastStep()).toBe(0);
+  });
+
+  it('final-countdown siren loop: starts after the one-shot, urgency rises 0.25 -> 1', () => {
+    const eng = new RecordingEngine();
+    const dir = new MatchAudioDirector(eng as unknown as AudioEngine, { localTeam: 0, footsteps: false });
+    const start = 6000;
+    const end = start + 30 * 60;
+    const at = (tick: number): AudioSimView =>
+      view([char(1, 0, { x: 0, y: 0 })], [], { tick, endTick: end, finalCountdown: true, finalCountdownTick: start });
+    const siren = (): number[] => eng.calls.filter((c) => c.fn === 'loop' && c.id === 'sirenLoop').map((c) => c.i!);
+    dir.update(at(start + 60), 1 / 60); // 1 s in: the one-shot siren is still playing
+    expect(siren()).toEqual([]);
+    dir.update(at(start + 2 * 60 + 1), 1 / 60);
+    expect(siren().at(-1)).toBeCloseTo(0.25 + 0.75 * (2 / 30), 2);
+    dir.update(at(end - 1), 1 / 60);
+    expect(siren().at(-1)).toBeGreaterThan(0.99);
+    const all = siren();
+    for (let i = 1; i < all.length; i++) expect(all[i]).toBeGreaterThanOrEqual(all[i - 1]);
+  });
+
   it('final countdown -> siren + final track; match end -> horn + result jingle', () => {
     const eng = new RecordingEngine();
     const dir = new MatchAudioDirector(eng as unknown as AudioEngine, { localTeam: 1 });

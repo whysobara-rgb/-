@@ -71,7 +71,7 @@ export class TournamentScreen extends UiScreen<TournamentScreenProps> {
   }
 
   protected override onBack(): boolean {
-    this.props.onBack();
+    this.leave(this.props.onBack);
     return true;
   }
 
@@ -122,7 +122,7 @@ export class TournamentScreen extends UiScreen<TournamentScreenProps> {
           h('div', { class: 'uh-tourcard__cta' }, locked ? icon('lock') : icon('play'), t(locked ? 'common.locked' : actionKey)),
         );
         return navigable(card, `rival:${c.rival}`, {
-          onActivate: () => this.props.onSelect(c.rival),
+          onActivate: () => this.leave(() => this.props.onSelect(c.rival)),
         });
       }),
     );
@@ -149,7 +149,7 @@ export class TournamentScreen extends UiScreen<TournamentScreenProps> {
         promptBar([
           { action: 'navigate', label: 'prompt.navigate' },
           { action: 'confirm', label: 'prompt.select' },
-          { action: 'back', label: 'prompt.back', onClick: () => this.props.onBack() },
+          { action: 'back', label: 'prompt.back', onClick: () => this.leave(this.props.onBack) },
         ]),
       ),
     );

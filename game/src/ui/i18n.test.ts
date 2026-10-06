@@ -56,6 +56,21 @@ describe('dictionaries', () => {
     for (const d of ['novice', 'normal', 'challenge']) expect(hasKey(`difficulty.${d}`)).toBe(true);
   });
 
+  it('practice fence beat tells the player to push the bank from behind (ARCHITECTURE.md)', () => {
+    expect(ko['tutorial.fence']).toContain('은행 뒤에서 밀어요');
+    expect(en['tutorial.fence'].toLowerCase()).toContain('from behind');
+  });
+
+  it('English follows the ART_DIRECTION glossary (확정 = Banked, 큰 금고 = Big safe)', () => {
+    expect(en['hud.confirmed']).toBe('Banked');
+    expect(en['loot.largeSafe.name']).toBe('Big safe');
+    expect(en['loot.smallSafe.name']).toBe('Small safe');
+    for (const [k, v] of Object.entries(en)) {
+      expect(/\bsecured?\b/i.test(v), `${k}: ${v}`).toBe(false);
+      expect(/\blarge safe/i.test(v), `${k}: ${v}`).toBe(false);
+    }
+  });
+
   it('ambushChoke lines all take the {choke} param', () => {
     for (const r of RIVAL_ORDER) for (const v of [1, 2, 3] as const) {
       expect(ko[adaptationLineKey(r, 'ambushChoke', v) as keyof typeof ko]).toContain('{choke}');
@@ -125,5 +140,16 @@ describe('format', () => {
   it('scores', () => {
     expect(fmtScore(3200)).toBe('3,200');
     expect(fmtDelta(300)).toBe('+300');
+  });
+
+  it('never renders NaN / Infinity garbage', () => {
+    expect(fmtClock(NaN)).toBe('–:––');
+    expect(fmtClock(Infinity)).toBe('∞');
+    expect(fmtClock(-Infinity)).toBe('0:00');
+    expect(fmtClock(1e9)).toBe('99:59');
+    expect(fmtScore(NaN)).toBe('–');
+    expect(fmtScore(Infinity)).toBe('–');
+    expect(fmtDelta(NaN)).toBe('–');
+    expect(t('hud.estimate', { value: NaN })).toBe('예상 –');
   });
 });

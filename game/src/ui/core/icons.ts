@@ -99,7 +99,8 @@ export type IconName =
   | 'practice' | 'quick' | 'tournament' | 'wardrobe' | 'settings' | 'quit' | 'lock' | 'check'
   | 'play' | 'back' | 'chevLeft' | 'chevRight' | 'hat' | 'speaker' | 'display' | 'gamepad'
   | 'keyboard' | 'globe' | 'siren' | 'flag' | 'map' | 'van' | 'ping' | 'clock' | 'dice'
-  | 'trophy' | 'sparkle' | 'reset' | 'home' | 'pause' | 'arrow' | 'hand' | 'bolt' | 'door';
+  | 'trophy' | 'sparkle' | 'reset' | 'home' | 'pause' | 'arrow' | 'hand' | 'bolt' | 'door'
+  | 'swap' | 'alert';
 
 const LINE = 'fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"';
 
@@ -138,6 +139,8 @@ const ICONS: Record<IconName, string> = {
   hand: `<path d="M8 12V5.5a1.5 1.5 0 0 1 3 0V11M11 10V4.5a1.5 1.5 0 0 1 3 0V11M14 10.5V6a1.5 1.5 0 0 1 3 0v7c0 4.5-2.5 7.5-6.5 7.5-3 0-4.5-1.5-6-4.5L3.3 13a1.5 1.5 0 0 1 2.4-1.8L8 14" ${LINE}/>`,
   bolt: `<path d="M13.5 2.5L5 13.5h6l-1 8 8.5-11h-6z" ${LINE}/>`,
   door: `<path d="M5 21V4.5A1.5 1.5 0 0 1 6.5 3h11A1.5 1.5 0 0 1 19 4.5V21M3 21h18M15 12h.01" ${LINE}/>`,
+  swap: `<path d="M4.5 8.5h14M15 5l3.5 3.5L15 12M19.5 15.5h-14M9 12l-3.5 3.5L9 19" ${LINE}/>`,
+  alert: `<path d="M10.6 4.3a1.6 1.6 0 0 1 2.8 0l7.8 13.8a1.6 1.6 0 0 1-1.4 2.4H4.2a1.6 1.6 0 0 1-1.4-2.4z" ${LINE}/><path d="M12 9.5v4.5M12 17.2h.01" ${LINE} stroke-width="2.6"/>`,
 };
 
 export function icon(name: IconName, className = 'uh-icon'): SVGSVGElement {

@@ -5,6 +5,7 @@
  *   npx vite --port 5182 --strictPort  ->  http://127.0.0.1:5182/dev/model-gallery.html
  *
  * URL params: ?cam=<preset>  &hud=0 (hide overlay)  &layout=<id> (plaza|shortcut|counter|tutorial)
+ *             &lang=en (English shop signs through the view-style resolver)
  * window.__gallery exposes setCamera / stats / modelStats for automated screenshots.
  */
 import * as THREE from 'three';
@@ -332,7 +333,10 @@ async function loadLayout(): Promise<void> {
   }
   if (!layout) return;
   const t0 = performance.now();
-  scenery = buildStaticScenery(layout);
+  const lang = params.get('lang') === 'en' ? 'en' : 'ko';
+  const strings = (await import('../../sim/layouts/strings')).LAYOUT_STRINGS;
+  // Same resolver shape as the game view: language table, then Korean, then the key itself.
+  scenery = buildStaticScenery(layout, (k) => strings[lang][k] ?? strings.ko[k] ?? k);
   console.info(`scenery built in ${(performance.now() - t0).toFixed(0)} ms`, scenery.stats);
   LAYOUT_ROOT.add(scenery);
   layout.banks.forEach((bp) => {
@@ -444,6 +448,8 @@ const CAMERAS: Record<string, CamPreset> = {
   kiosk: { pos: [S + 12, 2.2, 28.5], target: [S + 12, 1.0, 23] },
   decor: { pos: [S + 6, 5.5, 23.5], target: [S + 6, 0.4, 16], fov: 42 },
   gameShowRaccoons: gameCam(S - 2, -1),
+  /** Both teams in every hat at the match camera (team must read from the emblem shapes). */
+  hatsGame: gameCam(S - 3.75, -5.2, 21),
   gameShowBank: gameCam(S + 30, 4),
   gameShowSafes: gameCam(S + 12, -2),
   // Layout presets (plaza coords).

@@ -28,6 +28,94 @@ const { resolveAppId, parseAppId } = require('../../electron/steam.cjs') as {
   parseAppId(t: unknown): number | null;
 };
 
+interface Rect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+const { loadWindowState, trackWindowState, fitToWorkArea } = require('../../electron/window-state.cjs') as {
+  loadWindowState(dir: string, screen: FakeScreen, d: { width: number; height: number; minWidth: number; minHeight: number }): {
+    width: number;
+    height: number;
+    x?: number;
+    y?: number;
+    maximized: boolean;
+  };
+  trackWindowState(win: FakeWindow, dir: string, initial?: { width: number; height: number }): void;
+  fitToWorkArea(win: FakeWindow, screen: FakeScreen): void;
+};
+
+/** A display with a work area (taskbar excluded). */
+class FakeScreen {
+  constructor(public readonly displays: Array<{ workArea: Rect }>) {}
+  getAllDisplays() {
+    return this.displays;
+  }
+  getPrimaryDisplay() {
+    return this.displays[0];
+  }
+  getDisplayMatching(r: Rect) {
+    const overlap = (a: Rect) => Math.max(0, Math.min(r.x + r.width, a.x + a.width) - Math.max(r.x, a.x)) * Math.max(0, Math.min(r.y + r.height, a.y + a.height) - Math.max(r.y, a.y));
+    return [...this.displays].sort((a, b) => overlap(b.workArea) - overlap(a.workArea))[0];
+  }
+}
+
+/** BrowserWindow stand-in with a real frame: outer = content + borders + title bar. */
+class FakeWindow {
+  static readonly FRAME = { width: 16, height: 39 };
+  content: { width: number; height: number };
+  pos: { x: number; y: number };
+  maximized = false;
+  normal: Rect | null = null;
+  private readonly handlers = new Map<string, Array<() => void>>();
+  constructor(o: { width: number; height: number; x?: number; y?: number; useContentSize: boolean }) {
+    const f = o.useContentSize ? { width: 0, height: 0 } : FakeWindow.FRAME;
+    this.content = { width: o.width - f.width, height: o.height - f.height };
+    this.pos = { x: o.x ?? 100, y: o.y ?? 80 };
+  }
+  on(ev: string, cb: () => void) {
+    this.handlers.set(ev, [...(this.handlers.get(ev) ?? []), cb]);
+  }
+  emit(ev: string) {
+    for (const cb of this.handlers.get(ev) ?? []) cb();
+  }
+  isDestroyed() {
+    return false;
+  }
+  isFullScreen() {
+    return false;
+  }
+  isMinimized() {
+    return false;
+  }
+  isMaximized() {
+    return this.maximized;
+  }
+  getBounds(): Rect {
+    return { ...this.pos, width: this.content.width + FakeWindow.FRAME.width, height: this.content.height + FakeWindow.FRAME.height };
+  }
+  getContentSize(): [number, number] {
+    return [this.content.width, this.content.height];
+  }
+  setContentSize(w: number, h: number) {
+    this.content = { width: w, height: h };
+  }
+  setPosition(x: number, y: number) {
+    this.pos = { x, y };
+  }
+  getNormalBounds(): Rect {
+    return this.normal ?? this.getBounds();
+  }
+  maximize(wa: Rect) {
+    this.normal = this.getBounds();
+    this.maximized = true;
+    this.pos = { x: wa.x, y: wa.y };
+    this.content = { width: wa.width - FakeWindow.FRAME.width, height: wa.height - FakeWindow.FRAME.height };
+    this.emit('maximize');
+  }
+}
+
 const quiet = { info() {}, warn() {}, error() {} };
 let dir: string;
 
@@ -127,5 +215,69 @@ describe('Steam app id resolution (electron/steam.cjs)', () => {
     expect(resolveAppId({ appRoot: dir, isPackaged: false })).toEqual({ appId: 777, source: 'env:SteamAppId' });
     process.env.STEAM_APPID = '888';
     expect(resolveAppId({ appRoot: dir, isPackaged: false })).toEqual({ appId: 888, source: 'env:STEAM_APPID' });
+  });
+});
+
+describe('window state (electron/window-state.cjs)', () => {
+  const DEFAULTS = { width: 1600, height: 900, minWidth: 1024, minHeight: 576 };
+  const big = new FakeScreen([{ workArea: { x: 0, y: 0, width: 2560, height: 1400 } }]);
+
+  /** One launch: create like main.cjs (useContentSize), run `during`, close. */
+  function launch(screen: FakeScreen, during?: (w: FakeWindow) => void) {
+    const ws = loadWindowState(dir, screen, DEFAULTS);
+    const win = new FakeWindow({ width: ws.width, height: ws.height, x: ws.x, y: ws.y, useContentSize: true });
+    if (!ws.maximized) fitToWorkArea(win, screen);
+    trackWindowState(win, dir, { width: ws.width, height: ws.height });
+    during?.(win);
+    win.emit('close');
+    return { ws, win };
+  }
+
+  it('does not grow by one frame per launch', () => {
+    const first = launch(big, (w) => {
+      w.setPosition(300, 200);
+      w.emit('move');
+    });
+    expect(first.win.getContentSize()).toEqual([1600, 900]);
+    let last = first;
+    for (let i = 0; i < 5; i++) last = launch(big);
+    expect(last.ws).toMatchObject({ width: 1600, height: 900, x: 300, y: 200, maximized: false });
+    expect(last.win.getContentSize()).toEqual([1600, 900]);
+    expect(JSON.parse(fs.readFileSync(path.join(dir, 'window.json'), 'utf8'))).toMatchObject({ v: 2, width: 1600, height: 900 });
+  });
+
+  it('saves the restore (content) size while maximized', () => {
+    launch(big, (w) => {
+      w.setContentSize(1280, 720);
+      w.emit('resize');
+      w.maximize(big.displays[0].workArea);
+    });
+    const ws = loadWindowState(dir, big, DEFAULTS);
+    expect(ws).toMatchObject({ width: 1280, height: 720, maximized: true });
+  });
+
+  it('clamps a saved size to the work area even when a position was saved', () => {
+    launch(big, (w) => {
+      w.setContentSize(2400, 1300);
+      w.setPosition(10, 10);
+      w.emit('resize');
+    });
+    const laptop = new FakeScreen([{ workArea: { x: 0, y: 0, width: 1366, height: 728 } }]);
+    const ws = loadWindowState(dir, laptop, DEFAULTS);
+    expect(ws.x).toBe(10);
+    expect(ws.width).toBeLessThanOrEqual(1366);
+    expect(ws.height).toBeLessThanOrEqual(728);
+    // After creation the outer frame fits too.
+    const { win } = launch(laptop);
+    const b = win.getBounds();
+    expect(b.width).toBeLessThanOrEqual(1366);
+    expect(b.height).toBeLessThanOrEqual(728);
+    expect(b.x + b.width).toBeLessThanOrEqual(1366);
+    expect(b.y + b.height).toBeLessThanOrEqual(728);
+  });
+
+  it('ignores the outer size stored by the old unversioned format', () => {
+    fs.writeFileSync(path.join(dir, 'window.json'), JSON.stringify({ x: 50, y: 60, width: 1616, height: 939, maximized: false }));
+    expect(loadWindowState(dir, big, DEFAULTS)).toMatchObject({ width: 1600, height: 900, x: 50, y: 60 });
   });
 });

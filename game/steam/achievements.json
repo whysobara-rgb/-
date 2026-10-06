@@ -2,7 +2,8 @@
   "$comment": [
     "Steamworks achievement definitions for 뿌리째 털어라 (Uproot Heist).",
     "Enter these on partner.steamgames.com > App Admin > Stats & Achievements > Achievements (see docs/STEAM_RELEASE.md).",
-    "apiName must match src/platform/steam.ts ACHIEVEMENT_IDS. Display text must match src/ui/strings (ach.<ID>.name/.desc);",
+    "apiName must match src/platform/steam.ts ACHIEVEMENT_IDS. Names and English descriptions must match src/ui/strings (ach.<ID>.name/.desc).",
+    "Korean descriptions are written as instructions ('…하세요'), unlike the in-game unlock toast ('…했어요'): Steam also shows descriptions of LOCKED achievements.",
     "test/unit/platform-steam.test.ts fails when they drift. Icons: 64x64 JPG, unlocked + locked (greyscale) versions."
   ],
   "languages": [
@@ -18,8 +19,8 @@
         "koreana": "첫 회수"
       },
       "description": {
-        "english": "Recover loot and secure points for the first time.",
-        "koreana": "처음으로 전리품을 회수해 점수를 확정했어요."
+        "english": "Recover loot and bank points for the first time.",
+        "koreana": "처음으로 전리품을 회수해 점수를 확정하세요."
       },
       "icon": "icons/FIRST_RECOVERY.jpg",
       "iconLocked": "icons/FIRST_RECOVERY_locked.jpg",
@@ -34,7 +35,7 @@
       },
       "description": {
         "english": "Recover an entire bank at your van.",
-        "koreana": "은행을 통째로 우리 차 앞까지 회수했어요."
+        "koreana": "은행을 통째로 우리 차 앞까지 회수하세요."
       },
       "icon": "icons/BANK_WHOLE.jpg",
       "iconLocked": "icons/BANK_WHOLE_locked.jpg",
@@ -49,7 +50,7 @@
       },
       "description": {
         "english": "Recover a bank together with your teammate in 2v2.",
-        "koreana": "2:2에서 동료와 함께 은행을 회수했어요."
+        "koreana": "2:2에서 동료와 함께 은행을 회수하세요."
       },
       "icon": "icons/BANK_HEIST_TEAM.jpg",
       "iconLocked": "icons/BANK_HEIST_TEAM_locked.jpg",
@@ -63,8 +64,8 @@
         "koreana": "쏙 빼 왔지"
       },
       "description": {
-        "english": "Pull a large safe out of a bank your rival was hauling, then recover it.",
-        "koreana": "상대가 옮기던 은행에서 큰 금고를 빼내 회수했어요."
+        "english": "Steal a big safe out of a bank your rival was hauling, then recover it.",
+        "koreana": "상대가 옮기던 은행에서 큰 금고를 빼내 회수하세요."
       },
       "icon": "icons/STEAL_LARGE.jpg",
       "iconLocked": "icons/STEAL_LARGE_locked.jpg",
@@ -79,7 +80,7 @@
       },
       "description": {
         "english": "Break a fence with a bank.",
-        "koreana": "은행으로 펜스를 뚫었어요."
+        "koreana": "은행으로 펜스를 뚫으세요."
       },
       "icon": "icons/FENCE_BREAKER.jpg",
       "iconLocked": "icons/FENCE_BREAKER_locked.jpg",
@@ -94,7 +95,7 @@
       },
       "description": {
         "english": "Complete a recovery in the final 5 seconds of a match.",
-        "koreana": "경기 종료 5초 전 안에 회수를 완료했어요."
+        "koreana": "경기 종료 5초 전 안에 회수를 완료하세요."
       },
       "icon": "icons/LAST_SECONDS.jpg",
       "iconLocked": "icons/LAST_SECONDS_locked.jpg",
@@ -109,7 +110,7 @@
       },
       "description": {
         "english": "Win after trailing by more than 500 points.",
-        "koreana": "500점 넘게 뒤지다가 역전승했어요."
+        "koreana": "500점 넘게 뒤지던 경기를 뒤집고 승리하세요."
       },
       "icon": "icons/COMEBACK.jpg",
       "iconLocked": "icons/COMEBACK_locked.jpg",
@@ -124,7 +125,7 @@
       },
       "description": {
         "english": "Beat Hodadak in the Rival Tournament.",
-        "koreana": "라이벌 대회에서 호다닥을 이겼어요."
+        "koreana": "라이벌 대회에서 호다닥을 이기세요."
       },
       "icon": "icons/BEAT_HODADAK.jpg",
       "iconLocked": "icons/BEAT_HODADAK_locked.jpg",
@@ -139,7 +140,7 @@
       },
       "description": {
         "english": "Beat Tongkeun in the Rival Tournament.",
-        "koreana": "라이벌 대회에서 통큰이를 이겼어요."
+        "koreana": "라이벌 대회에서 통큰이를 이기세요."
       },
       "icon": "icons/BEAT_TONGKEUN.jpg",
       "iconLocked": "icons/BEAT_TONGKEUN_locked.jpg",
@@ -154,7 +155,7 @@
       },
       "description": {
         "english": "Beat Nunchi in the Rival Tournament.",
-        "koreana": "라이벌 대회에서 눈치왕을 이겼어요."
+        "koreana": "라이벌 대회에서 눈치왕을 이기세요."
       },
       "icon": "icons/BEAT_NUNCHI.jpg",
       "iconLocked": "icons/BEAT_NUNCHI_locked.jpg",
@@ -169,7 +170,7 @@
       },
       "description": {
         "english": "Beat all three rivals and win the tournament.",
-        "koreana": "세 라이벌을 모두 이기고 대회에서 우승했어요."
+        "koreana": "세 라이벌을 모두 이기고 대회에서 우승하세요."
       },
       "icon": "icons/TOURNAMENT_CLEAR.jpg",
       "iconLocked": "icons/TOURNAMENT_CLEAR_locked.jpg",
@@ -184,7 +185,7 @@
       },
       "description": {
         "english": "Collect all three rival hats.",
-        "koreana": "라이벌 모자 세 개를 모두 모았어요."
+        "koreana": "라이벌 모자 세 개를 모두 모으세요."
       },
       "icon": "icons/WARDROBE.jpg",
       "iconLocked": "icons/WARDROBE_locked.jpg",

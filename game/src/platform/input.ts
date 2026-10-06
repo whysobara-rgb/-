@@ -12,10 +12,20 @@
  *   commands[slot] = buildCommand(f, grab, pingFromFrame(f));
  *
  * Edge ("pressed") signals are latched per consumer (match / menu) until that consumer polls,
- * so a tap shorter than a frame is never lost. When a consumer has not polled for a while
- * (a context switch such as closing the pause menu), its stale latches are dropped and every
- * input still held is ignored until released: the A press that resumed the game does not also
- * grab. Call `flush()` to force the same on an explicit transition.
+ * so a tap shorter than a frame is never lost.
+ *
+ * Context switches. A consumer is re-activated when the other consumer polled in between
+ * (pause menu -> match, after at least `switchGapMs`) or when it has not polled for
+ * `reactivateAfterMs` (a non-interactive stretch, or a long frame stall). On re-activation its
+ * stale latches are dropped and every input pressed since its last poll that is still held is
+ * ignored until released: the A / Space / Esc that resumed the game does not also grab or pause
+ * again. Inputs that were already held at its last poll and never released stay live, so a
+ * player who keeps holding grab through a pause (or a 600 ms hitch) keeps carrying the bank.
+ * Poll exactly one consumer per context (menus: pollMenu, match ticks: pollMatch). Call
+ * `flush()` on an explicit transition where even continuing holds must be ignored.
+ *
+ * Keyboard prompts follow the active layout (AZERTY "Z" for the physical W key): labels come from
+ * `navigator.keyboard.getLayoutMap()` where available and from the keys the player presses.
  *
  * Coordinates: the camera never rotates (doc §4), so screen up == sim -y.
  */
@@ -39,7 +49,17 @@ import {
   type MenuAction,
   type SwapRecord,
 } from './bindings';
-import { actionGlyph, detectPadFamily, type Glyph, type GlyphAction, type PadFamily } from './glyphs';
+import {
+  actionGlyph,
+  bindingGlyph,
+  detectPadFamily,
+  isLayoutDependentCode,
+  normalizeKeyLabel,
+  type Glyph,
+  type GlyphAction,
+  type KeyLabelMap,
+  type PadFamily,
+} from './glyphs';
 import type { GrabMode } from './settings';
 
 export type InputDevice = 'keyboard' | 'mouse' | 'gamepad';
@@ -243,6 +263,22 @@ export interface InputManagerOptions {
   menuRepeatIntervalMs?: number;
   /** A consumer that has not polled for this long is treated as re-activated (ms). */
   reactivateAfterMs?: number;
+  /**
+   * A consumer is also re-activated when the other consumer polled since its last poll and at
+   * least this long has passed (ms). The gap keeps a game flow that (wrongly) polls both every
+   * frame from resetting them constantly.
+   */
+  switchGapMs?: number;
+  /**
+   * Keyboard layout source (Keyboard Map API). Default: `navigator.keyboard` when present.
+   * Pass null to disable (tests, or labels strictly by physical position).
+   */
+  keyboard?: KeyboardLayoutSource | null;
+}
+
+/** Structural subset of the Keyboard Map API (`navigator.keyboard`). */
+export interface KeyboardLayoutSource {
+  getLayoutMap(): Promise<{ forEach(cb: (value: string, key: string) => void): void }>;
 }
 
 export interface RebindOptions {
@@ -272,7 +308,14 @@ interface ConsumerState {
   prevPad: Set<string>;
   /** Codes ignored until physically released. */
   suppressed: Set<string>;
+  /**
+   * Codes that were held (and live) at this consumer's last poll and have not been released
+   * since. They survive a re-activation: a hold that started in this context continues.
+   */
+  continuing: Set<string>;
   lastPoll: number;
+  /** Global poll sequence number of this consumer's last poll (context-switch detection). */
+  seq: number;
   /** Menu auto-repeat deadlines per direction. */
   repeatAt: Map<MenuAction, number>;
 }
@@ -302,6 +345,15 @@ const MOVE_SET: ReadonlySet<MatchAction> = new Set(['moveUp', 'moveDown', 'moveL
 
 function defaultNow(): number {
   return typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now();
+}
+
+function defaultKeyboardLayoutSource(): KeyboardLayoutSource | null {
+  try {
+    const kb = typeof navigator !== 'undefined' ? (navigator as { keyboard?: Partial<KeyboardLayoutSource> }).keyboard : undefined;
+    return kb && typeof kb.getLayoutMap === 'function' ? (kb as KeyboardLayoutSource) : null;
+  } catch {
+    return null;
+  }
 }
 
 function defaultGetGamepads(): ArrayLike<GamepadLike | null> | null {
@@ -351,6 +403,12 @@ export class InputManager {
   private readonly repeatDelay: number;
   private readonly repeatInterval: number;
   private readonly reactivateAfter: number;
+  private readonly switchGap: number;
+  private readonly keyboardSource: KeyboardLayoutSource | null;
+  /** Physical code -> label on the active keyboard layout (printable keys only). */
+  private readonly keyLabels = new Map<string, string>();
+  private layoutRequest = 0;
+  private pollSeq = 0;
 
   /** Keyboard + mouse codes physically held. */
   private readonly held = new Set<string>();
@@ -386,16 +444,21 @@ export class InputManager {
     this.repeatDelay = opts.menuRepeatDelayMs ?? 400;
     this.repeatInterval = opts.menuRepeatIntervalMs ?? 90;
     this.reactivateAfter = opts.reactivateAfterMs ?? 500;
+    this.switchGap = opts.switchGapMs ?? 100;
+    this.keyboardSource = opts.keyboard !== undefined ? opts.keyboard : defaultKeyboardLayoutSource();
     const fresh = (): ConsumerState => ({
       pressed: new Set(),
       pressPointer: new Map(),
       prevPad: new Set(),
       suppressed: new Set(),
+      continuing: new Set(),
       lastPoll: -Infinity,
+      seq: 0,
       repeatAt: new Map(),
     });
     this.consumers = { match: fresh(), menu: fresh() };
     this.attach();
+    void this.refreshKeyboardLayout();
   }
 
   // ------------------------------------------------------------------ configuration
@@ -483,7 +546,45 @@ export class InputManager {
 
   /** Prompt glyph for an action on the device used last. */
   promptGlyph(action: GlyphAction): Glyph {
-    return actionGlyph(action, this.glyphDevice, this.bindings, this.padFamilyValue);
+    return actionGlyph(action, this.glyphDevice, this.bindings, this.padFamilyValue, this.keyLabels);
+  }
+
+  /**
+   * Label for one binding code with the current pad family and keyboard layout. Install as the
+   * UI's binding label formatter: `setBindingLabelFormatter((d, c) => input.bindingGlyph(d, c))`.
+   */
+  bindingGlyph(device: BindingDevice, code: string | null | undefined): Glyph {
+    return bindingGlyph(device, code, this.padFamilyValue, this.keyLabels);
+  }
+
+  /** Current physical-code -> label map of the keyboard layout (empty until known). */
+  get keyboardLayout(): KeyLabelMap {
+    return this.keyLabels;
+  }
+
+  /**
+   * Re-read the keyboard layout (Keyboard Map API). Called on construction and whenever the
+   * window regains focus; resolves true when labels changed (onDeviceChange fires as well).
+   */
+  async refreshKeyboardLayout(): Promise<boolean> {
+    const src = this.keyboardSource;
+    if (!src) return false;
+    const request = ++this.layoutRequest;
+    let entries: Array<[string, string]>;
+    try {
+      const map = await src.getLayoutMap();
+      entries = [];
+      map.forEach((value, key) => entries.push([key, value]));
+    } catch {
+      // Not allowed here (insecure context, iframe policy) or not supported: physical labels.
+      return false;
+    }
+    // A newer request (or dispose) superseded this one.
+    if (request !== this.layoutRequest) return false;
+    let changed = false;
+    for (const [code, value] of entries) changed = this.learnKeyLabel(code, value) || changed;
+    if (changed) this.emitDevice();
+    return changed;
   }
 
   /**
@@ -519,12 +620,7 @@ export class InputManager {
     let pingAtPointer: PointerPos | null = null;
     if (pingCode && isMouseCode(pingCode)) pingAtPointer = st.pressPointer.get(pingCode) ?? this.pointer;
 
-    const escape = HARDWIRED_PAUSE.keyboard;
-    const start = HARDWIRED_PAUSE.gamepad;
-    const pausePressed =
-      pressedCode('pause') !== null ||
-      (st.pressed.has(escape) && !st.suppressed.has(escape)) ||
-      (pad.active.has(start) && !st.prevPad.has(start) && !st.suppressed.has(start));
+    const pausePressed = this.pressedCode(st, pad, this.pauseCodes('keyboard'), this.pauseCodes('gamepad')) !== null;
 
     const frame: MatchFrame = {
       move: this.readMove(pad),
@@ -587,7 +683,9 @@ export class InputManager {
         st.repeatAt.delete(action);
       }
     }
-    out.pause = this.pressedCode(st, pad, this.bindings.keyboard.pause, this.bindings.gamepad.pause) !== null;
+    // The hard-wired Esc / Start count even when the pause action was rebound, so the button
+    // that opened the pause menu always closes it.
+    out.pause = this.pressedCode(st, pad, this.pauseCodes('keyboard'), this.pauseCodes('gamepad')) !== null;
     for (const code of st.pressed) if (!st.suppressed.has(code)) out.any = true;
     for (const code of pad.active) if (code.startsWith('button:') && !st.prevPad.has(code) && !st.suppressed.has(code)) out.any = true;
     this.finishPoll(st, pad);
@@ -596,11 +694,12 @@ export class InputManager {
 
   /**
    * Explicit context switch: drop pending presses and ignore everything currently held until
-   * it is released (both consumers).
+   * it is released (both consumers), including holds that would otherwise continue. Not needed
+   * for pause / resume: re-activation is detected automatically and keeps continuing holds.
    */
   flush(): void {
     const pad = this.readPad();
-    for (const st of Object.values(this.consumers)) this.resetConsumer(st, pad);
+    for (const st of Object.values(this.consumers)) this.resetConsumer(st, pad, false);
   }
 
   // ------------------------------------------------------------------ rebinding
@@ -688,12 +787,15 @@ export class InputManager {
       st.pressPointer.clear();
       st.repeatAt.clear();
       st.suppressed.clear();
-      // Pads keep reporting while unfocused in some browsers: treat anything still held as old.
+      // Pads keep reporting while unfocused in some browsers: treat anything still held as old
+      // (no new edge) but live. Key releases during the blur were never seen: forget them.
       st.prevPad = new Set(this.lastPadActive);
+      st.continuing = new Set(this.lastPadActive);
     }
   }
 
   dispose(): void {
+    this.layoutRequest++;
     this.cancelRebind();
     for (const c of this.cleanups.splice(0)) c();
     this.clearAll();
@@ -716,6 +818,8 @@ export class InputManager {
     on(this.target, 'auxclick', (e) => this.onClick(e));
     on(this.target, 'contextmenu', (e) => e.preventDefault());
     on(this.target, 'blur', () => this.clearAll(), false);
+    // The layout may have been switched in another app (Win+Space, IME bar).
+    on(this.target, 'focus', () => void this.refreshKeyboardLayout(), false);
     on(this.doc, 'visibilitychange', () => {
       const hidden = (this.doc as { visibilityState?: string } | null)?.visibilityState === 'hidden';
       if (hidden) this.clearAll();
@@ -733,6 +837,7 @@ export class InputManager {
     }
     if (isEditableTarget(e.target)) return;
     if (!e.ctrlKey && !e.metaKey && !e.altKey && (SCROLL_KEYS.has(code) || this.isBoundKeyboardCode(code))) e.preventDefault();
+    this.learnFromKeyEvent(e);
     this.setDevice('keyboard');
     if (e.repeat && this.held.has(code)) return;
     this.held.add(code);
@@ -743,7 +848,10 @@ export class InputManager {
     const code = e.code;
     if (!code) return;
     this.held.delete(code);
-    for (const st of Object.values(this.consumers)) st.suppressed.delete(code);
+    for (const st of Object.values(this.consumers)) {
+      st.suppressed.delete(code);
+      st.continuing.delete(code);
+    }
   }
 
   private onMouseDown(e: MouseEvent): void {
@@ -766,7 +874,10 @@ export class InputManager {
   private onMouseUp(e: MouseEvent): void {
     const code = `Mouse${e.button}`;
     this.held.delete(code);
-    for (const st of Object.values(this.consumers)) st.suppressed.delete(code);
+    for (const st of Object.values(this.consumers)) {
+      st.suppressed.delete(code);
+      st.continuing.delete(code);
+    }
   }
 
   private onPointerMove(e: MouseEvent): void {
@@ -791,6 +902,40 @@ export class InputManager {
     this.padEvents.emit(connected, id);
   }
 
+  /**
+   * Learn the layout label of a printable key from `KeyboardEvent.key` (catches layout switches
+   * the Keyboard Map API does not report). Only unmodified presses: Shift / CapsLock / AltGr
+   * change the produced character, and IME composition reports 'Process' or Hangul jamo,
+   * which normalizeKeyLabel rejects.
+   */
+  private learnFromKeyEvent(e: KeyboardEvent): void {
+    if (e.repeat || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+    if ((e as { isComposing?: boolean }).isComposing) return;
+    try {
+      if (typeof e.getModifierState === 'function' && (e.getModifierState('CapsLock') || e.getModifierState('AltGraph'))) return;
+    } catch {
+      return;
+    }
+    if (typeof e.key !== 'string') return;
+    if (this.learnKeyLabel(e.code, e.key)) this.emitDevice();
+  }
+
+  /** Store a layout label; true when it changed. */
+  private learnKeyLabel(code: string, value: string): boolean {
+    if (!isLayoutDependentCode(code)) return false;
+    const label = normalizeKeyLabel(value);
+    if (label === null || this.keyLabels.get(code) === label) return false;
+    this.keyLabels.set(code, label);
+    return true;
+  }
+
+  /** Codes that pause / close the pause menu: the pause bindings plus the hard-wired Esc / Start. */
+  private pauseCodes(device: BindingDevice): readonly string[] {
+    const list = this.bindings[device].pause;
+    const wired = HARDWIRED_PAUSE[device];
+    return list.includes(wired) ? list : [...list, wired];
+  }
+
   private isBoundKeyboardCode(code: string): boolean {
     for (const a of MATCH_ACTIONS) if (this.bindings.keyboard[a].includes(code)) return true;
     for (const a of MENU_ACTIONS) if (MENU_BINDINGS.keyboard[a].includes(code)) return true;
@@ -812,20 +957,32 @@ export class InputManager {
 
   private consumer(kind: Consumer): ConsumerState {
     const st = this.consumers[kind];
+    const other = this.consumers[kind === 'match' ? 'menu' : 'match'];
     const now = this.now();
-    if (now - st.lastPoll > this.reactivateAfter) this.resetConsumer(st, null);
+    const gap = now - st.lastPoll;
+    const switched = other.seq > st.seq && gap > this.switchGap;
+    if (gap > this.reactivateAfter || switched) this.resetConsumer(st, null, true);
     st.lastPoll = now;
+    st.seq = ++this.pollSeq;
     return st;
   }
 
-  private resetConsumer(st: ConsumerState, pad: PadSnapshot | null): void {
+  /**
+   * Re-activate a consumer: drop its pending presses and ignore every held input until it is
+   * released — except, with `keepContinuing`, inputs held since its last poll (see header).
+   */
+  private resetConsumer(st: ConsumerState, pad: PadSnapshot | null, keepContinuing: boolean): void {
     st.pressed.clear();
     st.pressPointer.clear();
     st.repeatAt.clear();
-    st.suppressed = new Set(this.held);
     const active = pad ? pad.active : this.readPad().active;
-    for (const c of active) st.suppressed.add(c);
+    const keep = keepContinuing ? st.continuing : null;
+    const suppressed = new Set<string>();
+    for (const c of this.held) if (!keep?.has(c)) suppressed.add(c);
+    for (const c of active) if (!keep?.has(c)) suppressed.add(c);
+    st.suppressed = suppressed;
     st.prevPad = new Set(active);
+    if (!keepContinuing) st.continuing.clear();
   }
 
   private finishPoll(st: ConsumerState, pad: PadSnapshot): void {
@@ -836,6 +993,11 @@ export class InputManager {
       const stillHeld = c.includes(':') ? pad.active.has(c) : this.held.has(c);
       if (!stillHeld) st.suppressed.delete(c);
     }
+    // Everything held and live right now continues into a later re-activation.
+    const continuing = new Set<string>();
+    for (const c of this.held) if (!st.suppressed.has(c)) continuing.add(c);
+    for (const c of pad.active) if (!st.suppressed.has(c)) continuing.add(c);
+    st.continuing = continuing;
   }
 
   private isDown(st: ConsumerState, pad: PadSnapshot, kb: readonly string[], gp: readonly string[], respectSuppression: boolean): boolean {
@@ -944,6 +1106,7 @@ export class InputManager {
     const active = new Set<string>();
     if (!pad) {
       this.lastPadActive = active;
+      this.prunePadContinuing(active);
       return { pad: null, active, value: () => 0 };
     }
     const axes = pad.axes;
@@ -999,7 +1162,18 @@ export class InputManager {
       }
     }
     this.lastPadActive = active;
+    this.prunePadContinuing(active);
     return { pad, active, value };
+  }
+
+  /**
+   * A pad input released while its consumer was not polling (the pause menu read the pad in the
+   * meantime) no longer continues: pressing it again later is a new press.
+   */
+  private prunePadContinuing(active: ReadonlySet<string>): void {
+    for (const st of Object.values(this.consumers)) {
+      for (const c of st.continuing) if (c.includes(':') && !active.has(c)) st.continuing.delete(c);
+    }
   }
 
   // ------------------------------------------------------------------ internals: rebinding

@@ -253,6 +253,10 @@ export const ko = {
   'settings.controls.resetConfirm.body': '바꾼 키와 버튼 설정이 모두 처음으로 돌아가요.',
   'settings.controls.resetConfirm.ok': '되돌리기',
   'settings.controls.hint': '바꿀 칸을 고르고 새 키나 버튼을 눌러요.',
+  'settings.controls.swapped': '이미 쓰던 입력이라 「{action}」 칸과 서로 맞바꿨어요.',
+  'settings.controls.swappedTag': '맞바꿈',
+  'settings.controls.conflict': '같은 입력이 두 행동에 들어 있어요. 둘 중 하나를 바꿔 주세요.',
+  'settings.controls.conflictTag': '겹침',
   'settings.audio.master': '전체 음량',
   'settings.audio.music': '음악',
   'settings.audio.sfx': '효과음',
@@ -361,6 +365,7 @@ export const ko = {
   'hud.banks': '은행',
   'hud.bankInPlay': '남아 있음',
   'hud.bankTaken': '{team} 회수',
+  'hud.banksCount': '회수 {n}/{total}',
   'hud.practice': '연습',
   'hud.practiceScore': '연습 점수',
   'hud.practiceNote': '대전에는 들어가지 않아요',
@@ -399,8 +404,8 @@ export const ko = {
   'tutorial.bankGrab.sub': '금고 말고 벽을 가리키면 은행 전체가 반짝여요.',
   'tutorial.uproot': '3초 동안 당겨서 은행을 뿌리째 뽑아요',
   'tutorial.uproot.sub': '뽑힌 은행은 누구나 끌 수 있어요.',
-  'tutorial.fence': '짧은 길의 펜스를 은행으로 뚫어요',
-  'tutorial.fence.sub': '은행 표시가 있는 약한 펜스는 은행으로 밀면 부서져요.',
+  'tutorial.fence': '은행 뒤에서 밀어요! 펜스를 뚫고 짧은 길로',
+  'tutorial.fence.sub': '앞에서 끌면 내가 먼저 펜스에 막혀요. 은행 뒤로 돌아가 펜스 쪽으로 밀면 약한 펜스가 부서져요.',
   'tutorial.bankRecover': '은행째 회수하면 안의 금고까지 한 번에!',
   'tutorial.bankRecover.sub': '건물 500 + 안에 실린 금고 가치를 함께 받아요.',
   'tutorial.dash': '돌진: 짧게 뛰거나, 잡은 걸 휙 가속해요',
@@ -437,7 +442,7 @@ export const ko = {
 
   // --- dialogs / toasts --------------------------------------------------------------------------
   'toast.achievement': '업적 달성!',
-  'toast.hat': '새 모자 획득!',
+  'toast.hat': '새 모자를 얻었어요!',
   'toast.hat.body': '옷장에서 바로 써 볼 수 있어요',
 
   // --- achievements -------------------------------------------------------------------------------
