@@ -88,10 +88,10 @@ function addWindowBox(b: PartBuilder, x: number, y: number, z: number, w: number
   }
 }
 
-function addAwning(b: PartBuilder, x: number, y: number, z: number, w: number, depth: number, color: string, bucket = 'vc'): void {
+function addAwning(b: PartBuilder, x: number, y: number, z: number, w: number, depth: number, color: string, tilt = 0.5, bucket = 'vc'): void {
   const n = Math.max(3, Math.round(w / 0.45));
   const sw = w / n;
-  b.push([x, y, z], [0.5, 0, 0]);
+  b.push([x, y, z], [tilt, 0, 0]);
   for (let i = 0; i < n; i++) {
     const col = i % 2 === 0 ? color : '#FFFFFF';
     b.add(G.box(), { color: col, pos: [-w / 2 + (i + 0.5) * sw, 0, depth / 2], scale: [sw + 0.002, 0.05, depth], bucket });
@@ -409,7 +409,7 @@ function addKiosk(b: PartBuilder, def: StaticBoxDef, ctx: Ctx): void {
   // Striped canopy per stall (scalloped front edge).
   for (let i = 0; i < stalls; i++) {
     const cx = -L / 2 + (i + 0.5) * sw;
-    addAwning(b, cx, h - 0.3, -T / 2 + 0.1, sw + 0.04, T + 0.35, st.awning);
+    addAwning(b, cx, h - 0.3, -T / 2 + 0.1, sw + 0.04, T + 0.45, st.awning, 0.16);
   }
   // Goods on the counter.
   const goods = Math.round(L / 0.55);
@@ -441,7 +441,7 @@ function addKiosk(b: PartBuilder, def: StaticBoxDef, ctx: Ctx): void {
   // Hanging bulbs (string lights).
   for (let i = 0; i < Math.round(L / 0.5); i++) {
     const x = -L / 2 + 0.25 + i * 0.5;
-    b.add(G.sphere(6, 4), { color: PAL.flowers[i % PAL.flowers.length], pos: [x, h - 0.55 - Math.sin((i / Math.max(1, L / 0.5)) * Math.PI) * 0.1, T / 2 + 0.2], scale: 0.05, emissive: 1.1 });
+    b.add(G.sphere(6, 4), { color: PAL.flowers[i % PAL.flowers.length], pos: [x, h - 0.98 - Math.sin((i / Math.max(1, L / 0.5)) * Math.PI) * 0.1, T / 2 + 0.2], scale: 0.05, emissive: 1.1 });
   }
   b.pop();
   b.pop();
