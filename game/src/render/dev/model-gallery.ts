@@ -334,7 +334,7 @@ async function loadLayout(): Promise<void> {
   const t0 = performance.now();
   scenery = buildStaticScenery(layout);
   console.info(`scenery built in ${(performance.now() - t0).toFixed(0)} ms`, scenery.stats);
-  LAYOUT_ROOT.add(scenery.root);
+  LAYOUT_ROOT.add(scenery);
   layout.banks.forEach((bp) => {
     const bank = createBank();
     placeOnSim(bank.root, bp.pos, bp.angle);

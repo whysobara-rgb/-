@@ -51,6 +51,11 @@ export interface BankRig {
   /** One object per BANK_MODEL.walls entry, same order. */
   readonly walls: readonly THREE.Object3D[];
   readonly labelAnchor: THREE.Object3D;
+  /**
+   * Current visual floor height in bank-local space: BANK_FLOOR_Y plus the short uproot hop
+   * and strain tremble. Use it to place characters/safes riding the floor.
+   */
+  readonly floorY: number;
   setRoofOpacity(a: number): void;
   setWallOpacity(index: number, a: number): void;
   setUprooted(uprooted: boolean): void;
@@ -896,6 +901,9 @@ export function createBank(): BankRig {
     roof,
     walls,
     labelAnchor,
+    get floorY() {
+      return BANK_FLOOR_Y + body.position.y;
+    },
     setRoofOpacity(a: number) {
       roofAlpha = THREE.MathUtils.clamp(a, 0, 1);
       for (const m of [roofMat, signFrameMat, signBoardMat]) setMaterialOpacity(m, roofAlpha);

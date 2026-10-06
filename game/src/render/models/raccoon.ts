@@ -553,12 +553,14 @@ export function createRaccoon(opts: { team: TeamId | null; look: CharacterLook }
   face.name = 'raccoon:face';
   face.position.set(HEAD_C[0], HEAD_C[1], HEAD_C[2]);
   face.userData.noOutline = true;
+  face.receiveShadow = true;
   face.renderOrder = 1;
   head.add(face);
   const mask = new THREE.Mesh(maskGeo, matTextured(nunchiMaskTexture(), { transparent: true, rim: 0.3, polygonOffset: -2 }));
   mask.name = 'raccoon:mask';
   mask.position.copy(face.position);
   mask.userData.noOutline = true;
+  mask.receiveShadow = true;
   mask.renderOrder = 2;
   head.add(mask);
 

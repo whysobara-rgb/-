@@ -915,7 +915,7 @@ export function createGround(layout: LayoutDef): THREE.Group {
 }
 
 /** Arena edge (visual for the sim's solid boundary): low cute picket fence + hedge + curbs. */
-function addBoundary(chunks: ChunkGrid, layout: LayoutDef): void {
+function addBoundary(chunks: ChunkGrid, layout: LayoutDef, density = 1): void {
   const sx = layout.size.x;
   const sy = layout.size.y;
   const r = rng(hashString(layout.id) + 3);
@@ -952,8 +952,9 @@ function addBoundary(chunks: ChunkGrid, layout: LayoutDef): void {
       // Street curb.
       const co = SIDEWALK;
       b.add(G.box(), { color: PAL.curbDark, pos: [mx + sd.out[0] * co, 0.03, mz + sd.out[1] * co], rot: [0, yaw, 0], scale: [seg + 0.3, 0.12, 0.25] });
-      // Hedge blobs behind the fence.
+      // Hedge blobs behind the fence (thinned with the decor density).
       for (let k = 0; k < 3; k++) {
+        if (!keepDecor(`hedge|${sd.a.join(',')}|${d}|${k}`, density)) continue;
         const t = (k + r()) / 3;
         const hx = sd.a[0] + dx * (d + seg * t) + sd.out[0] * 0.9;
         const hz = sd.a[1] + dz * (d + seg * t) + sd.out[1] * 0.9;
@@ -990,7 +991,7 @@ function addBoundary(chunks: ChunkGrid, layout: LayoutDef): void {
 }
 
 /** Backdrop rows outside the street: shops N/E/W facing the plaza, a low park strip south. */
-function addBackdrop(chunks: ChunkGrid, layout: LayoutDef, ctx: Ctx): void {
+function addBackdrop(chunks: ChunkGrid, layout: LayoutDef, ctx: Ctx, density = 1): void {
   const sx = layout.size.x;
   const sy = layout.size.y;
   const r = rng(hashString(layout.id) + 11);
@@ -1034,7 +1035,7 @@ function addBackdrop(chunks: ChunkGrid, layout: LayoutDef, ctx: Ctx): void {
   const sz = sy + SIDEWALK + STREET + OUTER_WALK + 2.5;
   for (let x = -6; x < sx + 6; x += 7 + r() * 3) {
     const t: StaticCircleDef = { id: `backdrop.tree.${x.toFixed(1)}`, kind: 'tree', center: { x, y: sz + r() * 2 }, radius: 0.5, height: 3.6 + r() * 0.8 };
-    addTree(chunks.at(t.center.x, t.center.y), t);
+    if (keepDecor(t.id, density)) addTree(chunks.at(t.center.x, t.center.y), t);
   }
   for (let x = 2; x < sx; x += 12) {
     addLamp(chunks.at(x, sz - 1.8), { id: `backdrop.lamp.${x}`, kind: 'lamp', center: { x, y: sz - 1.8 }, radius: 0.15, height: 3.0 });
@@ -1097,12 +1098,37 @@ export interface SceneryStats {
   chunks: number;
 }
 
-export interface StaticScenery {
-  readonly root: THREE.Group;
-  readonly stats: SceneryStats;
+/**
+ * The merged static scenery of a layout. It IS a THREE.Group (add it to the scene directly),
+ * with draw-call stats, a sign-text refresh for language changes, and dispose().
+ */
+export class StaticScenery extends THREE.Group {
+  stats: SceneryStats = { meshes: 0, drawCalls: 0, shadowCasters: 0, triangles: 0, chunks: 0 };
+  /** Same object (kept for call sites that prefer `.root`). */
+  get root(): THREE.Group {
+    return this;
+  }
+  private refreshSigns: (r: SignResolver) => void = () => {};
+  private disposeOwned: () => void = () => {};
+
+  /** @internal */
+  bind(refresh: (r: SignResolver) => void, dispose: () => void): void {
+    this.refreshSigns = refresh;
+    this.disposeOwned = dispose;
+  }
+
   /** Re-resolve every shop sign (e.g. after a language change). */
-  setSignResolver(resolver: SignResolver): void;
-  dispose(): void;
+  setSignResolver(resolver: SignResolver): void {
+    this.refreshSigns(resolver);
+  }
+
+  /** Frees the merged geometries, sign atlas and ground materials (shared caches stay). */
+  override dispose(): void {
+    this.disposeOwned();
+    this.disposeOwned = () => {};
+    this.removeFromParent();
+    super.dispose();
+  }
 }
 
 function sceneryMaterial(bucket: string, signMat: THREE.Material): THREE.Material {
@@ -1147,6 +1173,18 @@ export interface SceneryOptions {
   ground?: boolean;
   /** Include the arena fence, street and backdrop (default true). */
   outskirts?: boolean;
+  /**
+   * Fraction (0..1) of purely decorative props kept (layout decor + outskirts hedges/trees).
+   * Deterministic per item, so the same props survive at a given density. Default 1.
+   */
+  decorDensity?: number;
+}
+
+/** Deterministic keep/drop for decor density thinning. */
+function keepDecor(key: string, density: number): boolean {
+  if (density >= 1) return true;
+  if (density <= 0) return false;
+  return (hashString(key) % 1000) / 1000 < density;
 }
 
 /**
@@ -1155,7 +1193,7 @@ export interface SceneryOptions {
  * vans, zones, characters) are NOT included.
  */
 export function buildStaticScenery(layout: LayoutDef, signResolver: SignResolver = defaultSignResolver, opts: SceneryOptions = {}): StaticScenery {
-  const root = new THREE.Group();
+  const root = new StaticScenery();
   root.name = `scenery:${layout.id}`;
   const atlas = new SignAtlas(4, 16);
   let resolver = signResolver;
@@ -1163,10 +1201,13 @@ export function buildStaticScenery(layout: LayoutDef, signResolver: SignResolver
   const chunks = new ChunkGrid();
   for (const s of layout.statics) addStaticBox(chunks.at(s.center.x, s.center.y), s, ctx);
   for (const c of layout.circles) addStaticCircle(chunks.at(c.center.x, c.center.y), c);
-  layout.decor.forEach((d, i) => addDecor(chunks.at(d.pos.x, d.pos.y), d, String(i)));
+  const density = THREE.MathUtils.clamp(opts.decorDensity ?? 1, 0, 1);
+  layout.decor.forEach((d, i) => {
+    if (keepDecor(`${layout.id}|decor|${i}`, density)) addDecor(chunks.at(d.pos.x, d.pos.y), d, String(i));
+  });
   if (opts.outskirts !== false) {
-    addBoundary(chunks, layout);
-    addBackdrop(chunks, layout, ctx);
+    addBoundary(chunks, layout, density);
+    addBackdrop(chunks, layout, ctx, density);
   }
   atlas.redraw();
   const signMat = signMaterial(atlas);
@@ -1188,15 +1229,13 @@ export function buildStaticScenery(layout: LayoutDef, signResolver: SignResolver
     const g = m.geometry;
     tris += (g.index ? g.index.count : g.getAttribute('position').count) / 3;
   });
-  const stats: SceneryStats = { meshes, drawCalls: meshes, shadowCasters: casters, triangles: Math.round(tris), chunks: chunks.builders.size };
-  return {
-    root,
-    stats,
-    setSignResolver(next: SignResolver) {
+  root.stats = { meshes, drawCalls: meshes, shadowCasters: casters, triangles: Math.round(tris), chunks: chunks.builders.size };
+  root.bind(
+    (next) => {
       resolver = next;
       atlas.refresh();
     },
-    dispose() {
+    () => {
       root.traverse((o) => {
         const m = o as THREE.Mesh;
         if (m.isMesh) {
@@ -1211,9 +1250,9 @@ export function buildStaticScenery(layout: LayoutDef, signResolver: SignResolver
       });
       signMat.dispose();
       atlas.dispose();
-      root.removeFromParent();
     },
-  };
+  );
+  return root;
 }
 
 // ---------------------------------------------------------------------------

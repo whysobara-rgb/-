@@ -39,13 +39,14 @@ export { createFence } from './fence';
 export type { FenceRig } from './fence';
 export {
   buildStaticScenery,
+  StaticScenery,
   createGround,
   createStaticBox,
   createStaticCircle,
   createDecor,
   defaultSignResolver,
 } from './environment';
-export type { SignResolver, StaticScenery, SceneryStats, SceneryOptions } from './environment';
+export type { SignResolver, SceneryStats, SceneryOptions } from './environment';
 export { FxSystem, DebrisBurst } from './fx';
 export type { FxOptions, DebrisPieceSpec, Vec3Like } from './fx';
 export { Highlighter, OUTLINE_THICKNESS } from './outline';
