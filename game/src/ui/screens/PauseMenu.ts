@@ -1,0 +1,124 @@
+/**
+ * In-match pause: 계속 · 설정 · 다시 시작 · 메뉴로. Back resumes. Restart / menu ask for
+ * confirmation (cancel focused) unless `confirmDestructive` is false. Also shows a short
+ * controls reminder with live prompt glyphs.
+ */
+import { t, type TextRef } from '../i18n';
+import { h } from '../core/dom';
+import { glyphChip } from '../core/prompts';
+import { UiScreen } from '../core/screen';
+import { button, chip, promptBar, stagger } from '../components/controls';
+import { ConfirmDialog } from './ConfirmDialog';
+import type { GrabMode } from '../types';
+
+export interface PauseMenuProps {
+  onResume: () => void;
+  onSettings: () => void;
+  onRestart: () => void;
+  onMenu: () => void;
+  /** Ask before restart / leaving (default true). */
+  confirmDestructive?: boolean;
+  /** Context chip, e.g. '빠른 대전 · 수집 광장'. */
+  context?: TextRef | null;
+  /** Hide 다시 시작 (e.g. tutorial). Default true. */
+  showRestart?: boolean;
+  /** For the controls reminder line. */
+  grabMode?: GrabMode;
+}
+
+export class PauseMenu extends UiScreen<PauseMenuProps> {
+  private dialog: ConfirmDialog | null = null;
+
+  constructor(props: PauseMenuProps) {
+    super(props, { name: 'pause' });
+  }
+
+  protected override defaultFocus(): string {
+    return 'pause:resume';
+  }
+
+  protected override onBack(): boolean {
+    this.props.onResume();
+    return true;
+  }
+
+  protected override onHide(): void {
+    this.closeDialog();
+  }
+
+  protected override onDestroy(): void {
+    this.closeDialog();
+  }
+
+  protected render(): void {
+    const p = this.props;
+    const buttons = stagger(
+      h(
+        'div',
+        { class: 'uh-pause__buttons' },
+        button({ id: 'pause:resume', label: 'pause.resume', variant: 'primary', size: 'lg', icon: 'play', onActivate: () => p.onResume() }),
+        button({ id: 'pause:settings', label: 'pause.settings', icon: 'settings', onActivate: () => p.onSettings() }),
+        p.showRestart === false
+          ? null
+          : button({ id: 'pause:restart', label: 'pause.restart', icon: 'reset', onActivate: () => this.ask('restart') }),
+        button({ id: 'pause:menu', label: 'pause.menu', icon: 'home', onActivate: () => this.ask('menu') }),
+      ),
+    );
+    const hint = (action: 'move' | 'grab' | 'dash' | 'ping', key: string): HTMLElement =>
+      h('span', { class: 'uh-pause__hint' }, glyphChip(action), t(key));
+    this.el.append(
+      h('div', { class: 'uh-dim' }),
+      h(
+        'div',
+        { class: 'uh-frame uh-pause' },
+        h(
+          'div',
+          { class: 'uh-pause__card uh-panel' },
+          h('div', { class: 'uh-pause__badge' }, h('span', { class: 'uh-pause__bars' })),
+          h('h1', { class: 'uh-pause__title' }, t('pause.title')),
+          p.context ? h('div', { class: 'uh-pause__context' }, chip(p.context, 'gold', 'map')) : null,
+          buttons,
+          h(
+            'div',
+            { class: 'uh-pause__hints' },
+            hint('move', 'hint.move'),
+            hint('grab', 'hint.grab'),
+            hint('dash', 'hint.dash'),
+            hint('ping', 'hint.ping'),
+          ),
+          h('p', { class: 'uh-pause__grabNote' }, t(p.grabMode === 'toggle' ? 'hint.grabToggle' : 'hint.grabHold')),
+        ),
+        promptBar([
+          { action: 'confirm', label: 'prompt.select' },
+          { action: 'back', label: 'pause.resume', onClick: () => p.onResume() },
+        ]),
+      ),
+    );
+  }
+
+  private ask(kind: 'restart' | 'menu'): void {
+    const act = kind === 'restart' ? this.props.onRestart : this.props.onMenu;
+    if (this.props.confirmDestructive === false) {
+      act();
+      return;
+    }
+    this.closeDialog();
+    this.dialog = new ConfirmDialog({
+      titleKey: kind === 'restart' ? 'pause.restartConfirm.title' : 'pause.menuConfirm.title',
+      bodyKey: kind === 'restart' ? 'pause.restartConfirm.body' : 'pause.menuConfirm.body',
+      confirmKey: kind === 'restart' ? 'pause.restartConfirm.ok' : 'pause.menuConfirm.ok',
+      danger: true,
+      onConfirm: () => {
+        this.closeDialog();
+        act();
+      },
+      onCancel: () => this.closeDialog(),
+    });
+    this.dialog.show();
+  }
+
+  private closeDialog(): void {
+    this.dialog?.destroy();
+    this.dialog = null;
+  }
+}

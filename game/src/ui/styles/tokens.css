@@ -1,0 +1,110 @@
+/*
+ * Design tokens — 뿌리째 털어라 "cozy dusk plaza".
+ *
+ * Sizing: 1rem = 16px at 1920x1080 and scales with the smaller of width/16 and height/9, so
+ * 720p..4K and 16:10/21:9 all keep the same proportions. --uh-ui-scale (0.8..1.4) is the
+ * player's UI size setting, applied on top. All UI dimensions are in rem.
+ *
+ * Team / loot colors (--uh-team0 ...) are injected at runtime from src/shared/teams.ts.
+ */
+:root {
+  --uh-ui-scale: 1;
+  font-size: calc(min(0.8333333vw, 1.4814815vh) * var(--uh-ui-scale));
+
+  --uh-font-display: 'Jua', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif;
+  --uh-font-body: 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif;
+
+  /* Dusk sky */
+  --uh-night-950: #150F2B;
+  --uh-night-900: #1E1838;
+  --uh-night-800: #2A2150;
+  --uh-night-700: #3A2C66;
+  --uh-plum-600: #58397A;
+  --uh-plum-500: #7B4A8E;
+  --uh-rose-400: #D9688A;
+  --uh-coral-400: #FF8F78;
+  --uh-peach-300: #FFBE94;
+  --uh-gold-200: #FFE7A6;
+  --uh-gold-300: #FFD66B;
+  --uh-gold-400: #FFC23D;
+  --uh-gold-600: #D18E14;
+
+  /* Paper & ink */
+  --uh-cream-50: #FFFBF4;
+  --uh-cream-100: #FFF3E1;
+  --uh-cream-200: #F6E2C4;
+  --uh-cream-300: #E9CFA8;
+  --uh-ink: #2E2442;
+  --uh-ink-700: #4E4166;
+  --uh-ink-500: #7F7298;
+  --uh-ink-300: #B4A9C6;
+
+  /* Signals */
+  --uh-mint-300: #A8EBC9;
+  --uh-mint-400: #5FD39E;
+  --uh-mint-600: #2C9A69;
+  --uh-red-300: #FFA3A8;
+  --uh-red-400: #FF5D6C;
+  --uh-red-600: #C42F48;
+  --uh-sky-400: #7CC8FF;
+  --uh-focus: #FFE45C;
+
+  /* Team / loot (fallbacks; overwritten from teams.ts by installTheme()) */
+  --uh-team0: #FF8A3D; --uh-team0-tint: #FFE3CC; --uh-team0-dark: #B4501A;
+  --uh-team1: #3D8BFF; --uh-team1-tint: #D6E6FF; --uh-team1-dark: #1D4FA6;
+  --uh-loot-small: #7FB77E; --uh-loot-small-dark: #3F6E3E;
+  --uh-loot-large: #5B6BBF; --uh-loot-large-dark: #2E3A80;
+  --uh-loot-bank: #F2C14E; --uh-loot-bank-dark: #9C7413;
+
+  /* Spacing */
+  --uh-sp-1: 0.25rem;
+  --uh-sp-2: 0.5rem;
+  --uh-sp-3: 0.75rem;
+  --uh-sp-4: 1rem;
+  --uh-sp-5: 1.5rem;
+  --uh-sp-6: 2rem;
+  --uh-sp-7: 2.5rem;
+  --uh-sp-8: 3.5rem;
+
+  /* Type scale */
+  --uh-fs-xs: 1rem;
+  --uh-fs-sm: 1.125rem;
+  --uh-fs-md: 1.3125rem;
+  --uh-fs-lg: 1.625rem;
+  --uh-fs-xl: 2.125rem;
+  --uh-fs-2xl: 3rem;
+  --uh-fs-3xl: 4.25rem;
+  --uh-fs-hero: 7.5rem;
+
+  /* Shape */
+  --uh-r-sm: 0.625rem;
+  --uh-r-md: 1rem;
+  --uh-r-lg: 1.5rem;
+  --uh-r-xl: 2.25rem;
+  --uh-line: 0.1875rem;
+  --uh-line-thick: 0.25rem;
+  --uh-lift: 0.375rem;
+
+  /* Elevation */
+  --uh-shadow-soft: 0 0.75rem 2rem rgba(12, 6, 32, 0.35);
+  --uh-shadow-deep: 0 1.25rem 3.5rem rgba(12, 6, 32, 0.5);
+
+  /* Motion */
+  --uh-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --uh-ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --uh-dur-fast: 120ms;
+  --uh-dur: 220ms;
+  --uh-dur-slow: 420ms;
+}
+
+/* Reduced motion: the setting toggles this class on <html>. */
+html.uh-reduced-motion *,
+html.uh-reduced-motion *::before,
+html.uh-reduced-motion *::after {
+  animation-duration: 1ms !important;
+  animation-iteration-count: 1 !important;
+  animation-delay: 0ms !important;
+  transition-duration: 1ms !important;
+  transition-delay: 0ms !important;
+  scroll-behavior: auto !important;
+}

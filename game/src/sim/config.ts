@@ -41,6 +41,9 @@ export const UNANCHOR_TICKS = {
  * Target terminal carry speeds (tests check +-15%):
  *   small safe x1 ~4.0 | large safe x1 ~2.8, x2 ~3.6
  *   empty bank x1 ~1.1, x2 ~1.8 | 1000-pt bank x1 ~0.95, x2 ~1.65
+ * Measured in the sim (60 Hz, 2 substeps, test/sim/movement.test.ts), no value changes needed:
+ *   walk 5.00 | small 3.96 | large 2.80, 3.59 | empty bank 1.03, 1.71 | 1000-pt bank 0.91, 1.54
+ * Pushing (stick toward the grip) moves at the same speeds thanks to the push-steering assist.
  */
 export const CHARACTER = {
   radius: 0.45,
@@ -56,6 +59,13 @@ export const CHARACTER = {
   gripBreakForce: 9000,
   /** Non-grab body contact against loot: loot inverse mass is multiplied by this (soft push). */
   softPushFactor: 0.15,
+  /**
+   * (sim addition) Bounded lateral "grip friction" (N) that keeps a holder on the side it
+   * grabbed from. A pure point-distance joint is unstable in compression (pushing jackknifes
+   * within ~1 s); this keeps pushing controllable while a sideways walk (driveForce > this)
+   * still swings the raccoon around the target. Never breaks the grip.
+   */
+  gripLateralForce: 1500,
 } as const;
 
 /** doc §8 돌진: cooldown 4 s shared by dash and carry boost; ~2 s hit protection. */
@@ -70,6 +80,18 @@ export const DASH = {
   knockbackSpeed: 6,
   /** Same-team dash: only a gentle shove, never a knockdown. */
   teamShoveSpeed: 2,
+  /**
+   * Head-on clash (two characters dash into each other in the same substep): nobody is knocked
+   * down, both bounce apart at this speed. Symmetric so the outcome never depends on slot order
+   * (doc §7: humans and bots get identical abilities).
+   */
+  clashBounceSpeed: 4,
+  /**
+   * A dash only lands on a character inside this half-angle (radians) around the dash heading:
+   * the burst is a forward shove (doc §4 "짧게 앞으로 뛰며 상대를 밀침"); dashing away from or
+   * past someone you are touching does nothing to them.
+   */
+  hitConeHalfAngle: (60 * Math.PI) / 180,
 } as const;
 
 export const KNOCKDOWN_TICKS = secondsToTicks(0.7);
@@ -110,11 +132,16 @@ export const BANK_MODEL = {
     { center: { x: 0, y: 2.8 }, normal: { x: 0, y: 1 } }, // front
     { center: { x: 0, y: -2.8 }, normal: { x: 0, y: -1 } }, // back
   ] as ReadonlyArray<{ center: Vec2; normal: Vec2 }>,
-  /** Initial interior contents (doc: small x2 + large x1), anchored to the floor. */
+  /**
+   * Initial interior contents (doc: small x2 + large x1), anchored to the floor.
+   * Symmetric under both local mirrors so every bank angle (0, PI/2, PI, 3PI/2) stays fair:
+   * the large safe sits in the middle, visible and reachable from both doors
+   * (doc §10 "움직이는 은행에 들어가 큰 금고만 빼냄"); the small safes flank it by the side walls.
+   */
   interior: [
-    { kind: 'largeSafe', pos: { x: -2.6, y: 0 }, angle: Math.PI / 2 },
-    { kind: 'smallSafe', pos: { x: 2.8, y: -1.7 }, angle: 0 },
-    { kind: 'smallSafe', pos: { x: 2.8, y: 1.7 }, angle: 0 },
+    { kind: 'largeSafe', pos: { x: 0, y: 0 }, angle: 0 },
+    { kind: 'smallSafe', pos: { x: -2.8, y: 0 }, angle: 0 },
+    { kind: 'smallSafe', pos: { x: 2.8, y: 0 }, angle: 0 },
   ] as ReadonlyArray<{ kind: 'smallSafe' | 'largeSafe'; pos: Vec2; angle: number }>,
 } as const;
 
@@ -126,6 +153,14 @@ export const FENCE = {
   pressTicks: secondsToTicks(0.2),
   minPressSpeed: 0.15,
   height: 1.4,
+  /**
+   * (sim addition) Maximum force an intact fence exerts on a pressing bank. Fences are weak:
+   * a bank dragged by one raccoon keeps creeping forward (~0.3 m/s) so the press timer can
+   * break it, while characters and safes are stopped completely (they never break fences).
+   */
+  resistForce: 2000,
+  /** (sim addition) Penetration (m) a bank may bend an intact fence before it pushes back. */
+  give: 0.1,
 } as const;
 
 /** Escape van static collider size (render uses the same). */
