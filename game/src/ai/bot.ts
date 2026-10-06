@@ -179,6 +179,8 @@ const REFLEX_LEAD_TICKS = 6;
 const HOLDOFF_TICKS = 150;
 /** Knocked off (or kept off) one bank this many times in 20 s with officers on duty: give it up for a while. */
 const HOUNDED_GIVE_UP = 3;
+/** A load this close to the own zone center (m) is pushed home under the officers' noses. */
+const NEAR_HOME_M = 11;
 
 export class Bot implements BotController {
   readonly slot: number;
@@ -620,7 +622,9 @@ export class Bot implements BotController {
     // knocked off it a third time in 20 s with officers still around: give it up for now (score
     // elsewhere; the haul is back on the menu once they leave or after a while). A teammate on
     // the bank keeps it worth fighting for.
-    if (this.heatOf(bankId, tick) >= HOUNDED_GIVE_UP && this.ps.onField() && this.mateHolders(sim, bankId).length === 0) {
+    const bank = sim.getLoot(bankId);
+    const nearHome = bank !== undefined && V.dist(bank.pos, zoneOf(sim.layout, this.team).center) < NEAR_HOME_M;
+    if (!nearHome && this.heatOf(bankId, tick) >= HOUNDED_GIVE_UP && this.ps.onField() && this.mateHolders(sim, bankId).length === 0) {
       const dur = Math.round(Math.min(15, Math.max(6, this.ps.shiftLeft())) * TICK_RATE);
       this.blacklist.set(`haul:${bankId}`, tick + dur);
       this.blacklist.set(`assist:${bankId}`, tick + dur);
@@ -794,7 +798,6 @@ export class Bot implements BotController {
       if (cur) this.endGoal(sim, 'noCandidates');
       return;
     }
-    if (process.env.DBGSW && cur) this.log1(sim, `SW cur=${cur.key}:${cur.phase} curCand=${curCand ? curCand.utility.toFixed(1) + "/est" + curCand.est.toFixed(1) : "none"} pick=${pick.key} ${pick.utility.toFixed(1)}`);
     if (final || (wasUrgent && this.secondsLeft(sim) <= 30.5 && sim.state.finalCountdown)) this.logFinal(sim, cur, pick, 'switched');
     this.startGoal(sim, pick);
   }
@@ -1013,6 +1016,11 @@ export class Bot implements BotController {
     const myGrab = me.grab ? me.grab.targetId : null;
     const finalPhase = left <= 30;
     const notAheadLate = left < 45 && st.scores[this.team] <= st.scores[(1 - this.team) as TeamId];
+    // close score late (tied or within one large safe, little loot left): collecting "our half" of
+    // what remains tends to end level (doc §8: ties are draws), so taking loot away from the other
+    // team (a steal, a strip out of their haul) is worth more than its face value
+    const closeLate = (left < 60 || st.remainingValue <= 900) && Math.abs(st.scores[this.team] - st.scores[(1 - this.team) as TeamId]) <= 300;
+    const denyK = closeLate ? 1 + BOT_TUNING.tieDeny * Math.min(1, depth) : 1;
     const ambushChoke = this.adaptation?.kind === 'ambushChoke' ? sim.layout.chokepoints.find((c) => c.id === this.adaptation!.chokepointId) ?? null : null;
     // proxy humans don't coordinate through the board: avoid what bot mates visibly hold only
     const pingGoals = this.pingCandidates(sim);
@@ -1095,6 +1103,7 @@ export class Bot implements BotController {
         // zero-sum swing: it leaves their haul and joins ours (counter-play depth decides how
         // much of that a bot appreciates)
         if (depth > 0) value *= 1 + Math.min(0.85, 0.6 * depth) * (1 + W.opportunism * 0.3);
+        value *= denyK;
       }
       // loose safes dropped in the open are quick pickups
       if (!l.anchored && !strip) w *= 1.08;
@@ -1291,7 +1300,7 @@ export class Bot implements BotController {
       if (ambushChoke && V.dist(o.last.pos, ambushChoke.pos) < ambushChoke.radius + 9 && l.kind === 'smallSafe') w *= 1.6;
       // the swing: they lose it, we may gain it (only the denial when ours could not finish)
       const swing = t <= left ? 1.6 : 0.8;
-      const rate = ((l.baseValue * swing * pHit) / (t <= left ? t : tReach + 1.5)) * w * BOT_TUNING.intercept;
+      const rate = ((l.baseValue * swing * pHit) / (t <= left ? t : tReach + 1.5)) * w * BOT_TUNING.intercept * denyK;
       out.push(this.mk('intercept', key, o.id, rate, l.baseValue, t, { pos: { ...o.last.pos } }));
     }
 
@@ -1892,7 +1901,7 @@ export class Bot implements BotController {
     const guarding = this.goal !== null && this.goal.key.startsWith('copguard:');
     for (const c of guarding ? [] : this.ps.cops) {
       if (V.dist(c.pos, me.pos) > 25 || this.nav.clearanceAt(c.pos.x, c.pos.y) >= 0.95) continue;
-      out.push({ x: c.pos.x, y: c.pos.y, r: 1.4, cost: 20, until: tick + 120 });
+      out.push({ x: c.pos.x, y: c.pos.y, r: 1.6, cost: 60, until: tick + 120 });
     }
     const goalTarget = this.goal ? this.goal.targetId : null;
     for (const l of sim.state.loot) {
@@ -1901,7 +1910,7 @@ export class Bot implements BotController {
       const rad = Math.hypot(l.half.x, l.half.y);
       // (a gap narrower than a body between the safe and a static obstacle)
       if (this.nav.clearanceAt(l.pos.x, l.pos.y) > rad + CHARACTER.radius * 2 + 0.1) continue;
-      out.push({ x: l.pos.x, y: l.pos.y, r: rad + 0.7, cost: 6, until: tick + 120 });
+      out.push({ x: l.pos.x, y: l.pos.y, r: rad + 0.7, cost: 12, until: tick + 120 });
     }
     return out;
   }
@@ -2033,7 +2042,7 @@ export class Bot implements BotController {
     this.avoidSpots.push({ x: me.pos.x + move.x * 0.8, y: me.pos.y + move.y * 0.8, r: 1.4, cost: 3, until: tick + 240 });
     // an officer is what blocks the way (it never yields to an empty-handed raccoon): go around
     const cop = this.ps.onField() ? this.ps.nearest(me.pos) : null;
-    if (cop && cop.d < 1.8) this.avoidSpots.push({ x: cop.cop.pos.x, y: cop.cop.pos.y, r: 1.6, cost: 25, until: tick + 300 });
+    if (cop && cop.d < 1.8) this.avoidSpots.push({ x: cop.cop.pos.x, y: cop.cop.pos.y, r: 1.6, cost: 60, until: tick + 300 });
     this.path = null;
     const perp = { x: -move.y, y: move.x };
     const sgn = this.watchLevel % 2 === 0 ? 1 : -1;
@@ -2587,7 +2596,7 @@ export class Bot implements BotController {
       if (me.dashCooldown === 0 && me.protectTicks === 0 && chase.d < 3.2 && V.dot(V.norm(move), away) > 0.2 && this.rngCheck(aw * this.P.carryBoost, 6)) dash = true;
     }
     // carry boost on straight stretches when no threat is near
-    if (!dash && me.dashCooldown === 0 && straight > 5 && this.rngCheck(this.P.carryBoost, 20) && !this.threatNear(sim, me.pos, 10) && !(chase && chase.d < 9) && !this.saveDashForCops(me)) dash = true;
+    if (!dash && me.dashCooldown === 0 && straight > 5 && this.rngCheck(this.P.carryBoost, 20) && !this.threatNear(sim, me.pos, 10) && !(chase && chase.d < 9)) dash = true;
     return cmd(move, true, null, dash);
   }
 
@@ -3163,8 +3172,10 @@ export class Bot implements BotController {
   }
 
   /**
-   * Keep the dash for knocking an officer over instead of spending it on a carry boost while
-   * one is close (the boost never outruns an officer with a bank; the stun buys seconds).
+   * Bank haul: keep the dash for knocking an officer over instead of spending it on a carry boost
+   * while one is close (the boost never outruns an officer with a bank; the stun buys seconds).
+   * Safe carriers keep boosting: with a small safe the burst does break away (measured: saving
+   * it there made aware carriers get tackled as often as blind ones).
    */
   private saveDashForCops(me: CharacterState): boolean {
     if (!this.ps.onField()) return false;
@@ -3191,7 +3202,11 @@ export class Bot implements BotController {
         return s;
       }
     }
-    const budget = HOLDOFF_TICKS * aw;
+    // (a bank a few metres from home is pushed through: tackled, it is back in hand within the
+    // 2 s protection and barely moved back; waiting there only gives the officers time)
+    const target = this.goal?.targetId != null ? sim.getLoot(this.goal.targetId) : undefined;
+    const home = target !== undefined && target.kind === 'bank' && V.dist(target.pos, zoneOf(sim.layout, this.team).center) < NEAR_HOME_M;
+    const budget = home ? 0 : HOLDOFF_TICKS * aw;
     if (near.d < 2.6 && me.protectTicks < 30 && near.cop.busyTicks < 30 && this.holdoff < budget) {
       this.holdoff++;
       if (this.holdoff >= budget && this.goal?.targetId != null) {

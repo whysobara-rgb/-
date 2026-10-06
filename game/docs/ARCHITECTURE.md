@@ -116,11 +116,18 @@ function chooseAdaptation(summary: ObservationSummary, layout: LayoutDef, rival:
 ```
 
 Police awareness (owner addition): bots read the public police state (`src/ai/policeSense.ts`:
-officers, whom they run at, the alarm / dispatch clock). Carriers route around officers and burst
-away; a carrier about to be tackled lets go and dash-stuns the officer, then picks the load up
-again; teammates (incl. the human's bot mate) body-block and dash-stun an officer chasing a
-carrying ally; bank hauls are deferred while a fresh wave is on the field; 눈치왕 cashes in on
-police chaos (loot an opponent just lost to a tackle, carriers/hauls with an officer on them).
+officers, whom they run at, the alarm / dispatch clock; an officer's remaining shift is estimated
+from its public arrival + the fixed shift, never read from the sim). Carriers route around officers
+and burst away; a carrier about to be tackled lets go and dash-stuns the officer a few ticks before
+its own hit protection ends (an officer waits beside a downed hauler for exactly that tick), then
+picks the load up again; with an officer standing by, a bot stuns it before taking hold of a load,
+or keeps its hands off for a moment (bounded) when the dash is not ready; the dash is saved for
+stuns (no bank-haul boosts) while an officer is near; a bank the bot was knocked off three times in
+20 s is given up for a while (score elsewhere, back when the officers leave). Teammates (incl. the
+human's bot mate) body-block and dash-stun an officer chasing a carrying ally; bank hauls are
+deferred while a fresh wave is on the field; 눈치왕 cashes in on police chaos (loot an opponent just
+lost to a tackle, carriers/hauls with an officer on them). Path planning treats an officer standing
+in a one-body passage and a loose safe leaving a sub-body gap beside a wall as cost circles.
 How much a bot does this is `DifficultyParams.policeAwareness` (novice 0.3 < normal 0.75 <
 challenge 1). Shared balance knobs live in `BOT_TUNING` (src/ai/params.ts).
 
@@ -214,7 +221,10 @@ tutorial and the first match after practice keep it off). Implemented inside the
   a car is scheduled after `POLICE.dispatchDelayTicks` (respecting `restTicks` after the last wave).
   The final countdown calls a wave immediately when none is on the field.
 - Cars park at the curb just outside the north/south edge on the mirror axis (`policeEntries`,
-  `POLICE_CAR`); officers hop in at `officerStepOutSpot(entry, k)`. Entries alternate by wave.
+  `POLICE_CAR`); officers hop in at `officerStepOutSpot(entry, k)`. On the authored layouts
+  (`policeDispatch: 'nearestAlarm'`) the car answers the alarm: it parks at the curb nearest the
+  oldest bank still ringing (alternating on a tie or when nothing rings); otherwise entries
+  alternate by wave.
 - Officers (ids from `POLICE_ID_BASE + 1`) chase the visible carrier with the highest held estimate
   (a raccoon dragging a bank whose alarm rings is also heard within `POLICE.hearRadius`),
   split targets between officers, and lunge (`policeTackle`) when close: a hit equals an opposing
@@ -223,7 +233,8 @@ tutorial and the first match after practice keep it off). Implemented inside the
 - After `shiftTicks` officers walk back and the car leaves (`policeLeaving` → `policeGone`). An
   officer sealed off from its car (no step closer for 8 s, e.g. a bank shoved against the gate)
   squeezes past dynamic bodies (never walls) and still boards only at its car. The getaway wave
-  brings `POLICE.getawayOfficers` officers.
+  brings `POLICE.getawayOfficers` officers (0 = the usual `officersPerWave`: doc §8 keeps the same
+  carrying conditions to the end).
 - Police never change scores, loot ownership or recovery; the 3200 invariant is fuzz-tested with
   police on. Mirror-fairness tests check team 0 and team 1 get mirrored outcomes.
 - Render: `src/render/police.ts` + `models/police.ts` (puppy cops, police car with strobe light,

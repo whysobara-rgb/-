@@ -803,3 +803,51 @@ describe('police: sealed off from the car', () => {
     for (const p of boarded.values()) expect(Math.hypot(p.x - entry.park.x, p.y - entry.park.y)).toBeLessThan(POLICE_CAR.curb + 0.75 + POLICE_CAR.half.x + 0.5);
   });
 });
+
+describe('police: the car answers the alarm (authored layouts)', () => {
+  // (balance pass) a fixed wave-1 curb parked the first wave beside the far bank every match, so
+  // whoever won the race for the near bank hauled it police-free while the loser's bank got the car
+  it('parks at the curb nearest the oldest ringing bank, on every authored layout, for either bank', () => {
+    for (const id of MATCH_LAYOUT_IDS) {
+      expect(LAYOUTS[id].policeDispatch).toBe('nearestAlarm');
+      const H = LAYOUTS[id].size.y;
+      for (const north of [true, false]) {
+        const sim = new Simulation(makeSetup(LAYOUTS[id], [0, 0, 1, 1], { police: true }));
+        const banks = sim.state.loot.filter((l) => l.kind === 'bank');
+        const bank = banks.find((b) => (b.pos.y < H / 2) === north)!;
+        const other = banks.find((b) => b !== bank)!;
+        sim.debug.setAnchored(bank.id, false);
+        stepUntil(sim, () => false, 60);
+        // a second alarm afterwards does not move the car: it answers the first one
+        sim.debug.setAnchored(other.id, false);
+        const evs = stepUntil(sim, (e) => e.some((x) => x.type === 'policeDispatched'), POLICE.dispatchDelayTicks + 5);
+        const d = ofType(evs, 'policeDispatched')[0]!;
+        const entries = sim.policeEntries();
+        const dist = entries.map((e) => Math.hypot(e.park.x - bank.pos.x, e.park.y - bank.pos.y));
+        expect(dist[d.entryIndex]).toBe(Math.min(...dist));
+        expect(entries[d.entryIndex]!.park.y < H / 2).toBe(north);
+      }
+    }
+  });
+
+  it('mirrored hauls get the same curb (the rule never favors a side)', () => {
+    const def = LAYOUTS.counter;
+    const AX = def.size.x / 2;
+    const picks: number[] = [];
+    for (const dx of [-7, 7]) {
+      const sim = new Simulation(makeSetup(def, [0, 0, 1, 1], { police: true }));
+      const south = sim.state.loot.filter((l) => l.kind === 'bank').find((b) => b.pos.y > def.size.y / 2)!;
+      sim.debug.setAnchored(south.id, false);
+      stepUntil(sim, () => false, 2);
+      // the bank dragged part of the way toward one team's zone or the mirrored spot toward the other's
+      sim.debug.teleport(south.id, { x: AX + dx, y: south.pos.y - 3 }, south.angle);
+      const evs = stepUntil(sim, (e) => e.some((x) => x.type === 'policeDispatched'), POLICE.dispatchDelayTicks + 5);
+      picks.push(ofType(evs, 'policeDispatched')[0]!.entryIndex);
+    }
+    expect(picks[0]).toBe(picks[1]);
+  });
+
+  it('a layout without the rule keeps alternating entries by wave', () => {
+    expect(openLayout({}).policeDispatch ?? 'alternate').toBe('alternate');
+  });
+});

@@ -280,3 +280,135 @@ describe('police-aware bots', () => {
     expect(a).toContain('police');
   });
 });
+
+describe('police-aware bots: review fixes', () => {
+  /** Longest run of police tackles on one victim spaced <= 2.6 s apart, and all tackle hits. */
+  const chainStats = (hits: { v: EntityId; t: number }[]): { longest: number; inChains: number } => {
+    let longest = 0;
+    let inChains = 0;
+    const byV = new Map<EntityId, number[]>();
+    for (const h of hits) (byV.get(h.v) ?? byV.set(h.v, []).get(h.v)!).push(h.t);
+    for (const ts of byV.values()) {
+      let run = 1;
+      const flush = (): void => {
+        longest = Math.max(longest, run);
+        if (run >= 3) inChains += run;
+      };
+      for (let i = 1; i < ts.length; i++) {
+        if (ts[i]! - ts[i - 1]! <= 2.6 * TICK_RATE) run++;
+        else {
+          flush();
+          run = 1;
+        }
+      }
+      flush();
+    }
+    return { longest, inChains };
+  };
+
+  it('no tackle chains: a hauler lets go / stuns before its hit protection runs out and gives a hounded bank up for a while', () => {
+    // worst case: both alarms ring at 0 s, two officers on the field from ~15 s, bank-loving bots
+    // (before the fix: an officer waited beside the downed hauler and lunged on the very tick its
+    // protection ended — tackles every 2.0 s, chains of 10-20, 0 stuns)
+    const hits: { v: EntityId; t: number }[] = [];
+    let stuns = 0;
+    let giveUps = 0;
+    let match = 0;
+    for (const layout of ['plaza', 'shortcut', 'counter'] as const) {
+      for (const d of ['novice', 'normal', 'challenge'] as const) {
+        match++;
+        const { sim, bots } = createMatch({ layout, team0: [{ personality: 'tongkeun', difficulty: d }], team1: [{ personality: 'tongkeun', difficulty: d }], seed: 21, rules: { police: true } });
+        ringBothAlarms(sim);
+        for (let t = 0; t < 75 * TICK_RATE && !sim.state.over; t++) {
+          for (const e of sim.step(bots.map((b) => b.update(sim)))) {
+            // (victims are told apart per match)
+            if (e.type === 'policeTackle' && e.hit) hits.push({ v: e.victimId + 1000 * match, t: e.tick });
+            if (e.type === 'policeStunned') stuns++;
+          }
+        }
+        for (const b of bots) giveUps += b.log.filter((l) => l.includes('hounded by the police')).length;
+      }
+    }
+    const c = chainStats(hits);
+    expect(hits.length).toBeGreaterThan(10);
+    expect(c.longest).toBeLessThanOrEqual(4);
+    expect(c.inChains / hits.length).toBeLessThan(0.3);
+    expect(stuns).toBeGreaterThan(hits.length * 0.3);
+    expect(giveUps).toBeGreaterThan(0);
+  });
+
+  it('plans around an officer standing in a one-body alley (it never yields to an empty-handed raccoon)', () => {
+    // shortcut: the 1.1 m alley between the arcade blocks at x = 25 (y 13..19.75)
+    const { sim, bots } = setup('shortcut', [{ team: 0, bot: { p: 'hodadak', d: 'normal' } }, { team: 1 }], 3);
+    const bot = bots[0]!;
+    sim.debug.teleport(1, { x: 25, y: 22 });
+    bot.update(sim);
+    const b = bot as unknown as { ps: PoliceSense; computePath: (s: Simulation, g: { x: number; y: number }, c: string) => void; path: { pts: { x: number; y: number }[] } | null };
+    const inAlley = (): boolean => {
+      const pts = b.path!.pts;
+      for (let i = 1; i < pts.length; i++) {
+        const a = pts[i - 1]!;
+        const q = pts[i]!;
+        const n = Math.ceil(Math.hypot(q.x - a.x, q.y - a.y) / 0.2);
+        for (let k = 0; k <= n; k++) {
+          const x = a.x + ((q.x - a.x) * k) / n;
+          const y = a.y + ((q.y - a.y) * k) / n;
+          if (x > 24.3 && x < 25.7 && y > 14 && y < 19) return true;
+        }
+      }
+      return false;
+    };
+    const goal = { x: 25, y: 9 };
+    b.computePath(sim, goal, 'walk');
+    expect(inAlley()).toBe(true); // the short way, with nobody in it
+    const real = b.ps;
+    const fake = Object.create(real) as PoliceSense;
+    Object.defineProperty(fake, 'cops', { value: [{ id: 1001, pos: { x: 25, y: 16 }, vel: { x: 0, y: 0 }, facing: 0, phase: 'patrol', target: null, busyTicks: 0, shiftLeft: 30 }] });
+    b.ps = fake;
+    b.computePath(sim, goal, 'walk');
+    expect(inAlley()).toBe(false);
+    b.ps = real;
+  });
+
+  it('plans around a sub-body gap a loose safe leaves beside a lamp (no oscillating at it)', () => {
+    // counter: a large safe left beside lamp.c (29.5, 21) leaves ~0.85 m
+    const { sim, bots } = setup('counter', [{ team: 0, bot: { p: 'nunchi', d: 'normal' } }, { team: 1 }], 3);
+    const bot = bots[0]!;
+    const safe = sim.state.loot.filter((l) => l.kind === 'largeSafe' && l.floorOf === null).sort((p, q) => p.pos.y - q.pos.y)[0]!;
+    sim.debug.setAnchored(safe.id, false);
+    sim.debug.teleport(safe.id, { x: 29.7, y: 22.6 }, 0);
+    sim.debug.teleport(1, { x: 31.2, y: 20.4 });
+    bot.update(sim);
+    const b = bot as unknown as { goal: unknown; computePath: (s: Simulation, g: { x: number; y: number }, c: string) => void; path: { pts: { x: number; y: number }[] } | null };
+    b.goal = null; // (its own goal target is never avoided)
+    b.computePath(sim, { x: 28.0, y: 23.4 }, 'walk');
+    const pts = b.path!.pts;
+    // the path never crosses the lamp-to-safe segment (the gap)
+    const L = { x: 29.5, y: 21.0 };
+    const S = { x: 29.7, y: 22.6 };
+    const cross = (a: { x: number; y: number }, q: { x: number; y: number }): boolean => {
+      const o = (p: { x: number; y: number }, r: { x: number; y: number }, s: { x: number; y: number }): number => Math.sign((r.x - p.x) * (s.y - p.y) - (r.y - p.y) * (s.x - p.x));
+      return o(a, q, L) !== o(a, q, S) && o(L, S, a) !== o(L, S, q);
+    };
+    for (let i = 1; i < pts.length; i++) expect(cross(pts[i - 1]!, pts[i]!)).toBe(false);
+  });
+
+  it('reads the officers\' shift only from public information (arrival + the fixed shift), never the sim counter', () => {
+    const { sim, bots } = setup('plaza', [{ team: 0, bot: { p: 'hodadak', d: 'normal' } }, { team: 1 }], 4);
+    ringBothAlarms(sim);
+    let seenAt = -1;
+    for (let t = 0; t < 30 * TICK_RATE; t++) {
+      sim.step([bots[0]!.update(sim), EMPTY_COMMAND]);
+      if (seenAt < 0 && sim.state.police.length > 0) seenAt = sim.state.tick;
+    }
+    const ps = PoliceSense.for(sim);
+    expect(ps.cops.length).toBeGreaterThan(0);
+    // whole seconds counted from the moment the officers appeared (a sim-side shift counter that
+    // paused or ran differently would not leak through)
+    const sinceSeen = (sim.state.tick - seenAt) / TICK_RATE;
+    for (const c of ps.cops) {
+      expect(Number.isInteger(c.shiftLeft)).toBe(true);
+      expect(Math.abs(c.shiftLeft - (POLICE.shiftTicks / TICK_RATE - sinceSeen))).toBeLessThan(1.05);
+    }
+  });
+});

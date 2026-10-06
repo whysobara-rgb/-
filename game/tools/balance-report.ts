@@ -230,7 +230,17 @@ function perBotRows(agg: SeriesAggregate): string[][] {
   return rows;
 }
 
-export function buildReport(jobs: Job[], results: Map<number, SeriesMatch>, elapsed: number, workersUsed = 3): { md: string; checks: Record<string, boolean | string> } {
+export /** Wilson score interval (95 %) for k successes in n trials. */
+function wilson(k: number, n: number): [number, number] {
+  const z = 1.96;
+  const p = k / n;
+  const d = 1 + (z * z) / n;
+  const c = (p + (z * z) / (2 * n)) / d;
+  const h = (z * Math.sqrt((p * (1 - p)) / n + (z * z) / (4 * n * n))) / d;
+  return [Math.max(0, c - h), Math.min(1, c + h)];
+}
+
+function buildReport(jobs: Job[], results: Map<number, SeriesMatch>, elapsed: number, workersUsed = 3): { md: string; checks: Record<string, boolean | string> } {
   const L: string[] = [];
   const all: SeriesMatch[] = [];
   const byGroup = new Map<string, { block: string; ms: SeriesMatch[] }>();
@@ -327,6 +337,27 @@ export function buildReport(jobs: Job[], results: Map<number, SeriesMatch>, elap
     checks['draws<10%'] = ag.draws / Math.max(1, ag.matches) < 0.1;
     checks['side 40-60%'] = decided > 0 && ag.team0Wins / decided >= 0.4 && ag.team0Wins / decided <= 0.6;
     L.push('');
+    // Subgroup side fairness with its sampling uncertainty: a few seeds per difficulty / layout
+    // swing far beyond the 40-60 % band between seed sets, so a subgroup only counts as fair (or
+    // unfair) when its 95 % interval says so; otherwise it is "not established".
+    {
+      const sub: string[][] = [['subgroup', 'decided', 'team0 wins', '95% CI', 'verdict']];
+      const add = (label: string, js: Job[]): void => {
+        const a = aggregate(js.map((j) => results.get(j.id)!));
+        const n = a.matches - a.draws;
+        if (n === 0) return;
+        const [lo, hi] = wilson(a.team0Wins, n);
+        const verdict = lo >= 0.4 && hi <= 0.6 ? 'within 40-60 %' : hi < 0.4 || lo > 0.6 ? '**outside 40-60 %**' : 'not established (n too small)';
+        sub.push([label, String(n), pct(a.team0Wins, n), `${(lo * 100).toFixed(0)}–${(hi * 100).toFixed(0)} %`, verdict]);
+      };
+      add('all', eqJobs);
+      for (const d of DIFFS) add(`@${d}`, eqJobs.filter((j) => j.group.endsWith(`@${d}`)));
+      for (const l of LAYOUTS) add(l, eqJobs.filter((j) => j.layout === l));
+      L.push('Side fairness by subgroup (team 0 share of decided games, Wilson 95 % interval):');
+      L.push('');
+      L.push(table(sub));
+      L.push('');
+    }
     const rows: string[][] = [['pairing', 'matches', 'A wins', 'B wins', 'draws', 'avg A–B', 'team0 wins', 'end reasons']];
     let worst = 0;
     for (const [key, g] of byGroup) {
@@ -587,7 +618,7 @@ async function main(argv: string[]): Promise<void> {
     const rows = jobs.filter((j) => results.has(j.id)).map((j) => {
       const m = results.get(j.id)!;
       const st = m.stats;
-      return { block: j.block, group: j.group, layout: j.layout, seed: j.seed, aTeam: j.aTeam, winner: m.winner, scoreA: m.scoreA, scoreB: m.scoreB, reason: st.result.reason, ticks: st.ticks, firstBankTick: st.firstBankTick, secondBankTick: st.secondBankTick, fcTick: st.finalCountdownTick, police: st.police, pointsBy: st.pointsBy, slots: st.slots.map((x) => ({ slot: x.slot, team: x.team, p: x.personality, d: x.difficulty, proxy: x.humanProxy, points: x.points, rec: x.recoveries, stuck5: x.stuckIncidents5s, incidents: x.incidents, tackled: x.tackledByPolice, stuns: x.policeStuns, unstuck: x.unstuckEvents })) };
+      return { block: j.block, group: j.group, layout: j.layout, seed: j.seed, aTeam: j.aTeam, winner: m.winner, scoreA: m.scoreA, scoreB: m.scoreB, reason: st.result.reason, ticks: st.ticks, firstBankTick: st.firstBankTick, secondBankTick: st.secondBankTick, firstBank: st.firstBank, fcTick: st.finalCountdownTick, police: st.police, pointsBy: st.pointsBy, slots: st.slots.map((x) => ({ slot: x.slot, team: x.team, p: x.personality, d: x.difficulty, proxy: x.humanProxy, points: x.points, rec: x.recoveries, stuck5: x.stuckIncidents5s, incidents: x.incidents, tackled: x.tackledByPolice, stuns: x.policeStuns, unstuck: x.unstuckEvents })) };
     });
     writeFileSync(jsonOut, JSON.stringify(rows));
   }

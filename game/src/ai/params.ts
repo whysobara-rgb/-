@@ -99,9 +99,9 @@ export interface PersonalityWeights {
 export const PERSONALITY: Readonly<Record<RivalId, PersonalityWeights>> = {
   // 호다닥: frequent quick small-safe runs along favourite routes.
   hodadak: {
-    smallSafe: 1.45,
+    smallSafe: 1.5,
     largeSafe: 1.0,
-    bank: 0.7,
+    bank: 0.9,
     bankContents: 0.0,
     strip: 1.15,
     intercept: 0.55,
@@ -131,7 +131,7 @@ export const PERSONALITY: Readonly<Record<RivalId, PersonalityWeights>> = {
   },
   // 눈치왕: waits for the opponent to commit to a big haul, then intercepts / steals.
   nunchi: {
-    smallSafe: 0.85,
+    smallSafe: 0.75,
     largeSafe: 0.92,
     bank: 0.6,
     bankContents: 0.0,
@@ -323,4 +323,10 @@ export const BOT_TUNING = {
    * haulers take 10-20 tackles in a row; 1.0 with the awareness floor ends those chains.
    */
   houndedDrop: 1.0,
+  /**
+   * Close score late (|diff| <= 300 with < 60 s or <= 900 points left): extra weight (x counter-play
+   * depth) on steals and strips out of the other team's haul — taking loot away breaks the
+   * mirrored "each collects its half" endings that finish 1600-1600.
+   */
+  tieDeny: 1.0,
 };

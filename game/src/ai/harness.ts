@@ -116,6 +116,8 @@ export interface MatchStats {
   /** Tick of the first / second bank body recovery (null = never). */
   firstBankTick: number | null;
   secondBankTick: number | null;
+  /** The first bank recovered: by which team, and whether it started in the north half. */
+  firstBank: { team: TeamId; north: boolean } | null;
   /** Tick the final countdown started (null = never). */
   finalCountdownTick: number | null;
   /** Points by source (both teams): small / large safes, bank buildings, safes recovered inside a bank. */
@@ -131,6 +133,13 @@ export interface MatchStats {
     bankInterruptsDash: number;
     /** Forced releases of a carried safe by a police tackle. */
     safeInterruptsPolice: number;
+    /**
+     * Tackle chains: runs of police tackle hits on one victim spaced <= 2.6 s apart (the officer
+     * waiting beside a downed hauler for its protection to end). Hits in runs of >= 3, and the
+     * longest run.
+     */
+    chainHits: number;
+    chainLongest: number;
   };
 }
 
@@ -232,9 +241,16 @@ export function runMatch(spec: MatchSpec): MatchStats {
   let fences = 0;
   let firstBankTick: number | null = null;
   let secondBankTick: number | null = null;
+  let firstBank: { team: TeamId; north: boolean } | null = null;
+  const bankStartY = new Map(st.loot.filter((l) => l.kind === 'bank').map((l) => [l.id, l.pos.y] as const));
   let fcTick: number | null = null;
   const pointsBy = { small: 0, large: 0, bankBuilding: 0, bankContents: 0 };
-  const pol = { waves: 0, tackleAttempts: 0, tackles: 0, stuns: 0, bankInterruptsPolice: 0, bankInterruptsDash: 0, safeInterruptsPolice: 0 };
+  const pol = { waves: 0, tackleAttempts: 0, tackles: 0, stuns: 0, bankInterruptsPolice: 0, bankInterruptsDash: 0, safeInterruptsPolice: 0, chainHits: 0, chainLongest: 0 };
+  const chain = new Map<EntityId, { last: number; run: number }>();
+  const closeChain = (c: { run: number }): void => {
+    if (c.run >= 3) pol.chainHits += c.run;
+    pol.chainLongest = Math.max(pol.chainLongest, c.run);
+  };
   // last holder per safe (for attributing recoveries completed without a holder)
   const lastHolder = new Map<EntityId, EntityId>();
   while (!st.over && st.tick < maxTicks) {
@@ -282,6 +298,14 @@ export function runMatch(spec: MatchSpec): MatchStats {
           if (e.hit) {
             pol.tackles++;
             if (e.victimId <= n) slotStats[e.victimId - 1]!.tackledByPolice++;
+            const c = chain.get(e.victimId);
+            if (c && e.tick - c.last <= CHAIN_GAP_TICKS) {
+              c.run++;
+              c.last = e.tick;
+            } else {
+              if (c) closeChain(c);
+              chain.set(e.victimId, { last: e.tick, run: 1 });
+            }
           }
           break;
         case 'policeStunned':
@@ -303,6 +327,7 @@ export function runMatch(spec: MatchSpec): MatchStats {
           break;
         case 'recovered': {
           if (firstScore[e.team] === null) firstScore[e.team] = e.tick;
+          if (e.kind === 'bank' && firstBank === null) firstBank = { team: e.team, north: (bankStartY.get(e.lootId) ?? 0) < sim.layout.size.y / 2 };
           if (e.kind === 'smallSafe') pointsBy.small += e.value;
           else if (e.kind === 'largeSafe') pointsBy.large += e.value;
           else {
@@ -438,10 +463,17 @@ export function runMatch(spec: MatchSpec): MatchStats {
     firstBankTick,
     secondBankTick,
     finalCountdownTick: fcTick,
+    firstBank,
     pointsBy,
-    police: pol,
+    police: (() => {
+      for (const c of chain.values()) closeChain(c);
+      return pol;
+    })(),
   };
 }
+
+/** Police tackles on one victim at most this far apart belong to one chain. */
+const CHAIN_GAP_TICKS = Math.round(2.6 * TICK_RATE);
 
 function closeWindow(s: SlotStats, start: number, end: number, waitTicks: number, what: string, pos: { x: number; y: number }): void {
   const dur = (end - start) / TICK_RATE;
@@ -779,6 +811,14 @@ export interface FlowMetrics {
   proxyMaxStuck: number;
   /** Sim 'unstuck' nudges of characters. */
   unstuck: number;
+  /** Share of matches whose first recovered bank was the north one (of those with a bank). */
+  firstBankNorth: number | null;
+  /** Decided games won by the team that recovered the first bank. */
+  firstBankTeamWins: number | null;
+  /** Share of police tackle hits that fall in chains of >= 3 on one victim (<= 2.6 s apart). */
+  chainShare: number;
+  /** Longest tackle chain in any match. */
+  chainLongest: number;
 }
 
 function quantile(sorted: number[], q: number): number {
@@ -800,7 +840,7 @@ export function flowMetrics(ms: SeriesMatch[]): FlowMetrics {
   let proxyMax = 0;
   let unstuck = 0;
   const pts = { small: 0, large: 0, bankBuilding: 0, bankContents: 0 };
-  const pol = { tackles: 0, att: 0, stuns: 0, waves: 0, bip: 0, bid: 0, sip: 0 };
+  const pol = { tackles: 0, att: 0, stuns: 0, waves: 0, bip: 0, bid: 0, sip: 0, chainHits: 0, chainLongest: 0 };
   for (const m of ms) {
     const w = m.stats.result.winner;
     if (w === null) draws++;
@@ -826,9 +866,13 @@ export function flowMetrics(ms: SeriesMatch[]): FlowMetrics {
     pol.bip += q.bankInterruptsPolice;
     pol.bid += q.bankInterruptsDash;
     pol.sip += q.safeInterruptsPolice;
+    pol.chainHits += q.chainHits ?? 0;
+    pol.chainLongest = Math.max(pol.chainLongest, q.chainLongest ?? 0);
   }
   const tot = Math.max(1, pts.small + pts.large + pts.bankBuilding + pts.bankContents);
   const decided = ms.length - draws;
+  const withFb = ms.filter((m) => m.stats.firstBank);
+  const fbDecided = withFb.filter((m) => m.stats.result.winner !== null);
   return {
     matches: ms.length,
     lenQ1: quantile(lens, 0.25),
@@ -856,10 +900,14 @@ export function flowMetrics(ms: SeriesMatch[]): FlowMetrics {
     stuck5Proxy,
     proxyMaxStuck: proxyMax,
     unstuck,
+    firstBankNorth: withFb.length ? withFb.filter((m) => m.stats.firstBank!.north).length / withFb.length : null,
+    firstBankTeamWins: fbDecided.length ? fbDecided.filter((m) => m.stats.firstBank!.team === m.stats.result.winner).length / fbDecided.length : null,
+    chainShare: pol.tackles > 0 ? pol.chainHits / pol.tackles : 0,
+    chainLongest: pol.chainLongest,
   };
 }
 
-export const FLOW_HEADER = ['group', 'n', 'len q1/med/q3 s', '1st bank med s (share)', 'FC<120s', 'FC any', 'draws', 'team0 (decided)', 'tackles (att)', 'stuns', 'waves', 'bank haul broken: police / dash', 'safe carry broken by police', 'pts small / large / bank bldg / bank contents', 'stuck>5s (proxy)', 'unstuck'];
+export const FLOW_HEADER = ['group', 'n', 'len q1/med/q3 s', '1st bank med s (share)', '1st bank north / its team wins', 'FC<120s', 'FC any', 'draws', 'team0 (decided)', 'tackles (att)', 'tackle chains: share / longest', 'stuns', 'waves', 'bank haul broken: police / dash', 'safe carry broken by police', 'pts small / large / bank bldg / bank contents', 'stuck>5s (proxy)', 'unstuck'];
 
 export function flowRow(label: string, f: FlowMetrics): string[] {
   const p = (x: number): string => `${(100 * x).toFixed(0)}%`;
@@ -868,11 +916,13 @@ export function flowRow(label: string, f: FlowMetrics): string[] {
     String(f.matches),
     `${f.lenQ1.toFixed(0)} / ${f.lenMedian.toFixed(0)} / ${f.lenQ3.toFixed(0)}`,
     f.firstBankMedian === null ? '-' : `${f.firstBankMedian.toFixed(0)} (${p(f.firstBankShare)})`,
+    f.firstBankNorth === null ? '-' : `${p(f.firstBankNorth)} / ${f.firstBankTeamWins === null ? '-' : p(f.firstBankTeamWins)}`,
     p(f.fcBefore120),
     p(f.fcShare),
     `${f.draws} (${p(f.drawRate)})`,
     f.team0Share === null ? '-' : p(f.team0Share),
     `${f.tacklesPerMatch.toFixed(2)} (${f.tackleAttemptsPerMatch.toFixed(2)})`,
+    `${p(f.chainShare)} / ${f.chainLongest}`,
     f.stunsPerMatch.toFixed(2),
     f.wavesPerMatch.toFixed(2),
     `${f.bankInterruptsPolicePerMatch.toFixed(2)} / ${f.bankInterruptsDashPerMatch.toFixed(2)}`,

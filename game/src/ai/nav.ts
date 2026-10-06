@@ -776,14 +776,18 @@ export class NavGrid {
     const raw: Vec2[] = [{ x: from.x, y: from.y }];
     for (let q = 1; q < cells.length; q++) raw.push({ x: this.cellX(cells[q]!), y: this.cellY(cells[q]!) });
     if (!partial) raw.push({ x: to.x, y: to.y });
-    const pts = this.smooth(raw, cls, opts?.smoothMargin ?? 0.03);
+    const pts = this.smooth(raw, cls, opts?.smoothMargin ?? 0.03, avoid);
     let length = 0;
     for (let q = 1; q < pts.length; q++) length += Math.hypot(pts[q]!.x - pts[q - 1]!.x, pts[q]!.y - pts[q - 1]!.y);
     return { points: pts, length, partial };
   }
 
-  /** Greedy line-of-sight string pulling on the clearance field. */
-  smooth(raw: Vec2[], cls: NavClass, margin = 0.03): Vec2[] {
+  /**
+   * Greedy line-of-sight string pulling on the clearance field. Strong avoidance circles
+   * (cost >= HARD_AVOID_COST, e.g. an officer blocking a one-body alley) also block a shortcut
+   * that would cut through their core, so the detour A* found is not straightened back into it.
+   */
+  smooth(raw: Vec2[], cls: NavClass, margin = 0.03, avoid: ReadonlyArray<{ x: number; y: number; r: number; cost: number }> | null = null): Vec2[] {
     if (raw.length <= 2) return raw;
     const out: Vec2[] = [raw[0]!];
     let a = 0;
@@ -794,7 +798,7 @@ export class NavGrid {
       for (let b = limit; b > a + 1; b--) {
         // endpoints may sit in low-clearance spots (start inside a door, goal at a safe face);
         // only the interior of the segment must be clear
-        if (this.segmentClearInterior(raw[a]!, raw[b]!, cls, a === 0, b === raw.length - 1, margin)) {
+        if (this.segmentClearInterior(raw[a]!, raw[b]!, cls, a === 0, b === raw.length - 1, margin) && !crossesHardAvoid(raw[a]!, raw[b]!, avoid)) {
           best = b;
           break;
         }
@@ -1164,4 +1168,23 @@ export function pointAtArc(pts: ReadonlyArray<Vec2>, s: number): Vec2 {
   }
   const last = pts[pts.length - 1]!;
   return { x: last.x, y: last.y };
+}
+
+/** Avoidance circles at least this costly are treated as blocked for path smoothing. */
+const HARD_AVOID_COST = 10;
+
+/** Does segment a-b pass through the core (60 % radius) of a hard avoid circle neither end is in? */
+function crossesHardAvoid(a: Vec2, b: Vec2, avoid: ReadonlyArray<{ x: number; y: number; r: number; cost: number }> | null): boolean {
+  if (!avoid) return false;
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const l2 = dx * dx + dy * dy;
+  for (const c of avoid) {
+    if (c.cost < HARD_AVOID_COST) continue;
+    const core = c.r * 0.6;
+    if (Math.hypot(a.x - c.x, a.y - c.y) < c.r || Math.hypot(b.x - c.x, b.y - c.y) < c.r) continue;
+    const t = l2 > 0 ? Math.max(0, Math.min(1, ((c.x - a.x) * dx + (c.y - a.y) * dy) / l2)) : 0;
+    if (Math.hypot(a.x + dx * t - c.x, a.y + dy * t - c.y) < core) return true;
+  }
+  return false;
 }

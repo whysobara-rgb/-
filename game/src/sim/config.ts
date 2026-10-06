@@ -44,8 +44,10 @@ export const POLICE = {
   /** The final countdown ("도주 준비") always calls a wave if none is on the field. */
   getawayWave: true,
   /**
-   * (balance pass) Officers stepping out of the getaway wave's car (0 = officersPerWave): the
-   * final 30 s are a scramble past four officers, so a tied field is rarely swept clean.
+   * Officers stepping out of the getaway wave's car (0 = officersPerWave, like every other wave).
+   * Doc §8: the last 30 s are played under the same score and carrying conditions. (A 4-officer
+   * getaway wave was tried: measured on 162 normal 1v1 matches it changed draws by < 1 point
+   * (14.2 % vs 13.6 %), so it is not worth a late-match special rule.)
    */
   getawayOfficers: 0,
   radius: 0.42,
