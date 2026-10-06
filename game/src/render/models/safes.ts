@@ -15,7 +15,7 @@ import { LOOT_STYLE } from '../../shared/teams';
 import { PAL } from './palette';
 import { G, PartBuilder } from './geometry';
 import { createToonMaterial, matTextured, matVC } from './materials';
-import { blobShadowTexture, valuePlateTexture } from './textures';
+import { blobShadowTexture, valueCoinTexture, valuePlateTexture } from './textures';
 import { Highlighter } from './outline';
 
 export interface SafeRig {
@@ -35,7 +35,11 @@ export interface SafeRig {
 
 interface SafeGeo {
   body: THREE.BufferGeometry;
+  /** Front plate on the door (rotates with the safe). */
   plates: THREE.BufferGeometry;
+  /** Round coin on the top face; the rig keeps it upright toward the camera. */
+  coin: THREE.BufferGeometry;
+  coinY: number;
   anchors: THREE.BufferGeometry;
 }
 
@@ -96,14 +100,14 @@ function buildSmall(): SafeGeo {
   }
   const body = b.merge('vc')!;
 
-  // Plates: top (big, faces up) + front (small, on the door).
+  // Front plate (small, on the door) + round top coin (separate, kept upright).
   const pb = new PartBuilder('plate');
-  pb.add(G.flat(), { color: '#FFFFFF', pos: [0, H + 0.004, 0.0], scale: [0.62, 1, 0.31] });
   pb.add(G.plane(), { color: '#FFFFFF', pos: [0, cy + 0.17, fz + 0.034], scale: [0.3, 0.15, 1] });
   const plates = pb.merge('plate')!;
+  const coin = new THREE.CircleGeometry(0.3, 28).rotateX(-Math.PI / 2);
 
   const anchors = buildAnchors(hx, hz, 2);
-  return { body, plates, anchors };
+  return { body, plates, coin, coinY: H + 0.006, anchors };
 }
 
 function buildLarge(): SafeGeo {
@@ -172,12 +176,12 @@ function buildLarge(): SafeGeo {
   const body = b.merge('vc')!;
 
   const pb = new PartBuilder('plate');
-  pb.add(G.flat(), { color: '#FFFFFF', pos: [0, H + 0.02, 0.02], scale: [0.98, 1, 0.49] });
   pb.add(G.plane(), { color: '#FFFFFF', pos: [0, doorY + doorH / 2 - 0.13, fz + 0.042], scale: [0.4, 0.2, 1] });
   const plates = pb.merge('plate')!;
+  const coin = new THREE.CircleGeometry(0.47, 32).rotateX(-Math.PI / 2);
 
   const anchors = buildAnchors(hx, hz, 3);
-  return { body, plates, anchors };
+  return { body, plates, coin, coinY: H + 0.022, anchors };
 }
 
 /**
@@ -240,6 +244,14 @@ export function createSafe(kind: SafeKind): SafeRig {
   plates.userData.noOutline = true;
   plates.receiveShadow = true;
   body.add(plates);
+  // Top coin: a round plate, so it can turn to keep the number upright for the fixed
+  // camera without looking misaligned with the box.
+  const coin = new THREE.Mesh(geo.coin, matTextured(valueCoinTexture(value), { alphaTest: 0.35, rim: 0.2, polygonOffset: -1 }));
+  coin.name = `${kind}:coin`;
+  coin.position.y = geo.coinY;
+  coin.userData.noOutline = true;
+  coin.receiveShadow = true;
+  body.add(coin);
 
   // Per-instance material so the bolts can glow with strain.
   const anchorMat = createToonMaterial({ vertexColors: true, fx: true, rim: 0.6 });
@@ -281,8 +293,14 @@ export function createSafe(kind: SafeKind): SafeRig {
   const POP_TIME = 0.45;
   const rockSign = Math.random() < 0.5 ? -1 : 1;
 
+  const wq = new THREE.Quaternion();
+  const we = new THREE.Euler();
   const update = (dt: number): void => {
     time += dt;
+    // Keep the coin's number upright toward the camera (world +Z side).
+    root.getWorldQuaternion(wq);
+    we.setFromQuaternion(wq, 'YXZ');
+    coin.rotation.y = -we.y - body.rotation.y;
     const s = anchored ? strain : 0;
     // Tremble + rocking while being pulled.
     body.position.x = Math.sin(time * 47) * 0.012 * s;
@@ -335,6 +353,7 @@ export function disposeSafeCache(): void {
   for (const g of geoCache.values()) {
     g.body.dispose();
     g.plates.dispose();
+    g.coin.dispose();
     g.anchors.dispose();
   }
   geoCache.clear();

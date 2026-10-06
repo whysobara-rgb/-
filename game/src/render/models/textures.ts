@@ -630,6 +630,42 @@ export function valuePlateTexture(value: number): THREE.Texture {
   );
 }
 
+/** Round gold coin with the value, used on safe tops (kept upright toward the camera). */
+export function valueCoinTexture(value: number): THREE.Texture {
+  const text = String(value);
+  return cachedTex(`coin|${text}`, () =>
+    makeCanvasTexture(
+      256,
+      256,
+      (ctx, w, h) => {
+        ctx.clearRect(0, 0, w, h);
+        const cx = w / 2;
+        const cy = h / 2;
+        ctx.fillStyle = PAL.goldDark;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 124, 0, Math.PI * 2);
+        ctx.fill();
+        const g = ctx.createRadialGradient(cx - 30, cy - 40, 10, cx, cy, 118);
+        g.addColorStop(0, '#FFF1B8');
+        g.addColorStop(1, PAL.gold);
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 112, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(200,143,37,0.9)';
+        ctx.lineWidth = 6;
+        ctx.setLineDash([10, 9]);
+        ctx.beginPath();
+        ctx.arc(cx, cy, 98, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        outlinedText(ctx, text, cx, cy + 6, text.length > 3 ? 74 : 92, '#5A3A12', '#FFF6D8', 12, 190);
+      },
+      { fontText: text },
+    ),
+  );
+}
+
 /** "은행 BANK" sign board (double-sided usage: mapped on both faces). */
 export function bankSignTexture(): THREE.Texture {
   return cachedTex('bankSign', () =>
