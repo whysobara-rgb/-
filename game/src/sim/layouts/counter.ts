@@ -39,7 +39,7 @@ const AX = W / 2;
  * ~25 %, matches over in ~110 s); a near / far pair makes them race for one bank and leaves the
  * other for the mid-game. Mirror symmetry (x) is untouched.
  */
-const ZONE_DY = 7;
+const ZONE_DY = 4;
 const ZONE = { x: 10, y: 24 + ZONE_DY };
 /**
  * Bank centers sit 14 m from the middle: the front-door steps are then ~10 m from the clock
