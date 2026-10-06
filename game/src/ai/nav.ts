@@ -39,7 +39,7 @@ export const NAV_CLEARANCE: Readonly<Record<NavClass, number>> = {
 const CAP = 3;
 /** Lane-centering: extra cost per meter when clearance < r + CENTER_BAND. */
 const CENTER_BAND = 0.6;
-const CENTER_WEIGHT = 0.8;
+const CENTER_WEIGHT = 0.35;
 const SQRT2 = Math.SQRT2;
 
 /** Signed distance from p to an OBB (negative inside). */
@@ -144,7 +144,7 @@ export interface PathResult {
 }
 
 interface ZoneField {
-  dist: Float32Array;
+  dist: Float64Array;
   version: number;
   tick: number;
 }
@@ -603,11 +603,11 @@ export class NavGrid {
   }
 
   /** Multi-source Dijkstra (m) over cells passable for cls. */
-  distanceField(seeds: ReadonlyArray<number>, cls: NavClass, out?: Float32Array, maxDist = Infinity): Float32Array {
+  distanceField(seeds: ReadonlyArray<number>, cls: NavClass, out?: Float64Array, maxDist = Infinity): Float64Array {
     this.stats.dijkstra++;
     const r = NAV_CLEARANCE[cls];
     const n = this.n;
-    const d = out ?? new Float32Array(n);
+    const d = out ?? new Float64Array(n);
     d.fill(Infinity);
     const heap = this.heap;
     heap.clear();
@@ -645,7 +645,7 @@ export class NavGrid {
   }
 
   /** Field value at a world point: nearest passable cell within 2.5 m (+ that offset), else Infinity. */
-  fieldAt(field: Float32Array, p: Vec2, cls: NavClass): number {
+  fieldAt(field: Float64Array, p: Vec2, cls: NavClass): number {
     const k = this.cellAt(p.x, p.y);
     const v = field[k]!;
     if (Number.isFinite(v)) return v + Math.hypot(this.cellX(k) - p.x, this.cellY(k) - p.y);
@@ -682,7 +682,7 @@ export class NavGrid {
    * Carry distance field to a team's zone for a class (refreshed lazily: when the dynamic
    * layer changed and the cached field is older than `maxAgeTicks`).
    */
-  zoneField(team: TeamId, cls: NavClass, tick: number, maxAgeTicks = 120): Float32Array {
+  zoneField(team: TeamId, cls: NavClass, tick: number, maxAgeTicks = 120): Float64Array {
     const key = `${team}:${cls}`;
     const f = this.zoneFields.get(key);
     if (f && (f.version === this.dynVersion || tick - f.tick < maxAgeTicks)) return f.dist;
