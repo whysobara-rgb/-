@@ -362,7 +362,8 @@ export class InputManager {
   private lastPadActive = new Set<string>();
   /** Analog hysteresis: half-axes / triggers currently considered "down". */
   private readonly analogLatched = new Set<string>();
-  private padIds = new Map<number, string>();
+  /** Per-pad digital button state at the previous read (active-pad switching). */
+  private readonly padButtons = new Map<number, boolean[]>();
 
   private lastDeviceValue: InputDevice = 'keyboard';
   private padFamilyValue: PadFamily = 'xbox';
@@ -485,6 +486,10 @@ export class InputManager {
     return actionGlyph(action, this.glyphDevice, this.bindings, this.padFamilyValue);
   }
 
+  /**
+   * Prompt glyphs may have changed: the glyph device (keyboard <-> pad), the pad family or the
+   * bindings changed. Game flow refreshes the UI's glyph provider here.
+   */
   onDeviceChange(cb: (device: InputDevice, glyphDevice: BindingDevice, family: PadFamily) => void): () => void {
     return this.deviceEvents.on(cb);
   }
@@ -779,15 +784,9 @@ export class InputManager {
   private onPadConnection(e: GamepadEvent, connected: boolean): void {
     const pad = (e as { gamepad?: GamepadLike }).gamepad;
     const id = pad?.id ?? '';
-    if (pad) {
-      if (connected) this.padIds.set(pad.index, id);
-      else {
-        this.padIds.delete(pad.index);
-        if (this.activePadIndex === pad.index) {
-          this.activePadIndex = null;
-          this.analogLatched.clear();
-        }
-      }
+    if (pad && !connected && this.activePadIndex === pad.index) {
+      this.activePadIndex = null;
+      this.analogLatched.clear();
     }
     this.padEvents.emit(connected, id);
   }
@@ -900,17 +899,29 @@ export class InputManager {
     const pads = this.connectedPads();
     if (!pads.length) {
       this.activePadIndex = null;
+      this.padButtons.clear();
       return null;
     }
-    // Switch to whichever pad just had a button pressed (players pick up a different pad).
+    // Which pads had a button go down since the previous read.
+    const fresh = new Set<number>();
     for (const p of pads) {
-      if (p.index === this.activePadIndex) continue;
-      if (p.buttons.some((b, i) => i !== 16 && (b.pressed || b.value > PRESS_THRESHOLD))) {
-        this.activatePad(p);
-        return p;
+      const prev = this.padButtons.get(p.index) ?? [];
+      const now = p.buttons.map((b, i) => i !== 16 && (b.pressed || b.value > PRESS_THRESHOLD));
+      if (now.some((v, i) => v && !prev[i])) fresh.add(p.index);
+      this.padButtons.set(p.index, now);
+    }
+    for (const k of [...this.padButtons.keys()]) if (!pads.some((p) => p.index === k)) this.padButtons.delete(k);
+    const current = pads.find((p) => p.index === this.activePadIndex);
+    // Switch to a pad the player just pressed a button on (they picked up another pad). When the
+    // active pad registered a new press too, stay: with Steam Input a physical pad and Steam's
+    // virtual pad report the same press, and following both would flip every frame.
+    if (!(current && fresh.has(current.index))) {
+      const next = pads.find((p) => p.index !== this.activePadIndex && fresh.has(p.index));
+      if (next) {
+        this.activatePad(next);
+        return next;
       }
     }
-    const current = pads.find((p) => p.index === this.activePadIndex);
     if (current) return current;
     const first = pads.find((p) => p.mapping === 'standard') ?? pads[0];
     this.activatePad(first);
@@ -973,7 +984,9 @@ export class InputManager {
       const isTrigger = i === 6 || i === 7;
       digital(code, b.pressed && !isTrigger ? 1 : Number.isFinite(b.value) ? b.value : 0, isTrigger);
     });
-    for (let i = 0; i < axes.length && i < 16; i++) {
+    // Digital half-axis codes for the two sticks only: non-standard pads often expose triggers
+    // as extra axes resting at -1, which would read as a permanently held direction.
+    for (let i = 0; i < axes.length && i < 4; i++) {
       const v = axis(i);
       digital(`axis:${i}:+`, Math.max(0, v), true);
       digital(`axis:${i}:-`, Math.max(0, -v), true);

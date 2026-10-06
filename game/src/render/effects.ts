@@ -10,13 +10,20 @@
 import * as THREE from 'three';
 import type { TeamId, Vec2 } from '../sim';
 import { TEAM_STYLES } from '../shared/teams';
-import { FxSystem, PAL, type DebrisBurst } from './models';
+import { FxSystem, HIGHLIGHT_COLORS, PAL, type DebrisBurst } from './models';
 import { radialGlowTexture } from './models/textures';
 import { G, PartBuilder } from './models/geometry';
 import { createToonMaterial } from './models/materials';
 import { scaledCount, type QualityPreset } from './quality';
 
 const _v = new THREE.Vector3();
+
+/**
+ * Grab-candidate colour (view override of HIGHLIGHT_COLORS.grab '#FFF4B8', which vanishes on
+ * the cream bank facade and pink paving at the game camera). Saturated warm gold: distinct from
+ * both team colours, the zone green and the loaded-safe yellow is lighter (#FFD45C).
+ */
+export const GRAB_MARKER_COLOR = '#FFB81C';
 
 export interface FlightOptions {
   /** Objects to fly (bank root + its loaded safes, or one safe root). */
@@ -52,7 +59,16 @@ export interface CharMarker {
 export interface SirenGlow {
   readonly root: THREE.Group;
   place(vanPos: Vec2, vanAngle: number): void;
-  update(on: boolean, time: number): void;
+  /** `dt` drives the fade in/out (frame-rate independent; dt = 0 freezes it). */
+  update(on: boolean, time: number, dt: number): void;
+}
+
+/** Grab-candidate footprint kinds (corner brackets sized to the target). */
+export type TargetKind = 'smallSafe' | 'largeSafe' | 'bank';
+
+interface Meter {
+  mesh: THREE.Mesh;
+  mat: THREE.ShaderMaterial;
 }
 
 interface Beacon {
@@ -82,6 +98,10 @@ export class ViewEffects {
   private readonly markerMats: Record<TeamId, { dim: THREE.MeshBasicMaterial; bright: THREE.MeshBasicMaterial }>;
   private readonly glowGeo: THREE.BufferGeometry;
   private readonly glows: Partial<Record<TeamId, SirenGlow>> = {};
+  private readonly meters: Meter[] = [];
+  private readonly meterGeo: THREE.BufferGeometry;
+  private readonly target: { root: THREE.Group; brackets: THREE.Mesh; anchor: THREE.Mesh; mat: THREE.MeshBasicMaterial; anchorMat: THREE.MeshBasicMaterial };
+  private readonly bracketGeo = new Map<TargetKind, THREE.BufferGeometry>();
   private time = 0;
 
   constructor(preset: QualityPreset) {
@@ -129,6 +149,102 @@ export class ViewEffects {
     };
     this.glowGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
     this.owned.push(this.glowGeo);
+
+    // Recovery meters: ground rings around loot dwelling in a zone (doc §8 1.5 s dwell).
+    this.meterGeo = new THREE.CircleGeometry(1, 72).rotateX(-Math.PI / 2);
+    this.owned.push(this.meterGeo);
+    for (let i = 0; i < 4; i++) {
+      const mat = new THREE.ShaderMaterial({
+        uniforms: {
+          uProgress: { value: 0 },
+          uInner: { value: 0.8 },
+          uFill: { value: new THREE.Color(HIGHLIGHT_COLORS.inZone) },
+          uTime: { value: 0 },
+          uAlpha: { value: 1 },
+        },
+        transparent: true,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -7,
+        polygonOffsetUnits: -7,
+        vertexShader: /* glsl */ `
+          varying vec2 vPos;
+          void main() {
+            vPos = position.xz;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `,
+        fragmentShader: /* glsl */ `
+          uniform float uProgress;
+          uniform float uInner;
+          uniform vec3 uFill;
+          uniform float uTime;
+          uniform float uAlpha;
+          varying vec2 vPos;
+          void main() {
+            float r = length(vPos);
+            float aa = fwidth(r) * 1.5;
+            float band = smoothstep(uInner - aa, uInner, r) * (1.0 - smoothstep(1.0 - aa, 1.0, r));
+            if (band < 0.01) discard;
+            // 0 at screen-up (north, -z), clockwise seen from above.
+            float f = fract(atan(vPos.x, -vPos.y) / 6.2831853 + 1.0);
+            float filled = step(f, uProgress) * step(0.001, uProgress);
+            float head = filled * smoothstep(uProgress - 0.06, uProgress, f);
+            // Thin white rims so the ring reads on any paving.
+            float w = 1.0 - uInner;
+            float rim = 1.0 - smoothstep(0.0, 0.18, min(r - uInner, 1.0 - r) / w);
+            vec3 track = vec3(0.16, 0.13, 0.24);
+            vec3 c = mix(track, mix(uFill, vec3(1.0), 0.55 * head), filled);
+            c = mix(c, vec3(1.0), rim * 0.85);
+            float a = mix(0.6, 1.0, max(filled, rim)) * band * uAlpha;
+            gl_FragColor = vec4(c, a);
+            #include <colorspace_fragment>
+          }
+        `,
+      });
+      this.owned.push(mat);
+      const mesh = new THREE.Mesh(this.meterGeo, mat);
+      mesh.name = `recoveryMeter${i}`;
+      mesh.userData.noOutline = true;
+      mesh.renderOrder = 5;
+      mesh.visible = false;
+      mesh.raycast = () => {};
+      this.root.add(mesh);
+      this.meters.push({ mesh, mat });
+    }
+
+    // Grab-candidate marker: corner brackets around the whole target + a dot where the hands go.
+    {
+      const root = new THREE.Group();
+      root.name = 'grabTarget';
+      root.visible = false;
+      const mat = new THREE.MeshBasicMaterial({
+        color: GRAB_MARKER_COLOR,
+        transparent: true,
+        opacity: 0.95,
+        depthWrite: false,
+        toneMapped: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -6,
+        polygonOffsetUnits: -6,
+      });
+      const anchorMat = mat.clone();
+      this.owned.push(mat, anchorMat);
+      const brackets = new THREE.Mesh(this.bracketGeometry('smallSafe'), mat);
+      brackets.renderOrder = 4;
+      const anchorGeo = new THREE.RingGeometry(0.13, 0.24, 28).rotateX(-Math.PI / 2);
+      this.owned.push(anchorGeo);
+      const anchor = new THREE.Mesh(anchorGeo, anchorMat);
+      anchor.renderOrder = 4;
+      for (const m of [brackets, anchor]) {
+        m.userData.noOutline = true;
+        m.raycast = () => {};
+      }
+      root.add(brackets);
+      this.root.add(root, anchor);
+      anchor.visible = false;
+      this.target = { root, brackets, anchor, mat, anchorMat };
+    }
 
     for (let i = 0; i < 8; i++) {
       const root = new THREE.Group();
@@ -222,8 +338,8 @@ export class ViewEffects {
         // Beacon sits 1.2 m toward the van's nose on the roof.
         flare.position.set(Math.cos(vanAngle) * 1.2, 2.45, Math.sin(vanAngle) * 1.2);
       },
-      update: (on: boolean, time: number) => {
-        level += ((on ? 1 : 0) - level) * 0.12;
+      update: (on: boolean, time: number, dt: number) => {
+        level += ((on ? 1 : 0) - level) * (1 - Math.exp(-7.5 * Math.max(0, dt)));
         root.visible = level > 0.01;
         if (!root.visible) return;
         const phase = Math.sin(time * 9);
@@ -477,6 +593,103 @@ export class ViewEffects {
   }
 
   // ---------------------------------------------------------------------------
+  // Recovery meters (ground ring around loot dwelling in a zone)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Show meter `i`: a ground ring of `radius` m around `pos` (world; y = floor height) filling
+   * clockwise from screen-up with `progress` 0..1. Width scales gently with the radius.
+   */
+  setRecoveryMeter(i: number, pos: THREE.Vector3, radius: number, progress: number): void {
+    const m = this.meters[i];
+    if (!m) return;
+    m.mesh.visible = true;
+    m.mesh.position.set(pos.x, pos.y + 0.035, pos.z);
+    // Pop in, then a gentle breathing so the ring reads as "running".
+    const breathe = 1 + 0.025 * Math.sin(this.time * 7);
+    m.mesh.scale.setScalar(radius * breathe);
+    const width = Math.min(0.62, 0.26 + radius * 0.07);
+    m.mat.uniforms.uInner.value = 1 - width / radius;
+    m.mat.uniforms.uProgress.value = THREE.MathUtils.clamp(progress, 0, 1);
+    m.mat.uniforms.uAlpha.value = 1;
+  }
+
+  hideRecoveryMetersFrom(i: number): void {
+    for (let k = i; k < this.meters.length; k++) this.meters[k].mesh.visible = false;
+  }
+
+  get meterCapacity(): number {
+    return this.meters.length;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Grab-candidate marker (doc §4: 잡기 전 대상 전체에 윤곽 — plus a ground bracket that reads
+  // at the game camera on every paving / facade colour)
+  // ---------------------------------------------------------------------------
+
+  /** Corner-bracket frame around a target footprint (cached per kind). */
+  private bracketGeometry(kind: TargetKind): THREE.BufferGeometry {
+    const hit = this.bracketGeo.get(kind);
+    if (hit) return hit;
+    const half = kind === 'bank' ? { x: 4, y: 3 } : kind === 'largeSafe' ? { x: 0.7, y: 0.6 } : { x: 0.4, y: 0.4 };
+    const margin = kind === 'bank' ? 0.55 : 0.28;
+    const t = kind === 'bank' ? 0.26 : 0.1;
+    const hx = half.x + margin;
+    const hy = half.y + margin;
+    const arm = kind === 'bank' ? 1.7 : Math.min(hx, hy) * 0.75;
+    const pos: number[] = [];
+    const quad = (x0: number, z0: number, x1: number, z1: number): void => {
+      pos.push(x0, 0, z0, x1, 0, z1, x1, 0, z0, x0, 0, z0, x0, 0, z1, x1, 0, z1);
+    };
+    for (const sx of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        const cx = sx * hx;
+        const cz = sz * hy;
+        // Horizontal arm and vertical arm of the L (outer edge on the frame line).
+        quad(Math.min(cx, cx - sx * arm), Math.min(cz, cz - sz * t), Math.max(cx, cx - sx * arm), Math.max(cz, cz - sz * t));
+        quad(Math.min(cx, cx - sx * t), Math.min(cz - sz * t, cz - sz * arm), Math.max(cx, cx - sx * t), Math.max(cz - sz * t, cz - sz * arm));
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.computeVertexNormals();
+    this.bracketGeo.set(kind, g);
+    this.owned.push(g);
+    return g;
+  }
+
+  /**
+   * Show the grab marker around a target (sim pose; `y` = floor height) with a pulsing dot at
+   * the grab anchor, or hide it with `kind = null`.
+   */
+  setGrabTarget(kind: TargetKind | null, pose: { x: number; y: number; a: number }, y = 0, anchor: Vec2 | null = null, anchorY = 0, color: THREE.ColorRepresentation = GRAB_MARKER_COLOR): void {
+    const tg = this.target;
+    if (!kind) {
+      tg.root.visible = false;
+      tg.anchor.visible = false;
+      return;
+    }
+    tg.root.visible = true;
+    const geo = this.bracketGeometry(kind);
+    if (tg.brackets.geometry !== geo) tg.brackets.geometry = geo;
+    tg.root.position.set(pose.x, y + 0.03, pose.y);
+    tg.root.rotation.set(0, -pose.a, 0);
+    // Brackets breathe in toward the target (reads as "this one").
+    const k = 0.5 + 0.5 * Math.sin(this.time * 7.5);
+    const s = 1 + (kind === 'bank' ? 0.025 : 0.06) * k;
+    tg.root.scale.set(s, 1, s);
+    tg.mat.color.set(color);
+    tg.mat.opacity = 0.75 + 0.25 * k;
+    if (anchor) {
+      tg.anchor.visible = true;
+      tg.anchor.position.set(anchor.x, anchorY + 0.04, anchor.y);
+      tg.anchor.scale.setScalar(0.9 + 0.35 * k);
+      tg.anchorMat.color.set(color);
+      tg.anchorMat.opacity = 0.6 + 0.4 * (1 - k);
+    } else tg.anchor.visible = false;
+  }
+
+  // ---------------------------------------------------------------------------
 
   update(dt: number): void {
     this.time += dt;
@@ -501,6 +714,8 @@ export class ViewEffects {
     this.bursts.length = 0;
     this.finishFlights();
     this.hideBeaconsFrom(0);
+    this.hideRecoveryMetersFrom(0);
+    this.setGrabTarget(null, { x: 0, y: 0, a: 0 });
   }
 
   dispose(): void {

@@ -7,7 +7,9 @@
  * App id resolution (first match wins):
  *   1. env STEAM_APPID, or SteamAppId (set by the Steam client when it launches the game)
  *   2. steam_appid.txt beside the executable, in resources/, or (dev) in <project>/steam/
- *   3. 480 (Valve's public "Spacewar" test app) for development
+ *   3. 480 (Valve's public "Spacewar" test app) — UNPACKAGED dev runs only. A packaged build
+ *      without an id never falls back to 480 (that would show "Playing Spacewar"); Steam is
+ *      simply unavailable then.
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -39,7 +41,8 @@ function resolveAppId({ appRoot, isPackaged }) {
       // not there
     }
   }
-  return { appId: DEV_APP_ID, source: 'default' };
+  if (!isPackaged) return { appId: DEV_APP_ID, source: 'default' };
+  return { appId: null, source: 'none' };
 }
 
 function createSteam(log) {
@@ -72,6 +75,11 @@ function createSteam(log) {
     }
     const { appId, source } = resolveAppId({ appRoot, isPackaged });
     state.appIdSource = source;
+    if (appId === null) {
+      state.error = 'no app id (not launched by Steam and no steam_appid.txt)';
+      log.info('[steam] not initialised:', state.error);
+      return state;
+    }
     try {
       client = steamworks.init(appId);
       state.available = true;

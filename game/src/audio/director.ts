@@ -53,8 +53,7 @@ export class MatchAudioDirector {
   private readonly stride = new Map<EntityId, number>();
   private activeLoops = new Set<string>();
   private combo = 0;
-  private lastOwnScoreTime = -Infinity;
-  private time = 0;
+  private lastOwnScoreTick = -Infinity;
   private intensity = 0.4;
   private ended = false;
 
@@ -153,8 +152,8 @@ export class MatchAudioDirector {
         const own = e.team === this.opts.localTeam;
         let step = -2;
         if (own) {
-          this.combo = this.time - this.lastOwnScoreTime <= COMBO_WINDOW ? Math.min(COMBO_MAX, this.combo + 1) : 0;
-          this.lastOwnScoreTime = this.time;
+          this.combo = e.tick - this.lastOwnScoreTick <= COMBO_WINDOW * TICK_RATE ? Math.min(COMBO_MAX, this.combo + 1) : 0;
+          this.lastOwnScoreTick = e.tick;
           step = this.combo;
         }
         const id = e.kind === 'bank' ? 'scoreBank' : e.kind === 'largeSafe' ? 'scoreLarge' : 'scoreSmall';
@@ -196,8 +195,8 @@ export class MatchAudioDirector {
   /** Per rendered frame: listener, loops, footsteps and music intensity. */
   update(sim: AudioSimView, dt: number, listenerPos?: Vec2): void {
     const st = sim.state;
+    // Clamp long frame gaps (tab switches) so smoothing and footsteps never jump.
     const step = Number.isFinite(dt) ? Math.max(0, Math.min(0.1, dt)) : 0;
-    this.time += step;
     const listener = listenerPos ?? this.listenerChar(st)?.pos;
     if (listener) this.engine.setListener(listener);
     if (st.over || this.ended) {

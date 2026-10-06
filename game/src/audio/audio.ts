@@ -84,6 +84,8 @@ interface LoopState {
   intensity: number;
   silentSince: number;
   captionAt: number;
+  /** Last spatial mix sent to the graph (updates below perceptual thresholds are skipped). */
+  sent: SpatialMix | null;
 }
 
 interface ActiveVoice extends SpawnedVoice {
@@ -302,7 +304,7 @@ export class AudioEngine {
     for (const v of this.voices) {
       if (v.end <= now) continue;
       active++;
-      if (v.id === id) {
+      if (v.id === id && v.priority >= 0) {
         same++;
         if (!oldest || v.start < oldest.start) oldest = v;
       }
@@ -380,7 +382,7 @@ export class AudioEngine {
     let l = this.loops.get(k);
     if (!l) {
       if (i <= 0) return;
-      l = { spawned: null, intensity: 0, silentSince: -Infinity, captionAt: -Infinity };
+      l = { spawned: null, intensity: 0, silentSince: -Infinity, captionAt: -Infinity, sent: null };
       this.loops.set(k, l);
     }
     const mix = spatialMix(this.listener, pos);
@@ -408,13 +410,18 @@ export class AudioEngine {
       try {
         l.spawned = spawnLoop(ctx, mixer, id, now, this.rnd, mix);
         l.spawned.voice.set(i, now);
+        l.sent = mix;
       } catch (err) {
         console.error(`[audio] loop ${id} failed`, err);
       }
       return;
     }
     if (Math.abs(i - prev) > 0.004 || (i === 0 && prev !== 0)) l.spawned.voice.set(i, now);
-    updateLoopSpatial(ctx, l.spawned, mix, now);
+    const s = l.sent;
+    if (!s || Math.abs(s.gain - mix.gain) > 0.01 || Math.abs(s.pan - mix.pan) > 0.01 || Math.abs(s.cutoff - mix.cutoff) > s.cutoff * 0.03) {
+      updateLoopSpatial(ctx, l.spawned, mix, now);
+      l.sent = mix;
+    }
   }
 
   /** Silence every loop (match end, pause, scene change). */

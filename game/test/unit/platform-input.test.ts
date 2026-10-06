@@ -146,7 +146,7 @@ class FakePad implements GamepadLike {
   }
 }
 
-function setup(opts: { pads?: GamepadLike[] } = {}) {
+function setup(opts: { pads?: Array<GamepadLike | null> } = {}) {
   let t = 1000;
   const target = new EventTarget();
   const pads: Array<GamepadLike | null> = opts.pads ?? [];
@@ -386,6 +386,42 @@ describe('InputManager gamepads', () => {
     expect(s.input.pollMatch().grabPressed).toBe(true);
     expect(s.input.padFamily).toBe('playstation');
     expect(s.input.promptGlyph('grab').label).toBe('✕');
+  });
+
+  it('does not flip between a physical pad and its Steam Input twin reporting the same press', () => {
+    const physical = new FakePad();
+    physical.id = 'DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)';
+    const virtualPad = new FakePad();
+    virtualPad.index = 1;
+    virtualPad.id = 'Steam Virtual Gamepad';
+    const s = setup({ pads: [physical, virtualPad] });
+    let changes = 0;
+    s.input.onDeviceChange(() => changes++);
+    s.input.pollMatch();
+    physical.set(0, true);
+    virtualPad.set(0, true);
+    expect(s.input.pollMatch().grabPressed).toBe(true);
+    const family = s.input.padFamily;
+    const before = changes;
+    for (let i = 0; i < 10; i++) {
+      const f = s.input.pollMatch();
+      expect(f.grabDown).toBe(true);
+      expect(f.grabPressed).toBe(false);
+    }
+    expect(s.input.padFamily).toBe(family);
+    expect(changes).toBe(before);
+  });
+
+  it('ignores extra axes (triggers resting at -1 on non-standard pads)', () => {
+    const pad = new FakePad();
+    pad.mapping = '';
+    pad.axes = [0, 0, 0, 0, -1, -1];
+    const s = setup({ pads: [pad] });
+    s.input.pollMenu();
+    s.advance(16);
+    expect(s.input.pollMenu().any).toBe(false);
+    expect(s.input.lastDevice).toBe('keyboard');
+    expect(s.input.pollMatch().move).toEqual({ x: 0, y: 0 });
   });
 
   it('vibrates only when enabled', () => {

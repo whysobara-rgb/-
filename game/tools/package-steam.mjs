@@ -20,6 +20,8 @@
  *   --branch=NAME               SetLive branch for the uploaded build (never "default"; set live by hand)
  *   --desc=TEXT                 build description (default: version + git commit)
  *   --preview                   SteamPipe dry run (Preview "1")
+ *   --no-appid-file             do not put steam_appid.txt in the depots (Valve's recommendation for
+ *                               public releases; the Steam client passes the id when it launches the game)
  *   --skip-build                reuse the existing dist/
  *   --skip-typecheck            vite build only (emergency builds; CI should typecheck)
  *   --skip-package              reuse existing release/<os>-unpacked folders
@@ -276,7 +278,8 @@ for (const p of platforms) {
   fs.mkdirSync(path.dirname(dst), { recursive: true });
   fs.cpSync(src, dst, { recursive: true, preserveTimestamps: true, verbatimSymlinks: true });
   // Lets the Steam API initialise when the exe is started outside the Steam client (Steam must run).
-  fs.writeFileSync(path.join(dst, 'steam_appid.txt'), `${appId}\n`);
+  const withAppIdFile = !opts['no-appid-file'];
+  if (withAppIdFile) fs.writeFileSync(path.join(dst, 'steam_appid.txt'), `${appId}\n`);
 
   const problems = [];
   const must = (rel) => {
@@ -284,7 +287,7 @@ for (const p of platforms) {
   };
   must(spec.exe);
   must('resources/app.asar');
-  must('steam_appid.txt');
+  if (withAppIdFile) must('steam_appid.txt');
   for (const n of spec.natives) must(`resources/app.asar.unpacked/node_modules/steamworks.js/dist/${spec.nativeDir}/${n}`);
   for (const other of Object.values(PLATFORMS)) {
     if (other.nativeDir === spec.nativeDir) continue;
@@ -301,7 +304,7 @@ for (const p of platforms) {
     }
   }
   if (problems.length) fail(`${p} depot is incomplete:\n  - ${problems.join('\n  - ')}`);
-  console.log(`  ok: ${spec.exe}, app.asar, steamworks natives (${spec.nativeDir}), steam_appid.txt=${appId}`);
+  console.log(`  ok: ${spec.exe}, app.asar, steamworks natives (${spec.nativeDir}), ${withAppIdFile ? `steam_appid.txt=${appId}` : 'no steam_appid.txt'}`);
 }
 
 // 5. SteamPipe scripts with absolute paths.

@@ -74,7 +74,6 @@ export class TrackPlayer {
   readonly def: SongDef;
   readonly startTime: number;
   private readonly ctx: BaseAudioContext;
-  private readonly host: MusicHost;
   private readonly out: GainNode;
   private readonly send: GainNode;
   private readonly layers = new Map<LayerId, { dry: GainNode; wet: GainNode }>();
@@ -100,7 +99,6 @@ export class TrackPlayer {
     fadeIn: number,
     filter: ((ev: NoteEvent) => boolean) | null = null,
   ) {
-    this.host = host;
     this.filter = filter;
     this.ctx = host.ctx;
     this.def = def;

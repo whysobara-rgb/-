@@ -11,7 +11,7 @@
 import { AudioEngine, type CaptionEvent } from '../audio';
 import { captionText } from '../captions';
 import { LOOP_IDS, SFX_IDS, TRACK_IDS, type LoopId, type MusicId, type SfxId, type TrackId } from '../ids';
-import { encodeWav, renderLoop, renderMusic, renderSfx } from '../offline';
+import { encodeWav, renderLoop, renderMusic, renderScene, renderSfx, type SceneOptions } from '../offline';
 import { SFX_RECIPES } from '../sfx';
 import { SPATIAL } from '../spatial';
 
@@ -156,7 +156,12 @@ comboBtn.addEventListener('click', () => {
   comboStep = (comboStep + 1) % 7;
   comboBtn.textContent = `combo step: ${comboStep}`;
 });
-const sfxSection = section('Sound effects', el('div', { class: 'row' }, comboBtn, el('span', { class: 'hint' }, 'score sounds climb the scale per step')), ...sfxRows);
+const sfxSection = section(
+  'Sound effects',
+  el('div', { class: 'row' }, comboBtn, el('span', { class: 'hint' }, 'score sounds climb the scale per step')),
+  el('div', { class: 'sfx-list' }, ...sfxRows),
+);
+sfxSection.classList.add('wide');
 
 // ---- loops -----------------------------------------------------------------------------------
 const loopLevels: Record<LoopId, number> = { drag: 0, bankRumble: 0, strain: 0, sirenLoop: 0 };
@@ -251,6 +256,9 @@ const qa = {
   /** Intensity ramps 0 -> 1 over the first 80 % then holds (shows the whole range). */
   async renderMusicRamp(id: TrackId, seconds: number, seed = 7): Promise<string> {
     return toBase64(encodeWav(await renderMusic(id, seconds, { intensity: (t) => Math.min(1, t / (seconds * 0.8)), seed }), 32));
+  },
+  async renderScene(seconds: number, o: SceneOptions): Promise<string> {
+    return toBase64(encodeWav(await renderScene(seconds, o), 32));
   },
   async renderLoop(id: LoopId, seconds: number, shape: 'ramp' | 'full' = 'ramp'): Promise<string> {
     const intensity = shape === 'full' ? () => 1 : (t: number) => (t < seconds * 0.85 ? t / (seconds * 0.85) : 0);

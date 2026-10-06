@@ -114,6 +114,63 @@ export async function renderLoop(id: LoopId, seconds: number, o: LoopRenderOptio
   return ctx.startRendering();
 }
 
+export interface SceneCue {
+  t: number;
+  id: SfxId;
+  variant?: number;
+  pos?: Vec2;
+  volume?: number;
+  step?: number;
+}
+
+export interface SceneOptions {
+  music?: TrackId;
+  intensity?: number;
+  cues: readonly SceneCue[];
+  /** Loops held at a constant intensity for the whole scene. */
+  loops?: readonly { id: LoopId; intensity: number; pos?: Vec2 }[];
+  seed?: number;
+  sampleRate?: number;
+}
+
+/**
+ * A whole moment of gameplay through the production mixer: music + loops + timed SFX
+ * (listener at the origin). Used to check stacking headroom and the music/SFX balance.
+ */
+export async function renderScene(seconds: number, o: SceneOptions): Promise<AudioBuffer> {
+  const sr = o.sampleRate ?? QA_SAMPLE_RATE;
+  const ctx = offline(PRE_ROLL + seconds, sr);
+  const mixer = createMixer(ctx);
+  mixer.setVolumes(FULL, false);
+  const rnd = makeRng(o.seed ?? 11);
+  const origin = { x: 0, y: 0 };
+  for (const c of [...o.cues].sort((a, b) => a.t - b.t)) {
+    const r = SFX_RECIPES[c.id];
+    spawnSfx(ctx, mixer, c.id, {
+      t: PRE_ROLL + c.t,
+      mix: r.global ? spatialMix(origin, null) : spatialMix(origin, c.pos),
+      volume: c.volume ?? 1,
+      pitch: 1,
+      variant: (c.variant ?? 0) % r.variants,
+      step: c.step ?? 0,
+      key: SFX_KEY_ROOT,
+      rnd,
+    });
+  }
+  for (const l of o.loops ?? []) {
+    const sp = spawnLoop(ctx, mixer, l.id, PRE_ROLL, rnd, spatialMix(origin, l.pos));
+    sp.voice.set(l.intensity, PRE_ROLL);
+    sp.voice.stop(PRE_ROLL + seconds);
+  }
+  if (o.music) {
+    const player = new MusicPlayer({ ctx, input: mixer.inputs.music, reverb: mixer.musicReverb }, o.seed ?? 7);
+    player.setIntensity(o.intensity ?? 0.75, PRE_ROLL);
+    player.play(o.music, PRE_ROLL);
+    for (let t = 0; t < seconds; t += 0.25) player.schedule(PRE_ROLL + Math.min(seconds, t + 0.3), PRE_ROLL + t);
+  }
+  return ctx.startRendering();
+}
+
 /** Encode as WAV: 32-bit float (analysis) or 16-bit PCM (listening). */
 export function encodeWav(buf: AudioBuffer, bits: 16 | 32 = 32): ArrayBuffer {
   const ch = buf.numberOfChannels;

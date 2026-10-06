@@ -570,11 +570,15 @@ const results: SongDef = {
     const next = spans(RESULTS_CHORDS[(i + 1) % 4])[0].chord;
     for (const sp of b) for (const m of voicing(sp.chord, 57, 3)) out.push({ step: sp.start, inst: 'pad', midi: m, dur: sp.len, vel: 0.8, layer: 'base' });
     bassLine(out, b, next, [[0, 'R', 6], [8, '5', 6]], 'pizz', 41, 0.75);
-    // Arpeggio of chord tones (root included) in the middle register; direction alternates.
-    const c = b[0].chord;
-    const tones = c.tones.map((iv) => pcAtOrAbove((c.root + iv) % 12, 65)).sort((x, y) => x - y);
+    // Arpeggio of chord tones (root included) in the middle register; direction alternates and
+    // each half follows the chord sounding under it.
     const order = pass % 2 ? [3, 2, 1, 0, 1, 2, 3, 2] : [0, 1, 2, 3, 2, 1, 0, 1];
-    order.forEach((k, j) => out.push({ step: j * 2, inst: 'marimba', midi: tones[k % tones.length], dur: 2, vel: j % 2 ? 0.45 : 0.6, layer: 'base' }));
+    order.forEach((k, j) => {
+      const step = j * 2;
+      const c = (b.find((sp) => step >= sp.start && step < sp.start + sp.len) ?? b[0]).chord;
+      const tones = c.tones.map((iv) => pcAtOrAbove((c.root + iv) % 12, 65)).sort((x, y) => x - y);
+      out.push({ step, inst: 'marimba', midi: tones[k % tones.length], dur: 2, vel: j % 2 ? 0.45 : 0.6, layer: 'base' });
+    });
     hits(out, 'shaker', [0, 2, 4, 6, 8, 10, 12, 14], (k) => (k % 2 ? 0.45 : 0.25), 'drums');
     hits(out, 'brush', [4, 12], 0.45, 'drums');
     if (pass % 2 === 1) melody(out, RESULTS_MELODY[i], 2, 'tine', 0.7, 'lead', rnd);

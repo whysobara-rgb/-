@@ -154,7 +154,9 @@ function setFullscreen(on) {
 function createWindow() {
   const ws = loadWindowState(USER_DATA, screen, DEFAULT_SIZE);
   const startFullscreen = !SELFTEST && !FORCE_WINDOWED && saves.readFullscreenPreference(true);
-  const icon = [path.join(APP_ROOT, 'dist', 'icon.png'), path.join(__dirname, 'icon.png')].find((p) => fs.existsSync(p));
+  // Taskbar / window icon (Windows, Linux). The Steam client shows its own uploaded icons.
+  const iconFile = path.join(__dirname, 'icon.png');
+  const icon = fs.existsSync(iconFile) ? iconFile : undefined;
 
   mainWindow = new BrowserWindow({
     width: ws.width,

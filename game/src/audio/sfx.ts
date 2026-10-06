@@ -54,10 +54,21 @@ export const RECOVERY_SECONDS = DEFAULT_RULES.recoveryTicks / TICK_RATE;
 const pn = (v: SfxVoice, deg: number): number => midiToHz(scaleNote(v.key, deg + v.step)) * v.pitch;
 const pnMidi = (v: SfxVoice, deg: number): number => scaleNote(v.key, deg + v.step);
 
-/** Metallic coin "tink": inharmonic FM + octave partial. */
-function coin(v: Target, at: number, f: number, amp: number, decay: number, pan?: number): number {
-  fm(v, { freq: f, ratio: 3.51, index: [[0, 2.4], [decay * 0.4, 0.2]], amp: perc(0.0008, amp, decay), at, pan });
-  return tone(v, { freq: f * 2.003, amp: perc(0.0008, amp * 0.22, decay * 0.45), at, pan });
+/**
+ * Metallic coin "tink": inharmonic FM (+ an octave partial unless `light`). Components share
+ * one panner so a coin shower stays cheap (~5 nodes per coin).
+ */
+function coin(v: Target, at: number, f: number, amp: number, decay: number, pan?: number, light = false): number {
+  let t: Target = v;
+  if (pan && typeof v.ctx.createStereoPanner === 'function') {
+    const p = v.ctx.createStereoPanner();
+    p.pan.value = Math.max(-1, Math.min(1, pan));
+    p.connect(v.out);
+    t = sub(v, p);
+  }
+  const end = fm(t, { freq: f, ratio: 3.51, index: [[0, 2.4], [decay * 0.4, 0.2]], amp: perc(0.0008, amp, decay), at });
+  if (light) return end;
+  return Math.max(end, tone(t, { freq: f * 2.003, amp: perc(0.0008, amp * 0.22, decay * 0.45), at }));
 }
 
 /** Short broadband impact used by many recipes (transient + body). */
@@ -100,7 +111,7 @@ const twinkleNotes = [
 export const SFX_RECIPES: Record<SfxId, SfxRecipe> = {
   // ---- hands & bodies --------------------------------------------------------------------------
   grab: {
-    bus: 'sfx', variants: 4, gain: 0.75, maxVoices: 6, minInterval: 0.03, priority: 4, length: 0.4,
+    bus: 'sfx', variants: 4, gain: 0.89, maxVoices: 6, minInterval: 0.03, priority: 4, length: 0.4,
     play(v) {
       const p = v.pitch * jitter(v.rnd, 0.04);
       const base = [150, 172, 196, 136][v.variant] * p;
@@ -113,7 +124,7 @@ export const SFX_RECIPES: Record<SfxId, SfxRecipe> = {
     },
   },
   release: {
-    bus: 'sfx', variants: 3, gain: 1.04, maxVoices: 6, minInterval: 0.03, priority: 3, length: 0.3,
+    bus: 'sfx', variants: 3, gain: 1.24, maxVoices: 6, minInterval: 0.03, priority: 3, length: 0.3,
     play(v) {
       const p = v.pitch * jitter(v.rnd, 0.05);
       const base = [330, 370, 300][v.variant] * p;
@@ -124,7 +135,7 @@ export const SFX_RECIPES: Record<SfxId, SfxRecipe> = {
     },
   },
   dash: {
-    bus: 'sfx', variants: 4, gain: 1.49, maxVoices: 4, minInterval: 0.05, priority: 4, length: 0.6,
+    bus: 'sfx', variants: 4, gain: 1.77, maxVoices: 4, minInterval: 0.05, priority: 4, length: 0.6,
     play(v) {
       const p = v.pitch * jitter(v.rnd, 0.05);
       const dur = [0.28, 0.32, 0.25, 0.3][v.variant] * jitter(v.rnd, 0.06);
@@ -148,10 +159,10 @@ export const SFX_RECIPES: Record<SfxId, SfxRecipe> = {
     },
   },
   dashHit: {
-    bus: 'sfx', variants: 4, gain: 0.65, maxVoices: 4, minInterval: 0.05, priority: 7, length: 0.6, reverb: 0.12,
+    bus: 'sfx', variants: 4, gain: 0.64, maxVoices: 4, minInterval: 0.05, priority: 7, length: 0.6, reverb: 0.12,
     play(v) {
       const p = v.pitch * jitter(v.rnd, 0.04);
-      const b = [520, 460, 590, 500][v.variant] * p;
+      const b = [520, 420, 620, 470][v.variant] * p;
       // Bonk: hollow wooden knock with a fast pitch drop.
       tone(v, { type: 'triangle', freq: [[0, b], [0.09, b * 0.45]], amp: perc(0.002, 0.55, 0.16) });
       tone(v, { freq: [[0, b * 0.5], [0.12, b * 0.25]], amp: perc(0.002, 0.55, 0.2) });
@@ -163,18 +174,23 @@ export const SFX_RECIPES: Record<SfxId, SfxRecipe> = {
         [[0, 2200], [0.05, 1500], [0.12, 1900]],
         [[0, 1500], [0.04, 1900], [0.08, 1600], [0.13, 2200]],
       ] as const;
-      tone(v, {
-        type: 'triangle',
-        freq: contours[v.variant].map(([t, f]) => [t, f * p] as const),
-        amp: [[0, 0], [0.012, 0.2], [0.1, 0.15], [0.16, 0]],
-        vib: { rate: 28, cents: 45 },
-        at: 0.035,
-      });
-      return 0.25;
+      const squeak = (at: number, scale: number): void => {
+        tone(v, {
+          type: 'triangle',
+          freq: contours[v.variant].map(([t, f]) => [t, f * p * scale] as const),
+          amp: [[0, 0], [0.012, 0.2], [0.1, 0.15], [0.16, 0]],
+          vib: { rate: 28, cents: 45 },
+          at,
+        });
+      };
+      squeak(v.variant === 1 ? 0.06 : 0.035, 1);
+      // Variation 3: a second, higher squeak (the victim's surprised "eek-eek").
+      if (v.variant === 3) squeak(0.2, 1.18);
+      return v.variant === 3 ? 0.4 : 0.25;
     },
   },
   bump: {
-    bus: 'sfx', variants: 4, gain: 1.16, maxVoices: 4, minInterval: 0.06, priority: 2, length: 0.3,
+    bus: 'sfx', variants: 4, gain: 1.38, maxVoices: 4, minInterval: 0.06, priority: 2, length: 0.3,
     play(v) {
       const p = v.pitch * jitter(v.rnd, 0.05);
       const b = [300, 262, 340, 282][v.variant] * p;
@@ -222,7 +238,7 @@ export const SFX_RECIPES: Record<SfxId, SfxRecipe> = {
     },
   },
   footstep: {
-    bus: 'sfx', variants: 4, gain: 1.07, maxVoices: 8, minInterval: 0.025, priority: 0, length: 0.15,
+    bus: 'sfx', variants: 4, gain: 1.35, maxVoices: 8, minInterval: 0.025, priority: 0, length: 0.15,
     play(v) {
       // Soft paws: a muffled tap, cheap (1-2 sources) because there are many of them.
       const lp = [700, 950, 820, 1100][v.variant] * jitter(v.rnd, 0.12) * v.pitch;
@@ -294,7 +310,7 @@ export const SFX_RECIPES: Record<SfxId, SfxRecipe> = {
     },
   },
   unanchorBank: {
-    bus: 'sfx', variants: 3, gain: 0.54, maxVoices: 2, minInterval: 0.3, priority: 9, length: 4.2, reverb: 0.3,
+    bus: 'sfx', variants: 3, gain: 0.53, maxVoices: 2, minInterval: 0.3, priority: 9, length: 4.2, reverb: 0.3,
     duck: { db: -7, hold: 2.2 },
     play(v) {
       const p = v.pitch * jitter(v.rnd, 0.03);
@@ -370,7 +386,7 @@ export const SFX_RECIPES: Record<SfxId, SfxRecipe> = {
     },
   },
   fenceBreak: {
-    bus: 'sfx', variants: 3, gain: 1.27, maxVoices: 3, minInterval: 0.1, priority: 8, length: 1.8, reverb: 0.25,
+    bus: 'sfx', variants: 3, gain: 1.29, maxVoices: 3, minInterval: 0.1, priority: 8, length: 1.8, reverb: 0.25,
     play(v) {
       const p = v.pitch * jitter(v.rnd, 0.04);
       const metalMix = [0.35, 1, 0.65][v.variant];
@@ -562,11 +578,11 @@ export const SFX_RECIPES: Record<SfxId, SfxRecipe> = {
       // Sparkle glissando up the pentatonic.
       for (let i = 0; i < 9; i++) glock(v, hit + i * 0.035, scaleNote(k, 8 + i), 0.1, 0.35, (i / 8) * 1.2 - 0.6);
       // Coin shower: many coins, thinning out, spread across the stereo field.
-      const n = 30;
+      const n = 26;
       for (let i = 0; i < n; i++) {
         const at = hit + 0.1 + Math.pow(i / n, 1.4) * 1.9 + v.rnd() * 0.04;
         const f = midiToHz(scaleNote(k, 10 + rint(v.rnd, 6)));
-        coin(v, at, f * jitter(v.rnd, 0.01), rrange(v.rnd, 0.08, 0.16) * (1 - (0.5 * i) / n), rrange(v.rnd, 0.12, 0.3), (v.rnd() * 2 - 1) * 0.75);
+        coin(v, at, f * jitter(v.rnd, 0.01), rrange(v.rnd, 0.09, 0.18) * (1 - (0.5 * i) / n), rrange(v.rnd, 0.12, 0.3), (v.rnd() * 2 - 1) * 0.75, true);
       }
       return hit + 2.4;
     },
@@ -697,14 +713,14 @@ export const SFX_RECIPES: Record<SfxId, SfxRecipe> = {
 
   // ---- UI -------------------------------------------------------------------------------------------
   uiMove: {
-    bus: 'ui', variants: 3, gain: 0.98, maxVoices: 3, minInterval: 0.025, priority: 3, length: 0.4, global: true,
+    bus: 'ui', variants: 3, gain: 1.23, maxVoices: 3, minInterval: 0.025, priority: 3, length: 0.4, global: true,
     play(v) {
       marimba(v, 0, pnMidi(v, [7, 8, 9][v.variant]), 0.05, 0.4);
       return 0.25;
     },
   },
   uiConfirm: {
-    bus: 'ui', variants: 2, gain: 0.88, maxVoices: 3, minInterval: 0.04, priority: 4, length: 0.7, global: true,
+    bus: 'ui', variants: 2, gain: 1.11, maxVoices: 3, minInterval: 0.04, priority: 4, length: 0.7, global: true,
     play(v) {
       const [a, b] = v.variant === 0 ? [7, 10] : [8, 10];
       marimba(v, 0, pnMidi(v, a), 0.05, 0.45);
@@ -714,7 +730,7 @@ export const SFX_RECIPES: Record<SfxId, SfxRecipe> = {
     },
   },
   uiBack: {
-    bus: 'ui', variants: 2, gain: 0.88, maxVoices: 3, minInterval: 0.04, priority: 4, length: 0.6, global: true,
+    bus: 'ui', variants: 2, gain: 1.11, maxVoices: 3, minInterval: 0.04, priority: 4, length: 0.6, global: true,
     play(v) {
       const [a, b] = v.variant === 0 ? [8, 5] : [7, 4];
       marimba(v, 0, pnMidi(v, a), 0.05, 0.4);
@@ -723,7 +739,7 @@ export const SFX_RECIPES: Record<SfxId, SfxRecipe> = {
     },
   },
   uiError: {
-    bus: 'ui', variants: 2, gain: 1.17, maxVoices: 2, minInterval: 0.08, priority: 4, length: 0.5, global: true,
+    bus: 'ui', variants: 2, gain: 1.48, maxVoices: 2, minInterval: 0.08, priority: 4, length: 0.5, global: true,
     play(v) {
       // Gentle muted "bup-bup", not a harsh buzzer.
       const f = midiToHz(v.key - 5 + (v.variant ? -1 : 0));
@@ -735,7 +751,7 @@ export const SFX_RECIPES: Record<SfxId, SfxRecipe> = {
     },
   },
   uiTab: {
-    bus: 'ui', variants: 2, gain: 1.11, maxVoices: 2, minInterval: 0.03, priority: 3, length: 0.4, global: true,
+    bus: 'ui', variants: 2, gain: 1.39, maxVoices: 2, minInterval: 0.03, priority: 3, length: 0.4, global: true,
     play(v) {
       // Page flip: woody tick + a higher blip.
       tone(v, { type: 'triangle', freq: [[0, 1250], [0.01, 1150]], amp: perc(0.0008, 0.22, 0.04) });
@@ -744,7 +760,7 @@ export const SFX_RECIPES: Record<SfxId, SfxRecipe> = {
     },
   },
   uiAdjust: {
-    bus: 'ui', variants: 2, gain: 1.42, maxVoices: 3, minInterval: 0.035, priority: 2, length: 0.2, global: true,
+    bus: 'ui', variants: 2, gain: 1.79, maxVoices: 3, minInterval: 0.035, priority: 2, length: 0.2, global: true,
     play(v) {
       // Tiny tick; pitch option follows the slider value.
       const f = pn(v, 7 + v.variant);
@@ -753,7 +769,7 @@ export const SFX_RECIPES: Record<SfxId, SfxRecipe> = {
     },
   },
   popup: {
-    bus: 'ui', variants: 3, gain: 1.06, maxVoices: 3, minInterval: 0.04, priority: 3, length: 0.4, global: true,
+    bus: 'ui', variants: 3, gain: 1.25, maxVoices: 3, minInterval: 0.04, priority: 3, length: 0.4, global: true,
     play(v) {
       const p = v.pitch * jitter(v.rnd, 0.03);
       const [a, b] = [[380, 950], [420, 1050], [340, 880]][v.variant];

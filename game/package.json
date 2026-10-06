@@ -28,8 +28,7 @@
     "artifactName": "UprootHeist-${version}-${os}-${arch}.${ext}",
     "copyright": "Copyright © 2026 Uproot Heist team",
     "directories": {
-      "output": "release",
-      "buildResources": "steam/build-resources"
+      "output": "release"
     },
     "files": [
       "dist/**/*",
@@ -61,6 +60,7 @@
       ],
       "category": "Game",
       "synopsis": "Uproot Heist - drag whole banks to your getaway van",
+      "icon": "electron/icon.png",
       "files": [
         "dist/**/*",
         "electron/**/*",
@@ -74,6 +74,7 @@
         "zip"
       ],
       "signAndEditExecutable": false,
+      "icon": "electron/icon.png",
       "files": [
         "dist/**/*",
         "electron/**/*",
@@ -88,6 +89,7 @@
       "category": "public.app-category.games",
       "identity": null,
       "hardenedRuntime": false,
+      "icon": "electron/icon.png",
       "files": [
         "dist/**/*",
         "electron/**/*",

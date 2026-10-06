@@ -13,9 +13,23 @@
  *     camera and draws.
  *
  * Extensions beyond the documented contract (all optional):
- *   ViewSettings.language / signResolver / zoneLabel, render(..., focus: ViewFocus | null),
- *   project() also returns `behind`, telegraph(), stats(), canvas getter, mode getter,
+ *   ViewSettings.language / signResolver / zoneLabel / toneMapping, render(..., focus: ViewFocus
+ *   | null), project() also returns `behind`, advance(), telegraph(), setBotTelegraph(),
+ *   takeHitstop(), stats() (incl. contextLost), canvas / mode / webgl / camera getters,
  *   dispose({ keepModelCaches }).
+ *
+ * Contract notes:
+ *   - frameDt = 0 freezes every view animation and smoother (hitstop freeze-frames); only load()
+ *     and setMode() snap.
+ *   - dispose() and MSAA changes release their WebGL context (forceContextLoss), so repeated
+ *     views / quality toggles never push Chromium past its live-context limit.
+ *   - An MSAA change replaces the canvas in place and dispatches 'gameviewcanvas'
+ *     ({ detail: { canvas, previous } }) on the container: bind pointer listeners to the
+ *     container (or re-bind on that event).
+ *   - 'match' never rotates the camera (fixed north yaw). 'results' / 'title' aim their shot
+ *     (yaw / pitch / distance) with a clearance search against statics and banks.
+ *   - World-space aids owned by the view: grab-candidate brackets + anchor dot (doc §4),
+ *     recovery ground meters (doc §8 dwell), ping beacons, team ground rings.
  */
 import * as THREE from 'three';
 import type {
@@ -60,8 +74,8 @@ import {
   type VanRig,
   type ZoneMarkerRig,
 } from './models';
-import { GameCamera, MATCH_DIST, MATCH_FOV, MATCH_PITCH, fitDistance, type CameraGoal, type ViewMode } from './camera';
-import { PigeonFlock, ViewEffects, type CharMarker, type PigeonThreat, type SirenGlow } from './effects';
+import { GameCamera, MATCH_DIST, MATCH_FOV, MATCH_PITCH, NORTH_YAW, fitDistance, type CameraGoal, type ViewMode } from './camera';
+import { GRAB_MARKER_COLOR, PigeonFlock, ViewEffects, type CharMarker, type PigeonThreat, type SirenGlow } from './effects';
 import { qualityPreset, type QualityLevel, type QualityPreset } from './quality';
 import { PoseBuffer, damp, insideRect, lerpAngle, onBankSlab, pointVelocity, toLocal, wrapAngle, type Pose2 } from './sync';
 
@@ -106,12 +120,24 @@ export interface ViewStats {
   pixelRatio: number;
   width: number;
   height: number;
+  /** The WebGL context is currently lost (three.js restores it when the browser allows). */
+  contextLost: boolean;
 }
 
 const ZONE_LABELS = { ko: '회수 구역', en: 'RECOVERY ZONE' } as const;
 const CHEST_Y = 0.6;
 const WALL_FADE = 0.2;
 const ROOF_FADE_BEHIND = 0.1;
+/** Roof opacity while someone else is inside / a safe inside is being moved (doc §10). */
+const ROOF_PEEK = 0.22;
+const RESULTS_FOV = 34;
+/** Zone pulse strength while something dwells (models' zone washes out at 1). */
+const ZONE_PULSE = 0.35;
+/** Ground recovery ring around a dwelling bank (inside the 6.5 x 5.5 zone half extents). */
+const BANK_METER_RADIUS = 5.25;
+/** How far (m) the walking camera may pull back to show a nearby target with the player. */
+const FRAME_EXTRA_DIST = 4;
+const DEG = Math.PI / 180;
 
 // ---------------------------------------------------------------------------
 // Per-entity view records
@@ -168,14 +194,42 @@ interface BankView {
   dustSide: number;
 }
 
+interface StageSpot {
+  x: number;
+  y: number;
+  facing: number;
+  cheer: boolean;
+  sad: boolean;
+  /** Order within its group (hop phase). */
+  index: number;
+}
+
 interface ResultsStage {
   center: Vec2;
-  spots: Map<EntityId, { x: number; y: number; facing: number; cheer: boolean; sad: boolean }>;
+  spots: Map<EntityId, StageSpot>;
   team: TeamId;
   winner: TeamId | null;
   nextConfetti: number;
   /** Built after the match ended (otherwise rebuilt once the result is known). */
   final: boolean;
+  /** Camera shot (clearance-checked against statics). */
+  yaw: number;
+  pitch: number;
+  dist: number;
+  clear: boolean;
+  confettiAt: Vec2;
+  /** Where the losers glance. */
+  winnersAt: Vec2;
+  nextSigh: number;
+}
+
+interface TitleShot {
+  target: Vec2;
+  yaw: number;
+  pitch: number;
+  dist: number;
+  /** Nothing blocks the raccoons from this shot (scenery x-ray off: no dither). */
+  clear: boolean;
 }
 
 /** Scar footprint half extents (bank footprint + slab rim + dirt lip). */
@@ -227,6 +281,7 @@ const _ray = new THREE.Raycaster();
 const _plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const _vel: Vec2 = { x: 0, y: 0 };
 const _loc: Vec2 = { x: 0, y: 0 };
+const _chest = new THREE.Vector3();
 
 function idleRaccoonPose(): RaccoonPose {
   return { speed: 0, grabbing: false, straining: false, dashing: false, boosting: false, knockedDown: false, celebrating: false, sad: false, time: 0, expression: null, headYaw: undefined };
@@ -285,6 +340,7 @@ export class GameView {
   private vans: (VanRig | null)[] = [null, null];
   private glows: (SirenGlow | null)[] = [null, null];
   private stage: ResultsStage | null = null;
+  private titleShot: TitleShot | null = null;
   private lastFocusId: EntityId | null = null;
   private lookAhead = { x: 0, y: 0 };
   private titleCheer = new Map<EntityId, number>();
@@ -293,6 +349,9 @@ export class GameView {
   /** Squash/stretch "snap" pulses per entity (grab contact etc.). */
   private readonly pulses = new Map<EntityId, { start: number; amp: number }>();
   private hitstop = 0;
+  private contextLost = false;
+  /** Next advance() applies smoothed values instantly (load / mode switch), even with dt = 0. */
+  private snapVisuals = true;
 
   constructor(container: HTMLElement, settings: ViewSettings) {
     this.container = container;
@@ -459,7 +518,9 @@ export class GameView {
     this.poses.capture(sim);
     this.cam.setArena(layout.size);
     this.cam.snap();
+    this.snapVisuals = true;
     this.stage = null;
+    this.titleShot = null;
     this.lastFocusId = null;
 
     if (!this.fontsRequested) {
@@ -520,7 +581,7 @@ export class GameView {
       van.setEngine(siren || (mode === 'results' && this.stage?.team === van.team));
       van.update(dt);
       // Reduced motion: steady glow instead of flashing.
-      this.glows[van.team]?.update(siren, this.settings.reducedMotion ? 0 : this.time);
+      this.glows[van.team]?.update(siren, this.settings.reducedMotion ? 0 : this.time, dt);
     }
     // --- highlights + pings -------------------------------------------------------------
     this.updateHighlights(sim, focus);
@@ -543,13 +604,14 @@ export class GameView {
     if (mode === 'results' && this.stage && this.stage.winner !== null && this.time >= this.stage.nextConfetti) {
       const s = this.stage;
       const w: TeamId = s.winner as TeamId;
-      this.effects.confetti(new THREE.Vector3(s.center.x, 0.4, s.center.y - 0.6), w, 70);
+      this.effects.confetti(new THREE.Vector3(s.confettiAt.x, 0.4, s.confettiAt.y), w, 70);
       this.vans[w]?.bounce(0.6);
       s.nextConfetti = this.settings.reducedMotion ? Infinity : this.time + 2.6;
     }
 
     this.updatePigeons(sim, dt);
     this.effects.update(dt);
+    this.snapVisuals = false;
   }
 
   /** Project a sim point at `height` meters to CSS pixels inside the container. */
@@ -587,7 +649,9 @@ export class GameView {
     if (mode === this.viewMode) return;
     this.viewMode = mode;
     this.stage = null;
+    this.titleShot = null;
     this.cam.snap();
+    this.snapVisuals = true;
     if (mode !== 'results') for (const cv of this.chars.values()) cv.cheerUntil = 0;
   }
 
@@ -595,7 +659,9 @@ export class GameView {
    * (extension) Suggested hit-stop (seconds) from the events since the last call
    * (docs/ART_DIRECTION.md §2: dash hit ~70 ms, bank uproot ~120 ms, bank recovery ~150 ms).
    * Game flow pauses the sim accumulator for that long (rules unaffected) and may keep
-   * rendering with frameDt = 0 for a freeze-frame. Always 0 with reducedMotion.
+   * rendering with frameDt = 0 for a freeze-frame: frameDt = 0 freezes every view animation
+   * and smoother in place (nothing snaps; only load()/setMode() snap). Always 0 with
+   * reducedMotion.
    */
   takeHitstop(): number {
     const h = this.settings.reducedMotion ? 0 : this.hitstop;
@@ -687,6 +753,7 @@ export class GameView {
       pixelRatio: this.renderer.getPixelRatio(),
       width: this.width,
       height: this.height,
+      contextLost: this.contextLost,
     };
   }
 
@@ -701,23 +768,39 @@ export class GameView {
     this.lights.dispose();
     setOcclusionFocus(null, null);
     this.scene.clear();
-    this.renderer.renderLists.dispose();
-    this.renderer.dispose();
+    GameView.releaseRenderer(this.renderer);
     this.renderer.domElement.remove();
     if (!opts.keepModelCaches) disposeModelCaches();
+  }
+
+  /**
+   * Free a renderer AND its WebGL context. renderer.dispose() alone leaves the context alive
+   * until GC, and Chromium/Electron drop the *oldest* live context after ~16 — which would be a
+   * long-lived view after enough rematches or quality toggles.
+   */
+  private static releaseRenderer(r: THREE.WebGLRenderer): void {
+    r.renderLists.dispose();
+    r.dispose();
+    try {
+      r.forceContextLoss();
+    } catch {
+      /* extension missing: GC will reclaim the context */
+    }
   }
 
   // ===========================================================================
   // Setup helpers
   // ===========================================================================
 
+  /**
+   * (Re)create the WebGL renderer. An MSAA change needs a new canvas (context attributes are
+   * fixed per canvas): the new canvas takes the old one's place in the container (same DOM
+   * position, same id/class) and a 'gameviewcanvas' CustomEvent ({ detail: { canvas, previous } })
+   * is dispatched on the container. Game flow / HUD should bind pointer listeners to the
+   * container (or re-bind on that event).
+   */
   private createRenderer(): void {
     const old = this.renderer as THREE.WebGLRenderer | undefined;
-    if (old) {
-      old.renderLists.dispose();
-      old.dispose();
-      old.domElement.remove();
-    }
     const r = new THREE.WebGLRenderer({ antialias: this.preset.antialias, powerPreference: 'high-performance', alpha: false });
     r.outputColorSpace = THREE.SRGBColorSpace;
     this.applyToneMapping(r);
@@ -730,6 +813,25 @@ export class GameView {
     c.style.height = '100%';
     c.style.touchAction = 'none';
     c.setAttribute('aria-hidden', 'true');
+    // three.js itself preventDefault()s the loss and restores its GL state on 'restored';
+    // the flag only reports it (stats()). Ignore the loss we force on a replaced canvas.
+    c.addEventListener('webglcontextlost', () => {
+      if (this.renderer?.domElement === c && !this.disposed) this.contextLost = true;
+    });
+    c.addEventListener('webglcontextrestored', () => {
+      if (this.renderer?.domElement === c) this.contextLost = false;
+    });
+    if (old) {
+      const prev = old.domElement;
+      if (prev.id) c.id = prev.id;
+      if (prev.className) c.className = prev.className;
+      if (prev.parentNode === this.container) prev.replaceWith(c);
+      else this.container.appendChild(c);
+      GameView.releaseRenderer(old);
+      this.renderer = r;
+      this.container.dispatchEvent(new CustomEvent('gameviewcanvas', { detail: { canvas: c, previous: prev } }));
+      return;
+    }
     this.container.appendChild(c);
     this.renderer = r;
   }
@@ -1078,7 +1180,7 @@ export class GameView {
     const overlap = !bv.done && rectsOverlap(bv.pose, bv.pose.a, bv.home.pos, bv.home.angle, SCAR_HALF);
     const target = overlap ? SCAR_FLAT : 1;
     bv.scarRise += (target - bv.scarRise) * damp(overlap ? 30 : 4, dt);
-    if (dt <= 0) bv.scarRise = target;
+    if (this.snapVisuals) bv.scarRise = target;
     scar.scale.y = bv.scarRise;
   }
 
@@ -1153,7 +1255,7 @@ export class GameView {
     const onFloor = l.floorOf !== null || this.onAnySlab(sv.pose);
     const targetY = onFloor ? BANK_FLOOR_Y : 0;
     sv.y += (targetY - sv.y) * damp(18, dt);
-    if (dt <= 0) sv.y = targetY;
+    if (this.snapVisuals) sv.y = targetY;
     placeOnSim(sv.rig.root, sv.pose, sv.pose.a, sv.y);
     const ps = this.pulseScale(sv.id);
     sv.rig.root.scale.set(2 - ps, ps, 2 - ps);
@@ -1194,25 +1296,7 @@ export class GameView {
     pose.headYaw = undefined;
     const spot = mode === 'results' ? this.stage?.spots.get(c.id) : undefined;
     if (spot) {
-      cv.pose.x = spot.x;
-      cv.pose.y = spot.y;
-      cv.facing += wrapAngle(spot.facing - cv.facing) * damp(8, dt);
-      if (dt <= 0) cv.facing = spot.facing;
-      cv.y = 0;
-      pose.speed = 0;
-      pose.grabbing = false;
-      pose.straining = false;
-      pose.dashing = false;
-      pose.boosting = false;
-      pose.knockedDown = false;
-      pose.celebrating = spot.cheer;
-      pose.sad = spot.sad;
-      if (!spot.cheer && !spot.sad) pose.expression = 'happy';
-      cv.rig.root.scale.set(1, 1, 1);
-      cv.marker.root.visible = false;
-      placeOnSim(cv.rig.root, cv.pose, cv.facing, 0);
-      cv.rig.setHighlight(null);
-      cv.rig.update(dt, pose);
+      this.updateStagedChar(cv, spot, dt);
       return;
     }
 
@@ -1220,13 +1304,13 @@ export class GameView {
     const look = cv.rig.look;
     if (look.hat !== c.look.hat || (look.rival ?? null) !== (c.look.rival ?? null) || look.furTint !== c.look.furTint) cv.rig.setLook(c.look);
     // Facing: interpolated + a little extra smoothing for snappy turns.
-    if (dt <= 0 || Math.abs(wrapAngle(cv.pose.a - cv.facing)) > 2.8 && c.knockdownTicks > 0) cv.facing = cv.pose.a;
+    if (this.snapVisuals || (Math.abs(wrapAngle(cv.pose.a - cv.facing)) > 2.8 && c.knockdownTicks > 0)) cv.facing = cv.pose.a;
     else cv.facing = lerpAngle(cv.facing, cv.pose.a, damp(22, dt));
     // Floor height (riders on a bank floor), smoothed across the door threshold.
     const onFloor = c.floorOf !== null || this.onAnySlab(cv.pose);
     const targetY = onFloor ? BANK_FLOOR_Y : 0;
     cv.y += (targetY - cv.y) * damp(16, dt);
-    if (dt <= 0) cv.y = targetY;
+    if (this.snapVisuals) cv.y = targetY;
 
     // Speed relative to the floor the character stands on.
     let vx = c.vel.x;
@@ -1324,6 +1408,73 @@ export class GameView {
     cv.rig.update(dt, pose);
   }
 
+  /**
+   * Results pose (doc §13): winners hop and cheer in turns (staggered bounces with squash on
+   * landing, an occasional spin jump); losers stand slumped and empty-handed, sigh now and then
+   * (a little puff) and glance at the winners. Reduced motion: no hops/spins, poses only.
+   */
+  private updateStagedChar(cv: CharView, spot: StageSpot, dt: number): void {
+    const pose = cv.poseObj;
+    const t = this.time;
+    const calm = this.settings.reducedMotion;
+    const stage = this.stage!;
+    cv.pose.x = spot.x;
+    cv.pose.y = spot.y;
+    pose.speed = 0;
+    pose.grabbing = false;
+    pose.straining = false;
+    pose.dashing = false;
+    pose.boosting = false;
+    pose.knockedDown = false;
+    pose.celebrating = spot.cheer;
+    pose.sad = spot.sad;
+    let y = 0;
+    let sy = 1;
+    let sxz = 1;
+    let facing = spot.facing;
+    if (spot.cheer) {
+      pose.expression = 'cheer';
+      if (!calm) {
+        // Bounce: 0.62 s hops, phase-shifted per raccoon; squash on contact.
+        const period = 0.62;
+        const ph = (t / period + spot.index * 0.37) % 1;
+        const air = Math.sin(Math.PI * Math.min(1, ph / 0.72));
+        y = ph < 0.72 ? air * 0.42 : 0;
+        const land = ph >= 0.72 ? Math.sin(Math.PI * ((ph - 0.72) / 0.28)) : 0;
+        sy = 1 + 0.08 * air - 0.16 * land;
+        sxz = 1 - 0.04 * air + 0.1 * land;
+        // Every 4th hop of each raccoon is a spin jump.
+        const hop = Math.floor(t / period + spot.index * 0.37);
+        if ((hop + spot.index) % 4 === 0 && ph < 0.72) facing += (ph / 0.72) * Math.PI * 2;
+      }
+    } else if (spot.sad) {
+      pose.expression = 'sad';
+      // Sigh: a slow slump-and-release every ~3 s with a tiny puff; glance at the winners.
+      const sighPh = ((t + spot.index * 1.3) % 3.2) / 3.2;
+      const sigh = sighPh < 0.35 ? Math.sin(Math.PI * (sighPh / 0.35)) : 0;
+      sy = 1 - 0.07 * sigh;
+      sxz = 1 + 0.035 * sigh;
+      const look = Math.atan2(stage.winnersAt.y - spot.y, stage.winnersAt.x - spot.x);
+      const glance = Math.sin(t * 0.7 + spot.index) > 0.55 ? 1 : 0;
+      pose.headYaw = THREE.MathUtils.clamp(-wrapAngle(look - spot.facing), -0.9, 0.9) * glance;
+      if (!calm && dt > 0 && t >= stage.nextSigh && spot.index === 0) {
+        stage.nextSigh = t + 3.2;
+        this.effects.fx.dust({ x: spot.x + Math.cos(spot.facing) * 0.35, y: 0.75, z: spot.y + Math.sin(spot.facing) * 0.35 }, { count: 2, spread: 0.08, size: 0.12, up: 0.4 });
+      }
+    } else pose.expression = 'happy';
+    if (this.snapVisuals) cv.facing = facing;
+    else cv.facing = facing > spot.facing + 0.01 ? facing : lerpAngle(cv.facing, facing, damp(8, dt));
+    cv.y = 0;
+    cv.rig.root.scale.set(sxz, sy, sxz);
+    cv.marker.root.visible = false;
+    placeOnSim(cv.rig.root, cv.pose, cv.facing, y);
+    if (cv.flashOn) {
+      cv.flashOn = false;
+      cv.rig.setHighlight(null);
+    }
+    cv.rig.update(dt, pose);
+  }
+
   private onAnySlab(p: Vec2): boolean {
     for (const bv of this.banks.values()) {
       if (bv.done) continue;
@@ -1343,10 +1494,33 @@ export class GameView {
         active = 1;
         progress = Math.max(progress, l.recovery.ticks / need);
       }
-      z.setActive(active);
+      // The zone's own pulse washes its stripes out at full strength: keep it a hint; the
+      // per-item ground meter below carries the countdown.
+      z.setActive(active * ZONE_PULSE);
       z.setProgress(progress);
       z.update(dt);
     }
+    // Recovery meters (doc §8 dwell): a ring around each dwelling item filling clockwise.
+    let i = 0;
+    if (this.viewMode === 'match') {
+      for (const l of st.loot) {
+        if (l.recovered || !l.recovery || i >= this.effects.meterCapacity) continue;
+        const p = l.recovery.ticks / need;
+        if (l.kind === 'bank') {
+          const bv = this.banks.get(l.id);
+          if (!bv || bv.done) continue;
+          _v3.set(bv.pose.x, 0, bv.pose.y);
+          this.effects.setRecoveryMeter(i++, _v3, BANK_METER_RADIUS, p);
+        } else {
+          const sv = this.safes.get(l.id);
+          if (!sv || sv.done) continue;
+          const h = SAFE_SPECS[sv.kind].half;
+          _v3.set(sv.pose.x, sv.y, sv.pose.y);
+          this.effects.setRecoveryMeter(i++, _v3, Math.hypot(h.x, h.y) + 0.7, p);
+        }
+      }
+    }
+    this.effects.hideRecoveryMetersFrom(i);
   }
 
   // ===========================================================================
@@ -1371,7 +1545,7 @@ export class GameView {
 
     const colorFor = (l: LootState, roofOpen: boolean): string | null => {
       if (!show) return null;
-      if (cand === l.id) return HIGHLIGHT_COLORS.grab;
+      if (cand === l.id) return GRAB_MARKER_COLOR;
       if (l.recovery) return HIGHLIGHT_COLORS.inZone;
       if (pinged.has(l.id) && team !== null) return pulseOn ? TEAM_STYLES[team].color : TEAM_STYLES[team].tint;
       if (team !== null && l.grabbedBy.length) {
@@ -1383,6 +1557,15 @@ export class GameView {
       if (l.kind !== 'bank' && l.loadedIn !== null && roofOpen) return HIGHLIGHT_COLORS.loaded;
       return null;
     };
+
+    // Ground brackets around the whole candidate + a dot at the grab anchor (doc §4).
+    const gc = show && focus?.grabCandidate ? focus.grabCandidate : null;
+    const gbv = gc ? this.banks.get(gc.targetId) : undefined;
+    const gsv = gc ? this.safes.get(gc.targetId) : undefined;
+    const fy = focusChar ? this.chars.get(focusChar.id)?.y ?? 0 : 0;
+    if (gc && gbv && !gbv.done) this.effects.setGrabTarget('bank', gbv.pose, 0, gc.anchorWorld, fy);
+    else if (gc && gsv && !gsv.done) this.effects.setGrabTarget(gsv.kind, gsv.pose, gsv.y, gc.anchorWorld, fy);
+    else this.effects.setGrabTarget(null, gbv?.pose ?? { x: 0, y: 0, a: 0 });
 
     for (const bv of this.banks.values()) {
       if (bv.done) continue;
@@ -1484,14 +1667,18 @@ export class GameView {
       }
       case 'title': {
         const pan = calm ? 0 : 1;
+        // Re-aim only when the idle group has wandered off (keeps the attract shot stable).
         const g = this.charCentroid();
-        if (g) {
-          // Attract shot: a slow sway around the idle raccoons.
+        if (!this.titleShot || (g && Math.hypot(g.x - this.titleShot.target.x, g.y - 0.6 - this.titleShot.target.y) > 3)) this.titleShot = this.pickTitleShot(sim);
+        const shot = this.titleShot;
+        if (shot) {
+          // Attract shot: a slow sway around the idle raccoons, aimed where nothing blocks them.
           return {
-            target: { x: g.x + Math.sin(t * 0.12) * 3.2 * pan, y: g.y - 0.8 + Math.sin(t * 0.09 + 0.7) * 1.2 * pan },
-            distance: 15.5 + Math.sin(t * 0.07) * 1.5 * pan,
-            pitch: 36,
+            target: { x: shot.target.x + Math.sin(t * 0.12) * 1.6 * pan, y: shot.target.y + Math.sin(t * 0.09 + 0.7) * 0.8 * pan },
+            distance: shot.dist + Math.sin(t * 0.07) * 1.2 * pan,
+            pitch: shot.pitch,
             fov: 36,
+            yaw: shot.yaw + Math.sin(t * 0.05) * 0.06 * pan,
             followRate: 1.2,
             clamp: false,
           };
@@ -1507,13 +1694,17 @@ export class GameView {
       }
       case 'results': {
         const s = this.stage;
-        const c = s ? s.center : { x: W / 2, y: H / 2 };
+        if (!s) return { target: { x: W / 2, y: H / 2 }, distance: 14, pitch: 34, fov: 34, followRate: 2.5, clamp: false };
         const drift = calm ? 0 : 1;
+        const rx = -Math.sin(s.yaw);
+        const ry = Math.cos(s.yaw);
+        const sway = Math.sin(t * 0.2) * 0.35 * drift;
         return {
-          target: { x: c.x + Math.sin(t * 0.2) * 0.5 * drift, y: c.y - 0.6 },
-          distance: 12 + Math.sin(t * 0.13) * 0.5 * drift,
-          pitch: 33,
-          fov: 34,
+          target: { x: s.center.x + rx * sway, y: s.center.y + ry * sway },
+          distance: s.dist + Math.sin(t * 0.13) * 0.4 * drift,
+          pitch: s.pitch,
+          fov: RESULTS_FOV,
+          yaw: s.yaw,
           followRate: 2.5,
           clamp: false,
         };
@@ -1552,7 +1743,7 @@ export class GameView {
       const view = held.kind === 'bank' ? this.banks.get(held.id)?.pose : this.safes.get(held.id)?.pose;
       const q = view ?? held.pos;
       if (held.kind === 'bank') {
-        frame(q, 0.55);
+        frame(q, 0.5);
         dist = held.anchored ? MATCH_DIST.nearBank : MATCH_DIST.hauling;
       } else if (held.kind === 'largeSafe') {
         frame(q, 0.35);
@@ -1576,28 +1767,265 @@ export class GameView {
       if (nearest && (nd < 9 || fc.floorOf === nearest.id)) {
         dist = MATCH_DIST.nearBank;
         frame(nearest.pose, fc.floorOf === nearest.id ? 0.25 : 0.12);
-      } else if (cand) {
-        // Lean a little toward what the grab button would take.
-        const view = this.safes.get(cand.targetId)?.pose;
-        if (view) frame(view, 0.15);
+      } else {
+        // doc §4 "플레이어와 근처 목표를 보여준다": re-center (and pull back a little) so the
+        // nearest outdoor safe / bank / teammate share the frame with the player.
+        const f = this.frameInterest(sim, fc, P, tx, ty, cand);
+        tx = f.x;
+        ty = f.y;
+        dist = f.dist;
       }
     }
     return { target: { x: tx, y: ty }, distance: dist, pitch: MATCH_PITCH, fov: MATCH_FOV, followRate: 4.5, clamp: true };
   }
 
+  /**
+   * Interest framing for the walking match camera. Candidates (in priority order): the grab
+   * candidate, the nearest outdoor safe (≤ 15 m), the nearest bank (≤ 15 m), the nearest
+   * teammate (≤ 10 m). Each is accepted only if it fits the frame together with the player
+   * (player kept within the inner ~60%, targets within the inner ~80%) at a distance of at most
+   * MATCH_DIST.walk + FRAME_EXTRA_DIST; the target is centered on the accepted set.
+   */
+  private frameInterest(sim: Simulation, fc: CharacterState, P: Vec2, tx0: number, ty0: number, cand: GrabCandidate | null): { x: number; y: number; dist: number } {
+    const aspect = this.width / this.height;
+    const pts: { x: number; y: number; h: number }[] = [];
+    const pick: { x: number; y: number; h: number }[] = [];
+    if (cand) {
+      const sv = this.safes.get(cand.targetId);
+      if (sv && !sv.done) pick.push({ x: sv.pose.x, y: sv.pose.y, h: sv.y + 0.6 });
+    }
+    let best: { x: number; y: number; h: number } | null = null;
+    let bd = 15;
+    for (const sv of this.safes.values()) {
+      if (sv.done) continue;
+      const l = sim.getLoot(sv.id);
+      if (!l || l.loadedIn !== null || l.floorOf !== null) continue;
+      const d = Math.hypot(sv.pose.x - P.x, sv.pose.y - P.y);
+      if (d < bd) {
+        bd = d;
+        best = { x: sv.pose.x, y: sv.pose.y, h: SAFE_SPECS[sv.kind].height + 0.5 };
+      }
+    }
+    if (best) pick.push(best);
+    let bank: { x: number; y: number; h: number } | null = null;
+    let bk = 15;
+    for (const bv of this.banks.values()) {
+      if (bv.done) continue;
+      const d = Math.hypot(bv.pose.x - P.x, bv.pose.y - P.y);
+      if (d < bk) {
+        bk = d;
+        bank = { x: bv.pose.x, y: bv.pose.y, h: 1.2 };
+      }
+    }
+    if (bank) pick.push(bank);
+    let mate: { x: number; y: number; h: number } | null = null;
+    let md = 10;
+    for (const c of sim.state.characters) {
+      if (c.id === fc.id || c.team !== fc.team) continue;
+      const cv = this.chars.get(c.id);
+      if (!cv) continue;
+      const d = Math.hypot(cv.pose.x - P.x, cv.pose.y - P.y);
+      if (d < md) {
+        md = d;
+        mate = { x: cv.pose.x, y: cv.pose.y, h: 1.0 };
+      }
+    }
+    if (mate) pick.push(mate);
+
+    const player = { x: P.x, y: P.y, h: 0.6 };
+    let out = { x: tx0, y: ty0, dist: MATCH_DIST.walk as number };
+    for (const q of pick) {
+      const trial = [...pts, q];
+      const fit = this.fitNorth(player, trial, tx0, ty0, aspect);
+      if (fit) {
+        pts.push(q);
+        out = fit;
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Try to frame `player` + `pts` with the north-facing match camera: the smallest distance
+   * (MATCH_DIST.walk .. + FRAME_EXTRA_DIST) at which the player stays near the center (NDC x ±0.45,
+   * y [-0.42, 0.3]) and every point fits inside x ±0.82, y [-0.85, 0.74] (room for its HUD value
+   * label above it); the target is shifted to center that slack. Null if they cannot share it.
+   */
+  private fitNorth(player: { x: number; y: number; h: number }, pts: { x: number; y: number; h: number }[], tx0: number, ty0: number, aspect: number): { x: number; y: number; dist: number } | null {
+    const p = MATCH_PITCH * DEG;
+    const sp = Math.sin(p);
+    const cp = Math.cos(p);
+    const tanHalf = Math.tan((MATCH_FOV * DEG) / 2);
+    const ndc = (q: { x: number; y: number; h: number }, tx: number, ty: number, dist: number): { x: number; y: number } => {
+      const dx = q.x - tx;
+      const dy = q.h - sp * dist;
+      const dz = q.y - (ty + cp * dist);
+      const z = Math.max(0.1, -dy * sp - dz * cp);
+      const y = dy * cp - dz * sp;
+      return { x: dx / (z * tanHalf * aspect), y: y / (z * tanHalf) };
+    };
+    const all = [player, ...pts];
+    const lim = (i: number) => (i === 0 ? { x: 0.45, y0: -0.42, y1: 0.3 } : { x: 0.82, y0: -0.85, y1: 0.74 });
+    for (let dist = MATCH_DIST.walk; dist <= MATCH_DIST.walk + FRAME_EXTRA_DIST + 1e-6; dist += 1) {
+      let tx = tx0;
+      let ty = ty0;
+      for (let it = 0; it < 4; it++) {
+        // Allowed NDC shift interval per axis; take its middle (the group sits centered).
+        let sx0 = -Infinity;
+        let sx1 = Infinity;
+        let sy0 = -Infinity;
+        let sy1 = Infinity;
+        all.forEach((q, i) => {
+          const n = ndc(q, tx, ty, dist);
+          const L = lim(i);
+          sx0 = Math.max(sx0, -L.x - n.x);
+          sx1 = Math.min(sx1, L.x - n.x);
+          sy0 = Math.max(sy0, L.y0 - n.y);
+          sy1 = Math.min(sy1, L.y1 - n.y);
+        });
+        if (sx0 > sx1 || sy0 > sy1) break;
+        const sx = (sx0 + sx1) / 2;
+        const sy = (sy0 + sy1) / 2;
+        if (Math.abs(sx) < 1e-3 && Math.abs(sy) < 1e-3) break;
+        // Moving the view by +s NDC moves the points by -s: shift the target the other way.
+        tx -= sx * dist * tanHalf * aspect;
+        ty += (sy * dist * tanHalf) / Math.max(0.35, sp);
+      }
+      let ok = true;
+      all.forEach((q, i) => {
+        const n = ndc(q, tx, ty, dist);
+        const L = lim(i);
+        if (Math.abs(n.x) > L.x + 0.02 || n.y < L.y0 - 0.02 || n.y > L.y1 + 0.02) ok = false;
+      });
+      if (ok) return { x: tx, y: ty, dist };
+    }
+    return null;
+  }
+
   // ===========================================================================
-  // Occlusion (doc §4: 실내에 들어가면 지붕을 감추고, 카메라와 캐릭터 사이의 벽만 투명하게)
+  // Shot clearance (results / title: never put the camera inside or behind a building)
+  // ===========================================================================
+
+  /** Is the world point (sim x/y, height h) inside a static prop or bank (padded)? */
+  private solidAt(x: number, h: number, y: number, pad: number): boolean {
+    const L = this.layout;
+    if (!L) return false;
+    const p = { x, y };
+    for (const st of L.statics) {
+      if (h < st.height + pad && insideRect(p, st.center, st.half, st.angle, pad)) return true;
+    }
+    for (const c of L.circles) {
+      // Tree canopies are much wider than their trunk collider.
+      const r = c.kind === 'tree' ? Math.max(c.radius, 1.7) : c.kind === 'lamp' || c.kind === 'pole' ? 0 : c.radius;
+      if (r <= 0) continue;
+      if (h < c.height + pad && Math.hypot(x - c.center.x, y - c.center.y) < r + pad) return true;
+    }
+    for (const bv of this.banks.values()) {
+      if (bv.done) continue;
+      if (h < BANK_MODEL.roofHeight + 0.8 + pad && insideRect(p, bv.pose, BANK_MODEL.half, bv.pose.a, pad)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Blocked-ness of a shot: 100 if the camera sits inside something, +1 per hidden point of
+   * interest, +0.4 per frame ray (5 x 3 grid) that hits a prop in the near half of its way to the
+   * ground (foreground clutter filling the frame).
+   */
+  private shotCost(target: Vec2, yaw: number, pitchDeg: number, dist: number, pts: readonly THREE.Vector3[], fovDeg = 36, clutter = true): number {
+    const p = pitchDeg * DEG;
+    const cp = Math.cos(p);
+    const sp = Math.sin(p);
+    const cx = target.x - Math.cos(yaw) * cp * dist;
+    const cy = target.y - Math.sin(yaw) * cp * dist;
+    const ch = sp * dist;
+    let cost = this.solidAt(cx, ch, cy, 1.0) ? 100 : 0;
+    for (const q of pts) {
+      for (let i = 1; i < 24; i++) {
+        const t = i / 24;
+        if (this.solidAt(cx + (q.x - cx) * t, ch + (q.y - ch) * t, cy + (q.z - cy) * t, 0.25)) {
+          cost += 1;
+          break;
+        }
+      }
+    }
+    if (!clutter) return cost;
+    // Frame rays (sim x, height, sim y).
+    const tanV = Math.tan((fovDeg * DEG) / 2);
+    const tanH = tanV * (this.width / this.height);
+    const f = [cp * Math.cos(yaw), -sp, cp * Math.sin(yaw)];
+    const r = [-Math.sin(yaw), 0, Math.cos(yaw)];
+    const u = [sp * Math.cos(yaw), cp, sp * Math.sin(yaw)];
+    for (const a of [-0.85, -0.42, 0, 0.42, 0.85]) {
+      for (const b of [-0.8, 0, 0.8]) {
+        const dx = f[0] + r[0] * a * tanH + u[0] * b * tanV;
+        const dh = f[1] + r[1] * a * tanH + u[1] * b * tanV;
+        const dz = f[2] + r[2] * a * tanH + u[2] * b * tanV;
+        if (dh >= -0.02) continue;
+        const tGround = ch / -dh;
+        const tMax = tGround * 0.55;
+        const step = 0.45 / Math.hypot(dx, dh, dz);
+        for (let t = step; t < tMax; t += step) {
+          if (this.solidAt(cx + dx * t, ch + dh * t, cy + dz * t, 0)) {
+            cost += 0.4;
+            break;
+          }
+        }
+      }
+    }
+    return cost;
+  }
+
+  /** Best clear (yaw, pitch, dist) around a preferred shot; cost ties prefer the preferred one. */
+  private pickShot(target: Vec2, yaw0: number, pitches: number[], dists: number[], pts: readonly THREE.Vector3[], fov: number): { yaw: number; pitch: number; dist: number; clear: boolean } {
+    let best = { yaw: yaw0, pitch: pitches[0]!, dist: dists[0]!, clear: false };
+    let bestScore = Infinity;
+    const yaws = [0, -0.3, 0.3, -0.6, 0.6, -0.95, 0.95];
+    yaws.forEach((dy, yi) => {
+      pitches.forEach((pitch, pi) => {
+        dists.forEach((dist, di) => {
+          const cost = this.shotCost(target, yaw0 + dy, pitch, dist, pts, fov);
+          const score = cost * 10 + yi * 0.6 + pi * 0.5 + di * 0.3;
+          if (score < bestScore) {
+            bestScore = score;
+            best = { yaw: yaw0 + dy, pitch, dist, clear: false };
+          }
+        });
+      });
+    });
+    best.clear = this.shotCost(target, best.yaw, best.pitch, best.dist, pts, fov, false) === 0;
+    return best;
+  }
+
+  private pickTitleShot(sim: Simulation): TitleShot | null {
+    const g = this.charCentroid();
+    if (!g) return null;
+    const target = { x: g.x, y: g.y - 0.6 };
+    const pts = sim.state.characters.map((c) => {
+      const cv = this.chars.get(c.id);
+      return new THREE.Vector3(cv?.pose.x ?? c.pos.x, 0.7, cv?.pose.y ?? c.pos.y);
+    });
+    const s = this.pickShot(target, NORTH_YAW, [36, 44, 52], [15.5, 13.5], pts, 36);
+    return { target, yaw: s.yaw, pitch: s.pitch, dist: s.dist, clear: s.clear };
+  }
+
+  // ===========================================================================
+  // Occlusion (doc §4: 실내에 들어가면 지붕을 감추고, 카메라와 캐릭터 사이의 벽만 투명하게;
+  // doc §10: 상대가 금고를 빼낸 것을 숨기지 않는다)
   // ===========================================================================
 
   private updateOcclusion(sim: Simulation, fc: CharacterState | null, focus: ViewFocus | null, dt: number): void {
     const camPos = this.cam.basePosition;
     const mode = this.viewMode;
-    // Scenery x-ray toward the focus (match) / the staged group (results).
+    // Scenery x-ray toward the focus (match) / the staged group (results) / the idle group (title).
     let chest: THREE.Vector3 | null = null;
     const fcv = fc ? this.chars.get(fc.id) : undefined;
-    if (mode === 'match' && fcv) chest = new THREE.Vector3(fcv.pose.x, fcv.y + CHEST_Y, fcv.pose.y);
-    else if (mode === 'results' && this.stage) chest = new THREE.Vector3(this.stage.center.x, CHEST_Y, this.stage.center.y);
-
+    if (mode === 'match' && fcv) chest = _chest.set(fcv.pose.x, fcv.y + CHEST_Y, fcv.pose.y);
+    else if (mode === 'results' && this.stage && !this.stage.clear) chest = _chest.set(this.stage.center.x, CHEST_Y, this.stage.center.y);
+    else if (mode === 'title' && !this.titleShot?.clear) {
+      const g = this.charCentroid();
+      if (g) chest = _chest.set(g.x, CHEST_Y, g.y);
+    }
     setOcclusionFocus(chest ? camPos : null, chest, mode === 'match' ? 2.4 : 3.4);
 
     // Interest points that must stay visible: the focus raccoon (+ held / candidate safe).
@@ -1618,7 +2046,8 @@ export class GameView {
     }
 
     const H = BANK_MODEL.wallHeight;
-    const k = damp(dt > 0 ? 10 : 1e6, dt > 0 ? dt : 1);
+    const k = this.snapVisuals ? 1 : damp(10, dt);
+    const st = sim.state;
     for (const bv of this.banks.values()) {
       if (bv.done) continue;
       let roofT = 1;
@@ -1626,6 +2055,7 @@ export class GameView {
       if (mode === 'match' && fc && fcv) {
         const center = { x: bv.pose.x, y: bv.pose.y };
         const ang = bv.pose.a;
+        const bl = sim.getLoot(bv.id);
         let inside = fc.floorOf === bv.id || insideRect(fcv.pose, center, BANK_MODEL.half, ang, 0.05);
         for (const sv of interestSafes) {
           const l = sim.getLoot(sv.id);
@@ -1645,23 +2075,71 @@ export class GameView {
             if (wy > 0.42) wallT[i] = WALL_FADE;
           });
         }
+        // Peek (doc §10): another raccoon inside, or a safe being grabbed inside, is never
+        // hidden under the roof — e.g. a rival walking the 300 vault out of the bank the
+        // player is hauling by its camera-side wall. Roof goes translucent; walls in front fade.
+        const peek: THREE.Vector3[] = [];
+        for (const c of st.characters) {
+          if (c.id === fc.id) continue;
+          const cv = this.chars.get(c.id);
+          if (!cv) continue;
+          if (c.floorOf === bv.id || insideRect(cv.pose, center, BANK_MODEL.half, ang, -0.25)) {
+            for (const h of [0.15, CHEST_Y, 1.1]) peek.push(new THREE.Vector3(cv.pose.x, cv.y + h, cv.pose.y));
+          }
+        }
+        for (const sv of this.safes.values()) {
+          if (sv.done) continue;
+          const l = sim.getLoot(sv.id);
+          if (!l || !l.grabbedBy.length) continue;
+          if (l.floorOf === bv.id || l.loadedIn === bv.id || insideRect(sv.pose, center, BANK_MODEL.half, ang, -0.1)) {
+            peek.push(new THREE.Vector3(sv.pose.x, sv.y + SAFE_SPECS[sv.kind].height * 0.6, sv.pose.y));
+          }
+        }
+        if (peek.length && roofT > ROOF_PEEK) roofT = ROOF_PEEK;
+        // Haulers outside the building (either team): walls / door awnings in front of them fade.
+        const haulers: THREE.Vector3[] = [];
+        if (bl) {
+          for (const cid of bl.grabbedBy) {
+            if (cid === fc.id) continue;
+            const cv = this.chars.get(cid);
+            if (cv) haulers.push(new THREE.Vector3(cv.pose.x, cv.y + CHEST_Y, cv.pose.y), new THREE.Vector3(cv.pose.x, cv.y + 1.1, cv.pose.y));
+          }
+        }
         // Ray tests: walls/roof between the camera and the interest points.
         const near = Math.hypot(bv.pose.x - fcv.pose.x, bv.pose.y - fcv.pose.y) < 22;
-        if (near && pts.length) {
-          const lc = toLocal({ x: camPos.x, y: camPos.z }, center, ang, { x: 0, y: 0 });
+        const lc = toLocal({ x: camPos.x, y: camPos.z }, center, ang, { x: 0, y: 0 });
+        const wallTest = (p: THREE.Vector3): void => {
+          toLocal({ x: p.x, y: p.z }, center, ang, _loc);
+          BANK_MODEL.walls.forEach((w, i) => {
+            if (wallT[i] <= WALL_FADE) return;
+            const min: [number, number, number] = [w.center.x - w.half.x - 0.05, 0, w.center.y - w.half.y - 0.05];
+            const max: [number, number, number] = [w.center.x + w.half.x + 0.05, H + 0.4, w.center.y + w.half.y + 0.05];
+            if (segmentHitsBox(lc.x, camPos.y, lc.y, _loc.x, p.y, _loc.y, min, max)) wallT[i] = WALL_FADE;
+          });
+          // Door awnings stick out ~1.3 m over the door: they fade with their two walls.
+          BANK_MODEL.doors.forEach((d, di) => {
+            const ws = di === 0 ? [0, 1] : [2, 3];
+            if (wallT[ws[0]!]! <= WALL_FADE && wallT[ws[1]!]! <= WALL_FADE) return;
+            const ny = d.normal.y;
+            const y0 = d.center.y - ny * 0.2;
+            const y1 = d.center.y + ny * 1.5;
+            const min: [number, number, number] = [-BANK_MODEL.doorWidth / 2 - 0.5, H - 1.1, Math.min(y0, y1)];
+            const max: [number, number, number] = [BANK_MODEL.doorWidth / 2 + 0.5, H + 0.8, Math.max(y0, y1)];
+            if (segmentHitsBox(lc.x, camPos.y, lc.y, _loc.x, p.y, _loc.y, min, max)) for (const w of ws) wallT[w] = WALL_FADE;
+          });
+        };
+        if (near) {
           for (const p of pts) {
-            toLocal({ x: p.x, y: p.z }, center, ang, _loc);
-            BANK_MODEL.walls.forEach((w, i) => {
-              if (wallT[i] <= WALL_FADE) return;
-              const min: [number, number, number] = [w.center.x - w.half.x - 0.05, 0, w.center.y - w.half.y - 0.05];
-              const max: [number, number, number] = [w.center.x + w.half.x + 0.05, H + 0.4, w.center.y + w.half.y + 0.05];
-              if (segmentHitsBox(lc.x, camPos.y, lc.y, _loc.x, p.y, _loc.y, min, max)) wallT[i] = WALL_FADE;
-            });
+            wallTest(p);
             if (roofT > ROOF_FADE_BEHIND) {
               const rh = BANK_MODEL.half;
               if (segmentHitsBox(lc.x, camPos.y, lc.y, _loc.x, p.y, _loc.y, [-rh.x - 0.5, H - 0.2, -rh.y - 0.5], [rh.x + 0.5, BANK_MODEL.roofHeight + 1.6, rh.y + 0.5])) roofT = ROOF_FADE_BEHIND;
             }
           }
+        }
+        if (Math.hypot(bv.pose.x - fcv.pose.x, bv.pose.y - fcv.pose.y) < 36) {
+          for (const p of peek) wallTest(p);
+          for (const p of haulers) wallTest(p);
         }
       }
       // Smooth and apply.
@@ -1686,6 +2164,12 @@ export class GameView {
   // Results staging (doc §13: winners celebrate at their van; the loser stands empty-handed)
   // ===========================================================================
 
+  /**
+   * Winners line up in front of their van (the van fills the background, the camera looks
+   * across the zone at it — the zone is open ground, so nothing blocks the shot); losers stand
+   * slumped a step closer on the screen-right side, glancing at the winners. Draw: everyone
+   * at the focus team's van, happy.
+   */
   private buildStage(sim: Simulation, focus: ViewFocus | null): ResultsStage {
     const st = sim.state;
     const layout = sim.layout;
@@ -1694,32 +2178,67 @@ export class GameView {
     const team: TeamId = (winner ?? focusTeam) as TeamId;
     const zone = layout.zones.find((z) => z.team === team) ?? layout.zones[0];
     const van = zone?.vanPos ?? { x: layout.size.x / 2, y: layout.size.y / 2 };
-    const zc = zone?.center ?? van;
-    let dx = zc.x - van.x;
-    let dy = zc.y - van.y;
+    const zc = zone?.center ?? { x: van.x + 6, y: van.y };
+    // d: look direction (zone -> van); r: screen-right.
+    let dx = van.x - zc.x;
+    let dy = van.y - zc.y;
     const dl = Math.hypot(dx, dy) || 1;
     dx /= dl;
     dy /= dl;
-    const front = { x: van.x + dx * 4.4, y: van.y + dy * 4.4 };
-    // Losers stand toward the arena center from the winners (screen-sideways).
-    const towardCenter = Math.sign(layout.size.x / 2 - front.x) || 1;
-    const spots = new Map<EntityId, { x: number; y: number; facing: number; cheer: boolean; sad: boolean }>();
+    const rx = -dy;
+    const ry = dx;
+    const front = { x: van.x - dx * 3.1, y: van.y - dy * 3.1 };
+    const faceCam = Math.atan2(-dy, -dx);
+    const spots = new Map<EntityId, StageSpot>();
     const winners = st.characters.filter((c) => (winner === null ? true : c.team === winner));
     const losers = winner === null ? [] : st.characters.filter((c) => c.team !== winner);
-    const FACE_CAM = Math.PI / 2;
+    const wOff = losers.length ? -0.9 : 0;
     winners.forEach((c, i) => {
-      const off = (i - (winners.length - 1) / 2) * 1.35;
-      spots.set(c.id, { x: front.x + off, y: front.y + (i % 2) * 0.35, facing: FACE_CAM + (i - (winners.length - 1) / 2) * 0.25, cheer: winner !== null, sad: false });
+      const off = (i - (winners.length - 1) / 2) * 1.45 + wOff;
+      const fx = front.x + rx * off - dx * (i % 2) * 0.25;
+      const fy = front.y + ry * off - dy * (i % 2) * 0.25;
+      spots.set(c.id, { x: fx, y: fy, facing: faceCam - (i - (winners.length - 1) / 2) * 0.22, cheer: winner !== null, sad: false, index: i });
     });
-    const lx = front.x + towardCenter * (winners.length * 0.7 + 3.4);
+    // Losers: screen-right, a step closer to the camera, facing the camera turned toward the winners.
+    const lBase = { x: front.x + rx * (winners.length * 0.75 + 2.2 + wOff) - dx * 1.6, y: front.y + ry * (winners.length * 0.75 + 2.2 + wOff) - dy * 1.6 };
     losers.forEach((c, i) => {
-      const off = (i - (losers.length - 1) / 2) * 1.3;
-      // Face mostly the camera, turned a little toward the winners.
-      const facing = FACE_CAM + towardCenter * 0.55;
-      spots.set(c.id, { x: lx + off * towardCenter, y: front.y + 0.6 + (i % 2) * 0.3, facing, cheer: false, sad: true });
+      const off = i * 1.25;
+      const x = lBase.x + rx * off - dx * (i % 2) * 0.3;
+      const y = lBase.y + ry * off - dy * (i % 2) * 0.3;
+      // Mostly toward the camera (the sad face reads), turned toward the winners (screen-left).
+      spots.set(c.id, { x, y, facing: faceCam + 0.5, cheer: false, sad: true, index: i });
     });
-    let cx = front.x;
-    if (losers.length) cx = (front.x + lx) / 2;
-    return { center: { x: cx, y: front.y + 0.3 }, spots, team, winner, nextConfetti: this.time + 0.25, final: st.over };
+    // Frame: winners in the hero spot (center-left), losers inside the right third, van behind.
+    let cx = front.x + rx * wOff;
+    let cy = front.y + ry * wOff;
+    if (losers.length) {
+      const lc = { x: lBase.x + rx * (losers.length - 1) * 0.6, y: lBase.y + ry * (losers.length - 1) * 0.6 };
+      cx = cx * 0.66 + lc.x * 0.34;
+      cy = cy * 0.66 + lc.y * 0.34;
+    }
+    // Aim a touch toward the van so it stays in frame above the winners.
+    cx += dx * 0.5;
+    cy += dy * 0.5;
+    const center = { x: cx, y: cy };
+    const yaw0 = Math.atan2(dy, dx);
+    const pts: THREE.Vector3[] = [];
+    for (const s of spots.values()) pts.push(new THREE.Vector3(s.x, 0.7, s.y));
+    pts.push(new THREE.Vector3(van.x, 1.6, van.y));
+    const shot = this.pickShot(center, yaw0, [30, 36, 42], [11.5, 10.5, 13], pts, RESULTS_FOV);
+    return {
+      center,
+      spots,
+      team,
+      winner,
+      nextConfetti: this.time + 0.25,
+      final: st.over,
+      yaw: shot.yaw,
+      pitch: shot.pitch,
+      dist: shot.dist,
+      clear: shot.clear,
+      confettiAt: { x: front.x + rx * wOff, y: front.y + ry * wOff },
+      winnersAt: { x: front.x + rx * wOff, y: front.y + ry * wOff },
+      nextSigh: this.time + 1.4,
+    };
   }
 }

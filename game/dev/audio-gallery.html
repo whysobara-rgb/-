@@ -85,6 +85,14 @@
         gap: 6px;
         margin: 4px 0;
       }
+      section.wide {
+        grid-column: 1 / -1;
+      }
+      .sfx-list {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+        column-gap: 24px;
+      }
       .sfx {
         display: grid;
         grid-template-columns: 130px 1fr;

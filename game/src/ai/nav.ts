@@ -35,6 +35,18 @@ export const NAV_CLEARANCE: Readonly<Record<NavClass, number>> = {
   large: 0.8,
 };
 
+/**
+ * Required distance from a cell center to the nearest ANCHORED safe, per class. Anchored safes
+ * are immovable until someone unanchors them; a carried large safe trails aligned (1.2 m wide),
+ * so it squeezes past a small safe through a 1.6 m gap that the conservative free-rotation
+ * radius above would reject.
+ */
+export const NAV_SAFE_CLEARANCE: Readonly<Record<NavClass, number>> = {
+  walk: 0.46,
+  small: 0.5,
+  large: 0.55,
+};
+
 /** Distances are capped here (enough for lane-centering costs). */
 const CAP = 3;
 /** Lane-centering: extra cost per meter when clearance < r + CENTER_BAND. */
@@ -168,8 +180,14 @@ export class NavGrid {
   readonly n: number;
   readonly staticDist: Float32Array;
   readonly dynDist: Float32Array;
-  /** min(staticDist, dynDist), kept current. */
+  /** min(staticDist, dynDist): statics, intact fences, bank walls (not safes), kept current. */
   readonly clear: Float32Array;
+  /** Distance to the nearest anchored safe (capped). */
+  readonly safeDist: Float32Array;
+  /** min(clear, safeDist): overall clearance (costs, local checks). */
+  readonly eff: Float32Array;
+  /** Per-class passability (clear >= NAV_CLEARANCE and safeDist >= NAV_SAFE_CLEARANCE). */
+  private readonly masks: Record<NavClass, Uint8Array>;
   /** Incremented whenever the dynamic layer changes. */
   dynVersion = 0;
   lastStampTick = -1;
@@ -194,6 +212,9 @@ export class NavGrid {
     this.staticDist = new Float32Array(this.n);
     this.dynDist = new Float32Array(this.n).fill(CAP);
     this.clear = new Float32Array(this.n);
+    this.safeDist = new Float32Array(this.n).fill(CAP);
+    this.eff = new Float32Array(this.n);
+    this.masks = { walk: new Uint8Array(this.n), small: new Uint8Array(this.n), large: new Uint8Array(this.n) };
     this.gScore = new Float64Array(this.n);
     this.came = new Int32Array(this.n);
     this.stamp = new Uint32Array(this.n);
@@ -246,30 +267,52 @@ export class NavGrid {
     const tx = Math.min(1, Math.max(0, fx - i));
     const ty = Math.min(1, Math.max(0, fy - j));
     const k = j * this.nx + i;
-    const c = this.clear;
+    const c = this.eff;
     const a = c[k]! * (1 - tx) + c[k + 1]! * tx;
     const b = c[k + this.nx]! * (1 - tx) + c[k + this.nx + 1]! * tx;
     return a * (1 - ty) + b * ty;
   }
 
+  /** Bilinear sample of a field. */
+  private sample(c: Float32Array, x: number, y: number): number {
+    const fx = x / NAV_CELL;
+    const fy = y / NAV_CELL;
+    let i = Math.floor(fx);
+    let j = Math.floor(fy);
+    if (i < 0) i = 0;
+    else if (i > this.nx - 2) i = this.nx - 2;
+    if (j < 0) j = 0;
+    else if (j > this.ny - 2) j = this.ny - 2;
+    const tx = Math.min(1, Math.max(0, fx - i));
+    const ty = Math.min(1, Math.max(0, fy - j));
+    const k = j * this.nx + i;
+    const a = c[k]! * (1 - tx) + c[k + 1]! * tx;
+    const b = c[k + this.nx]! * (1 - tx) + c[k + this.nx + 1]! * tx;
+    return a * (1 - ty) + b * ty;
+  }
+
+  /** True if a point keeps the class clearances (walls and anchored safes). */
+  pointClear(x: number, y: number, cls: NavClass, margin = 0): boolean {
+    return this.sample(this.clear, x, y) >= NAV_CLEARANCE[cls] + margin && this.sample(this.safeDist, x, y) >= NAV_SAFE_CLEARANCE[cls] + margin;
+  }
+
   passable(k: number, cls: NavClass): boolean {
-    return this.clear[k]! >= NAV_CLEARANCE[cls];
+    return this.masks[cls][k] === 1;
   }
 
   isFreeAt(p: Vec2, cls: NavClass, margin = 0): boolean {
-    return this.clearanceAt(p.x, p.y) >= NAV_CLEARANCE[cls] + margin;
+    return this.pointClear(p.x, p.y, cls, margin);
   }
 
-  /** True if the straight segment a->b keeps clearance >= r (+margin) everywhere (sampled). */
+  /** True if the straight segment a->b keeps the class clearances (+margin) everywhere (sampled). */
   segmentClear(a: Vec2, b: Vec2, cls: NavClass, margin = 0.03): boolean {
-    const r = NAV_CLEARANCE[cls] + margin;
     const dx = b.x - a.x;
     const dy = b.y - a.y;
     const len = Math.hypot(dx, dy);
     const steps = Math.max(1, Math.ceil(len / 0.2));
     for (let s = 1; s <= steps; s++) {
       const t = s / steps;
-      if (this.clearanceAt(a.x + dx * t, a.y + dy * t) < r) return false;
+      if (!this.pointClear(a.x + dx * t, a.y + dy * t, cls, margin)) return false;
     }
     return true;
   }
@@ -404,9 +447,11 @@ export class NavGrid {
     const dyn = this.dynDist;
     dyn.fill(CAP);
     for (const f of st.fences) if (!f.broken) this.stampOBB(dyn, f);
+    const sd = this.safeDist;
+    sd.fill(CAP);
     for (const l of st.loot) {
       if (l.kind === 'bank' || l.recovered || !this.safeBlocks(l)) continue;
-      this.stampOBB(dyn, { center: l.pos, half: l.half, angle: l.angle });
+      this.stampOBB(sd, { center: l.pos, half: l.half, angle: l.angle });
     }
     for (const l of st.loot) {
       if (l.kind !== 'bank') continue;
@@ -418,9 +463,27 @@ export class NavGrid {
       if (l.kind !== 'bank' || l.recovered) continue;
       this.openDoors(dyn, l.pos, l.angle);
     }
-    const sd = this.staticDist;
+    const stat = this.staticDist;
     const cl = this.clear;
-    for (let k = 0; k < this.n; k++) cl[k] = sd[k]! < dyn[k]! ? sd[k]! : dyn[k]!;
+    const ef = this.eff;
+    const mw = this.masks.walk;
+    const ms = this.masks.small;
+    const ml = this.masks.large;
+    const rw = NAV_CLEARANCE.walk;
+    const rs = NAV_CLEARANCE.small;
+    const rl = NAV_CLEARANCE.large;
+    const sw = NAV_SAFE_CLEARANCE.walk;
+    const ss = NAV_SAFE_CLEARANCE.small;
+    const sl = NAV_SAFE_CLEARANCE.large;
+    for (let k = 0; k < this.n; k++) {
+      const c = stat[k]! < dyn[k]! ? stat[k]! : dyn[k]!;
+      const s = sd[k]!;
+      cl[k] = c;
+      ef[k] = c < s ? c : s;
+      mw[k] = c >= rw && s >= sw ? 1 : 0;
+      ms[k] = c >= rs && s >= ss ? 1 : 0;
+      ml[k] = c >= rl && s >= sl ? 1 : 0;
+    }
     this.dynVersion++;
     this.stats.restamps++;
   }
@@ -433,7 +496,7 @@ export class NavGrid {
   nearestPassable(p: Vec2, cls: NavClass, maxR = 3): number {
     const k0 = this.cellAt(p.x, p.y);
     if (this.passable(k0, cls)) return k0;
-    const r = NAV_CLEARANCE[cls];
+    const mask = this.masks[cls];
     let best = -1;
     let bestD = Infinity;
     const ci = Math.round(p.x / NAV_CELL);
@@ -447,7 +510,7 @@ export class NavGrid {
           const j = cj + dj;
           if (i < 0 || j < 0 || i >= this.nx || j >= this.ny) continue;
           const k = j * this.nx + i;
-          if (this.clear[k]! < r) continue;
+          if (mask[k] !== 1) continue;
           const d = Math.hypot(i * NAV_CELL - p.x, j * NAV_CELL - p.y);
           if (d < bestD) {
             bestD = d;
@@ -461,7 +524,7 @@ export class NavGrid {
   }
 
   private stepCost(k: number, base: number, r: number, opts: PathOptions | undefined): number {
-    const c = this.clear[k]!;
+    const c = this.eff[k]!;
     let mult = 1;
     const band = r + CENTER_BAND;
     if (c < band) mult += (CENTER_WEIGHT * (band - c)) / CENTER_BAND;
@@ -519,7 +582,7 @@ export class NavGrid {
     let bestK = s;
     let bestH = h(s);
     let expanded = 0;
-    const clear = this.clear;
+    const mask = this.masks[cls];
     const D = NAV_CELL * SQRT2;
     while (heap.size > 0) {
       const k = heap.pop();
@@ -546,10 +609,10 @@ export class NavGrid {
       if (++expanded > maxExpand) break;
       const i = k % nx;
       const j = (k - i) / nx;
-      const L = i > 0 && clear[k - 1]! >= r;
-      const R = i < nx - 1 && clear[k + 1]! >= r;
-      const U = j > 0 && clear[k - nx]! >= r;
-      const Dn = j < ny - 1 && clear[k + nx]! >= r;
+      const L = i > 0 && mask[k - 1] === 1;
+      const R = i < nx - 1 && mask[k + 1] === 1;
+      const U = j > 0 && mask[k - nx] === 1;
+      const Dn = j < ny - 1 && mask[k + nx] === 1;
       const relax = (q: number, base: number): void => {
         const ng = gk + this.stepCost(q, base, r, opts);
         if (stamp[q] !== ep || ng < g[q]! - 1e-9) {
@@ -563,10 +626,10 @@ export class NavGrid {
       if (R) relax(k + 1, NAV_CELL);
       if (U) relax(k - nx, NAV_CELL);
       if (Dn) relax(k + nx, NAV_CELL);
-      if (L && U && clear[k - nx - 1]! >= r) relax(k - nx - 1, D);
-      if (R && U && clear[k - nx + 1]! >= r) relax(k - nx + 1, D);
-      if (L && Dn && clear[k + nx - 1]! >= r) relax(k + nx - 1, D);
-      if (R && Dn && clear[k + nx + 1]! >= r) relax(k + nx + 1, D);
+      if (L && U && mask[k - nx - 1] === 1) relax(k - nx - 1, D);
+      if (R && U && mask[k - nx + 1] === 1) relax(k - nx + 1, D);
+      if (L && Dn && mask[k + nx - 1] === 1) relax(k + nx - 1, D);
+      if (R && Dn && mask[k + nx + 1] === 1) relax(k + nx + 1, D);
     }
     this.stats.astarExpanded += expanded;
     const partial = found < 0;
@@ -610,7 +673,6 @@ export class NavGrid {
   }
 
   private segmentClearInterior(a: Vec2, b: Vec2, cls: NavClass, relaxStart: boolean, relaxEnd: boolean): boolean {
-    const r = NAV_CLEARANCE[cls] + 0.03;
     const dx = b.x - a.x;
     const dy = b.y - a.y;
     const len = Math.hypot(dx, dy);
@@ -621,12 +683,11 @@ export class NavGrid {
       const dE = (1 - t) * len;
       if (relaxStart && dS < 0.6) continue;
       if (relaxEnd && dE < 0.6) continue;
-      if (this.clearanceAt(a.x + dx * t, a.y + dy * t) < r) return false;
+      if (!this.pointClear(a.x + dx * t, a.y + dy * t, cls, 0.03)) return false;
     }
     return true;
   }
 
-  /** Multi-source Dijkstra (m) over cells passable for cls. */
   /** Full-grid Dijkstra runs in the current tick (budgeting: callers reuse stale fields). */
   fieldsThisTick(): number {
     return this.fieldTick === this.lastSeenTick ? this.fieldCount : 0;
@@ -635,6 +696,7 @@ export class NavGrid {
   private fieldCount = 0;
   private lastSeenTick = -1;
 
+  /** Multi-source Dijkstra (m) over cells passable for cls. */
   distanceField(seeds: ReadonlyArray<number>, cls: NavClass, out?: Float64Array, maxDist = Infinity): Float64Array {
     this.stats.dijkstra++;
     if (this.fieldTick !== this.lastSeenTick) {
@@ -648,15 +710,15 @@ export class NavGrid {
     d.fill(Infinity);
     const heap = this.heap;
     heap.clear();
+    const mask = this.masks[cls];
     for (const s of seeds) {
-      if (s >= 0 && this.clear[s]! >= r) {
+      if (s >= 0 && mask[s] === 1) {
         d[s] = 0;
         heap.push(s, 0);
       }
     }
     const nx = this.nx;
     const ny = this.ny;
-    const clear = this.clear;
     const D = NAV_CELL * SQRT2;
     while (heap.size > 0) {
       const k = heap.pop();
@@ -665,18 +727,18 @@ export class NavGrid {
       if (dk > maxDist) break;
       const i = k % nx;
       const j = (k - i) / nx;
-      const L = i > 0 && clear[k - 1]! >= r;
-      const R = i < nx - 1 && clear[k + 1]! >= r;
-      const U = j > 0 && clear[k - nx]! >= r;
-      const Dn = j < ny - 1 && clear[k + nx]! >= r;
+      const L = i > 0 && mask[k - 1] === 1;
+      const R = i < nx - 1 && mask[k + 1] === 1;
+      const U = j > 0 && mask[k - nx] === 1;
+      const Dn = j < ny - 1 && mask[k + nx] === 1;
       if (L && dk + NAV_CELL < d[k - 1]!) (d[k - 1] = dk + NAV_CELL), heap.push(k - 1, dk + NAV_CELL);
       if (R && dk + NAV_CELL < d[k + 1]!) (d[k + 1] = dk + NAV_CELL), heap.push(k + 1, dk + NAV_CELL);
       if (U && dk + NAV_CELL < d[k - nx]!) (d[k - nx] = dk + NAV_CELL), heap.push(k - nx, dk + NAV_CELL);
       if (Dn && dk + NAV_CELL < d[k + nx]!) (d[k + nx] = dk + NAV_CELL), heap.push(k + nx, dk + NAV_CELL);
-      if (L && U && clear[k - nx - 1]! >= r && dk + D < d[k - nx - 1]!) (d[k - nx - 1] = dk + D), heap.push(k - nx - 1, dk + D);
-      if (R && U && clear[k - nx + 1]! >= r && dk + D < d[k - nx + 1]!) (d[k - nx + 1] = dk + D), heap.push(k - nx + 1, dk + D);
-      if (L && Dn && clear[k + nx - 1]! >= r && dk + D < d[k + nx - 1]!) (d[k + nx - 1] = dk + D), heap.push(k + nx - 1, dk + D);
-      if (R && Dn && clear[k + nx + 1]! >= r && dk + D < d[k + nx + 1]!) (d[k + nx + 1] = dk + D), heap.push(k + nx + 1, dk + D);
+      if (L && U && mask[k - nx - 1] === 1 && dk + D < d[k - nx - 1]!) (d[k - nx - 1] = dk + D), heap.push(k - nx - 1, dk + D);
+      if (R && U && mask[k - nx + 1] === 1 && dk + D < d[k - nx + 1]!) (d[k - nx + 1] = dk + D), heap.push(k - nx + 1, dk + D);
+      if (L && Dn && mask[k + nx - 1] === 1 && dk + D < d[k + nx - 1]!) (d[k + nx - 1] = dk + D), heap.push(k + nx - 1, dk + D);
+      if (R && Dn && mask[k + nx + 1] === 1 && dk + D < d[k + nx + 1]!) (d[k + nx + 1] = dk + D), heap.push(k + nx + 1, dk + D);
     }
     return d;
   }

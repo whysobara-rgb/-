@@ -2,9 +2,9 @@
  * Game camera (doc §4 "카메라는 높은 사선 시점에서 플레이어와 근처 목표를 보여준다. 수동 카메라
  * 회전은 기본 조작에 넣지 않는다").
  *
- * - Fixed yaw: the camera always sits south of its target (+z) looking north, so screen-up is
- *   sim -y in every mode and input mapping never changes. Only position, distance and (outside
- *   'match') pitch move.
+ * - Fixed yaw in 'match': the camera always sits south of its target (+z) looking north, so
+ *   screen-up is sim -y and input mapping never changes. Only position and distance move.
+ *   ('results' / 'title' may aim the shot with CameraGoal.yaw; mode switches snap.)
  * - 'match': high oblique (pitch 55°) smooth follow with a little look-ahead; distance frames
  *   the carried object and nearby targets (out when hauling / near a bank, in for small loot);
  *   the target is clamped so the view never drifts far outside the arena.
@@ -15,7 +15,7 @@
  */
 import * as THREE from 'three';
 import type { Vec2 } from '../sim';
-import { damp } from './sync';
+import { damp, lerpAngle, wrapAngle } from './sync';
 
 export type ViewMode = 'match' | 'preview' | 'results' | 'title';
 
@@ -31,9 +31,18 @@ export interface CameraGoal {
   fov: number;
   /** Follow stiffness (1/s); higher = snappier. */
   followRate: number;
-  /** Clamp the target to the arena (with overscan). */
+  /** Clamp the target to the arena (with overscan). Only meaningful with the default yaw. */
   clamp: boolean;
+  /**
+   * Ground direction the camera looks along (sim radians, atan2(dy, dx)). Default -PI/2 =
+   * north (screen-up = sim -y). 'match' never sets it, so the match view never rotates;
+   * 'results' / 'title' may aim the shot (e.g. across the zone at the winners' van).
+   */
+  yaw?: number;
 }
+
+/** Default camera yaw: looking north (sim -y). */
+export const NORTH_YAW = -Math.PI / 2;
 
 export const MATCH_PITCH = 55;
 export const MATCH_FOV = 38;
@@ -42,8 +51,10 @@ export const MATCH_DIST = {
   walk: 21,
   smallSafe: 20,
   largeSafe: 22,
-  nearBank: 26,
-  hauling: 29,
+  nearBank: 24,
+  /** Hauling a bank: wide enough for the 8 x 6 m building + its surroundings, close enough
+   *  that the hauler still reads as a raccoon (~32 px tall at 720p) next to it. */
+  hauling: 25,
 } as const;
 
 const DEG = Math.PI / 180;
@@ -54,6 +65,7 @@ export class GameCamera {
   private distance: number = MATCH_DIST.walk;
   private pitch = MATCH_PITCH;
   private fov = MATCH_FOV;
+  private yaw = NORTH_YAW;
   private snapNext = true;
   private trauma = 0;
   private readonly punchOff = { x: 0, y: 0 };
@@ -122,6 +134,11 @@ export class GameCamera {
     return this.distance;
   }
 
+  /** Current smoothed yaw (sim radians; NORTH_YAW in 'match'). */
+  get currentYaw(): number {
+    return this.yaw;
+  }
+
   update(dt: number, goal: CameraGoal, opts: { screenShake: number; reducedMotion: boolean }): void {
     this.time += dt;
     let tx = goal.target.x;
@@ -136,6 +153,7 @@ export class GameCamera {
       this.distance = goal.distance;
       this.pitch = goal.pitch;
       this.fov = goal.fov;
+      this.yaw = goal.yaw ?? NORTH_YAW;
       this.snapNext = false;
     } else {
       const k = damp(goal.followRate, dt);
@@ -145,6 +163,8 @@ export class GameCamera {
       this.distance += (goal.distance - this.distance) * kz;
       this.pitch += (goal.pitch - this.pitch) * kz;
       this.fov += (goal.fov - this.fov) * kz;
+      const gy = goal.yaw ?? NORTH_YAW;
+      this.yaw = Math.abs(wrapAngle(gy - this.yaw)) < 1e-4 ? gy : lerpAngle(this.yaw, gy, kz);
     }
     // Keep the smoothed target inside the clamp too (zoom changes move the limits).
     if (goal.clamp) {
@@ -173,8 +193,10 @@ export class GameCamera {
     const dist = this.distance * (1 + THREE.MathUtils.clamp(this.zoomOff * punchScale, -0.25, 0.25));
 
     const p = this.pitch * DEG;
+    const fx = Math.cos(this.yaw);
+    const fy = Math.sin(this.yaw);
     this.focusPoint.set(this.target.x, 0, this.target.y);
-    this.basePosition.set(this.target.x + px, Math.sin(p) * dist, this.target.y + py + Math.cos(p) * dist);
+    this.basePosition.set(this.target.x + px - fx * Math.cos(p) * dist, Math.sin(p) * dist, this.target.y + py - fy * Math.cos(p) * dist);
 
     // Translational trauma shake (never rotates the view).
     let sx = 0;

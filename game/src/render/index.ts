@@ -4,7 +4,8 @@
  */
 export { GameView } from './view';
 export type { ViewSettings, ViewFocus, ViewMode, ViewStats, TelegraphKind } from './view';
-export { GameCamera, MATCH_DIST, MATCH_FOV, MATCH_PITCH, fitDistance } from './camera';
+export { GameCamera, MATCH_DIST, MATCH_FOV, MATCH_PITCH, NORTH_YAW, fitDistance } from './camera';
+export { GRAB_MARKER_COLOR } from './effects';
 export type { CameraGoal } from './camera';
 export { QUALITY_PRESETS, qualityPreset } from './quality';
 export type { QualityLevel, QualityPreset } from './quality';

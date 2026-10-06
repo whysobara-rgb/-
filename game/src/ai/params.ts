@@ -99,9 +99,9 @@ export interface PersonalityWeights {
 export const PERSONALITY: Readonly<Record<RivalId, PersonalityWeights>> = {
   // 호다닥: frequent quick small-safe runs along favourite routes.
   hodadak: {
-    smallSafe: 1.3,
+    smallSafe: 1.45,
     largeSafe: 1.0,
-    bank: 0.55,
+    bank: 0.7,
     bankContents: 0.0,
     strip: 1.15,
     intercept: 0.55,
@@ -131,7 +131,7 @@ export const PERSONALITY: Readonly<Record<RivalId, PersonalityWeights>> = {
   },
   // 눈치왕: waits for the opponent to commit to a big haul, then intercepts / steals.
   nunchi: {
-    smallSafe: 0.9,
+    smallSafe: 0.85,
     largeSafe: 0.92,
     bank: 0.6,
     bankContents: 0.0,
@@ -170,32 +170,39 @@ export interface DifficultyParams {
   telegraphTicks: number;
   /** Uses the carry boost on straight segments. */
   carryBoost: number;
+  /**
+   * Relative noise on its own utility estimates (choice quality): a novice misjudges distances
+   * and values a bit, so it sometimes commits to a decent-but-not-best target.
+   */
+  estimateNoise: number;
 }
 
 export const DIFFICULTY_PARAMS: Readonly<Record<Difficulty, DifficultyParams>> = {
   novice: {
     decisionInterval: 66,
     reactionDelay: 27,
-    bestChoiceProb: 0.55,
-    decentRatio: 0.6,
+    bestChoiceProb: 0.3,
+    decentRatio: 0.5,
     threatResponse: 0.4,
     dashUse: 0.3,
     leadQuality: 0.35,
-    counterDepth: 0.5,
-    telegraphTicks: 27,
-    carryBoost: 0.25,
+    counterDepth: 0.4,
+    telegraphTicks: 30,
+    carryBoost: 0.1,
+    estimateNoise: 0.3,
   },
   normal: {
     decisionInterval: 36,
     reactionDelay: 14,
-    bestChoiceProb: 0.82,
-    decentRatio: 0.75,
+    bestChoiceProb: 0.85,
+    decentRatio: 0.78,
     threatResponse: 0.75,
     dashUse: 0.7,
     leadQuality: 0.75,
     counterDepth: 1,
     telegraphTicks: 18,
-    carryBoost: 0.7,
+    carryBoost: 0.75,
+    estimateNoise: 0.07,
   },
   challenge: {
     decisionInterval: 18,
@@ -208,5 +215,6 @@ export const DIFFICULTY_PARAMS: Readonly<Record<Difficulty, DifficultyParams>> =
     counterDepth: 2,
     telegraphTicks: 8,
     carryBoost: 1,
+    estimateNoise: 0,
   },
 };
