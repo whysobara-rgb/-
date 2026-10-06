@@ -148,10 +148,10 @@ function addVaultDoor(b: PartBuilder, u: number, y: number, z: number, dir: numb
     const a = (i / 12) * Math.PI * 2;
     b.add(G.sphere(8, 6), { color: PAL.silver, pos: [u + Math.cos(a) * r * 0.92, y + Math.sin(a) * r * 0.92, z + dir * 0.08], scale: 0.035 });
   }
-  b.add(G.cyl(1, 1, 16), { color: PAL.gold, pos: [u, y, z + dir * 0.1], rot: [Math.PI / 2, 0, 0], scale: [0.12, 0.06, 0.12], emissive: 0.1 });
+  b.add(G.cyl(1, 1, 16), { color: PAL.gold, pos: [u, y, z + dir * 0.085], rot: [Math.PI / 2, 0, 0], scale: [0.12, 0.05, 0.12], emissive: 0.1 });
   for (let i = 0; i < 3; i++) {
     const a = (i / 3) * Math.PI;
-    b.add(G.cyl(1, 1, 8), { color: PAL.gold, pos: [u, y, z + dir * 0.11], rot: [0, 0, a], scale: [0.025, r * 0.9, 0.025] });
+    b.add(G.cyl(1, 1, 8), { color: PAL.gold, pos: [u, y, z + dir * 0.095], rot: [0, 0, a], scale: [0.022, r * 0.9, 0.022] });
   }
   // Hinge block.
   b.add(G.rbox(0.14, 0.6, 0.1, 0.03), { color: PAL.steelDark, pos: [u + r + 0.07, y, z + dir * 0.05] });
@@ -177,7 +177,7 @@ function addTellerWindow(b: PartBuilder, u: number, z: number, dir: number): voi
   }
   b.add(G.rbox(1.7, 0.08, 0.12, 0.03), { color: PAL.gold, pos: [u, 1.0, z + dir * 0.06] });
   // Little bell.
-  b.add(G.dome(10, 6), { color: PAL.goldLight, pos: [u + 0.45, 1.05, z + dir * 0.1], scale: 0.06, emissive: 0.2 });
+  b.add(G.dome(10, 6), { color: PAL.goldLight, pos: [u + 0.45, 1.04, z + dir * 0.07], scale: 0.045, emissive: 0.2 });
 }
 
 function buildWall(index: number, f: WallFrame): THREE.BufferGeometry {
@@ -252,11 +252,11 @@ function buildWall(index: number, f: WallFrame): THREE.BufferGeometry {
       // Front door leaf, folded flat against the interior face.
       const leafW = DOOR_W / 2 - 0.05;
       const lu = ue - end * (leafW / 2 + 0.08);
-      b.add(G.rbox(leafW, DOOR_TOP - y0 - 0.1, 0.07, 0.03), { color: '#4FA79A', pos: [lu, (y0 + DOOR_TOP) / 2 - 0.02, zIn - 0.05] });
-      b.add(G.rbox(leafW - 0.16, 0.9, 0.03, 0.02), { color: '#6CC2B4', pos: [lu, 0.75, zIn - 0.09] });
-      b.add(G.cyl(1, 1, 16), { color: '#FFE3A8', pos: [lu, 1.75, zIn - 0.09], rot: [Math.PI / 2, 0, 0], scale: [0.2, 0.03, 0.2], emissive: 0.35 });
-      b.add(G.torus(0.15, 6, 18), { color: PAL.gold, pos: [lu, 1.75, zIn - 0.1], scale: 0.21 });
-      b.add(G.sphere(8, 6), { color: PAL.gold, pos: [lu - end * (leafW / 2 - 0.12), 1.15, zIn - 0.11], scale: 0.045, emissive: 0.15 });
+      b.add(G.rbox(leafW, DOOR_TOP - y0 - 0.1, 0.06, 0.025), { color: '#4FA79A', pos: [lu, (y0 + DOOR_TOP) / 2 - 0.02, zIn - 0.035] });
+      b.add(G.rbox(leafW - 0.16, 0.9, 0.03, 0.015), { color: '#6CC2B4', pos: [lu, 0.75, zIn - 0.068] });
+      b.add(G.cyl(1, 1, 16), { color: '#FFE3A8', pos: [lu, 1.75, zIn - 0.068], rot: [Math.PI / 2, 0, 0], scale: [0.2, 0.02, 0.2], emissive: 0.35 });
+      b.add(G.torus(0.15, 6, 18), { color: PAL.gold, pos: [lu, 1.75, zIn - 0.075], scale: [0.21, 0.21, 0.12] });
+      b.add(G.sphere(8, 6), { color: PAL.gold, pos: [lu - end * (leafW / 2 - 0.12), 1.15, zIn - 0.08], scale: 0.03, emissive: 0.15 });
     }
     // Flattened column on the exterior next to the jamb.
     const cu = ue - end * 0.3;

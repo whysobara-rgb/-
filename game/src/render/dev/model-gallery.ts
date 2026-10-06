@@ -365,6 +365,53 @@ async function loadLayout(): Promise<void> {
     const look: CharacterLook = { hat: sp.team === 0 ? 'teamCapA' : 'teamCapB', furTint: (i * 0.37) % 1 };
     layoutRaccoons.push(addRaccoon(sp.team, look, sp.pos.x, sp.pos.y, sp.facing, (t) => ({ ...idlePose(t), speed: i % 2 ? 0 : 3 }), LAYOUT_ROOT));
   });
+  stageAction(layout);
+}
+
+/**
+ * A staged "mid-match" moment near the first bank so the game-camera screenshots show the
+ * real cast in action: a team pulling the bank, a rival dragging a safe out of the zone path,
+ * a dash, a knockdown, a highlighted grab target.
+ */
+function stageAction(l: LayoutDef): void {
+  const bp = l.banks[0];
+  if (!bp) return;
+  const c = Math.cos(bp.angle);
+  const s = Math.sin(bp.angle);
+  const toWorld = (lx: number, ly: number): { x: number; y: number } => ({ x: bp.pos.x + lx * c - ly * s, y: bp.pos.y + lx * s + ly * c });
+  // Two team-0 raccoons gripping the bank's west wall (local -x side), straining.
+  for (const ly of [-1.2, 1.2]) {
+    const p = toWorld(-BANK_MODEL.half.x - 0.55, ly);
+    addRaccoon(0, { hat: 'teamCapA' }, p.x, p.y, bp.angle, (t) => ({ ...idlePose(t), grabbing: true, straining: true }), LAYOUT_ROOT);
+  }
+  const bankRig = banks[banks.length - l.banks.length];
+  bankRig?.setHighlight(HIGHLIGHT_COLORS.grab);
+  updaters.push((_dt, t) => bankRig?.setStrain(0.6 + 0.4 * Math.sin(t * 2)));
+  // A team-1 raccoon dragging a small safe away (moving in a slow loop).
+  const safe = createSafe('smallSafe');
+  safe.setAnchored(false);
+  safe.setHighlight(HIGHLIGHT_COLORS.inZone);
+  LAYOUT_ROOT.add(safe.root);
+  const dragger = addRaccoon(1, { hat: 'teamCapB', rival: 'hodadak' }, 0, 0, 0, (t) => ({ ...idlePose(t), grabbing: true, speed: 3.4 }), LAYOUT_ROOT);
+  const base = toWorld(0, BANK_MODEL.half.y + 4.5);
+  updaters.push((dt, t) => {
+    const a = t * 0.45;
+    const px = base.x + Math.cos(a) * 3.2;
+    const py = base.y + Math.sin(a) * 1.6;
+    const vx = -Math.sin(a) * 3.2;
+    const vy = Math.cos(a) * 1.6;
+    const f = Math.atan2(vy, vx);
+    placeOnSim(dragger.root, { x: px, y: py }, f);
+    placeOnSim(safe.root, { x: px - Math.cos(f) * 1.0, y: py - Math.sin(f) * 1.0 }, f);
+    safe.update(dt);
+  });
+  // A dash + a knockdown nearby.
+  const d = toWorld(BANK_MODEL.half.x + 3, -1);
+  addRaccoon(1, { hat: 'teamCapB', rival: 'nunchi' }, d.x, d.y, Math.PI, (t) => ({ ...idlePose(t), dashing: t % 2 < 0.4, speed: t % 2 < 0.4 ? 11 : 0 }), LAYOUT_ROOT);
+  const k = toWorld(BANK_MODEL.half.x + 1.6, -1.2);
+  addRaccoon(0, { hat: 'teamCapA' }, k.x, k.y, 0, (t) => ({ ...idlePose(t), knockedDown: t % 2 > 0.3 && t % 2 < 1.1 }), LAYOUT_ROOT);
+  const cheer = toWorld(-2, BANK_MODEL.half.y + 7);
+  addRaccoon(0, { hat: 'teamCapA', rival: 'tongkeun' }, cheer.x, cheer.y, Math.PI / 2, (t) => ({ ...idlePose(t), celebrating: true }), LAYOUT_ROOT);
 }
 
 // ===========================================================================
@@ -407,6 +454,8 @@ const CAMERAS: Record<string, CamPreset> = {
   layoutGameSouth: gameCam(30, 46),
   layoutGameNorthEdge: gameCam(20, 3),
   layoutGameFar: gameCam(40, 26, 40),
+  layoutAction: gameCam(40, 16, 28),
+  layoutActionClose: gameCam(40, 16, 16),
 };
 
 let currentCam = params.get('cam') ?? 'raccoons';
@@ -507,6 +556,7 @@ declare global {
       stats(): { calls: number; triangles: number; scenery: StaticScenery['stats'] | null };
       modelStats(): Record<string, { meshes: number; triangles: number }>;
       breakdown(): Record<string, { count: number; triangles: number }>;
+      selftest(): unknown;
       advance(seconds: number): void;
     };
   }
@@ -515,12 +565,27 @@ declare global {
 await preloadModelFonts('너구리 카페 몽글 찻집 말랑 빵집 동글 도넛 뽀짝 장난감 뿅뿅 오락실 꽃방울 꽃집 사르르 아이스크림 책벌레 책방 빙글 음반가게 후루룩 라멘 뽀송 빨래방 도토리 우체국 토닥 약국 떡볶이 레모네이드');
 await loadLayout();
 setCamera(currentCam);
+let selftest: unknown = null;
+if (params.get('selftest')) {
+  const { runModelSelfTest } = await import('./model-selftest');
+  let all: Record<string, LayoutDef> | null = null;
+  const loader = import.meta.glob('../../sim/layouts/index.ts')['../../sim/layouts/index.ts'];
+  if (loader) {
+    try {
+      all = ((await loader()) as { LAYOUTS?: Record<string, LayoutDef> }).LAYOUTS ?? null;
+    } catch {
+      all = null;
+    }
+  }
+  selftest = await runModelSelfTest(all);
+}
 window.__gallery = {
   ready: true,
   setCamera,
   cameras: Object.keys(CAMERAS),
   stats: () => ({ calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, scenery: scenery?.stats ?? null }),
   modelStats,
+  selftest: () => selftest,
   breakdown() {
     // Triangles per static kind for the loaded layout (perf tuning aid).
     const out: Record<string, { count: number; triangles: number }> = {};

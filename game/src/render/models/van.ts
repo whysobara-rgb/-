@@ -81,15 +81,15 @@ function buildVan(team: TeamId): VanGeo {
     b.pop();
     // Door handle + mirror.
     b.add(G.rbox(0.18, 0.05, 0.05, 0.02), { color: PAL.silver, pos: [1.0, beltY - 0.25, s * (W / 2 - 0.02)] });
-    b.add(G.rbox(0.12, 0.2, 0.08, 0.04), { color: dark, pos: [L / 2 - 0.55, beltY + 0.2, s * (W / 2 + 0.06)] });
+    b.add(G.rbox(0.12, 0.2, 0.06, 0.03), { color: dark, pos: [L / 2 - 0.55, beltY + 0.2, s * (W / 2 + 0.0)] });
   }
   // Front: grille, bumper, headlights.
   b.add(G.rbox(0.1, 0.36, 1.1, 0.05), { color: PAL.ink, pos: [L / 2 - 0.02, 0.72, 0] });
   for (let i = 0; i < 4; i++) b.add(G.box(), { color: PAL.silver, pos: [L / 2 + 0.03, 0.6 + i * 0.08, 0], scale: [0.02, 0.025, 1.0] });
-  b.add(G.rbox(0.22, 0.18, W - 0.1, 0.08), { color: PAL.silver, pos: [L / 2 - 0.02, 0.4, 0] });
+  b.add(G.rbox(0.18, 0.18, W - 0.1, 0.08), { color: PAL.silver, pos: [L / 2 - 0.06, 0.4, 0] });
   for (const s of [-1, 1]) {
     b.add(G.cyl(1, 1, 18), { color: '#FFF3C4', pos: [L / 2 - 0.02, 0.85, s * 0.78], rot: [0, 0, Math.PI / 2], scale: [0.16, 0.08, 0.16], emissive: 0.9 });
-    b.add(G.torus(0.18, 6, 18), { color: PAL.silver, pos: [L / 2 + 0.02, 0.85, s * 0.78], rot: [0, Math.PI / 2, 0], scale: 0.17 });
+    b.add(G.torus(0.18, 6, 18), { color: PAL.silver, pos: [L / 2 - 0.02, 0.85, s * 0.78], rot: [0, Math.PI / 2, 0], scale: 0.17 });
   }
   // Rear: doors split, tail lights, bumper, exhaust.
   b.add(G.box(), { color: dark, pos: [-L / 2 + 0.04, 0.95, 0], scale: [0.03, 1.1, 0.03] });
@@ -97,8 +97,8 @@ function buildVan(team: TeamId): VanGeo {
     b.add(G.rbox(0.06, 0.22, 0.14, 0.03), { color: '#FF6B6B', pos: [-L / 2 + 0.03, 1.0, s * (W / 2 - 0.18)], emissive: 0.6 });
     b.add(G.rbox(0.06, 0.05, 0.2, 0.02), { color: PAL.silver, pos: [-L / 2 + 0.04, 0.95, s * 0.2] });
   }
-  b.add(G.rbox(0.2, 0.16, W - 0.1, 0.07), { color: PAL.silver, pos: [-L / 2 + 0.02, 0.4, 0] });
-  b.add(G.cyl(1, 1, 10), { color: PAL.steelDark, pos: [-L / 2 - 0.04, 0.3, -0.6], rot: [0, 0, Math.PI / 2], scale: [0.06, 0.25, 0.06] });
+  b.add(G.rbox(0.18, 0.16, W - 0.1, 0.07), { color: PAL.silver, pos: [-L / 2 + 0.06, 0.4, 0] });
+  b.add(G.cyl(1, 1, 10), { color: PAL.steelDark, pos: [-L / 2 + 0.02, 0.3, -0.6], rot: [0, 0, Math.PI / 2], scale: [0.06, 0.16, 0.06] });
   // Wheel arches (dark) — wheels themselves are a separate mesh so they can spin.
   for (const x of [L / 2 - 0.95, -L / 2 + 0.95]) for (const s of [-1, 1]) {
     b.add(G.cyl(1, 1, 18, false), { color: PAL.ink, pos: [x, WHEEL_R + 0.02, s * (W / 2 - 0.04)], rot: [Math.PI / 2, 0, 0], scale: [WHEEL_R + 0.08, 0.06, WHEEL_R + 0.08] });
@@ -180,7 +180,7 @@ export function createVan(team: TeamId): VanRig {
   chassis.add(beacon);
 
   const exhaustPoint = new THREE.Object3D();
-  exhaustPoint.position.set(-L / 2 - 0.2, 0.3, -0.6);
+  exhaustPoint.position.set(-L / 2 - 0.1, 0.3, -0.6);
   chassis.add(exhaustPoint);
   const labelAnchor = new THREE.Object3D();
   labelAnchor.position.set(0, HGT + 1.2, 0);

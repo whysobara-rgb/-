@@ -10,11 +10,8 @@
 import { onLanguageChange } from '../i18n';
 import { FocusScope, navRouter, uiSound, type NavTarget } from './nav';
 import type { NavAction } from './prompts';
-import { getUiRoot, type UiLayerName } from './root';
+import { getUiRoot, RELAYOUT_EVENT, type UiLayerName } from './root';
 import { clear } from './dom';
-
-/** Dispatched on window when global sizing changes (UI scale); visible screens re-fit. */
-export const RELAYOUT_EVENT = 'uh-relayout';
 
 /** True when the frame or one of its direct (non-scrolling) children overflows. */
 function frameOverflows(frame: HTMLElement): boolean {

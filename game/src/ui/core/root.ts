@@ -15,6 +15,9 @@ import { installTheme } from './theme';
 import { handleMenuNav, type MenuNav } from './nav';
 import type { NavAction } from './prompts';
 import { clamp } from './format';
+
+/** Window event telling visible screens to re-check their fit (UI scale / font changes). */
+export const RELAYOUT_EVENT = 'uh-relayout';
 import { getLanguage, onLanguageChange } from '../i18n';
 
 export type UiLayerName = 'backdrop' | 'world' | 'hud' | 'screens' | 'dialogs' | 'toasts';
@@ -51,6 +54,9 @@ export class UiRoot {
     container.appendChild(this.el);
     document.documentElement.lang = getLanguage();
     this.unsubLang = onLanguageChange((lang) => this.el.setAttribute('lang', lang));
+    // Web fonts load lazily (unicode-range subsets); text metrics change when they arrive, so
+    // visible screens re-check their fit (UiScreen.fitToViewport).
+    document.fonts?.addEventListener('loadingdone', this.onFontsLoaded);
     if (!defaultRoot) defaultRoot = this;
   }
 
@@ -63,7 +69,7 @@ export class UiRoot {
     this.scale = clamp(Number.isFinite(scale) ? scale : 1, UI_SCALE_MIN, UI_SCALE_MAX);
     document.documentElement.style.setProperty('--uh-ui-scale', String(this.scale));
     // Visible screens re-check whether they still fit (see UiScreen.fitToViewport).
-    window.dispatchEvent(new Event('uh-relayout'));
+    window.dispatchEvent(new Event(RELAYOUT_EVENT));
   }
 
   getUiScale(): number {
@@ -80,7 +86,12 @@ export class UiRoot {
     return handleMenuNav(nav);
   }
 
+  private readonly onFontsLoaded = (): void => {
+    window.dispatchEvent(new Event(RELAYOUT_EVENT));
+  };
+
   destroy(): void {
+    document.fonts?.removeEventListener('loadingdone', this.onFontsLoaded);
     this.unsubLang();
     this.el.remove();
     if (defaultRoot === this) defaultRoot = null;
