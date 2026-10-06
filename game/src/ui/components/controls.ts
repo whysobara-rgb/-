@@ -243,7 +243,7 @@ export interface TabSpec<K extends string> {
 export function tabs<K extends string>(specs: readonly TabSpec<K>[], active: K, onSelect: (k: K) => void): HTMLElement {
   const list = h(
     'div',
-    { class: 'uh-tabs__list', role: 'tablist' },
+    { class: 'uh-tabs__list', role: 'tablist', 'data-nav-group': 'tabs' },
     specs.map((s) => {
       const el = h(
         'div',

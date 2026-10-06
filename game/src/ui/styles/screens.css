@@ -391,8 +391,8 @@
 .uh-tourcard__portrait { width: 11.5rem; margin-top: -0.25rem; }
 .uh-tourcard__stamp {
   position: absolute;
-  right: -4.25rem;
-  bottom: -0.5rem;
+  left: -4.5rem;
+  bottom: 0.25rem;
   display: flex;
   align-items: center;
   gap: 0.3rem;

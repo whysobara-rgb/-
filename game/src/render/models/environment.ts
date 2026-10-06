@@ -100,10 +100,10 @@ function addAwning(b: PartBuilder, x: number, y: number, z: number, w: number, d
   b.pop();
 }
 
-function addSignBoard(b: PartBuilder, ctx: Ctx, x: number, y: number, z: number, w: number, source: () => string, st: BuildingStyle): void {
+function addSignBoard(b: PartBuilder, ctx: Ctx, x: number, y: number, z: number, w: number, source: () => string, st: BuildingStyle, id?: string): void {
   const h = w / 4;
   b.add(G.rbox(w + 0.14, h + 0.14, 0.12, 0.05, 1), { color: st.accent, pos: [x, y, z + 0.06] });
-  const uv = ctx.atlas.add({ text: source(), source, bg: st.sign, fg: st.signText, icon: st.icon });
+  const uv = ctx.atlas.add({ text: source(), source, bg: st.sign, fg: st.signText, icon: st.icon, id });
   b.add(G.plane(), { color: '#FFFFFF', pos: [x, y, z + 0.125], scale: [w, h, 1], bucket: 'sign', uvRect: uv });
 }
 
@@ -225,7 +225,7 @@ function addBuilding(b: PartBuilder, def: StaticBoxDef, ctx: Ctx, frontOnly = fa
   // Awning + sign.
   addAwning(b, shopX, 2.55, zF + 0.04, shopW + 0.3, 0.55, st.awning);
   const signW = Math.min(3.4, Math.max(1.6, W * 0.55));
-  addSignBoard(b, ctx, 0, Math.min(h - 0.5, 3.15), zF + 0.04, signW, () => resolveSign(ctx, def.signKey, def.style), st);
+  addSignBoard(b, ctx, 0, Math.min(h - 0.5, 3.15), zF + 0.04, signW, () => resolveSign(ctx, def.signKey, def.style), st, def.signKey ?? `style:${def.style ?? 'default'}`);
   // Little lamp over the door.
   b.add(G.sphere(10, 8), { color: '#FFF1C2', pos: [doorX, 2.45, zF + 0.2], scale: 0.09, emissive: 1.2 });
   // --- upper floor windows on all faces + ground-floor windows on the other faces ----------
@@ -268,8 +268,10 @@ function addBuilding(b: PartBuilder, def: StaticBoxDef, ctx: Ctx, frontOnly = fa
     const roof = new THREE.ExtrudeGeometry(hanokRoofShape(D), { depth: W + 0.9, bevelEnabled: false, curveSegments: 10 });
     roof.translate(0, 0, -(W + 0.9) / 2);
     b.add(roof, { color: st.roof, pos: [0, h - 0.05, 0], rot: [0, HALF_PI, 0] });
-    b.add(G.cyl(1, 1, 10), { color: shade(st.roof, -0.12), pos: [0, h + 1.38, 0], rot: [0, 0, HALF_PI], scale: [0.13, W + 1.0, 0.13] });
-    for (const sx of [-1, 1]) b.add(G.sphere(10, 8), { color: shade(st.roof, -0.12), pos: [sx * (W / 2 + 0.5), h + 1.4, 0], scale: 0.2 });
+    b.add(G.cyl(1, 1, 10), { color: shade(st.roof, -0.18), pos: [0, h + 1.38, 0], rot: [0, 0, HALF_PI], scale: [0.13, W + 1.0, 0.13] });
+    for (const sx of [-1, 1]) b.add(G.sphere(10, 8), { color: '#FFFFFF', pos: [sx * (W / 2 + 0.5), h + 1.4, 0], scale: 0.2 });
+    // White plaster eave trim under the tiles.
+    for (const sz of [-1, 1]) b.add(G.box(), { color: '#FFFFFF', pos: [0, h + 0.12, sz * (D / 2 + 0.05)], scale: [W + 0.4, 0.14, 0.1] });
   } else if (st.roofKind === 'gable') {
     const tri = new THREE.Shape();
     tri.moveTo(-D / 2 - 0.35, 0);
@@ -436,7 +438,7 @@ function addKiosk(b: PartBuilder, def: StaticBoxDef, ctx: Ctx): void {
   b.add(G.box(), { color: '#FFFFFF', pos: [-0.6, 0.12, 0], scale: [0.06, 0.3, 0.06] });
   b.add(G.box(), { color: '#FFFFFF', pos: [0.6, 0.12, 0], scale: [0.06, 0.3, 0.06] });
   const kw = Math.min(3.4, Math.max(1.6, L * 0.7));
-  addSignBoard(b, ctx, 0, 0.25 + kw / 8, 0, kw, () => resolveSign(ctx, def.signKey, def.style), st);
+  addSignBoard(b, ctx, 0, 0.25 + kw / 8, 0, kw, () => resolveSign(ctx, def.signKey, def.style), st, def.signKey ?? `style:${def.style ?? 'default'}`);
   b.pop();
   // Hanging bulbs (string lights).
   for (let i = 0; i < Math.round(L / 0.5); i++) {
@@ -1195,7 +1197,7 @@ function keepDecor(key: string, density: number): boolean {
 export function buildStaticScenery(layout: LayoutDef, signResolver: SignResolver = defaultSignResolver, opts: SceneryOptions = {}): StaticScenery {
   const root = new StaticScenery();
   root.name = `scenery:${layout.id}`;
-  const atlas = new SignAtlas(4, 16);
+  const atlas = new SignAtlas(4, 12);
   let resolver = signResolver;
   const ctx: Ctx = { atlas, resolve: (k) => resolver(k), center: { x: layout.size.x / 2, y: layout.size.y / 2 } };
   const chunks = new ChunkGrid();

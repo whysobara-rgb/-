@@ -321,6 +321,13 @@ export class FocusScope {
     let next = pickSpatial(from, cands, dir);
     if (!next && this.opts.wrap !== false) next = pickWrap(from, cands, dir);
     if (!next) return false;
+    // Entering a group (e.g. a tab row) from outside lands on its current item, not on the
+    // spatially nearest one (which, for tabs, would switch the tab).
+    const group = next.closest<HTMLElement>('[data-nav-group]');
+    if (group && !group.contains(cur)) {
+      const current = group.querySelector<HTMLElement>('[data-nav][aria-current="true"]');
+      if (current && isShown(current)) next = current;
+    }
     return this.focus(next);
   }
 

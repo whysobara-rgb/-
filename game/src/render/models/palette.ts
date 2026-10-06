@@ -141,7 +141,7 @@ export const BUILDING_STYLES: Record<string, BuildingStyle> = {
   bike: { body: '#FFF0B8', trim: '#FFFFFF', accent: '#3F7FA6', roof: '#F2D27A', awning: '#5FB6D9', sign: '#3F7FA6', signText: '#FFFFFF', icon: 'wheel' },
   glass: { body: '#CFE3F2', trim: '#F4F8FC', accent: '#5E7896', roof: '#A9C2D8', awning: PAL.awningLilac, sign: '#FFFFFF', signText: '#4F6C8E', icon: 'none' },
   brick: { body: '#E89C84', trim: '#FFF1E0', accent: '#9C5A4A', roof: '#B9695A', awning: PAL.awningYellow, sign: '#4F4258', signText: '#FFE7A1', icon: 'mail' },
-  hanok: { body: '#FFF6E6', trim: '#8C5E3B', accent: '#8C5E3B', roof: '#5E6474', awning: '#C9A27A', sign: '#8C5E3B', signText: '#FFF3DE', icon: 'none', roofKind: 'hanok' },
+  hanok: { body: '#FFF6E6', trim: '#8C5E3B', accent: '#8C5E3B', roof: '#8C95A8', awning: '#C9A27A', sign: '#8C5E3B', signText: '#FFF3DE', icon: 'none', roofKind: 'hanok' },
   // Kiosks (layouts/meta.ts KIOSK_STYLES)
   tteokbokki: { body: '#FFD0C2', trim: '#FFFFFF', accent: '#E8505B', roof: '#E8505B', awning: '#E8505B', sign: '#FFFFFF', signText: '#E8505B', icon: 'bowl' },
   lemonade: { body: '#FFF2A8', trim: '#FFFFFF', accent: '#E8B820', roof: '#FFD45C', awning: '#FFD45C', sign: '#FFFFFF', signText: '#D49A00', icon: 'cup' },

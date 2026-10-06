@@ -39,11 +39,11 @@ export const MATCH_PITCH = 55;
 export const MATCH_FOV = 38;
 /** Base follow distances (m) for the match camera. */
 export const MATCH_DIST = {
-  walk: 30,
-  smallSafe: 27,
-  largeSafe: 30,
-  nearBank: 34,
-  hauling: 37,
+  walk: 21,
+  smallSafe: 20,
+  largeSafe: 22,
+  nearBank: 26,
+  hauling: 29,
 } as const;
 
 const DEG = Math.PI / 180;
@@ -51,7 +51,7 @@ const DEG = Math.PI / 180;
 export class GameCamera {
   readonly camera: THREE.PerspectiveCamera;
   private readonly target = new THREE.Vector2();
-  private distance = MATCH_DIST.walk;
+  private distance: number = MATCH_DIST.walk;
   private pitch = MATCH_PITCH;
   private fov = MATCH_FOV;
   private snapNext = true;

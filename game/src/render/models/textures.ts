@@ -779,7 +779,7 @@ export function pavingTexture(style: GroundStyle): THREE.Texture {
             for (let j = -1; j <= n; j++) {
               const cx = i * s + (j % 2 ? s / 2 : 0);
               const cy = j * (s / 2);
-              ctx.fillStyle = shade((i + j) % 3 === 0 ? '#EFE3F2' : PAL.paving, (r() - 0.5) * 0.04);
+              ctx.fillStyle = shade((i + j) % 3 === 0 ? '#E9DEE6' : PAL.paving, (r() - 0.5) * 0.04);
               ctx.beginPath();
               ctx.moveTo(cx, cy - s / 2 + 3);
               ctx.lineTo(cx + s / 2 - 3, cy);
@@ -1005,6 +1005,8 @@ export interface SignEntry {
   icon?: SignIcon;
   /** Optional live text source, re-evaluated by refresh() (language changes). */
   source?: () => string;
+  /** Dedupe key (e.g. the sign i18n key): entries with the same id + colors share a slot. */
+  id?: string;
 }
 
 /** Sign slots are 4:1 (e.g. 2.4 m x 0.6 m boards). */
@@ -1038,8 +1040,17 @@ export class SignAtlas {
 
   /** Register a sign; returns the uv rect [u0, v0, u1, v1] (flipY-aware). */
   add(entry: SignEntry): readonly [number, number, number, number] {
-    const i = Math.min(this.entries.length, this.capacity - 1);
-    if (this.entries.length < this.capacity) this.entries.push(entry);
+    const key = entry.id !== undefined ? `${entry.id}|${entry.bg}|${entry.fg}|${entry.icon ?? ''}` : null;
+    let i = key ? this.entries.findIndex((e) => e.id !== undefined && `${e.id}|${e.bg}|${e.fg}|${e.icon ?? ''}` === key) : -1;
+    if (i < 0) {
+      if (this.entries.length >= this.capacity) {
+        console.warn(`SignAtlas full (${this.capacity}); reusing the last slot for "${entry.text}"`);
+        i = this.capacity - 1;
+      } else {
+        i = this.entries.length;
+        this.entries.push(entry);
+      }
+    }
     const col = i % this.cols;
     const row = Math.floor(i / this.cols);
     const pad = 2 / (this.cols * this.slotW);

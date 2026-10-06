@@ -11,6 +11,7 @@ import * as THREE from 'three';
 import type { TeamId, Vec2 } from '../sim';
 import { TEAM_STYLES } from '../shared/teams';
 import { FxSystem, PAL, type DebrisBurst } from './models';
+import { radialGlowTexture } from './models/textures';
 import { scaledCount, type QualityPreset } from './quality';
 
 const _v = new THREE.Vector3();
@@ -39,6 +40,18 @@ interface Flight {
   onArrive?: () => void;
 }
 
+/** Ground ring under a raccoon: team color, brighter with a facing notch for the focus. */
+export interface CharMarker {
+  readonly root: THREE.Group;
+  setFocus(focus: boolean): void;
+}
+
+/** Pulsing additive glow on the ground around a van while its siren runs. */
+export interface SirenGlow {
+  readonly root: THREE.Mesh;
+  update(on: boolean, time: number): void;
+}
+
 interface Beacon {
   root: THREE.Group;
   pointer: THREE.Mesh;
@@ -62,6 +75,10 @@ export class ViewEffects {
   private readonly beacons: Beacon[] = [];
   private readonly owned: (THREE.Material | THREE.BufferGeometry)[] = [];
   private readonly pointerMats: Record<TeamId, THREE.MeshBasicMaterial>;
+  private readonly markerGeo: { ring: THREE.BufferGeometry; focusRing: THREE.BufferGeometry; notch: THREE.BufferGeometry };
+  private readonly markerMats: Record<TeamId, { dim: THREE.MeshBasicMaterial; bright: THREE.MeshBasicMaterial }>;
+  private readonly glowGeo: THREE.BufferGeometry;
+  private readonly glows: Partial<Record<TeamId, SirenGlow>> = {};
   private time = 0;
 
   constructor(preset: QualityPreset) {
@@ -77,6 +94,39 @@ export class ViewEffects {
       1: new THREE.MeshBasicMaterial({ color: TEAM_STYLES[1].color, toneMapped: false }),
     };
     this.owned.push(this.pointerMats[0], this.pointerMats[1]);
+    // Character ground markers (shared geometry / materials).
+    const notch = new THREE.BufferGeometry();
+    notch.setAttribute('position', new THREE.Float32BufferAttribute([0.86, 0, 0, 0.66, 0, -0.17, 0.66, 0, 0.17], 3));
+    notch.setIndex([0, 1, 2]);
+    notch.computeVertexNormals();
+    this.markerGeo = {
+      ring: new THREE.RingGeometry(0.5, 0.6, 36).rotateX(-Math.PI / 2),
+      focusRing: new THREE.RingGeometry(0.5, 0.66, 36).rotateX(-Math.PI / 2),
+      notch,
+    };
+    this.owned.push(this.markerGeo.ring, this.markerGeo.focusRing, notch);
+    const mkMat = (team: TeamId, opacity: number): THREE.MeshBasicMaterial => {
+      const m = new THREE.MeshBasicMaterial({
+        color: TEAM_STYLES[team].color,
+        transparent: true,
+        opacity,
+        depthWrite: false,
+        toneMapped: false,
+        side: THREE.DoubleSide,
+        polygonOffset: true,
+        polygonOffsetFactor: -5,
+        polygonOffsetUnits: -5,
+      });
+      this.owned.push(m);
+      return m;
+    };
+    this.markerMats = {
+      0: { dim: mkMat(0, 0.45), bright: mkMat(0, 0.95) },
+      1: { dim: mkMat(1, 0.45), bright: mkMat(1, 0.95) },
+    };
+    this.glowGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+    this.owned.push(this.glowGeo);
+
     for (let i = 0; i < 8; i++) {
       const root = new THREE.Group();
       root.name = `pingBeacon${i}`;
@@ -101,6 +151,71 @@ export class ViewEffects {
       this.root.add(root);
       this.beacons.push({ root, pointer, ring, ringMat, team: 0, pulse: Math.random() });
     }
+  }
+
+  createCharMarker(team: TeamId): CharMarker {
+    const root = new THREE.Group();
+    root.name = 'charMarker';
+    const mats = this.markerMats[team];
+    const ring = new THREE.Mesh(this.markerGeo.ring, mats.dim);
+    const notch = new THREE.Mesh(this.markerGeo.notch, mats.bright);
+    for (const m of [ring, notch]) {
+      m.userData.noOutline = true;
+      m.renderOrder = 1;
+      m.raycast = () => {};
+    }
+    notch.visible = false;
+    root.add(ring, notch);
+    let focus = false;
+    return {
+      root,
+      setFocus: (f: boolean) => {
+        if (f === focus) return;
+        focus = f;
+        ring.geometry = f ? this.markerGeo.focusRing : this.markerGeo.ring;
+        ring.material = f ? mats.bright : mats.dim;
+        notch.visible = f;
+      },
+    };
+  }
+
+  /** One cached glow per team (re-added to the world on every load). */
+  sirenGlow(team: TeamId): SirenGlow {
+    const hit = this.glows[team];
+    if (hit) return hit;
+    const mat = new THREE.MeshBasicMaterial({
+      map: radialGlowTexture(),
+      color: TEAM_STYLES[team].color,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      toneMapped: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -3,
+      polygonOffsetUnits: -3,
+    });
+    this.owned.push(mat);
+    const mesh = new THREE.Mesh(this.glowGeo, mat);
+    mesh.name = 'sirenGlow';
+    mesh.userData.noOutline = true;
+    mesh.renderOrder = 2;
+    mesh.visible = false;
+    const teamCol = new THREE.Color(TEAM_STYLES[team].color);
+    const red = new THREE.Color('#FF4D5E');
+    let level = 0;
+    return (this.glows[team] = {
+      root: mesh,
+      update: (on: boolean, time: number) => {
+        level += ((on ? 1 : 0) - level) * 0.12;
+        mesh.visible = level > 0.01;
+        if (!mesh.visible) return;
+        const phase = Math.sin(time * 9);
+        mat.color.copy(phase > 0 ? teamCol : red);
+        mat.opacity = level * (0.35 + 0.45 * Math.abs(phase));
+        mesh.scale.setScalar(7.5 + 1.2 * Math.abs(phase));
+      },
+    });
   }
 
   setQuality(preset: QualityPreset): void {
