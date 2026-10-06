@@ -349,6 +349,7 @@ export class GameView {
   /** Squash/stretch "snap" pulses per entity (grab contact etc.). */
   private readonly pulses = new Map<EntityId, { start: number; amp: number }>();
   private hitstop = 0;
+  private resultsDrop = 0;
   private contextLost = false;
   /** Next advance() applies smoothed values instantly (load / mode switch), even with dt = 0. */
   private snapVisuals = true;
@@ -667,6 +668,28 @@ export class GameView {
     const h = this.settings.reducedMotion ? 0 : this.hitstop;
     this.hitstop = 0;
     return h;
+  }
+
+  /**
+   * (extension) Game-flow camera request (docs/ART_DIRECTION.md §2 카메라 펀치): `punch` pushes
+   * the camera along `dir` (sim ground direction) and springs back, `zoom` is a brief zoom-in
+   * (fraction of the distance), `shake` adds trauma. The camera already scales all of them by
+   * settings.screenShake and drops them entirely with reducedMotion.
+   */
+  cameraKick(o: { dir?: Vec2 | null; punch?: number; zoom?: number; shake?: number }): void {
+    if (this.disposed || this.settings.reducedMotion) return;
+    if (o.punch && o.dir) this.cam.punch(o.dir, Math.min(1, o.punch));
+    if (o.zoom) this.cam.zoomPunch(Math.min(0.2, o.zoom));
+    if (o.shake) this.cam.shake(Math.min(1, o.shake));
+  }
+
+  /**
+   * (extension) Results framing: place the staged group `fraction` of the screen height below
+   * center (0 = centered, default). Game flow uses it to keep the raccoons clear of the results
+   * cards.
+   */
+  setResultsFraming(fraction: number): void {
+    this.resultsDrop = Math.min(0.4, Math.max(0, Number.isFinite(fraction) ? fraction : 0));
   }
 
   /** (extension) Show a short preparation tell on a character (bots: 준비 동작). */
@@ -1699,8 +1722,13 @@ export class GameView {
         const rx = -Math.sin(s.yaw);
         const ry = Math.cos(s.yaw);
         const sway = Math.sin(t * 0.2) * 0.35 * drift;
+        // Optional framing offset (game flow): drop the staged group below screen center so the
+        // results UI cards above it never cover the raccoons.
+        const drop = this.resultsDrop > 0 ? (Math.atan(2 * this.resultsDrop * Math.tan((RESULTS_FOV * Math.PI) / 360)) * s.dist) / Math.max(0.3, Math.sin((s.pitch * Math.PI) / 180)) : 0;
+        const fx = Math.cos(s.yaw) * drop;
+        const fy = Math.sin(s.yaw) * drop;
         return {
-          target: { x: s.center.x + rx * sway, y: s.center.y + ry * sway },
+          target: { x: s.center.x + rx * sway + fx, y: s.center.y + ry * sway + fy },
           distance: s.dist + Math.sin(t * 0.13) * 0.4 * drift,
           pitch: s.pitch,
           fov: RESULTS_FOV,

@@ -184,12 +184,12 @@
         "koreana": "멋쟁이 너구리"
       },
       "description": {
-        "english": "Collect all three rival hats.",
-        "koreana": "라이벌 모자 세 개를 모두 모으세요."
+        "english": "Wear a hat you won from a rival.",
+        "koreana": "라이벌에게 얻은 모자를 써 보세요."
       },
       "icon": "icons/WARDROBE.jpg",
       "iconLocked": "icons/WARDROBE_locked.jpg",
-      "unlockRule": "All three rival hats unlocked."
+      "unlockRule": "Equip any rival reward hat in the wardrobe (src/game/achievements.ts wardrobeAchievement)."
     }
   ]
 }

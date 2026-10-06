@@ -94,6 +94,11 @@ export interface PersonalityWeights {
    * (worth more, slower, more exposed through the open door). 0 = never.
    */
   greed: number;
+  /**
+   * Opening: seconds (min, max; one value drawn per match) spent warming up on nearby loot before
+   * committing to a bank haul (doc §3 match flow). Skipped once the other team goes for a bank.
+   */
+  opening: [number, number];
 }
 
 export const PERSONALITY: Readonly<Record<RivalId, PersonalityWeights>> = {
@@ -112,6 +117,7 @@ export const PERSONALITY: Readonly<Record<RivalId, PersonalityWeights>> = {
     assist: 0.7,
     travelDash: 1,
     greed: 0,
+    opening: [20, 55],
   },
   // 통큰이: goes for banks with contents and hauls them.
   tongkeun: {
@@ -128,6 +134,7 @@ export const PERSONALITY: Readonly<Record<RivalId, PersonalityWeights>> = {
     assist: 1.2,
     travelDash: 0.5,
     greed: 1,
+    opening: [0, 25],
   },
   // 눈치왕: waits for the opponent to commit to a big haul, then intercepts / steals.
   nunchi: {
@@ -144,6 +151,7 @@ export const PERSONALITY: Readonly<Record<RivalId, PersonalityWeights>> = {
     assist: 0.8,
     travelDash: 0.3,
     greed: 0,
+    opening: [10, 45],
   },
 };
 

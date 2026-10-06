@@ -463,7 +463,7 @@ export const en: Record<StringKey, string> = {
   'ach.TOURNAMENT_CLEAR.name': 'Legend of the Plaza',
   'ach.TOURNAMENT_CLEAR.desc': 'Beat all three rivals and win the tournament.',
   'ach.WARDROBE.name': 'Dapper Raccoon',
-  'ach.WARDROBE.desc': 'Collect all three rival hats.',
+  'ach.WARDROBE.desc': 'Wear a hat you won from a rival.',
 
   // --- captions ------------------------------------------------------------------------------------
   'caption.siren': '[Siren]',
@@ -495,4 +495,26 @@ export const en: Record<StringKey, string> = {
   'caption.bankRumble': '[Bank scraping along]',
   'caption.drag': '[Scraping]',
   'caption.sirenLoop': '[Siren continues]',
+
+  // --- game flow (integration) -------------------------------------------------------------------
+  'name.rivalBot': 'Rival bot',
+  'event.fenceBroken': 'A bank busted the fence and opened a shortcut',
+  'tutorial.wander': 'Head for the sparkly target. The arrows show the way.',
+  'tutorial.wanderBank': 'Out the north gate, then follow the arrows round to the back of the bank.',
+  'tutorial.regrab': 'Grab the bank wall again. Let go and the bank stops.',
+  'tutorial.frontPull': 'Pulling from the front, you hit the fence first. Go round the back and push.',
+  'tutorial.offer.title': 'Practice done. Ready for a real match?',
+  'tutorial.offer.body': 'A 1v1 against beginner Hodadak on the plaza. Scores start from zero.',
+  'tutorial.offer.match': 'First match vs a beginner bot',
+  'tutorial.offer.menu': 'Main menu',
+  'firstRun.title': 'Welcome, new raccoon',
+  'firstRun.body': 'Want a 50-second practice to learn grabbing, hauling and recovering? You can skip it any time.',
+  'firstRun.ok': 'Practice',
+  'firstRun.later': 'Look around first',
+  'error.title': 'Oops, something slipped',
+  'error.body': 'Your game is still here. Try again, or head back to the menu.',
+  'error.retry': 'Try again',
+  'error.menu': 'Main menu',
+  'error.detail': 'Your game is still here. Try again, or head back to the menu. (Error: {message})',
+  'tournament.lockedPick': 'Beat the previous rival first.',
 };

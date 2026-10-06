@@ -7,6 +7,7 @@
  *   npx tsx tools/balance-report.ts --quick         # fewer seeds (iteration)
  *   npx tsx tools/balance-report.ts --blocks equal  # subset: equal,ladder,team,proxy
  *   npx tsx tools/balance-report.ts --out report.md --workers 3 --seeds 4
+ *   npx tsx tools/balance-report.ts --seed-base 500000   # fresh seeds (robustness of the margins)
  *
  * Default output: <os tmpdir>/balance-report.md (path printed at the end).
  */
@@ -43,13 +44,15 @@ function s(p: RivalId, d: Difficulty, proxy = false): SlotSpec {
   return { personality: p, difficulty: d, humanProxy: proxy };
 }
 
-function buildJobs(blocks: Set<string>, seedsEq: number, seedsLadder: number, seedsTeam: number, diffs: Difficulty[] = DIFFS, layouts: LayoutId[] = LAYOUTS): Job[] {
+function buildJobs(blocks: Set<string>, seedsEq: number, seedsLadder: number, seedsTeam: number, diffs: Difficulty[] = DIFFS, layouts: LayoutId[] = LAYOUTS, seedBase = 0): Job[] {
   const jobs: Job[] = [];
   let id = 0;
   const push = (block: string, group: string, a: SlotSpec[], b: SlotSpec[], seeds: number): void => {
     for (const layout of layouts) {
       for (let k = 1; k <= seeds; k++) {
-        for (const aTeam of [0, 1] as TeamId[]) jobs.push({ id: id++, block, group, layout, seed: 1000 * k + 17, aTeam, a, b });
+        // (a mirror pairing played from the other side is the very same match: use another seed)
+        const mirror = JSON.stringify(a) === JSON.stringify(b);
+        for (const aTeam of [0, 1] as TeamId[]) jobs.push({ id: id++, block, group, layout, seed: seedBase + 1000 * k + 17 + (mirror && aTeam === 1 ? 500 : 0), aTeam, a, b });
       }
     }
   };
@@ -185,7 +188,7 @@ function table(rows: string[][]): string {
 }
 
 function perBotRows(agg: SeriesAggregate): string[][] {
-  const rows: string[][] = [['bot', 'pts/match', 'small', 'large', 'bank (whole)', 'strips', 'steals', 'KOs', 'dashes', 'boosts', 'stuck s', 'max stuck s', 'stuck>5s', 'unstuck', 'scored', 'first score']];
+  const rows: string[][] = [['bot', 'pts/match', 'small', 'large', 'bank (whole)', 'strips', 'steals', 'KOs', 'dashes', 'boosts', 'stuck s', 'max stuck s', 'stuck>5s', 'idle s', 'idle>6s', 'passive s (not ahead)', 'unstuck', 'scored', 'first score']];
   for (const a of Object.values(agg.byKey).sort((x, y) => (x.key < y.key ? -1 : 1))) {
     const n = Math.max(1, a.bots);
     rows.push([
@@ -202,6 +205,9 @@ function perBotRows(agg: SeriesAggregate): string[][] {
       (a.stuckSeconds / n).toFixed(2),
       a.maxStuck.toFixed(1),
       String(a.stuck5),
+      (a.idleSeconds / n).toFixed(1),
+      String(a.idle6),
+      `${(a.passive / n).toFixed(1)} (${(a.passiveBehind / n).toFixed(1)})`,
       (a.unstuck / n).toFixed(2),
       pct(a.scoredMatches, a.bots),
       a.firstScoreN ? `${(a.firstScoreSum / a.firstScoreN).toFixed(1)} s` : '-',
@@ -210,7 +216,7 @@ function perBotRows(agg: SeriesAggregate): string[][] {
   return rows;
 }
 
-export function buildReport(jobs: Job[], results: Map<number, SeriesMatch>, elapsed: number): { md: string; checks: Record<string, boolean | string> } {
+export function buildReport(jobs: Job[], results: Map<number, SeriesMatch>, elapsed: number, workersUsed = 3): { md: string; checks: Record<string, boolean | string> } {
   const L: string[] = [];
   const all: SeriesMatch[] = [];
   const byGroup = new Map<string, { block: string; ms: SeriesMatch[] }>();
@@ -226,9 +232,24 @@ export function buildReport(jobs: Job[], results: Map<number, SeriesMatch>, elap
   const checks: Record<string, boolean | string> = {};
   L.push('# Bot balance report (뿌리째 털어라)');
   L.push('');
-  L.push(`Matches: ${all.length} · wall time ${(elapsed / 1000).toFixed(0)} s · invariant violations (scores + remaining = total, checked every tick): **${total.invariantViolations}**`);
+  L.push(`Matches: ${all.length} · seeds ${[...new Set(jobs.map((j) => j.seed))].sort((a, b) => a - b).join(', ')} · wall time ${(elapsed / 1000).toFixed(0)} s · invariant violations (scores + remaining = total, checked every tick): **${total.invariantViolations}**`);
   L.push('');
-  L.push(`Bot CPU (3 parallel worker processes, so wall-clock maxima include scheduling noise): avg **${total.botMsAvg.toFixed(3)} ms** per bot per tick (budget 0.3), max single update ${total.botMsMax.toFixed(1)} ms (after a 2 s warm-up ${total.botMsMaxWarm.toFixed(1)} ms; ${(total.botSlowShare * 100).toFixed(3)}% of updates > 2 ms). Stuck > 5 s incidents (all bots, all matches): **${total.stuck5}**. Final-30-s re-plans logged: ${total.finalReplans}.`);
+  L.push(`Bot CPU (${workersUsed} parallel worker processes, so wall-clock maxima include scheduling noise): avg **${total.botMsAvg.toFixed(3)} ms** per bot per tick (budget 0.3), max single update ${total.botMsMax.toFixed(1)} ms (after a 2 s warm-up ${total.botMsMaxWarm.toFixed(1)} ms; ${(total.botSlowShare * 100).toFixed(3)}% of updates > 2 ms). Stuck > 5 s incidents (all bots, all matches): **${total.stuck5}**. Final-30-s re-plans logged: ${total.finalReplans}.`);
+  L.push('');
+  L.push(`Stuck metric: a window with no meaningful progress (no move > 1.25 m, no strain, held object not moved > 1.25 m, no recovery dwell) longer than 5 s that was not >= 80 % declared waiting. Declared-waiting windows > 6 s (guarding a door, ambush watch, escort, two-bank yield): **${total.idle6}**. Seconds per bot per match in the fallback guard/idle goals while loot was left and the own team was tied or behind: **${total.passiveBehindPerBot.toFixed(2)} s**.`);
+  {
+    const lens = (filter: (j: Job) => boolean): string => {
+      const v = jobs.filter((j) => filter(j) && results.has(j.id)).map((j) => results.get(j.id)!.stats.ticks / 60).sort((a, b) => a - b);
+      if (!v.length) return '-';
+      return `median ${v[Math.floor(v.length / 2)]!.toFixed(0)} s (p10 ${v[Math.floor(v.length * 0.1)]!.toFixed(0)}, p90 ${v[Math.floor(v.length * 0.9)]!.toFixed(0)})`;
+    };
+    L.push('');
+    L.push('Match length (the match ends 30 s after the second bank recovery, or at 4:00):');
+    L.push('');
+    for (const layout of LAYOUTS) {
+      L.push(`- ${layout}: 1v1 ${lens((j) => j.layout === layout && j.a.length === 1)}; 2v2 ${lens((j) => j.layout === layout && j.a.length === 2)}`);
+    }
+  }
   checks['invariant'] = total.invariantViolations === 0;
   checks['cpu<0.3ms'] = total.botMsAvg < 0.3;
   checks['stuck>5s==0'] = total.stuck5 === 0;
@@ -408,6 +429,34 @@ export function buildReport(jobs: Job[], results: Map<number, SeriesMatch>, elap
     L.push('');
   }
 
+  // stuck incidents (all) and long declared waits (sample)
+  const inc: string[] = [];
+  const idl: string[] = [];
+  for (const j of jobs) {
+    const m = results.get(j.id);
+    if (!m) continue;
+    const who = (slot: number): string => {
+      const sl = m.stats.slots[slot]!;
+      return `${sl.humanProxy ? 'proxy' : `${sl.personality}:${sl.difficulty}`} (slot ${slot})`;
+    };
+    for (const sl of m.stats.slots) {
+      for (const x of sl.incidents) inc.push(`${j.layout} seed ${j.seed} ${j.block} "${j.group}" A=team ${j.aTeam}: ${who(sl.slot)} ${x.dur} s at ${(x.tick / 60).toFixed(1)} s, ${x.what} @(${x.x}, ${x.y})`);
+      for (const x of sl.idleIncidents) idl.push(`${j.layout} seed ${j.seed} "${j.group}": ${who(sl.slot)} ${x.dur} s at ${(x.tick / 60).toFixed(1)} s, ${x.what} @(${x.x}, ${x.y})`);
+    }
+  }
+  if (inc.length) {
+    L.push('## Stuck > 5 s incidents');
+    L.push('');
+    for (const x of inc) L.push(`- ${x}`);
+    L.push('');
+  }
+  if (idl.length) {
+    L.push('## Declared waits > 6 s (sample)');
+    L.push('');
+    for (const x of idl.slice(0, 30)) L.push(`- ${x}`);
+    L.push('');
+  }
+
   // final-30-s log samples
   const finals = all.flatMap((m) => m.stats.finalLog.map((l) => `${m.layout} seed ${m.seed}: [${(l.tick / 60).toFixed(1)} s] slot ${l.slot} ${l.msg}`)).slice(0, 12);
   if (finals.length) {
@@ -439,7 +488,8 @@ async function main(argv: string[]): Promise<void> {
   const seeds = Number(get('seeds') ?? (quick ? 1 : 3));
   const diffs = (get('diffs')?.split(',') ?? DIFFS) as Difficulty[];
   const layouts = (get('layouts')?.split(',') ?? LAYOUTS) as LayoutId[];
-  const jobs = buildJobs(blocks, seeds, Math.max(1, Math.round(seeds / 2)), Math.max(1, Math.round(seeds / 2)), diffs, layouts);
+  const seedBase = Number(get('seed-base') ?? 0);
+  const jobs = buildJobs(blocks, seeds, Math.max(1, Math.round(seeds / 2)), Math.max(1, Math.round(seeds / 2)), diffs, layouts, seedBase);
   const workers = Number(get('workers') ?? 3);
   const out = get('out') ?? DEFAULT_OUT;
   const t0 = Date.now();
@@ -451,7 +501,7 @@ async function main(argv: string[]): Promise<void> {
       process.stderr.write(`  ${done}/${jobs.length} (${((Date.now() - t0) / 1000).toFixed(0)} s)\n`);
     }
   });
-  const { md, checks } = buildReport(jobs, results, Date.now() - t0);
+  const { md, checks } = buildReport(jobs, results, Date.now() - t0, workers);
   mkdirSync(dirname(out), { recursive: true });
   writeFileSync(out, md);
   console.log(md);

@@ -88,6 +88,8 @@ export interface SaveData {
   stats: PlayerStats;
   /** Unlocked achievement api names (kept even if unknown to this version). */
   achievements: string[];
+  /** The practice (연습) was completed or skipped: first launch stops suggesting it. */
+  tutorialDone: boolean;
 }
 
 export const SAVE_VERSION = 1;
@@ -108,6 +110,7 @@ export function createDefaultSaveData(settings: Settings = createDefaultSettings
     cosmetics: { unlocked: [...DEFAULT_UNLOCKED_HATS], equipped: 'teamCapA', seen: [...DEFAULT_UNLOCKED_HATS] },
     stats: createDefaultStats(),
     achievements: [],
+    tutorialDone: false,
   };
 }
 
@@ -190,6 +193,7 @@ export function sanitizeSaveData(raw: unknown, defaults: SaveData = createDefaul
       bestScore: count(s.bestScore),
     },
     achievements,
+    tutorialDone: src.tutorialDone === true,
   };
 }
 

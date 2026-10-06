@@ -59,6 +59,7 @@ export class TeamBoard {
     if (t === this.lastTick) return;
     this.lastTick = t;
     this.nav.update(sim);
+    this.nav.service(t);
     this.perception.update(sim, this.botSlots);
   }
 

@@ -469,7 +469,7 @@ export const ko = {
   'ach.TOURNAMENT_CLEAR.name': '광장의 전설',
   'ach.TOURNAMENT_CLEAR.desc': '세 라이벌을 모두 이기고 대회에서 우승했어요.',
   'ach.WARDROBE.name': '멋쟁이 너구리',
-  'ach.WARDROBE.desc': '라이벌 모자 세 개를 모두 모았어요.',
+  'ach.WARDROBE.desc': '라이벌에게 얻은 모자를 처음으로 써 봤어요.',
 
   // --- captions (subtitles for sounds; keys match audio SfxId / LoopId) -----------------------------
   'caption.siren': '[사이렌]',
@@ -501,6 +501,28 @@ export const ko = {
   'caption.bankRumble': '[은행이 끌리는 소리]',
   'caption.drag': '[드르륵 끌리는 소리]',
   'caption.sirenLoop': '[사이렌 계속]',
+
+  // --- game flow (integration) -------------------------------------------------------------------
+  'name.rivalBot': '상대 봇',
+  'event.fenceBroken': '은행으로 펜스를 뚫어 지름길이 열림',
+  'tutorial.wander': '반짝이는 목표 쪽으로 가 봐요. 화살표가 길을 알려 줘요.',
+  'tutorial.wanderBank': '북쪽 문으로 나가 화살표를 따라 은행 뒤로 돌아가요.',
+  'tutorial.regrab': '은행 외벽을 다시 잡아요. 놓으면 은행이 멈춰요.',
+  'tutorial.frontPull': '앞에서 끌면 내가 먼저 펜스에 막혀요. 은행 뒤로 돌아가서 밀어 봐요.',
+  'tutorial.offer.title': '연습 끝! 진짜 대전 해 볼까요?',
+  'tutorial.offer.body': '입문 호다닥과 수집 광장에서 1:1로 겨뤄요. 점수는 0점부터 시작해요.',
+  'tutorial.offer.match': '입문 봇과 첫 대전',
+  'tutorial.offer.menu': '메뉴로',
+  'firstRun.title': '처음 왔군요, 반가워요',
+  'firstRun.body': '50초짜리 연습으로 잡기·운반·회수를 먼저 익혀 볼까요? 언제든 건너뛸 수 있어요.',
+  'firstRun.ok': '연습하기',
+  'firstRun.later': '메뉴 둘러보기',
+  'error.title': '앗, 뭔가 삐끗했어요',
+  'error.body': '게임은 그대로 있어요. 다시 시도하거나 메뉴로 돌아가요.',
+  'error.retry': '다시 시도',
+  'error.menu': '메뉴로',
+  'error.detail': '게임은 그대로 있어요. 다시 시도하거나 메뉴로 돌아가요. (오류: {message})',
+  'tournament.lockedPick': '앞 라이벌을 먼저 이겨야 해요.',
 } as const;
 
 export type StringKey = keyof typeof ko;

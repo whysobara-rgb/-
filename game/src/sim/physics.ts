@@ -229,6 +229,14 @@ export class GrabJoint {
   tickImpulse = 0;
   /** Set when the grip limit was exceeded during the tick. */
   broke = false;
+  /**
+   * Separating speed (m/s) of the anchor away from the holder at the start of the substep.
+   * Only a real yank (fast separation) can break the grip: a holder pinned against the
+   * target's side while the rest length settles makes the joint fight the contact, which
+   * must never count as a yank (walking sideways with an anchored safe broke the grip).
+   */
+  private sepSpeed = 0;
+  static readonly YANK_SEP_SPEED = 1.5;
   // solver scratch
   private nx = 1;
   private ny = 0;
@@ -313,6 +321,7 @@ export class GrabJoint {
     this.target = corr;
     this.acc = 0;
     this.limit = limitPerSubstep;
+    this.sepSpeed = (b.vx - b.w * this.rby - c.vx) * this.nx + (b.vy + b.w * this.rbx - c.vy) * this.ny;
     // bearing: lateral offset of the holder from the anchor's handle direction
     const hx = this.hlx * cs - this.hly * sn;
     const hy = this.hlx * sn + this.hly * cs;
@@ -358,11 +367,13 @@ export class GrabJoint {
     let lambda = this.emass * (this.target - vn);
     let next = this.acc + lambda;
     if (next > this.limit) {
+      // Compression (holder pushing into its own grip point, e.g. walking into a safe while
+      // holding grab): the rod yields but the grip never breaks — contacts take over. Only a
+      // violent yank (tension) breaks the grip.
       next = this.limit;
-      this.broke = true;
     } else if (next < -this.limit) {
       next = -this.limit;
-      this.broke = true;
+      if (this.sepSpeed > GrabJoint.YANK_SEP_SPEED) this.broke = true;
     }
     lambda = next - this.acc;
     this.acc = next;
@@ -411,7 +422,8 @@ export class GrabJoint {
 
   /** Called after the substep's iterations. */
   finishSubstep(): void {
-    this.tickImpulse += Math.abs(this.acc);
+    // Only tension counts toward the grip limit (see solve()).
+    if (this.acc < 0 && this.sepSpeed > GrabJoint.YANK_SEP_SPEED) this.tickImpulse -= this.acc;
   }
 }
 

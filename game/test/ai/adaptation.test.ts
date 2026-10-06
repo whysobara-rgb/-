@@ -134,21 +134,55 @@ describe('adapted bots change exactly the one behavior', () => {
     { team: 1, isBot: true, name: 'rival', look: { hat: 'none' } },
   ];
 
-  it('ambushChoke: the rival takes watch shifts at that chokepoint (never without the adaptation)', () => {
+  const ambush = (choke: { id: string; nameKey: string }) => ({ kind: 'ambushChoke' as const, chokepointId: choke.id, lineKey: 'adapt.nunchi.ambushChoke.1', lineParams: { choke: choke.nameKey } });
+
+  it('ambushChoke: no watch schedule — while the human is not seen near the chokepoint the rival just plays', () => {
     const choke = LAYOUTS.plaza.chokepoints.find((c) => c.id === 'choke.plaza.flowerRoadE')!;
-    const near = (adapted: boolean): number => {
+    const run = (adapted: boolean): { watch: number; score: number } => {
       const sim = new Simulation({ layout: LAYOUTS.plaza, roster, seed: 3 });
-      const bot = new Bot(sim, { slot: 1, personality: 'nunchi', difficulty: 'normal', seed: 5, adaptation: adapted ? { kind: 'ambushChoke', chokepointId: choke.id, lineKey: 'adapt.nunchi.ambushChoke.1', lineParams: { choke: choke.nameKey } } : null });
-      let n = 0;
-      for (let t = 0; t < 120 * 60; t++) {
+      const bot = new Bot(sim, { slot: 1, personality: 'nunchi', difficulty: 'normal', seed: 5, adaptation: adapted ? ambush(choke) : null });
+      let watch = 0;
+      for (let t = 0; t < 90 * 60; t++) {
         sim.step([EMPTY_COMMAND, bot.update(sim)]);
-        const p = sim.characterBySlot(1).pos;
-        if (bot.intent().goal === 'ambush' && Math.hypot(p.x - choke.pos.x, p.y - choke.pos.y) < choke.radius + 1) n++;
+        if (bot.intent().goal === 'ambush') watch++;
+      }
+      return { watch, score: sim.state.scores[1] };
+    };
+    const adapted = run(true);
+    const plain = run(false);
+    expect(adapted.watch).toBe(0);
+    expect(plain.watch).toBe(0);
+    // it scores like a normal rival (exact numbers differ: the extra option changes its rolls)
+    expect(adapted.score).toBeGreaterThan(0.6 * plain.score);
+  });
+
+  it('ambushChoke: when the human is SEEN carrying a small safe toward that chokepoint, the rival goes there to cut them off', () => {
+    // the human drags a small safe north->south through the plaza bakery alley (x = 12) and past
+    // its chokepoint (12, 7.5); the rival (호다닥: normally busy collecting) can see it
+    const choke = LAYOUTS.plaza.chokepoints.find((c) => c.id === 'choke.plaza.bakeryAlley')!;
+    const run = (adapted: boolean): number => {
+      const sim = new Simulation({ layout: LAYOUTS.plaza, roster, seed: 1 });
+      const safe = sim.state.loot.find((l) => l.kind === 'smallSafe' && l.floorOf === null)!;
+      sim.debug.setAnchored(safe.id, false);
+      sim.debug.teleport(safe.id, { x: 12, y: 1.25 }, 0);
+      sim.debug.teleport(1, { x: 12, y: 2.2 }, Math.PI / 2);
+      sim.debug.teleport(2, { x: 13, y: 14 });
+      const bot = new Bot(sim, { slot: 1, personality: 'hodadak', difficulty: 'normal', seed: 5, adaptation: adapted ? ambush(choke) : null });
+      const cmd = (c: Partial<Command>): Command => ({ ...EMPTY_COMMAND, ...c });
+      let n = 0;
+      for (let t = 0; t < 8 * 60; t++) {
+        const me = sim.characterBySlot(0);
+        let c: Command;
+        if (!me.grab) c = cmd({ grab: t % 2 === 0, aim: { x: 0, y: -1 } });
+        else c = cmd({ grab: true, move: me.pos.y < 11 ? { x: 0, y: 0.6 } : { x: 0, y: 0 } });
+        sim.step([c, bot.update(sim)]);
+        const g = bot.intent().goal;
+        if (g === 'ambush' || g === 'intercept') n++;
       }
       return n;
     };
-    expect(near(true)).toBeGreaterThan(5 * 60);
-    expect(near(false)).toBe(0);
+    expect(run(true)).toBeGreaterThan(2 * 60);
+    expect(run(false)).toBe(0);
   });
 
   it('guardDoors: a hauling rival leaves the wall to guard its bank door when the human shows up there', () => {

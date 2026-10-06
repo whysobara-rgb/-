@@ -162,6 +162,31 @@ interface ZoneField {
 }
 
 /**
+ * A distance field computed over several ticks (time-sliced Dijkstra), so a refresh never
+ * costs a whole full-grid search inside one frame. The previous field stays in use meanwhile.
+ */
+export class FieldJob {
+  readonly heap = new Heap();
+  done = false;
+  /** Set when the result was taken by its owner. */
+  consumed = false;
+  constructor(
+    readonly dist: Float64Array,
+    readonly cls: NavClass,
+    /** dynVersion / tick when the job started (the result describes that moment). */
+    readonly version: number,
+    readonly tick: number,
+    /** Free-form owner data (e.g. the origin of a walk field). */
+    readonly origin: Vec2 | null,
+  ) {}
+}
+
+/** Dijkstra pops per tick shared by all background field jobs of one grid (~0.4 ms). */
+const FIELD_POPS_PER_TICK = 7000;
+/** A* expansions per tick (all bots) before non-urgent re-paths wait for the next tick. */
+export const ASTAR_TICK_BUDGET = 9000;
+
+/**
  * Shared navigation grid of one Simulation. Obtain with `NavGrid.for(sim)`.
  */
 export class NavGrid {
@@ -193,6 +218,7 @@ export class NavGrid {
   lastStampTick = -1;
 
   private readonly heap = new Heap();
+  private readonly nbOff = new Int32Array(8);
   private readonly gScore: Float64Array;
   private readonly came: Int32Array;
   private readonly stamp: Uint32Array;
@@ -201,6 +227,12 @@ export class NavGrid {
   private fenceBroken: boolean[] = [];
   private safeSig = 0;
   private readonly zoneFields = new Map<string, ZoneField>();
+  private readonly zoneJobs = new Map<string, FieldJob>();
+  private readonly spareFields = new Map<string, Float64Array>();
+  private readonly jobs: FieldJob[] = [];
+  private serviceTick = -1;
+  private astarTick = -1;
+  private astarSpent = 0;
   /** Instrumentation (tools). */
   stats = { astar: 0, astarExpanded: 0, dijkstra: 0, restamps: 0 };
 
@@ -418,6 +450,7 @@ export class NavGrid {
     }
     // resting safes (anchored, or loose and not held): they block like statics until moved
     let sig = 0;
+    this.collectDoors(st.loot);
     for (const l of st.loot) {
       if (l.kind === 'bank' || l.recovered || !this.safeBlocks(l)) continue;
       sig = (sig * 31 + l.id * 7 + Math.round(l.pos.x * 5) * 13 + Math.round(l.pos.y * 5) * 17 + Math.round(l.angle * 10)) | 0;
@@ -434,12 +467,33 @@ export class NavGrid {
     return true;
   }
 
-  /** Safes the grid treats as obstacles: anchored ones and loose ones nobody holds, at rest. */
-  private safeBlocks(l: { anchored: boolean }): boolean {
-    // anchored safes are as solid as statics until someone unanchors them; loose safes are
+  /**
+   * Safes the grid treats as obstacles: anchored ones, and loose ones nobody holds that rest in
+   * a bank doorway (a safe wedged in a door plugs it: paths must use the other door).
+   */
+  private safeBlocks(l: { anchored: boolean; pos: Vec2; vel: Vec2; grabbedBy: readonly number[] }): boolean {
+    // anchored safes are as solid as statics until someone unanchors them; other loose safes are
     // pushable and handled by local avoidance (stamping them would also wall in the very
     // safe a bot is carrying)
-    return l.anchored;
+    if (l.anchored) return true;
+    if (l.grabbedBy.length > 0 || Math.abs(l.vel.x) + Math.abs(l.vel.y) > 0.08) return false;
+    for (let i = 0; i < this.doorPts.length; i += 2) {
+      const dx = l.pos.x - this.doorPts[i]!;
+      const dy = l.pos.y - this.doorPts[i + 1]!;
+      if (dx * dx + dy * dy < 2.0 * 2.0) return true;
+    }
+    return false;
+  }
+  private doorPts: number[] = [];
+  private collectDoors(loot: ReadonlyArray<{ kind: string; recovered: boolean; pos: Vec2; angle: number }>): void {
+    const pts: number[] = [];
+    for (const b of loot) {
+      if (b.kind !== 'bank' || b.recovered) continue;
+      const c = Math.cos(b.angle);
+      const s = Math.sin(b.angle);
+      for (const d of BANK_MODEL.doors) pts.push(b.pos.x + d.center.x * c - d.center.y * s, b.pos.y + d.center.x * s + d.center.y * c);
+    }
+    this.doorPts = pts;
   }
 
   private restamp(sim: Simulation): void {
@@ -523,25 +577,6 @@ export class NavGrid {
     return best;
   }
 
-  private stepCost(k: number, base: number, r: number, opts: PathOptions | undefined): number {
-    const c = this.eff[k]!;
-    let mult = 1;
-    const band = r + CENTER_BAND;
-    if (c < band) mult += (CENTER_WEIGHT * (band - c)) / CENTER_BAND;
-    if (opts) {
-      if (opts.discount) mult *= 1 - opts.discount[k]!;
-      if (opts.avoid) {
-        const x = this.cellX(k);
-        const y = this.cellY(k);
-        for (const a of opts.avoid) {
-          const d = Math.hypot(x - a.x, y - a.y);
-          if (d < a.r) mult += a.cost * (1 - d / a.r);
-        }
-      }
-    }
-    return base * mult;
-  }
-
   /**
    * A* from `from` to `to` for a clearance class. Returns a smoothed polyline starting at
    * `from` and ending at `to` (or at the closest reachable point when unreachable).
@@ -558,7 +593,13 @@ export class NavGrid {
     const gy = (goalCell - gx) / nx;
     const goalR = opts?.goalRadius ?? 0;
     const goalR2 = goalR * goalR;
-    const maxExpand = opts?.maxExpand ?? 40000;
+    let maxExpand = opts?.maxExpand ?? 40000;
+    // a goal in another connected region can only get a partial path: a small search toward it
+    // (instead of flooding the whole reachable region)
+    if (goalR <= 0) {
+      const lab = this.labels(cls);
+      if (lab[s] !== lab[goalCell]) maxExpand = Math.min(maxExpand, 2500);
+    }
     this.epoch++;
     const ep = this.epoch;
     const stamp = this.stamp;
@@ -567,71 +608,118 @@ export class NavGrid {
     const heap = this.heap;
     heap.clear();
     const minMult = opts?.discount ? 0.6 : 1;
-    const h = (k: number): number => {
-      const i = k % nx;
-      const j = (k - i) / nx;
-      const dx = Math.abs(i - gx);
-      const dy = Math.abs(j - gy);
-      return (dx > dy ? dx - dy + dy * SQRT2 : dy - dx + dx * SQRT2) * NAV_CELL * minMult;
-    };
+    const hScale = NAV_CELL * minMult;
+    const DIAG = SQRT2 - 2;
     stamp[s] = ep;
     g[s] = 0;
     came[s] = -1;
-    heap.push(s, h(s));
+    const sx0 = s % nx;
+    const sy0 = (s - sx0) / nx;
+    {
+      const dx = Math.abs(sx0 - gx);
+      const dy = Math.abs(sy0 - gy);
+      heap.push(s, (dx + dy + DIAG * (dx < dy ? dx : dy)) * hScale);
+    }
     let found = -1;
     let bestK = s;
-    let bestH = h(s);
+    let bestH = Infinity;
     let expanded = 0;
     const mask = this.masks[cls];
+    const eff = this.eff;
+    const band = r + CENTER_BAND;
+    const centerK = CENTER_WEIGHT / CENTER_BAND;
+    const discount = opts?.discount ?? null;
+    const avoid = opts?.avoid && opts.avoid.length ? opts.avoid : null;
     const D = NAV_CELL * SQRT2;
+    const offs = this.nbOff;
+    offs[0] = -1;
+    offs[1] = 1;
+    offs[2] = -nx;
+    offs[3] = nx;
+    offs[4] = -nx - 1;
+    offs[5] = -nx + 1;
+    offs[6] = nx - 1;
+    offs[7] = nx + 1;
     while (heap.size > 0) {
       const k = heap.pop();
       const fk = heap.lastPri;
       const gk = g[k]!;
-      if (fk - h(k) > gk + 1e-9) continue; // stale
+      const i = k % nx;
+      const j = (k - i) / nx;
+      const hdx = i > gx ? i - gx : gx - i;
+      const hdy = j > gy ? j - gy : gy - j;
+      const hk = (hdx + hdy + DIAG * (hdx < hdy ? hdx : hdy)) * hScale;
+      if (fk - hk > gk + 1e-9) continue; // stale
       if (k === goalCell) {
         found = k;
         break;
       }
       if (goalR > 0) {
-        const dx = this.cellX(k) - to.x;
-        const dy = this.cellY(k) - to.y;
+        const dx = i * NAV_CELL - to.x;
+        const dy = j * NAV_CELL - to.y;
         if (dx * dx + dy * dy <= goalR2) {
           found = k;
           break;
         }
       }
-      const hk = fk - gk;
       if (hk < bestH) {
         bestH = hk;
         bestK = k;
       }
       if (++expanded > maxExpand) break;
-      const i = k % nx;
-      const j = (k - i) / nx;
       const L = i > 0 && mask[k - 1] === 1;
       const R = i < nx - 1 && mask[k + 1] === 1;
       const U = j > 0 && mask[k - nx] === 1;
       const Dn = j < ny - 1 && mask[k + nx] === 1;
-      const relax = (q: number, base: number): void => {
-        const ng = gk + this.stepCost(q, base, r, opts);
+      for (let e = 0; e < 8; e++) {
+        let ok: boolean;
+        switch (e) {
+          case 0: ok = L; break;
+          case 1: ok = R; break;
+          case 2: ok = U; break;
+          case 3: ok = Dn; break;
+          case 4: ok = L && U && mask[k - nx - 1] === 1; break;
+          case 5: ok = R && U && mask[k - nx + 1] === 1; break;
+          case 6: ok = L && Dn && mask[k + nx - 1] === 1; break;
+          default: ok = R && Dn && mask[k + nx + 1] === 1; break;
+        }
+        if (!ok) continue;
+        const q = k + offs[e]!;
+        // step cost: lane-centering, trail discount, soft avoidance circles
+        const c = eff[q]!;
+        let mult = c < band ? 1 + centerK * (band - c) : 1;
+        if (discount) mult *= 1 - discount[q]!;
+        if (avoid) {
+          const qi = e === 0 || e === 4 || e === 6 ? i - 1 : e === 1 || e === 5 || e === 7 ? i + 1 : i;
+          const qj = e === 2 || e === 4 || e === 5 ? j - 1 : e === 3 || e === 6 || e === 7 ? j + 1 : j;
+          const x = qi * NAV_CELL;
+          const y = qj * NAV_CELL;
+          for (const a of avoid) {
+            const ax = x - a.x;
+            const ay = y - a.y;
+            const d2 = ax * ax + ay * ay;
+            if (d2 < a.r * a.r) mult += a.cost * (1 - Math.sqrt(d2) / a.r);
+          }
+        }
+        const ng = gk + (e < 4 ? NAV_CELL : D) * mult;
         if (stamp[q] !== ep || ng < g[q]! - 1e-9) {
           stamp[q] = ep;
           g[q] = ng;
           came[q] = k;
-          heap.push(q, ng + h(q));
+          const qi = q % nx;
+          const qj = (q - qi) / nx;
+          const dx = qi > gx ? qi - gx : gx - qi;
+          const dy = qj > gy ? qj - gy : gy - qj;
+          heap.push(q, ng + (dx + dy + DIAG * (dx < dy ? dx : dy)) * hScale);
         }
-      };
-      if (L) relax(k - 1, NAV_CELL);
-      if (R) relax(k + 1, NAV_CELL);
-      if (U) relax(k - nx, NAV_CELL);
-      if (Dn) relax(k + nx, NAV_CELL);
-      if (L && U && mask[k - nx - 1] === 1) relax(k - nx - 1, D);
-      if (R && U && mask[k - nx + 1] === 1) relax(k - nx + 1, D);
-      if (L && Dn && mask[k + nx - 1] === 1) relax(k + nx - 1, D);
-      if (R && Dn && mask[k + nx + 1] === 1) relax(k + nx + 1, D);
+      }
     }
     this.stats.astarExpanded += expanded;
+    if (this.astarTick !== this.lastSeenTick) {
+      this.astarTick = this.lastSeenTick;
+      this.astarSpent = 0;
+    }
+    this.astarSpent += expanded;
     const partial = found < 0;
     const end = partial ? bestK : found;
     const cells: number[] = [];
@@ -696,7 +784,58 @@ export class NavGrid {
   private fieldCount = 0;
   private lastSeenTick = -1;
 
-  /** Multi-source Dijkstra (m) over cells passable for cls. */
+  /** Connected-region labels of the passable cells of a class (recomputed lazily on change). */
+  labels(cls: NavClass): Int32Array {
+    let L = this.labelCache.get(cls);
+    if (L && L.version === this.dynVersion) return L.lab;
+    const lab = L?.lab ?? new Int32Array(this.n);
+    lab.fill(0);
+    const mask = this.masks[cls];
+    const nx = this.nx;
+    const ny = this.ny;
+    const q = this.labelQueue;
+    let next = 0;
+    for (let k0 = 0; k0 < this.n; k0++) {
+      if (mask[k0] !== 1 || lab[k0] !== 0) continue;
+      next++;
+      let head = 0;
+      let tail = 0;
+      q[tail++] = k0;
+      lab[k0] = next;
+      while (head < tail) {
+        const k = q[head++]!;
+        const i = k % nx;
+        const j = (k - i) / nx;
+        const L1 = i > 0 && mask[k - 1] === 1;
+        const R1 = i < nx - 1 && mask[k + 1] === 1;
+        const U1 = j > 0 && mask[k - nx] === 1;
+        const D1 = j < ny - 1 && mask[k + nx] === 1;
+        if (L1 && lab[k - 1] === 0) (lab[k - 1] = next), (q[tail++] = k - 1);
+        if (R1 && lab[k + 1] === 0) (lab[k + 1] = next), (q[tail++] = k + 1);
+        if (U1 && lab[k - nx] === 0) (lab[k - nx] = next), (q[tail++] = k - nx);
+        if (D1 && lab[k + nx] === 0) (lab[k + nx] = next), (q[tail++] = k + nx);
+        // diagonals only where A* allows them (both orthogonal neighbours open)
+        if (L1 && U1 && mask[k - nx - 1] === 1 && lab[k - nx - 1] === 0) (lab[k - nx - 1] = next), (q[tail++] = k - nx - 1);
+        if (R1 && U1 && mask[k - nx + 1] === 1 && lab[k - nx + 1] === 0) (lab[k - nx + 1] = next), (q[tail++] = k - nx + 1);
+        if (L1 && D1 && mask[k + nx - 1] === 1 && lab[k + nx - 1] === 0) (lab[k + nx - 1] = next), (q[tail++] = k + nx - 1);
+        if (R1 && D1 && mask[k + nx + 1] === 1 && lab[k + nx + 1] === 0) (lab[k + nx + 1] = next), (q[tail++] = k + nx + 1);
+      }
+    }
+    this.labelCache.set(cls, { lab, version: this.dynVersion });
+    return lab;
+  }
+  private readonly labelCache = new Map<NavClass, { lab: Int32Array; version: number }>();
+  private get labelQueue(): Int32Array {
+    return (this.labelQ ??= new Int32Array(this.n));
+  }
+  private labelQ: Int32Array | null = null;
+
+  /** A* expansions already spent this tick (all bots); callers defer optional re-paths. */
+  astarSpentThisTick(): number {
+    return this.astarTick === this.lastSeenTick ? this.astarSpent : 0;
+  }
+
+  /** Multi-source Dijkstra (m) over cells passable for cls, computed at once. */
   distanceField(seeds: ReadonlyArray<number>, cls: NavClass, out?: Float64Array, maxDist = Infinity): Float64Array {
     this.stats.dijkstra++;
     if (this.fieldTick !== this.lastSeenTick) {
@@ -704,11 +843,57 @@ export class NavGrid {
       this.fieldCount = 0;
     }
     this.fieldCount++;
-    const r = NAV_CLEARANCE[cls];
-    const n = this.n;
-    const d = out ?? new Float64Array(n);
+    const d = out ?? new Float64Array(this.n);
+    this.seedField(d, this.heap, seeds, cls);
+    this.relaxField(d, this.heap, cls, Infinity, maxDist);
+    return d;
+  }
+
+  /**
+   * Starts a time-sliced distance field (advanced by `service()` once per tick within a fixed
+   * pop budget). Poll `job.done`.
+   */
+  startField(seeds: ReadonlyArray<number>, cls: NavClass, out?: Float64Array, origin: Vec2 | null = null): FieldJob {
+    const job = new FieldJob(out ?? new Float64Array(this.n), cls, this.dynVersion, this.lastSeenTick, origin);
+    this.seedField(job.dist, job.heap, seeds, cls);
+    this.jobs.push(job);
+    this.stats.dijkstra++;
+    return job;
+  }
+
+  /** Abandon a background job (its owner no longer needs it). */
+  cancelField(job: FieldJob): void {
+    const i = this.jobs.indexOf(job);
+    if (i >= 0) this.jobs.splice(i, 1);
+    job.done = true;
+  }
+
+  /** Advance background field jobs (idempotent per tick). */
+  service(tick: number): void {
+    if (tick === this.serviceTick) return;
+    this.serviceTick = tick;
+    let budget = FIELD_POPS_PER_TICK;
+    while (budget > 0 && this.jobs.length > 0) {
+      const job = this.jobs[0]!;
+      const used = this.relaxField(job.dist, job.heap, job.cls, budget, Infinity);
+      budget -= used;
+      if (job.heap.size === 0) {
+        job.done = true;
+        this.jobs.shift();
+      }
+    }
+    // swap finished zone fields in
+    for (const [key, job] of this.zoneJobs) {
+      if (!job.done) continue;
+      this.zoneJobs.delete(key);
+      const old = this.zoneFields.get(key);
+      if (old) this.spareFields.set(key, old.dist);
+      this.zoneFields.set(key, { dist: job.dist, version: job.version, tick: job.tick });
+    }
+  }
+
+  private seedField(d: Float64Array, heap: Heap, seeds: ReadonlyArray<number>, cls: NavClass): void {
     d.fill(Infinity);
-    const heap = this.heap;
     heap.clear();
     const mask = this.masks[cls];
     for (const s of seeds) {
@@ -717,14 +902,24 @@ export class NavGrid {
         heap.push(s, 0);
       }
     }
+  }
+
+  /** Dijkstra relaxation loop; returns the number of pops used (stops after maxPops). */
+  private relaxField(d: Float64Array, heap: Heap, cls: NavClass, maxPops: number, maxDist: number): number {
+    const mask = this.masks[cls];
     const nx = this.nx;
     const ny = this.ny;
     const D = NAV_CELL * SQRT2;
-    while (heap.size > 0) {
+    let pops = 0;
+    while (heap.size > 0 && pops < maxPops) {
       const k = heap.pop();
+      pops++;
       const dk = heap.lastPri;
       if (dk > d[k]!) continue;
-      if (dk > maxDist) break;
+      if (dk > maxDist) {
+        heap.clear();
+        break;
+      }
       const i = k % nx;
       const j = (k - i) / nx;
       const L = i > 0 && mask[k - 1] === 1;
@@ -740,7 +935,7 @@ export class NavGrid {
       if (L && Dn && mask[k + nx - 1] === 1 && dk + D < d[k + nx - 1]!) (d[k + nx - 1] = dk + D), heap.push(k + nx - 1, dk + D);
       if (R && Dn && mask[k + nx + 1] === 1 && dk + D < d[k + nx + 1]!) (d[k + nx + 1] = dk + D), heap.push(k + nx + 1, dk + D);
     }
-    return d;
+    return pops;
   }
 
   /** Field value at a world point: best (value + offset) over reached cells within 2.5 m, else Infinity. */
@@ -800,9 +995,17 @@ export class NavGrid {
     const key = `${team}:${cls}`;
     const f = this.zoneFields.get(key);
     if (f && (f.version === this.dynVersion || tick - f.tick < maxAgeTicks)) return f.dist;
-    // spread refreshes: at most one full-grid field per tick when a cached one exists
-    if (f && this.fieldsThisTick() >= 1) return f.dist;
-    const dist = this.distanceField(this.zoneSeeds(team, cls === 'large' ? 1.6 : 1.2), cls, f?.dist);
+    if (f) {
+      // refresh in the background (time-sliced); the cached field stays in use meanwhile
+      if (!this.zoneJobs.has(key)) {
+        const spare = this.spareFields.get(key);
+        this.spareFields.delete(key);
+        this.zoneJobs.set(key, this.startField(this.zoneSeeds(team, cls === 'large' ? 1.6 : 1.2), cls, spare));
+      }
+      return f.dist;
+    }
+    // first use (match loading): synchronous
+    const dist = this.distanceField(this.zoneSeeds(team, cls === 'large' ? 1.6 : 1.2), cls);
     this.zoneFields.set(key, { dist, version: this.dynVersion, tick });
     return dist;
   }

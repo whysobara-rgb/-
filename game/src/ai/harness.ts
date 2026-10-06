@@ -56,14 +56,25 @@ export interface SlotStats {
   dashes: number;
   boosts: number;
   firstScoreTick: number | null;
-  /** Seconds with no meaningful progress (> 3 s windows). */
+  /**
+   * Seconds with no meaningful progress (> 3 s windows; the first 3 s are tolerated). Progress =
+   * moving > 1.25 m from where the window started, straining, being knocked down, the held object
+   * moving > 1.25 m, or an own-team recovery dwell of the held object. Declared waiting does NOT
+   * count as progress: windows spent >= 80 % in declared waiting are reported as idle instead.
+   */
   stuckSeconds: number;
-  /** Longest no-progress stretch (s). */
+  /** Longest no-progress stretch that was not declared waiting (s). */
   maxStuck: number;
-  /** Stretches longer than 5 s. */
+  /** Non-waiting no-progress stretches longer than 5 s. */
   stuckIncidents5s: number;
-  /** Seconds in declared waiting (guard/ambush/escort/recovery dwell). */
+  /** Seconds in declared waiting (guard/ambush watch/escort/yield/telegraph). */
   idleSeconds: number;
+  /** Declared-waiting stretches without progress longer than 6 s. */
+  idleIncidents6s: number;
+  /** Seconds in the fallback goals (guard patrol / idle) with loot left and > 5 s on the clock. */
+  passiveSeconds: number;
+  /** ... of which with the own team tied or behind. */
+  passiveBehindSeconds: number;
   unstuckEvents: number;
   botMsTotal: number;
   botMsMax: number;
@@ -78,6 +89,8 @@ export interface SlotStats {
   goalFails: number;
   /** No-progress stretches > 5 s: start tick, duration (s), goal/phase at the start, position. */
   incidents: { tick: number; dur: number; what: string; x: number; y: number }[];
+  /** Declared-waiting stretches > 6 s (same fields). */
+  idleIncidents: { tick: number; dur: number; what: string; x: number; y: number }[];
 }
 
 export interface MatchStats {
@@ -156,6 +169,9 @@ export function runMatch(spec: MatchSpec): MatchStats {
     maxStuck: 0,
     stuckIncidents5s: 0,
     idleSeconds: 0,
+    idleIncidents6s: 0,
+    passiveSeconds: 0,
+    passiveBehindSeconds: 0,
     unstuckEvents: 0,
     botMsTotal: 0,
     botMsMax: 0,
@@ -167,13 +183,14 @@ export function runMatch(spec: MatchSpec): MatchStats {
     pingsAnswered: 0,
     goalFails: 0,
     incidents: [],
+    idleIncidents: [],
   }));
   const stuckWhat: string[] = bots.map(() => '');
+  const waitTicks = bots.map(() => 0);
   // progress tracking (no meaningful progress for > 3 s)
   const ref = bots.map((b) => ({ ...sim.characterBySlot(b.slot).pos }));
   const refHeld = bots.map(() => ({ id: -1 as EntityId, x: 0, y: 0 }));
   const lastProgress = bots.map(() => 0);
-  const stuckStart = bots.map(() => -1);
   let violations = 0;
   const firstScore: [number | null, number | null] = [null, null];
   const commands: Command[] = new Array(n);
@@ -251,7 +268,7 @@ export function runMatch(spec: MatchSpec): MatchStats {
       const ch = sim.characterBySlot(b.slot);
       const intent = b.intent();
       let progress = false;
-      if (Math.hypot(ch.pos.x - ref[i]!.x, ch.pos.y - ref[i]!.y) > 0.75) progress = true;
+      if (Math.hypot(ch.pos.x - ref[i]!.x, ch.pos.y - ref[i]!.y) > 1.25) progress = true;
       if (ch.straining || ch.knockdownTicks > 0) progress = true;
       if (ch.grab) {
         const l = sim.getLoot(ch.grab.targetId);
@@ -261,36 +278,37 @@ export function runMatch(spec: MatchSpec): MatchStats {
             rh.id = l.id;
             rh.x = l.pos.x;
             rh.y = l.pos.y;
-          } else if (Math.hypot(l.pos.x - rh.x, l.pos.y - rh.y) > 0.75) progress = true;
+          } else if (Math.hypot(l.pos.x - rh.x, l.pos.y - rh.y) > 1.25) progress = true;
           if (l.recovery && l.recovery.team === ch.team) progress = true;
         }
       }
-      // declared waiting (guarding a door / watching a chokepoint / escorting); a 'recover' phase
-      // counts as progress only through the real recovery dwell above
-      const waiting = intent.telegraph || ['guard', 'wait', 'escort'].includes(intent.phase);
+      // declared waiting (guarding a door / watching a chokepoint / escorting / yielding)
+      const waiting = intent.telegraph || ['guard', 'wait', 'escort', 'yield'].includes(intent.phase);
       if (waiting) slotStats[i]!.idleSeconds += 1 / TICK_RATE;
-      if (progress || waiting) {
+      const left = (st.endTick - st.tick) / TICK_RATE;
+      if ((intent.goal === 'reposition' || intent.goal === 'idle') && !ch.grab && st.remainingValue > 0 && left > 5) {
+        slotStats[i]!.passiveSeconds += 1 / TICK_RATE;
+        if (st.scores[ch.team] <= st.scores[(1 - ch.team) as TeamId]) slotStats[i]!.passiveBehindSeconds += 1 / TICK_RATE;
+      }
+      if (st.tick - lastProgress[i]! === 3 * TICK_RATE) {
+        const d = b.debug() as { goal: { key: string; phase: string } | null };
+        stuckWhat[i] = d.goal ? `${d.goal.key}:${d.goal.phase}` : 'none';
+      }
+      if (progress) {
+        closeWindow(slotStats[i]!, lastProgress[i]!, st.tick, waitTicks[i]!, stuckWhat[i]!, ref[i]!);
         ref[i] = { ...ch.pos };
         if (ch.grab) {
           const l = sim.getLoot(ch.grab.targetId);
           if (l) refHeld[i] = { id: l.id, x: l.pos.x, y: l.pos.y };
         }
-        if (stuckStart[i]! >= 0) {
-          const dur = (st.tick - stuckStart[i]!) / TICK_RATE;
-          closeStuck(slotStats[i]!, dur, stuckStart[i]!, stuckWhat[i]!, ref[i]!);
-          stuckStart[i] = -1;
-        }
         lastProgress[i] = st.tick;
-      } else if (st.tick - lastProgress[i]! > 3 * TICK_RATE && stuckStart[i]! < 0) {
-        stuckStart[i] = lastProgress[i]!;
-        const d = b.debug() as { goal: { key: string; phase: string } | null };
-        stuckWhat[i] = d.goal ? `${d.goal.key}:${d.goal.phase}` : 'none';
-      }
+        waitTicks[i] = 0;
+      } else if (waiting) waitTicks[i]!++;
     }
     spec.onTick?.(sim, events, bots);
   }
   for (let i = 0; i < n; i++) {
-    if (stuckStart[i]! >= 0) closeStuck(slotStats[i]!, (st.tick - stuckStart[i]!) / TICK_RATE, stuckStart[i]!, stuckWhat[i]!, ref[i]!);
+    closeWindow(slotStats[i]!, lastProgress[i]!, st.tick, waitTicks[i]!, stuckWhat[i]!, ref[i]!);
     const b = bots[i]!;
     const s = slotStats[i]!;
     s.dashes = b.stats.dashes;
@@ -316,13 +334,23 @@ export function runMatch(spec: MatchSpec): MatchStats {
   };
 }
 
-function closeStuck(s: SlotStats, dur: number, tick: number, what: string, pos: { x: number; y: number }): void {
+function closeWindow(s: SlotStats, start: number, end: number, waitTicks: number, what: string, pos: { x: number; y: number }): void {
+  const dur = (end - start) / TICK_RATE;
+  if (dur <= 3) return;
+  const rec = { tick: start, dur: +dur.toFixed(1), what, x: +pos.x.toFixed(1), y: +pos.y.toFixed(1) };
+  if (waitTicks >= 0.8 * (end - start)) {
+    if (dur > 6) {
+      s.idleIncidents6s++;
+      if (s.idleIncidents.length < 20) s.idleIncidents.push(rec);
+    }
+    return;
+  }
   // the first 3 s of a no-progress window are tolerated
-  s.stuckSeconds += Math.max(0, dur - 3);
+  s.stuckSeconds += dur - 3;
   if (dur > s.maxStuck) s.maxStuck = dur;
   if (dur > 5) {
     s.stuckIncidents5s++;
-    if (s.incidents.length < 20) s.incidents.push({ tick, dur: +dur.toFixed(1), what, x: +pos.x.toFixed(1), y: +pos.y.toFixed(1) });
+    if (s.incidents.length < 20) s.incidents.push(rec);
   }
 }
 
@@ -401,6 +429,9 @@ export interface PersonalityAgg {
   stuckSeconds: number;
   idleSeconds: number;
   stuck5: number;
+  idle6: number;
+  passive: number;
+  passiveBehind: number;
   maxStuck: number;
   unstuck: number;
   scoredMatches: number;
@@ -428,6 +459,10 @@ export interface SeriesAggregate {
   /** Share of bot updates slower than 2 ms (after warm-up). */
   botSlowShare: number;
   stuck5: number;
+  /** Declared-waiting stretches > 6 s (bots only). */
+  idle6: number;
+  /** Seconds per bot per match in the fallback goals with loot left (tied/behind). */
+  passiveBehindPerBot: number;
   finalReplans: number;
   /** Human-proxy matches: share of the proxy team's points earned by the bot teammate. */
   teammateShare: number | null;
@@ -451,6 +486,8 @@ export function aggregate(ms: SeriesMatch[]): SeriesAggregate {
     botMsMaxWarm: 0,
     botSlowShare: 0,
     stuck5: 0,
+    idle6: 0,
+    passiveBehindPerBot: 0,
     finalReplans: 0,
     teammateShare: null,
   };
@@ -460,6 +497,8 @@ export function aggregate(ms: SeriesMatch[]): SeriesAggregate {
   const fs: [number[], number[]] = [[], []];
   let shareNum = 0;
   let shareDen = 0;
+  let passiveB = 0;
+  let nBots = 0;
   for (const m of ms) {
     if (m.winner === 'A') agg.aWins++;
     else if (m.winner === 'B') agg.bWins++;
@@ -492,6 +531,9 @@ export function aggregate(ms: SeriesMatch[]): SeriesAggregate {
         stuckSeconds: 0,
         idleSeconds: 0,
         stuck5: 0,
+        idle6: 0,
+        passive: 0,
+        passiveBehind: 0,
         maxStuck: 0,
         unstuck: 0,
         scoredMatches: 0,
@@ -513,6 +555,9 @@ export function aggregate(ms: SeriesMatch[]): SeriesAggregate {
       a.stuckSeconds += s.stuckSeconds;
       a.idleSeconds += s.idleSeconds;
       a.stuck5 += s.stuckIncidents5s;
+      a.idle6 += s.idleIncidents6s;
+      a.passive += s.passiveSeconds;
+      a.passiveBehind += s.passiveBehindSeconds;
       a.maxStuck = Math.max(a.maxStuck, s.maxStuck);
       a.unstuck += s.unstuckEvents;
       a.finalReplans += s.finalReplans;
@@ -528,6 +573,9 @@ export function aggregate(ms: SeriesMatch[]): SeriesAggregate {
         agg.botMsMaxWarm = Math.max(agg.botMsMaxWarm, s.botMsMaxWarm);
         slow += s.botSlow2ms;
         agg.stuck5 += s.stuckIncidents5s;
+        agg.idle6 += s.idleIncidents6s;
+        passiveB += s.passiveBehindSeconds;
+        nBots++;
         agg.finalReplans += s.finalReplans;
       }
     }
@@ -543,6 +591,7 @@ export function aggregate(ms: SeriesMatch[]): SeriesAggregate {
   agg.botSlowShare = msTicks > 0 ? slow / msTicks : 0;
   agg.avgFirstScoreS = [fs[0].length ? avg(fs[0]) : null, fs[1].length ? avg(fs[1]) : null];
   agg.teammateShare = shareDen > 0 ? shareNum / shareDen : null;
+  agg.passiveBehindPerBot = nBots > 0 ? passiveB / nBots : 0;
   return agg;
 }
 
@@ -563,14 +612,14 @@ export function formatAggregate(agg: SeriesAggregate, title = ''): string {
       .join(' ')}  avg score A ${agg.avgScoreA.toFixed(0)} B ${agg.avgScoreB.toFixed(0)}  first score A ${agg.avgFirstScoreS[0]?.toFixed(1) ?? '-'}s B ${agg.avgFirstScoreS[1]?.toFixed(1) ?? '-'}s  invariant violations ${agg.invariantViolations}`,
   );
   L.push(
-    `bot cpu avg ${agg.botMsAvg.toFixed(3)} ms/tick/bot  max ${agg.botMsMax.toFixed(2)} ms (after warm-up ${agg.botMsMaxWarm.toFixed(2)} ms, ${(agg.botSlowShare * 100).toFixed(3)}% of updates > 2 ms)  stuck>5s ${agg.stuck5}  final-30s re-plans ${agg.finalReplans}` +
+    `bot cpu avg ${agg.botMsAvg.toFixed(3)} ms/tick/bot  max ${agg.botMsMax.toFixed(2)} ms (after warm-up ${agg.botMsMaxWarm.toFixed(2)} ms, ${(agg.botSlowShare * 100).toFixed(3)}% of updates > 2 ms)  stuck>5s ${agg.stuck5}  idle>6s ${agg.idle6}  passive-while-not-ahead ${agg.passiveBehindPerBot.toFixed(1)} s/bot  final-30s re-plans ${agg.finalReplans}` +
       (agg.teammateShare !== null ? `  teammate share ${(agg.teammateShare * 100).toFixed(1)}%` : ''),
   );
-  L.push('  per bot (averages per match):  pts | small large bank (whole) | strips steals | KOs dashes boosts | stuck s idle s max-stuck stuck>5 unstuck | scored% first-score');
+  L.push('  per bot (averages per match):  pts | small large bank (whole) | strips steals | KOs dashes boosts | stuck s idle s max-stuck stuck>5 idle>6 passive(not ahead) s unstuck | scored% first-score');
   for (const a of Object.values(agg.byKey).sort((x, y) => (x.key < y.key ? -1 : 1))) {
     const n = Math.max(1, a.bots);
     L.push(
-      `  ${a.key.padEnd(26)} ${(a.points / n).toFixed(0).padStart(5)} | ${(a.small / n).toFixed(2)} ${(a.large / n).toFixed(2)} ${(a.bank / n).toFixed(2)} (${(a.banksWhole / n).toFixed(2)}) | ${(a.strips / n).toFixed(2)} ${(a.steals / n).toFixed(2)} | ${(a.knockdowns / n).toFixed(2)} ${(a.dashes / n).toFixed(2)} ${(a.boosts / n).toFixed(2)} | ${(a.stuckSeconds / n).toFixed(1)} ${(a.idleSeconds / n).toFixed(1)} ${a.maxStuck.toFixed(1)} ${a.stuck5} ${(a.unstuck / n).toFixed(2)} | ${((100 * a.scoredMatches) / n).toFixed(0)}% ${a.firstScoreN ? (a.firstScoreSum / a.firstScoreN).toFixed(1) + 's' : '-'}`,
+      `  ${a.key.padEnd(26)} ${(a.points / n).toFixed(0).padStart(5)} | ${(a.small / n).toFixed(2)} ${(a.large / n).toFixed(2)} ${(a.bank / n).toFixed(2)} (${(a.banksWhole / n).toFixed(2)}) | ${(a.strips / n).toFixed(2)} ${(a.steals / n).toFixed(2)} | ${(a.knockdowns / n).toFixed(2)} ${(a.dashes / n).toFixed(2)} ${(a.boosts / n).toFixed(2)} | ${(a.stuckSeconds / n).toFixed(1)} ${(a.idleSeconds / n).toFixed(1)} ${a.maxStuck.toFixed(1)} ${a.stuck5} ${a.idle6} ${(a.passive / n).toFixed(1)}(${(a.passiveBehind / n).toFixed(1)}) ${(a.unstuck / n).toFixed(2)} | ${((100 * a.scoredMatches) / n).toFixed(0)}% ${a.firstScoreN ? (a.firstScoreSum / a.firstScoreN).toFixed(1) + 's' : '-'}`,
     );
   }
   return L.join('\n');
