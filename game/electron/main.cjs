@@ -33,6 +33,8 @@ const PRODUCT_NAME = '뿌리째 털어라';
 const DATA_DIR_NAME = 'UprootHeist';
 /** --uh-night-950, the game's backdrop: no white flash while loading. */
 const BACKGROUND = '#150F2B';
+/** Window paint before the page draws: the cream of index.html's inline splash (C10), so the first frame never flashes dark. */
+const SPLASH_BACKGROUND = '#FFF6E6';
 const DEFAULT_SIZE = { width: 1600, height: 900, minWidth: 1024, minHeight: 576 };
 const ALLOWED_PERMISSIONS = new Set(['fullscreen', 'pointerLock']);
 const ACH_RE = /^[A-Z][A-Z0-9_]{0,63}$/;
@@ -167,7 +169,7 @@ function createWindow() {
     minHeight: DEFAULT_SIZE.minHeight,
     useContentSize: true,
     show: false,
-    backgroundColor: BACKGROUND,
+    backgroundColor: SPLASH_BACKGROUND,
     title: PRODUCT_NAME,
     autoHideMenuBar: true,
     fullscreen: startFullscreen,

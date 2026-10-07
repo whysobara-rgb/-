@@ -229,6 +229,30 @@ export class MoodDirector {
   }
 
   /**
+   * (fun round WP3 / F3) Team-wide reaction to a story beat from MomentTracker (render only):
+   *   'rattled' — "!?" + a bead of sweat and a shocked face on every raccoon of `team` (it just
+   *               lost the lead / had its scoring run broken);
+   *   'pumped'  — sparkles + a happy face (it took the lead / stopped a match point).
+   * Raccoons farther than `radius` m from `near` (when given) only get the face, so a far-away
+   * teammate does not pop a sticker nobody sees. Knocked-down raccoons keep their dizzy swirl.
+   */
+  teamReact(sim: Simulation, team: TeamId, kind: 'rattled' | 'pumped', near: Vec2 | null = null, radius = 30): void {
+    for (const c of sim.state.characters) {
+      if (c.team !== team || c.knockdownTicks > 0) continue;
+      const close = !near || Math.hypot(c.pos.x - near.x, c.pos.y - near.y) <= radius;
+      if (kind === 'rattled') {
+        this.setFace(c.id, 'shock', 1.3);
+        if (!close) continue;
+        this.emit(sim, c.id, 'shock', { priority: 3, duration: 1.3 });
+        this.emit(sim, c.id, 'sweat', { priority: 2, duration: 1.5 });
+      } else {
+        this.setFace(c.id, 'happy', 1.2);
+        if (close) this.emit(sim, c.id, 'sparkle', { priority: 2, duration: 1.2 });
+      }
+    }
+  }
+
+  /**
    * Per-frame state-driven emotes. `active` = match mode (no idle / nervous emotes in menus).
    */
   update(sim: Simulation, dt: number, active: boolean, calm: boolean): void {

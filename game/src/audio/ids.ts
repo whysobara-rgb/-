@@ -69,6 +69,35 @@ export const SFX_IDS = [
   'tauntZoom',
   'tauntFlex',
   'tauntShrug',
+  // --- [C9] Content 2.0 items (./sfxItems.ts) ---
+  'hammerWindup',
+  'hammerSwing',
+  'hammerBonk',
+  'hammerClash',
+  'itemPickup',
+  'itemDrop',
+  'itemPoof',
+  'supplyIncoming',
+  'supplyLand',
+  'goldHammerSting',
+  // --- [C9] Content 2.0 coins, props, breakables (./sfxProps.ts) ---
+  'coinPickup',
+  'billPickup',
+  'coinPop',
+  'coinSpill',
+  'depositStart',
+  'coinDeposit',
+  'atmSpurt',
+  'atmBonk',
+  'piggyOink',
+  'piggyCrack',
+  'piggyJackpot',
+  'rootRip',
+  'billFlutter',
+  'crateBreak',
+  'vendingHit',
+  'vendingBreak',
+  // --- [C9] end ---
 ] as const;
 export type SfxId = (typeof SFX_IDS)[number];
 

@@ -11,11 +11,19 @@
  * vocabulary. It also measures the distances designers care about (spawn -> bank, route
  * lengths, nearest safes).
  *
- * Used by tools/layout-check.ts (CLI) and test/sim/layouts.test.ts.
+ * Content 2.0 (content-plan §3.2, §6 C4): `validateLayout(def, meta, { content: 'v2' })` checks the
+ * map's `LayoutDef.v2` composition with the same machinery (v2 safes replace the classic ones, props
+ * join them as loot, breakables join the statics) plus the v2 rules: composition and the 4,000 total,
+ * mirror value balance, chirality of every v2 element (props, breakables, item pads, event spots,
+ * gimmicks), starter sockets, breakable placement, natural-path crates, item pads, event spots,
+ * the 돈나무 haul (propHaul), lanes squeezed but never sealed by breakables / anchored loot, gimmick
+ * landing / exit discs, and hammerable fences. The classic composition is validated exactly as before.
+ *
+ * Used by tools/layout-check.ts (CLI) and test/sim/layouts*.test.ts.
  */
-import { BANK_MODEL, CHARACTER, POLICE, POLICE_CAR, SAFE_SPECS, SCORE, VAN } from '../config';
+import { BANK_MODEL, BREAKABLE_SPECS, CHARACTER, ITEMS, POLICE, POLICE_CAR, PROP_SPECS, SAFE_SPECS, SCORE, VAN } from '../config';
 import { officerStepOutSpot } from '../police';
-import type { LayoutDef, OBB, SafeKind, TeamId, Vec2 } from '../types';
+import type { GimmickDef, LayoutDef, LayoutV2Def, OBB, PropPlacementDef, PropVariant, SafeKind, TeamId, Vec2 } from '../types';
 import {
   EPS,
   dist,
@@ -77,8 +85,139 @@ export const ROUTE_SAMPLE_STEP = 0.2;
  */
 export const POCKET_MIN_GAP = 1.0;
 export const POCKET_FLUSH = 0.08;
+/** Decor (visual only) keeps at least this far from loot and breakables, so it never hides them. */
+export const DECOR_LOOT_GAP = 0.6;
 /** Character center may be this far from a safe's surface and still grab it. */
 const GRAB_RANGE = CHARACTER.radius + CHARACTER.reach;
+
+// ---- Content 2.0 (v2 composition) rules, content-plan §3.2 / §5.2 / §5.3 ------------------------
+
+/** Base value of every v2 match map (banks 2,000 + safes 800 + ATMs 400 + 돼지 300 + 돈나무 300 + breakables 200). */
+export const V2_TOTAL = 4000;
+/** v2 outdoor safes: 2 small (one per side, or both on the axis) + 2 large. */
+export const V2_SAFES = { smallSafe: 2, largeSafe: 2 } as const;
+/** Props per map: the ATM starter-socket pair, one 돼지저금통 and one 돈나무 on the axis. */
+export const V2_PROPS: Readonly<Record<'atm' | 'piggy' | 'moneyTree', number>> = { atm: 2, piggy: 1, moneyTree: 1 };
+/** Breakables per side (mirrored): 2 crates + 1 vending machine. */
+export const V2_BREAKABLES_PER_SIDE: Readonly<Record<'crate' | 'vending', number>> = { crate: 2, vending: 1 };
+/** Starter socket (ATM): walk from the nearest own spawn to a grab spot. */
+export const STARTER_WALK = { min: 8, max: 12 } as const;
+/** Starter socket: footprint at least this far outside its own zone (m). */
+export const STARTER_ZONE_GAP = 6;
+/** No breakable (its center) within this distance of any zone edge (m). */
+export const BREAKABLE_ZONE_GAP = 6;
+/** Natural-path crate: walk from the spawn to a hitting spot. */
+export const NATURAL_CRATE_WALK = { min: 5, max: 9 } as const;
+/** A crate is on a spawn's natural path when visiting it costs at most this detour (m) on the way to a first target. */
+export const NATURAL_PATH_DETOUR = 2.5;
+/** Mirrored item pads: walk from the nearest own spawn. */
+export const ITEM_PAD_WALK = { min: 12, max: 18 } as const;
+/** Item pads: free ground around the pad center (static clearance, m) and gap to loot / breakables. */
+export const ITEM_PAD_CLEAR = 0.9;
+/**
+ * Landing / exit discs (event spots, catapult landings, tube exits, crane drops) clear of solids by
+ * 1.2 m (content-plan §6 C4).
+ */
+export const LANDING_CLEAR = 1.2;
+/**
+ * Event spot: the 황금 금고 footprint radius + LANDING_CLEAR of free ground (statics, breakables).
+ * Loot at start only needs LANDING_CLEAR (it has moved long before the 75-110 s event; a landing
+ * on loot falls back to the nearest free spot).
+ */
+export const EVENT_SPOT_CLEAR = Math.hypot(PROP_SPECS.goldSafe.half.x, PROP_SPECS.goldSafe.half.y) + LANDING_CLEAR;
+/** 돈비 ring (content-plan §5.4): bills land 6..9 m around the spot; at least this fraction should be open ground. */
+export const EVENT_RING = { min: 6, max: 9, minOpen: 0.5 } as const;
+/**
+ * propHaul (돈나무): its haul paths to both zones must have no turn tighter than a 2.5 m lane, i.e.
+ * a disc of this radius (a 2.4 m wide passage; the 2.5 m lanes pass) reaches both zones.
+ */
+export const PROP_HAUL_RADIUS = 1.2;
+/**
+ * Squeeze check: with breakables and anchored loot standing, a large safe carried aligned (its
+ * 1.2 m narrow side across, plus a hair) still gets everywhere — lanes may be squeezed, never sealed.
+ * Mirrors the bots' NAV_SAFE_CLEARANCE.large (0.55).
+ */
+export const SQUEEZE_RADIUS = { walk: CHARACTER.radius, small: CHARACTER.radius, large: 0.62 } as const;
+/** Hammerable fences: a raccoon can stand within the hammer's reach of the fence (m beyond its surface). */
+export const FENCE_HAMMER_REACH = ITEMS.hammer.reach;
+/** Both teams' walks to a fence's hammer spots must match within this (m). */
+export const FENCE_HAMMER_TOL = 0.75;
+
+/** Coins inside a prop at build (PROP_SPECS inner piles). */
+export function propInnerValue(variant: PropVariant): number {
+  const i = PROP_SPECS[variant].inner;
+  return i.c10 * 10 + i.c50 * 50;
+}
+
+/** Shell + coins inside (what recovering the prop intact pays). */
+export function propValue(variant: PropVariant): number {
+  return PROP_SPECS[variant].shell + propInnerValue(variant);
+}
+
+/** Footprint of a prop placement (circle props: the bounding square, as the sim's grab / zone tests). */
+export function propOBB(p: PropPlacementDef): OBB {
+  return { center: p.pos, half: PROP_SPECS[p.variant].half, angle: p.angle };
+}
+
+/** Base value of a v2 composition (banks + interiors + v2 safes + props + breakables' coins). */
+export function v2TotalValue(def: LayoutDef, v2: LayoutV2Def): number {
+  const interiorValue = BANK_MODEL.interior.reduce((a, s) => a + SCORE[s.kind], 0);
+  return (
+    def.banks.length * (SCORE.bankBuilding + interiorValue) +
+    v2.safes.reduce((a, s) => a + SCORE[s.kind], 0) +
+    v2.props.reduce((a, p) => a + propValue(p.variant), 0) +
+    v2.breakables.reduce((a, b) => a + BREAKABLE_SPECS[b.kind].inner, 0)
+  );
+}
+
+/** One loot footprint the validator checks: an outdoor safe, or (v2) a prop. */
+export interface LootFootprint {
+  /** 'safe 3' for outdoor safes (classic messages unchanged), 'atm 0' / 'piggy 0' / … for props. */
+  label: string;
+  /** Nav / carry class. */
+  kind: SafeKind;
+  variant: PropVariant | null;
+  pos: Vec2;
+  obb: OBB;
+  /** Anchored at start (uproot needed); the free-standing 돼지 is not. */
+  anchored: boolean;
+  /** Clearance disc used for carry reachability (m). */
+  carryRadius: number;
+  value: number;
+}
+
+/** Outdoor safes followed by props (v2), in that order (= SafeMetric.index). */
+export function lootFootprints(safes: LayoutDef['safes'], props: ReadonlyArray<PropPlacementDef> = []): LootFootprint[] {
+  const out: LootFootprint[] = safes.map((s, i) => ({
+    label: `safe ${i}`,
+    kind: s.kind,
+    variant: null,
+    pos: s.pos,
+    obb: safeOBB(s),
+    anchored: true,
+    carryRadius: s.kind === 'smallSafe' ? CLASS_RADIUS.small : CLASS_RADIUS.large,
+    value: SCORE[s.kind],
+  }));
+  const seen: Partial<Record<PropVariant, number>> = {};
+  for (const p of props) {
+    const spec = PROP_SPECS[p.variant];
+    const n = seen[p.variant] ?? 0;
+    seen[p.variant] = n + 1;
+    const rot = spec.shape === 'circle' ? spec.half.x : Math.hypot(spec.half.x, spec.half.y);
+    const cls = spec.kind === 'smallSafe' ? CLASS_RADIUS.small : CLASS_RADIUS.large;
+    out.push({
+      label: `${p.variant} ${n}`,
+      kind: spec.kind,
+      variant: p.variant,
+      pos: p.pos,
+      obb: propOBB(p),
+      anchored: spec.uprootTicks > 0,
+      carryRadius: p.variant === 'moneyTree' ? PROP_HAUL_RADIUS : Math.max(cls, rot),
+      value: propValue(p.variant),
+    });
+  }
+  return out;
+}
 
 // ---------------------------------------------------------------------------
 // Report types
@@ -103,6 +242,8 @@ export interface RouteMetric {
 export interface SafeMetric {
   index: number;
   kind: SafeKind;
+  /** (v2) Prop variant; absent for plain safes. */
+  variant?: PropVariant;
   pos: Vec2;
   /** Walking distance from each spawn (index-aligned with def.spawns). */
   walkFromSpawn: number[];
@@ -152,10 +293,34 @@ export interface LayoutMetrics {
   decor: number;
   /** Police entries (owner addition): park spot, heading and the tightest officer step-out clearance. */
   police: { park: Vec2; angle: number; stepOutClearance: number }[];
+  /** Content 2.0 measurements (only when validating the v2 composition). */
+  v2?: V2Metrics;
+}
+
+/** Content 2.0 measurements of a v2 composition. */
+export interface V2Metrics {
+  /** Value on the west / east half (axis elements excluded); must match. */
+  sideValue: [number, number];
+  /** Starter-socket ATMs: walk from the nearest own spawn, gap to the own zone, clearance from bank sweeps. */
+  starters: { pos: Vec2; walk: number; zoneGap: number; sweepGap: number }[];
+  /** Breakables: walk from the nearest spawn (any team), center distance to the nearest zone. */
+  breakables: { id: string; kind: string; walk: number; zoneGap: number }[];
+  /** Per spawn: the best natural-path crate (walk, detour, target) or null. */
+  naturalCrates: ({ id: string; walk: number; detour: number; target: string } | null)[];
+  /** Item pads: walk from the nearest own spawn (axis pad: nearest spawn), clearance from bank sweeps. */
+  pads: { id: string; twin: string | null; walk: number; sweepGap: number }[];
+  /** Event spots: static clearance, gap to loot at start, open fraction of the 돈비 ring. */
+  spots: { pos: Vec2; clearance: number; lootGap: number; ringOpen: number }[];
+  /** 돈나무 haul (PROP_HAUL_RADIUS disc) per zone. */
+  haul: { label: string; toZone: number[] }[];
+  /** Fences: nearest walk to a hammer spot per team. */
+  fenceHammer: { id: string; walk: number[] }[];
 }
 
 export interface ValidationReport {
   id: string;
+  /** Which composition was validated. */
+  content: 'classic' | 'v2';
   ok: boolean;
   issues: ValidationIssue[];
   metrics: LayoutMetrics;
@@ -193,10 +358,20 @@ export interface SafePocket {
  * vans, intact fences, banks at their start pose, other outdoor safes and the arena edge.
  */
 export function safeGaps(def: LayoutDef): SafePocket[] {
-  const shapes = obstacles(def, { fences: 'all', banksAtStart: true });
-  const obbs = def.safes.map(safeOBB);
-  return obbs.map((o, i) => {
+  return lootGaps(def, lootFootprints(def.safes), []);
+}
+
+/**
+ * safeGaps for any loot list (v2: safes + props) plus extra solids (v2: breakables). Only anchored
+ * loot is measured and counted as a wall (a free-standing 돼지 is pushed aside, it cannot wedge
+ * anyone); `safe` = index into `loot`, the gap is +Infinity for free-standing loot.
+ */
+function lootGaps(def: LayoutDef, loot: ReadonlyArray<LootFootprint>, extra: ReadonlyArray<Shape>): SafePocket[] {
+  const shapes = [...obstacles(def, { fences: 'all', banksAtStart: true }), ...extra];
+  return loot.map((l, i) => {
     let best: SafePocket = { safe: i, gap: Infinity, against: '' };
+    if (!l.anchored) return best;
+    const o = l.obb;
     const take = (gap: number, against: string): void => {
       if (gap < best.gap) best = { safe: i, gap, against };
     };
@@ -205,8 +380,8 @@ export function safeGaps(def: LayoutDef): SafePocket[] {
       if (a.minX > o.center.x + 4 || a.maxX < o.center.x - 4 || a.minY > o.center.y + 4 || a.maxY < o.center.y - 4) continue;
       take(obbGap(o, sh), `${sh.solidKind} ${sh.id}`);
     }
-    obbs.forEach((q, j) => {
-      if (j !== i) take(obbGap(o, { type: 'box', id: `safe${j}`, obb: q, solidKind: 'safe' }), `safe ${j}`);
+    loot.forEach((q, j) => {
+      if (j !== i && q.anchored) take(obbGap(o, { type: 'box', id: `safe${j}`, obb: q.obb, solidKind: 'safe' }), q.label);
     });
     for (const v of obbCorners(o)) take(Math.min(v.x, v.y, def.size.x - v.x, def.size.y - v.y), 'arena edge');
     return best;
@@ -538,12 +713,36 @@ function fmt(n: number, d = 1): string {
 
 /** Distinct unique sample points along all routes of a bank. */
 function bankSamples(def: LayoutDef, bankIndex: number, step: number): Vec2[] {
-  const out: Vec2[] = [def.banks[bankIndex].pos];
+  return bankSamplesWithFences(def, bankIndex, step).map((s) => s.p);
+}
+
+/**
+ * bankSamples plus, per sample, the fences the bank has already busted to get there (a sample past
+ * the point of a route nearest to a fence it breaks). A position reached by several routes keeps
+ * only the fences every one of them busted (conservative).
+ */
+function bankSamplesWithFences(def: LayoutDef, bankIndex: number, step: number): { p: Vec2; broken: string[] }[] {
+  const out: { p: Vec2; broken: string[] }[] = [{ p: def.banks[bankIndex].pos, broken: [] }];
   for (const r of def.bankRoutes) {
     if (r.bankIndex !== bankIndex) continue;
-    for (const p of samplePolyline(r.points, step)) {
-      if (!out.some((q) => dist(p, q) < step * 0.5)) out.push(p);
-    }
+    const pts = samplePolyline(r.points, step);
+    const arcs: number[] = [];
+    pts.forEach((p, i) => arcs.push(i === 0 ? 0 : arcs[i - 1] + dist(pts[i - 1], p)));
+    const fenceArc = r.breaksFences.map((id) => {
+      const f = def.fences.find((q) => q.id === id);
+      if (!f) return { id, arc: Infinity };
+      let best = 0;
+      pts.forEach((p, i) => {
+        if (dist(p, f.center) < dist(pts[best], f.center)) best = i;
+      });
+      return { id, arc: arcs[best] };
+    });
+    pts.forEach((p, i) => {
+      const broken = fenceArc.filter((f) => arcs[i] >= f.arc).map((f) => f.id);
+      const q = out.find((o) => dist(p, o.p) < step * 0.5);
+      if (!q) out.push({ p, broken });
+      else q.broken = q.broken.filter((id) => broken.includes(id));
+    });
   }
   return out;
 }
@@ -555,12 +754,25 @@ function bankSamples(def: LayoutDef, bankIndex: number, step: number): Vec2[] {
 export interface ValidateOptions {
   /** Skip the (slowest) bypass combination check. */
   skipBypass?: boolean;
+  /**
+   * Which composition to validate: the classic one (default; `LayoutDef.safes`, 3,200) or the
+   * Content 2.0 `LayoutDef.v2` composition (v2 safes + props + breakables + pads + spots, 4,000).
+   */
+  content?: 'classic' | 'v2';
 }
 
-export function validateLayout(def: LayoutDef, meta: LayoutDesignMeta, opts: ValidateOptions = {}): ValidationReport {
+export function validateLayout(input: LayoutDef, meta: LayoutDesignMeta, opts: ValidateOptions = {}): ValidationReport {
   const issues: ValidationIssue[] = [];
   const err = (code: string, msg: string): void => void issues.push({ level: 'error', code, msg });
   const warn = (code: string, msg: string): void => void issues.push({ level: 'warn', code, msg });
+
+  const content = opts.content ?? 'classic';
+  const v2 = content === 'v2' ? (input.v2 ?? null) : null;
+  if (content === 'v2' && !v2) err('v2', `${input.id} has no v2 composition (LayoutDef.v2)`);
+  // v2: the v2 safes replace the classic ones (as in the sim's buildV2); props join them as loot.
+  const def: LayoutDef = v2 ? { ...input, safes: v2.safes } : input;
+  const loot = lootFootprints(def.safes, v2?.props ?? []);
+  const breakableShapes: Shape[] = (v2?.breakables ?? []).map((b) => ({ type: 'box', id: b.id, obb: b, solidKind: 'breakable' }));
 
   const isMatch = def.id !== 'tutorial';
   const axis = def.size.x / 2;
@@ -569,21 +781,29 @@ export function validateLayout(def: LayoutDef, meta: LayoutDesignMeta, opts: Val
   const outdoorSmall = def.safes.filter((s) => s.kind === 'smallSafe').length;
   const outdoorLarge = def.safes.filter((s) => s.kind === 'largeSafe').length;
   const interiorValue = BANK_MODEL.interior.reduce((a, s) => a + SCORE[s.kind], 0);
-  const totalValue =
-    outdoorSmall * SCORE.smallSafe + outdoorLarge * SCORE.largeSafe + def.banks.length * (SCORE.bankBuilding + interiorValue);
+  const totalValue = v2
+    ? v2TotalValue(def, v2)
+    : outdoorSmall * SCORE.smallSafe + outdoorLarge * SCORE.largeSafe + def.banks.length * (SCORE.bankBuilding + interiorValue);
 
+  if (v2 && !isMatch) err('v2', 'the tutorial stays classic (no v2 composition)');
   if (isMatch) {
     if (def.size.x < MATCH_SIZE.min.x || def.size.x > MATCH_SIZE.max.x || def.size.y < MATCH_SIZE.min.y || def.size.y > MATCH_SIZE.max.y) {
       err('size', `arena ${def.size.x}x${def.size.y} outside ${MATCH_SIZE.min.x}x${MATCH_SIZE.min.y}..${MATCH_SIZE.max.x}x${MATCH_SIZE.max.y}`);
     }
-    if (outdoorSmall !== 6 || outdoorLarge !== 2) err('loot', `outdoor safes must be 6 small + 2 large (got ${outdoorSmall} + ${outdoorLarge})`);
+    if (v2) {
+      if (outdoorSmall !== V2_SAFES.smallSafe || outdoorLarge !== V2_SAFES.largeSafe) {
+        err('loot', `v2 outdoor safes must be ${V2_SAFES.smallSafe} small + ${V2_SAFES.largeSafe} large (got ${outdoorSmall} + ${outdoorLarge})`);
+      }
+    } else if (outdoorSmall !== 6 || outdoorLarge !== 2) err('loot', `outdoor safes must be 6 small + 2 large (got ${outdoorSmall} + ${outdoorLarge})`);
     if (def.banks.length !== 2) err('banks', `expected 2 banks, got ${def.banks.length}`);
     if (def.zones.length !== 2) err('zones', `expected 2 zones, got ${def.zones.length}`);
     for (const t of [0, 1] as TeamId[]) {
       const n = def.spawns.filter((s) => s.team === t).length;
       if (n !== 2) err('spawns', `team ${t} needs 2 spawns, got ${n}`);
     }
-    if (totalValue !== 3200) err('total', `total value ${totalValue} != 3200`);
+    if (v2) {
+      if (totalValue !== V2_TOTAL) err('total', `v2 total value ${totalValue} != ${V2_TOTAL}`);
+    } else if (totalValue !== 3200) err('total', `total value ${totalValue} != 3200`);
     if (def.chokepoints.length < 4 || def.chokepoints.length > 8) err('choke', `need 4..8 chokepoints, got ${def.chokepoints.length}`);
   } else {
     if (def.banks.length !== 1) err('banks', `tutorial needs exactly 1 bank`);
@@ -595,7 +815,13 @@ export function validateLayout(def: LayoutDef, meta: LayoutDesignMeta, opts: Val
 
   // ---- ids -----------------------------------------------------------------
   const ids = new Set<string>();
-  for (const id of [...def.statics.map((s) => s.id), ...def.circles.map((c) => c.id), ...def.fences.map((f) => f.id)]) {
+  for (const id of [
+    ...def.statics.map((s) => s.id),
+    ...def.circles.map((c) => c.id),
+    ...def.fences.map((f) => f.id),
+    ...(v2?.breakables ?? []).map((b) => b.id),
+    ...(v2?.itemPads ?? []).map((p) => p.id),
+  ]) {
     if (ids.has(id)) err('id', `duplicate id ${id}`);
     ids.add(id);
   }
@@ -693,32 +919,50 @@ export function validateLayout(def: LayoutDef, meta: LayoutDesignMeta, opts: Val
     for (const s of def.statics) if (obbOverlap(s, zo)) err('zone', `static ${s.id} intrudes into zone ${z.team}`);
     for (const c of def.circles) if (sdOBB(zo, c.center) < c.radius) err('zone', `circle ${c.id} intrudes into zone ${z.team}`);
     for (const f of def.fences) if (obbOverlap(f, zo)) err('zone', `fence ${f.id} intrudes into zone ${z.team}`);
-    for (const s of def.safes) if (obbOverlap(safeOBB(s), zo, 0.5)) err('zone', `outdoor safe at ${fmt(s.pos.x)},${fmt(s.pos.y)} starts in/at zone ${z.team}`);
+    for (const l of loot) if (obbOverlap(l.obb, zo, 0.5)) err('zone', `${l.variant ?? 'outdoor safe'} at ${fmt(l.pos.x)},${fmt(l.pos.y)} starts in/at zone ${z.team}`);
+    for (const b of v2?.breakables ?? []) if (obbOverlap(b, zo)) err('zone', `breakable ${b.id} intrudes into zone ${z.team}`);
     for (const s of def.statics) if (obbOverlap(s, van)) err('van', `static ${s.id} overlaps van ${z.team}`);
     for (const c of def.circles) if (sdOBB(van, c.center) < c.radius) err('van', `circle ${c.id} overlaps van ${z.team}`);
   }
 
   // ---- overlaps of loot / spawns ---------------------------------------------------
-  const staticShapes = obstacles(def, { fences: 'all', banksAtStart: false });
-  const safeObbs = def.safes.map(safeOBB);
+  // (v2: breakables are statics too — loot, spawns, police step-ins and chokepoints keep clear of them)
+  const staticShapes = [...obstacles(def, { fences: 'all', banksAtStart: false }), ...breakableShapes];
+  const safeObbs = loot.map((l) => l.obb);
   const bankObbs = def.banks.map(bankOBB);
-  safeObbs.forEach((so, i) => {
-    if (!obbInside(so, arena, 0.3)) err('safe', `safe ${i} too close to the arena edge`);
+  loot.forEach((l, i) => {
+    const so = l.obb;
+    if (!obbInside(so, arena, 0.3)) err('safe', `${l.label} too close to the arena edge`);
     for (const sh of staticShapes) {
       const hit = sh.type === 'box' ? obbOverlap(so, sh.obb, 0.05) : sdOBB(so, sh.center) < sh.radius + 0.05;
-      if (hit) err('safe', `safe ${i} overlaps ${sh.solidKind} ${sh.id}`);
+      if (hit) err('safe', `${l.label} overlaps ${sh.solidKind} ${sh.id}`);
     }
     bankObbs.forEach((bo, b) => {
-      if (obbOverlap(so, bo, 0.3)) err('safe', `safe ${i} overlaps bank ${b}`);
+      if (obbOverlap(so, bo, 0.3)) err('safe', `${l.label} overlaps bank ${b}`);
     });
-    for (let j = i + 1; j < safeObbs.length; j++) if (obbOverlap(so, safeObbs[j], 0.3)) err('safe', `safes ${i} and ${j} overlap`);
+    for (let j = i + 1; j < loot.length; j++) {
+      if (obbOverlap(so, loot[j].obb, 0.3)) err('safe', l.variant || loot[j].variant ? `${l.label} and ${loot[j].label} overlap` : `safes ${i} and ${j} overlap`);
+    }
   });
   // wall pockets: a safe is flush with a solid or leaves a raccoon-wide gap (never in between)
-  for (const pk of safeGaps(def)) {
+  for (const pk of lootGaps(def, loot, breakableShapes)) {
     if (pk.gap > POCKET_FLUSH && pk.gap < POCKET_MIN_GAP) {
-      err('pocket', `safe ${pk.safe} leaves a ${fmt(pk.gap, 2)} m pocket against ${pk.against} (flush or >= ${POCKET_MIN_GAP} m)`);
+      err('pocket', `${loot[pk.safe].label} leaves a ${fmt(pk.gap, 2)} m pocket against ${pk.against} (flush or >= ${POCKET_MIN_GAP} m)`);
     }
   }
+  // breakables: inside the arena, never overlapping each other, banks or another static
+  (v2?.breakables ?? []).forEach((b, i, all) => {
+    if (!obbInside(b, arena, 0.3)) err('breakable', `breakable ${b.id} too close to the arena edge`);
+    for (const sh of staticShapes) {
+      if (sh.id === b.id) continue;
+      const hit = sh.type === 'box' ? obbOverlap(b, sh.obb, 0.05) : sdOBB(b, sh.center) < sh.radius + 0.05;
+      if (hit) err('breakable', `breakable ${b.id} overlaps ${sh.solidKind} ${sh.id}`);
+    }
+    bankObbs.forEach((bo, k) => {
+      if (obbOverlap(b, bo, 0.3)) err('breakable', `breakable ${b.id} overlaps bank ${k}`);
+    });
+    for (let j = i + 1; j < all.length; j++) if (obbOverlap(b, all[j], 0.3)) err('breakable', `breakables ${b.id} and ${all[j].id} overlap`);
+  });
   bankObbs.forEach((bo, b) => {
     if (!obbInside(bo, arena, 1)) err('bank', `bank ${b} too close to the arena edge`);
     for (const sh of staticShapes) {
@@ -751,6 +995,9 @@ export function validateLayout(def: LayoutDef, meta: LayoutDesignMeta, opts: Val
       if (sdOBB(bo, d.pos) < 0.2) err('decor', `decor ${i} (${d.kind}) sits under bank ${b}`);
     });
     for (const s of def.spawns) if (dist(s.pos, d.pos) < 0.8) err('decor', `decor ${i} sits on a spawn`);
+    // (decor never hides loot or a breakable: an umbrella over an ATM reads as one more cafe table)
+    for (const l of loot) if (sdOBB(l.obb, d.pos) < DECOR_LOOT_GAP) err('decor', `decor ${i} (${d.kind}) sits on ${l.label}`);
+    for (const b of v2?.breakables ?? []) if (sdOBB(b, d.pos) < DECOR_LOOT_GAP) err('decor', `decor ${i} (${d.kind}) sits on breakable ${b.id}`);
   });
 
   // ---- police entries (owner addition) ------------------------------------------------------
@@ -851,7 +1098,8 @@ export function validateLayout(def: LayoutDef, meta: LayoutDesignMeta, opts: Val
     const last = r.points[r.points.length - 1];
     if (dist(last, zone.center) > 0.5) err('route', `${tag}: must end at the zone center`);
     const standing = new Set(def.fences.map((f) => f.id).filter((id) => !r.breaksFences.includes(id)));
-    const shapes = obstacles(def, { fences: standing, banksAtStart: false });
+    // (v2: a breakable is a static until broken — a bank must never be stopped by a crate)
+    const shapes = [...obstacles(def, { fences: standing, banksAtStart: false }), ...breakableShapes];
     let minC = Infinity;
     let worst = '';
     for (const p of samplePolyline(r.points, ROUTE_SAMPLE_STEP)) {
@@ -885,8 +1133,8 @@ export function validateLayout(def: LayoutDef, meta: LayoutDesignMeta, opts: Val
       if (d < BANK_SWEEP_RADIUS) err('route', `${tag}: passes over bank ${j}'s start position`);
     });
     let inSweep = 0;
-    def.safes.forEach((s, i) => {
-      const d = Math.min(...samplePolyline(r.points, 0.5).map((p) => sdOBB(safeOBB(s), p)));
+    loot.forEach((l, i) => {
+      const d = Math.min(...samplePolyline(r.points, 0.5).map((p) => sdOBB(l.obb, p)));
       if (d < BANK_SWEEP_RADIUS) {
         inSweep++;
         sweptSafes.add(i);
@@ -971,27 +1219,49 @@ export function validateLayout(def: LayoutDef, meta: LayoutDesignMeta, opts: Val
 
   // Outdoor safes: walkable from every spawn; carriable to both zones by size class.
   const safeMetrics: SafeMetric[] = [];
-  def.safes.forEach((s, i) => {
-    const so = safeOBB(s);
-    const rc = reachCells(so);
+  /** Carry mask per clearance radius (small / large class; v2: the 돈나무 haul disc). */
+  const carryMasks = new Map<number, Uint8Array>([
+    [CLASS_RADIUS.small, walk],
+    [CLASS_RADIUS.large, large],
+  ]);
+  const carryMask = (r: number): Uint8Array => {
+    let m = carryMasks.get(r);
+    if (!m) carryMasks.set(r, (m = grid.freeMask(r)));
+    return m;
+  };
+  /** Inset that keeps the whole footprint inside a zone (any rotation). */
+  const lootInset = (l: LootFootprint): number => Math.hypot(l.obb.half.x, l.obb.half.y);
+  loot.forEach((l, i) => {
+    const what = l.variant ?? l.kind;
+    const rc = reachCells(l.obb);
     const walkFromSpawn = spawnDist.map((d) => minOver(d, rc));
     walkFromSpawn.forEach((d, si) => {
-      if (!Number.isFinite(d)) err('reach', `safe ${i} (${s.kind}) unreachable on foot from spawn ${si}`);
+      if (!Number.isFinite(d)) err('reach', `${l.label} (${what}) unreachable on foot from spawn ${si}`);
     });
-    const m = s.kind === 'smallSafe' ? walk : large;
-    const c = grid.cellOf(s.pos);
-    const start = grid.idx(c.i, c.j);
+    const code = l.variant === 'moneyTree' ? 'propHaul' : 'reach';
+    const m = carryMask(l.carryRadius);
+    const c = grid.cellOf(l.pos);
+    let start = grid.idx(c.i, c.j);
+    // (v2) A prop may stand flush on a wall (an ATM against a shop front): it is dragged clear
+    // before it turns, so its haul starts from the nearest cell within 1 m of its footprint.
+    if (!m[start] && l.variant) {
+      const bb = obbAabb(l.obb);
+      const near1 = grid.cellsIn(m, { minX: bb.minX - 1, minY: bb.minY - 1, maxX: bb.maxX + 1, maxY: bb.maxY + 1 }, (p) => sdOBB(l.obb, p) <= 1);
+      if (near1.length > 0) start = near1.reduce((a, k) => (dist(grid.center(k), l.pos) < dist(grid.center(a), l.pos) ? k : a));
+    }
     const carryToZone: number[] = [Infinity, Infinity];
     if (!m[start]) {
-      err('reach', `safe ${i} (${s.kind}) start lacks ${s.kind} clearance (${fmt(grid.dist[start], 2)} m)`);
+      err(code, `${l.label} (${what}) start lacks ${l.variant === 'moneyTree' ? `a ${fmt(2 * l.carryRadius)} m haul lane` : `${l.kind} clearance`} (${fmt(grid.dist[start], 2)} m)`);
     } else {
       const d = grid.distances(m, [start]);
       for (const z of def.zones) {
-        carryToZone[z.team] = minOver(d, zoneTargets(m, z, insetFor(s.kind)));
-        if (!Number.isFinite(carryToZone[z.team])) err('reach', `safe ${i} (${s.kind}) cannot be carried to zone ${z.team}`);
+        carryToZone[z.team] = minOver(d, zoneTargets(m, z, lootInset(l)));
+        if (!Number.isFinite(carryToZone[z.team])) {
+          err(code, l.variant === 'moneyTree' ? `${l.label} has no haul path to zone ${z.team} without a turn tighter than a ${fmt(2 * l.carryRadius)} m lane` : `${l.label} (${what}) cannot be carried to zone ${z.team}`);
+        }
       }
     }
-    safeMetrics.push({ index: i, kind: s.kind, pos: s.pos, walkFromSpawn, carryToZone });
+    safeMetrics.push({ index: i, kind: l.kind, ...(l.variant ? { variant: l.variant } : {}), pos: l.pos, walkFromSpawn, carryToZone });
   });
 
   // Fence effect: how much a busted fence shortens each carry (banks gone in both cases).
@@ -1002,14 +1272,14 @@ export function validateLayout(def: LayoutDef, meta: LayoutDesignMeta, opts: Val
       stand: { small: gStand.freeMask(CLASS_RADIUS.small), large: gStand.freeMask(CLASS_RADIUS.large) },
       open: { small: gOpen.freeMask(CLASS_RADIUS.small), large: gOpen.freeMask(CLASS_RADIUS.large) },
     };
-    def.safes.forEach((s, i) => {
+    loot.forEach((s, i) => {
       const cls = s.kind === 'smallSafe' ? 'small' : 'large';
       const run = (g: Grid, m: Uint8Array): number[] => {
         const c = g.cellOf(s.pos);
         const k = g.idx(c.i, c.j);
         if (!m[k]) return def.zones.map(() => Infinity);
         const d = g.distances(m, [k]);
-        return def.zones.map((z) => minOver(d, g.cellsIn(m, obbAabb(zoneOBB(z)), (p) => sdOBB(zoneOBB(z), p) <= -insetFor(s.kind))));
+        return def.zones.map((z) => minOver(d, g.cellsIn(m, obbAabb(zoneOBB(z)), (p) => sdOBB(zoneOBB(z), p) <= -lootInset(s))));
       };
       safeMetrics[i].fenceEffect = { standing: run(gStand, masks.stand[cls]), busted: run(gOpen, masks.open[cls]) };
     });
@@ -1031,9 +1301,10 @@ export function validateLayout(def: LayoutDef, meta: LayoutDesignMeta, opts: Val
     if (c.radius < 1 || c.radius > 6) err('choke', `chokepoint ${c.id} radius ${c.radius} outside 1..6`);
     // A bot sent to watch the spot must be able to stand on it at match start
     // (reach checks ignore loot, so test safes and bank footprints explicitly).
-    safeObbs.forEach((so, i) => {
-      if (sdOBB(so, c.pos) < CHARACTER.radius) err('choke', `chokepoint ${c.id} sits on safe ${i}`);
+    loot.forEach((l) => {
+      if (sdOBB(l.obb, c.pos) < CHARACTER.radius) err('choke', `chokepoint ${c.id} sits on ${l.label}`);
     });
+    for (const b of v2?.breakables ?? []) if (sdOBB(b, c.pos) < CHARACTER.radius) err('choke', `chokepoint ${c.id} sits on breakable ${b.id}`);
     bankObbs.forEach((bo, b) => {
       if (sdOBB(bo, c.pos) < CHARACTER.radius) err('choke', `chokepoint ${c.id} sits on bank ${b}`);
     });
@@ -1104,10 +1375,23 @@ export function validateLayout(def: LayoutDef, meta: LayoutDesignMeta, opts: Val
   if (!opts.skipBypass && def.banks.length > 0 && def.zones.length > 0) {
     const bgrid = new Grid(def, staticShapes);
     const base = bgrid.freeMask(CLASS_RADIUS.small);
-    const samples = def.banks.map((_, b) => bankSamples(def, b, BYPASS_SAMPLE_STEP));
+    const fenceSamples = def.banks.map((_, b) => bankSamplesWithFences(def, b, BYPASS_SAMPLE_STEP));
+    const samples = fenceSamples.map((list) => list.map((q) => q.p));
+    /** A bank that rolled past a fence on its route has busted it: the bypass may use the gap. */
+    const baseFor = new Map<string, Uint8Array>([['', base]]);
+    const maskWithBroken = (broken: ReadonlySet<string>): Uint8Array => {
+      const key = [...broken].sort().join('|');
+      let m = baseFor.get(key);
+      if (!m) {
+        const standing = new Set(def.fences.map((f) => f.id).filter((id) => !broken.has(id)));
+        const g = new Grid(def, [...obstacles(def, { fences: standing, banksAtStart: false }), ...breakableShapes]);
+        baseFor.set(key, (m = g.freeMask(CLASS_RADIUS.small)));
+      }
+      return m;
+    };
     const z0 = def.zones[0];
     const zoneCells = def.zones.map((z) => bgrid.cellsIn(base, obbAabb(zoneOBB(z)), (p) => sdOBB(zoneOBB(z), p) <= -insetFor('smallSafe')));
-    const safeInfo = def.safes.map((s) => ({
+    const safeInfo = loot.map((s) => ({
       pos: s.pos,
       cells: bgrid.cellsIn(base, { minX: s.pos.x - 0.5, minY: s.pos.y - 0.5, maxX: s.pos.x + 0.5, maxY: s.pos.y + 0.5 }, () => true),
     }));
@@ -1118,18 +1402,21 @@ export function validateLayout(def: LayoutDef, meta: LayoutDesignMeta, opts: Val
     const reported = new Set<string>();
     const blockR = BANK_SWEEP_RADIUS;
     const combosList: Vec2[][] = [];
-    const rec = (b: number, acc: Vec2[]): void => {
+    const combosBroken: Set<string>[] = [];
+    const rec = (b: number, acc: Vec2[], broken: string[]): void => {
       if (b === samples.length) {
         combosList.push([...acc]);
+        combosBroken.push(new Set(broken));
         return;
       }
-      for (const p of samples[b]) rec(b + 1, [...acc, p]);
+      for (const q of fenceSamples[b]) rec(b + 1, [...acc, q.p], [...broken, ...q.broken]);
     };
-    rec(0, []);
+    rec(0, [], []);
     const work = new Uint8Array(base.length);
-    for (const combo of combosList) {
+    for (let ci = 0; ci < combosList.length; ci++) {
+      const combo = combosList[ci];
       combos++;
-      work.set(base);
+      work.set(maskWithBroken(combosBroken[ci]));
       combo.forEach((p, b) => {
         const atStart = nearV(p, def.banks[b].pos, 1e-6);
         if (atStart) carveObb(bgrid, work, bankOBB(def.banks[b]), CLASS_RADIUS.small);
@@ -1144,6 +1431,7 @@ export function validateLayout(def: LayoutDef, meta: LayoutDesignMeta, opts: Val
       if (def.zones.length > 1 && !zoneCells[1].some((k) => work[k] && reached(k))) fails.push('zones disconnected');
       safeInfo.forEach((s, i) => {
         if (covered(s.pos, 1.2)) return; // being bulldozed by the bank itself
+        if (!loot[i].anchored) return; // (v2) a free-standing 돼지 is shoved along by the banks, never a fixed site
         if (!s.cells.some((k) => work[k] && reached(k))) fails.push(`safe ${i}`);
       });
       def.banks.forEach((b, bi) => {
@@ -1172,6 +1460,11 @@ export function validateLayout(def: LayoutDef, meta: LayoutDesignMeta, opts: Val
   // ---- identity rules ------------------------------------------------------------------------------
   identityChecks(def, routeMetrics, safeMetrics, fenceFreeBankTrip, err);
 
+  // ---- Content 2.0 composition rules -----------------------------------------------------------------
+  const v2Metrics = v2
+    ? v2Checks({ def, v2, meta, loot, safeMetrics, breakableShapes, staticShapes, grid, walk, spawnDist, reachCells, minOver, zoneTargets, isMatch, axis, err, warn })
+    : undefined;
+
   const metrics: LayoutMetrics = {
     size: def.size,
     totalValue,
@@ -1190,8 +1483,9 @@ export function validateLayout(def: LayoutDef, meta: LayoutDesignMeta, opts: Val
     fences: def.fences.length,
     decor: def.decor.length,
     police: policeMetrics,
+    ...(v2Metrics ? { v2: v2Metrics } : {}),
   };
-  return { id: def.id, ok: !issues.some((i) => i.level === 'error'), issues, metrics };
+  return { id: def.id, content, ok: !issues.some((i) => i.level === 'error'), issues, metrics };
 }
 
 /** World collider boxes of a bank's walls at its start pose (doors open). */
@@ -1300,6 +1594,435 @@ function rayFree(def: LayoutDef, shapes: ReadonlyArray<Shape>, from: Vec2, dir: 
   return Math.min(t, maxLen);
 }
 
+// ---------------------------------------------------------------------------
+// Content 2.0: v2 composition rules (content-plan §3.2, §5.2–5.4, §6 C4)
+// ---------------------------------------------------------------------------
+
+interface V2CheckInput {
+  /** The layout seen with its v2 safes (as the sim builds it). */
+  def: LayoutDef;
+  v2: LayoutV2Def;
+  meta: LayoutDesignMeta;
+  loot: LootFootprint[];
+  safeMetrics: SafeMetric[];
+  breakableShapes: Shape[];
+  /** Statics + circles + vans + intact fences + breakables (no banks). */
+  staticShapes: Shape[];
+  /** Reachability grid: banks at start, fences standing, no breakables. */
+  grid: Grid;
+  walk: Uint8Array;
+  spawnDist: Float64Array[];
+  reachCells: (o: OBB) => number[];
+  minOver: (d: Float64Array, cells: number[]) => number;
+  zoneTargets: (m: Uint8Array, z: LayoutDef['zones'][number], inset: number) => number[];
+  isMatch: boolean;
+  axis: number;
+  err: (code: string, msg: string) => void;
+  warn: (code: string, msg: string) => void;
+}
+
+/** Signed gap between two boxes (<= 0 when they touch or overlap). */
+function boxGap(a: OBB, b: OBB): number {
+  return obbOverlap(a, b) ? 0 : obbGap(a, { type: 'box', id: '', obb: b, solidKind: '' });
+}
+
+/** Team whose half a point lies on (null on the axis). */
+function sideOf(x: number, axis: number): TeamId | null {
+  return Math.abs(x - axis) < 1e-3 ? null : x < axis ? 0 : 1;
+}
+
+function v2Checks(c: V2CheckInput): V2Metrics {
+  const { def, v2, loot, grid, walk, spawnDist, reachCells, minOver, axis, err, warn } = c;
+  const onAxis = (x: number): boolean => Math.abs(x - axis) < 1e-3;
+  const mp = (p: Vec2): Vec2 => mirrorPoint(p, axis);
+  const at = (p: Vec2): string => `${fmt(p.x)},${fmt(p.y)}`;
+  const cellIdx = (p: Vec2): number => {
+    const q = grid.cellOf(p);
+    const i = Math.max(0, Math.min(grid.nx - 1, q.i));
+    const j = Math.max(0, Math.min(grid.ny - 1, q.j));
+    return grid.idx(i, j);
+  };
+  const teamSpawns = (t: TeamId): number[] => def.spawns.map((s, i) => (s.team === t ? i : -1)).filter((i) => i >= 0);
+  const nearestOwnWalk = (t: TeamId | null, cells: number[]): number => {
+    const ids = t === null ? def.spawns.map((_, i) => i) : teamSpawns(t);
+    return ids.reduce((a, si) => Math.min(a, minOver(spawnDist[si], cells)), Infinity);
+  };
+  const sweepGapPoint = (p: Vec2): number =>
+    def.bankRoutes.reduce((a, r) => Math.min(a, distPointPolyline(p, r.points)), Infinity) - BANK_SWEEP_RADIUS;
+  const sweepGapObb = (o: OBB): number =>
+    def.bankRoutes.reduce((a, r) => Math.min(a, ...samplePolyline(r.points, 0.5).map((p) => sdOBB(o, p))), Infinity) - BANK_SWEEP_RADIUS;
+  const zoneOf = (t: TeamId): LayoutDef['zones'][number] | undefined => def.zones.find((z) => z.team === t);
+  const bankObbs = def.banks.map(bankOBB);
+  const props = loot.filter((l) => l.variant !== null);
+
+  // ---- composition --------------------------------------------------------------------------------
+  if (c.isMatch) {
+    for (const [variant, n] of Object.entries(V2_PROPS) as [keyof typeof V2_PROPS, number][]) {
+      const got = props.filter((l) => l.variant === variant).length;
+      if (got !== n) err('v2', `needs ${n} ${variant} prop(s), got ${got}`);
+    }
+    for (const l of props) {
+      if (l.variant === 'goldSafe') err('v2', `${l.label}: the 황금 금고 is event loot, never placed by a layout`);
+      if ((l.variant === 'piggy' || l.variant === 'moneyTree') && !onAxis(l.pos.x)) err('v2', `${l.label} must sit on the mirror axis`);
+      if (l.variant === 'atm' && onAxis(l.pos.x)) err('v2', `${l.label}: the ATM starter socket is a mirrored pair, not an axis prop`);
+    }
+    for (const t of [0, 1] as TeamId[]) {
+      for (const [kind, n] of Object.entries(V2_BREAKABLES_PER_SIDE) as [keyof typeof V2_BREAKABLES_PER_SIDE, number][]) {
+        const got = v2.breakables.filter((b) => b.kind === kind && sideOf(b.center.x, axis) === t).length;
+        if (got !== n) err('v2', `team ${t} side needs ${n} ${kind}(s), got ${got}`);
+      }
+    }
+    for (const b of v2.breakables) if (onAxis(b.center.x)) err('v2', `breakable ${b.id} sits on the axis (breakables are per-side mirrored pairs)`);
+    const axisPads = v2.itemPads.filter((p) => p.twin === null);
+    if (axisPads.length !== 1) err('pads', `needs exactly 1 axis item pad, got ${axisPads.length}`);
+    if (v2.itemPads.filter((p) => p.twin !== null).length < 2) err('pads', 'needs at least one mirrored item pad pair');
+    if (v2.itemPads.length > 5) warn('pads', `${v2.itemPads.length} item pads: more drop spots than the readability budget (<= 4 pickups on the field) can fill`);
+    if (v2.eventSpots.length < 1) err('spots', 'needs at least one event spot (spot 0 on the axis)');
+  }
+  if (v2.gimmicks.length > 0 && v2.gimmicks.filter((g) => g.kind !== 'slick').length > 3) {
+    warn('gimmick', `${v2.gimmicks.length} gimmicks: the readability budget is one signature hazard + at most two interactables`);
+  }
+
+  // ---- chirality (mirror twins) -------------------------------------------------------------------------
+  if (c.isMatch) {
+    for (const l of props) {
+      const m = mirroredBox(l.obb, axis);
+      if (!props.some((t) => t.variant === l.variant && sameBox(t.obb, m))) err('symmetry', `${l.label} at ${at(l.pos)} has no mirror twin`);
+    }
+    for (const b of v2.breakables) {
+      const m = mirroredBox(b, axis);
+      if (!v2.breakables.some((t) => t.kind === b.kind && sameBox(t, m))) err('symmetry', `breakable ${b.id} has no mirror twin`);
+    }
+    const byId = new Map(v2.itemPads.map((p) => [p.id, p]));
+    for (const p of v2.itemPads) {
+      if (p.twin === null) {
+        if (!onAxis(p.pos.x)) err('symmetry', `axis item pad ${p.id} is off the axis (x ${fmt(p.pos.x, 2)})`);
+        continue;
+      }
+      const t = byId.get(p.twin);
+      if (!t || t.twin !== p.id || t.id === p.id) err('symmetry', `item pad ${p.id}: twin ${p.twin} must exist and name it back`);
+      else if (!nearV(t.pos, mp(p.pos))) err('symmetry', `item pad ${p.id} and its twin ${t.id} are not mirrored`);
+    }
+    v2.eventSpots.forEach((s, i) => {
+      if (i === 0 && !onAxis(s.x)) err('spots', `event spot 0 must sit on the mirror axis (x ${fmt(s.x, 2)})`);
+      if (!onAxis(s.x) && !v2.eventSpots.some((q) => nearV(q, mp(s)))) err('symmetry', `event spot ${i} at ${at(s)} has no mirror twin`);
+    });
+    gimmickChirality(v2.gimmicks, axis, err);
+  }
+
+  // ---- mirror value balance ----------------------------------------------------------------------------
+  const sideValue: [number, number] = [0, 0];
+  const addSide = (x: number, v: number): void => {
+    const t = sideOf(x, axis);
+    if (t !== null) sideValue[t] += v;
+  };
+  for (const l of loot) addSide(l.pos.x, l.value);
+  for (const b of v2.breakables) addSide(b.center.x, BREAKABLE_SPECS[b.kind].inner);
+  if (c.isMatch && sideValue[0] !== sideValue[1]) err('balance', `value per half differs: west ${sideValue[0]} vs east ${sideValue[1]}`);
+
+  // ---- starter sockets (ATM) -----------------------------------------------------------------------------
+  const starters: V2Metrics['starters'] = [];
+  for (const l of props.filter((p) => p.variant === 'atm')) {
+    const t = sideOf(l.pos.x, axis);
+    const z = t === null ? undefined : zoneOf(t);
+    const walkD = nearestOwnWalk(t, reachCells(l.obb));
+    const zoneGap = z ? boxGap(l.obb, zoneOBB(z)) : Infinity;
+    const sweepGap = sweepGapObb(l.obb);
+    starters.push({ pos: l.pos, walk: walkD, zoneGap, sweepGap });
+    if (!(walkD >= STARTER_WALK.min - 1e-6 && walkD <= STARTER_WALK.max + 1e-6)) {
+      err('starter', `${l.label} at ${at(l.pos)} is a ${fmt(walkD)} m walk from the nearest own spawn (starter socket: ${STARTER_WALK.min}..${STARTER_WALK.max} m)`);
+    }
+    if (zoneGap < STARTER_ZONE_GAP - 1e-6) err('starter', `${l.label} at ${at(l.pos)} is only ${fmt(zoneGap, 2)} m outside its zone (>= ${STARTER_ZONE_GAP})`);
+    if (sweepGap < -1e-6) err('starter', `${l.label} at ${at(l.pos)} lies in a bank-route sweep (${fmt(sweepGap + BANK_SWEEP_RADIUS, 2)} m from a route)`);
+  }
+
+  // ---- breakables ------------------------------------------------------------------------------------------
+  const breakables: V2Metrics['breakables'] = [];
+  const hitCells = new Map<string, number[]>();
+  for (const b of v2.breakables) {
+    const cells = reachCells(b);
+    hitCells.set(b.id, cells);
+    // "none within 6 m of a zone edge": measured from the breakable's position (its center)
+    const zoneGap = def.zones.reduce((a, z) => Math.min(a, sdOBB(zoneOBB(z), b.center)), Infinity);
+    const walkD = nearestOwnWalk(null, cells);
+    breakables.push({ id: b.id, kind: b.kind, walk: walkD, zoneGap });
+    if (zoneGap < BREAKABLE_ZONE_GAP - 1e-6) err('breakable', `breakable ${b.id} is only ${fmt(zoneGap, 2)} m from a zone (>= ${BREAKABLE_ZONE_GAP})`);
+    if (!Number.isFinite(walkD)) err('breakable', `breakable ${b.id} cannot be reached on foot`);
+    // A 0.9 m crate in a 1.1 m alley does not squeeze it, it plugs it (small-safe carries included).
+    for (const path of c.meta.paths) {
+      if (path.cls !== 'narrow') continue;
+      if (distPointPolyline(b.center, [path.a, path.b]) < PATH_CLASS_WIDTH.narrow.max / 2 + Math.hypot(b.half.x, b.half.y)) {
+        err('breakable', `breakable ${b.id} plugs narrow alley ${path.id}`);
+      }
+    }
+  }
+
+  // ---- natural-path crates: per spawn, a crate 5..9 m out on the way to a first target ------------------------
+  const naturalCrates: V2Metrics['naturalCrates'] = [];
+  const targetsFor = (t: TeamId): { name: string; cells: number[] }[] => {
+    const out: { name: string; cells: number[] }[] = [];
+    for (const l of loot) {
+      const side = sideOf(l.pos.x, axis);
+      const first = l.variant === 'atm' || l.variant === 'piggy' || l.variant === 'moneyTree' || l.kind === 'smallSafe';
+      if (first && (side === null || side === t)) out.push({ name: l.label, cells: reachCells(l.obb) });
+    }
+    def.banks.forEach((b, bi) => {
+      const cells = bankDoorExteriors(b).flatMap((d) => grid.cellsIn(walk, { minX: d.pos.x - 0.6, minY: d.pos.y - 0.6, maxX: d.pos.x + 0.6, maxY: d.pos.y + 0.6 }, () => true));
+      out.push({ name: `bank ${bi} door`, cells });
+    });
+    for (const p of v2.itemPads) {
+      const side = sideOf(p.pos.x, axis);
+      if (side === null || side === t) out.push({ name: `pad ${p.id}`, cells: [cellIdx(p.pos)] });
+    }
+    return out;
+  };
+  const crateFields = new Map<string, Float64Array>();
+  def.spawns.forEach((s, si) => {
+    const targets = targetsFor(s.team);
+    let best: V2Metrics['naturalCrates'][number] = null;
+    for (const b of v2.breakables) {
+      if (b.kind !== 'crate') continue;
+      const cells = hitCells.get(b.id) ?? [];
+      const w = minOver(spawnDist[si], cells);
+      if (!(w >= NATURAL_CRATE_WALK.min - 1e-6 && w <= NATURAL_CRATE_WALK.max + 1e-6)) continue;
+      let field = crateFields.get(b.id);
+      if (!field) crateFields.set(b.id, (field = grid.distances(walk, cells)));
+      for (const t of targets) {
+        const direct = minOver(spawnDist[si], t.cells);
+        if (!Number.isFinite(direct)) continue;
+        const detour = Math.max(0, w + minOver(field, t.cells) - direct);
+        if (detour <= NATURAL_PATH_DETOUR + 1e-6 && (!best || detour < best.detour)) best = { id: b.id, walk: w, detour, target: t.name };
+      }
+    }
+    naturalCrates.push(best);
+    if (c.isMatch && !best) {
+      err('crate', `spawn ${si} has no crate on its natural path (${NATURAL_CRATE_WALK.min}..${NATURAL_CRATE_WALK.max} m walk, <= ${NATURAL_PATH_DETOUR} m detour toward a first target)`);
+    }
+  });
+
+  // ---- item pads --------------------------------------------------------------------------------------------
+  const pads: V2Metrics['pads'] = [];
+  const lootGapAt = (p: Vec2): number =>
+    Math.min(
+      ...loot.map((l) => sdOBB(l.obb, p)),
+      ...bankObbs.map((o) => sdOBB(o, p)),
+      ...v2.breakables.map((b) => sdOBB(b, p)),
+      Infinity,
+    );
+  for (const p of v2.itemPads) {
+    const t = sideOf(p.pos.x, axis);
+    const k = cellIdx(p.pos);
+    const clear = clearanceAt(def, c.staticShapes, p.pos);
+    const gap = lootGapAt(p.pos);
+    const walkD = t === null ? nearestOwnWalk(null, [k]) : nearestOwnWalk(t, [k]);
+    const sweepGap = sweepGapPoint(p.pos);
+    pads.push({ id: p.id, twin: p.twin, walk: walkD, sweepGap });
+    if (clear < ITEM_PAD_CLEAR) err('pads', `item pad ${p.id} at ${at(p.pos)} has ${fmt(clear, 2)} m of free ground (>= ${ITEM_PAD_CLEAR})`);
+    if (gap < ITEM_PAD_CLEAR) err('pads', `item pad ${p.id} at ${at(p.pos)} sits ${fmt(gap, 2)} m from loot / a breakable (>= ${ITEM_PAD_CLEAR})`);
+    if (!def.spawns.every((_, si) => Number.isFinite(spawnDist[si][k]))) err('pads', `item pad ${p.id} at ${at(p.pos)} is not reachable from every spawn`);
+    if (t !== null) {
+      if (!(walkD >= ITEM_PAD_WALK.min - 1e-6 && walkD <= ITEM_PAD_WALK.max + 1e-6)) {
+        err('pads', `item pad ${p.id} at ${at(p.pos)} is a ${fmt(walkD)} m walk from the nearest own spawn (${ITEM_PAD_WALK.min}..${ITEM_PAD_WALK.max})`);
+      }
+      if (sweepGap < 0) err('pads', `item pad ${p.id} at ${at(p.pos)} lies in a bank-route sweep (${fmt(sweepGap + BANK_SWEEP_RADIUS, 2)} m from a route)`);
+    } else if (sweepGap < 0) {
+      // The axis pad is the contested middle (황금 뿅망치). A bank rolling over a ground item is
+      // harmless (items are not bodies), but a pad clear of the sweeps reads better.
+      warn('pads', `axis item pad ${p.id} lies in a bank-route sweep (${fmt(sweepGap + BANK_SWEEP_RADIUS, 2)} m from a route)`);
+    }
+  }
+
+  // ---- event spots --------------------------------------------------------------------------------------------
+  const spots: V2Metrics['spots'] = [];
+  v2.eventSpots.forEach((s, i) => {
+    const clear = clearanceAt(def, c.staticShapes, s);
+    const gap = lootGapAt(s);
+    const k = cellIdx(s);
+    let open = 0;
+    let total = 0;
+    for (const r of [EVENT_RING.min, (EVENT_RING.min + EVENT_RING.max) / 2, EVENT_RING.max]) {
+      for (let a = 0; a < 48; a++) {
+        const q = { x: s.x + r * Math.cos((a / 48) * 2 * Math.PI), y: s.y + r * Math.sin((a / 48) * 2 * Math.PI) };
+        total++;
+        if (q.x < 0 || q.y < 0 || q.x > def.size.x || q.y > def.size.y) continue;
+        if (walk[cellIdx(q)]) open++;
+      }
+    }
+    const ringOpen = open / total;
+    spots.push({ pos: { ...s }, clearance: clear, lootGap: gap, ringOpen });
+    if (clear < EVENT_SPOT_CLEAR - 1e-6) err('spots', `event spot ${i} at ${at(s)}: landing disc has ${fmt(clear, 2)} m of free ground (>= ${fmt(EVENT_SPOT_CLEAR, 2)})`);
+    if (gap < LANDING_CLEAR - 1e-6) err('spots', `event spot ${i} at ${at(s)} is ${fmt(gap, 2)} m from loot / a breakable at start (>= ${LANDING_CLEAR})`);
+    if (!def.spawns.every((_, si) => Number.isFinite(spawnDist[si][k]))) err('spots', `event spot ${i} at ${at(s)} is not reachable from every spawn`);
+    if (ringOpen < EVENT_RING.minOpen) warn('spots', `event spot ${i}: only ${Math.round(ringOpen * 100)} % of the ${EVENT_RING.min}..${EVENT_RING.max} m 돈비 ring is open ground`);
+    for (const p of v2.itemPads) {
+      if (p.twin === null && dist(p.pos, s) < 3) warn('spots', `event spot ${i} is ${fmt(dist(p.pos, s), 2)} m from the axis item pad (keep the two beats apart)`);
+    }
+  });
+
+  // ---- 돈나무 haul (propHaul: carry check with PROP_HAUL_RADIUS above) -------------------------------------------
+  const haul = loot
+    .map((l, i) => ({ l, i }))
+    .filter(({ l }) => l.variant === 'moneyTree')
+    .map(({ l, i }) => ({ label: l.label, toZone: c.safeMetrics[i]?.carryToZone ?? [Infinity, Infinity] }));
+
+  // ---- squeeze: breakables + anchored loot squeeze lanes but never seal them -----------------------------------------
+  {
+    const blockers: Shape[] = [...obstacles(def, { fences: 'all', banksAtStart: true }), ...c.breakableShapes];
+    loot.forEach((l, i) => {
+      if (l.anchored) blockers.push({ type: 'box', id: l.label, obb: l.obb, solidKind: `loot${i}` });
+    });
+    const sg = new Grid(def, blockers);
+    const sWalk = sg.freeMask(SQUEEZE_RADIUS.walk);
+    const sLarge = sg.freeMask(SQUEEZE_RADIUS.large);
+    const zoneCells = (m: Uint8Array, inset: number): number[][] =>
+      def.zones.map((z) => sg.cellsIn(m, obbAabb(zoneOBB(z)), (p) => sdOBB(zoneOBB(z), p) <= -inset));
+    // On foot: every spawn reaches both zones and a grab spot of every loot item.
+    def.spawns.forEach((s, si) => {
+      const q = sg.cellOf(s.pos);
+      const reached = sg.flood(sWalk, [sg.idx(q.i, q.j)]);
+      zoneCells(sWalk, 0.5).forEach((cells, zi) => {
+        if (!cells.some(reached)) err('squeeze', `spawn ${si} is sealed off from zone ${def.zones[zi].team} by breakables / anchored loot`);
+      });
+      loot.forEach((l) => {
+        const bb = obbAabb(l.obb);
+        const cells = sg.cellsIn(sWalk, { minX: bb.minX - GRAB_RANGE, minY: bb.minY - GRAB_RANGE, maxX: bb.maxX + GRAB_RANGE, maxY: bb.maxY + GRAB_RANGE }, (p) => {
+          const d = sdOBB(l.obb, p);
+          return d > 0 && d <= GRAB_RANGE;
+        });
+        if (!cells.some(reached)) err('squeeze', `${l.label} is sealed off from spawn ${si} by breakables / anchored loot`);
+      });
+    });
+    // Carried (aligned): every loot item, once uprooted, still gets home through the squeezed lanes.
+    loot.forEach((l) => {
+      if (l.variant === 'moneyTree') return; // its haul lane is checked without breakables (one dash clears a crate)
+      const m = l.kind === 'smallSafe' ? sWalk : sLarge;
+      const r = l.kind === 'smallSafe' ? SQUEEZE_RADIUS.small : SQUEEZE_RADIUS.large;
+      const bb = obbAabb(l.obb);
+      const seeds = sg.cellsIn(m, { minX: bb.minX - 1.5, minY: bb.minY - 1.5, maxX: bb.maxX + 1.5, maxY: bb.maxY + 1.5 }, (p) => sdOBB(l.obb, p) <= r + 1.0);
+      const reached = sg.flood(m, seeds);
+      zoneCells(m, 0.5).forEach((cells, zi) => {
+        if (!cells.some(reached)) err('squeeze', `${l.label} (${l.variant ?? l.kind}) cannot be carried to zone ${def.zones[zi].team} past breakables / anchored loot`);
+      });
+    });
+  }
+
+  // ---- hammerable fences (design §22.1-4: two 뿅망치 hits break a fence) -------------------------------------------
+  const fenceHammer: V2Metrics['fenceHammer'] = [];
+  for (const f of def.fences) {
+    const bb = obbAabb(f);
+    const r = FENCE_HAMMER_REACH;
+    const cells = grid.cellsIn(walk, { minX: bb.minX - r, minY: bb.minY - r, maxX: bb.maxX + r, maxY: bb.maxY + r }, (p) => {
+      const d = sdOBB(f, p);
+      return d > 0 && d <= r;
+    });
+    const w = ([0, 1] as TeamId[]).map((t) => nearestOwnWalk(t, cells));
+    fenceHammer.push({ id: f.id, walk: w });
+    if (!w.every(Number.isFinite)) err('fenceHammer', `fence ${f.id} has no spot within hammer reach (${r} m) both teams can walk to`);
+    else if (c.isMatch && Math.abs(w[0] - w[1]) > FENCE_HAMMER_TOL) err('fenceHammer', `fence ${f.id}: hammer spots are ${fmt(w[0])} / ${fmt(w[1])} m away for team 0 / 1`);
+  }
+
+  // ---- gimmick landing / exit discs ----------------------------------------------------------------------------------
+  for (const g of v2.gimmicks) {
+    const discs: { what: string; p: Vec2 }[] = [];
+    if (g.kind === 'catapult') discs.push({ what: 'landing', p: g.landing });
+    if (g.kind === 'tube') discs.push({ what: 'exit', p: g.exit });
+    if (g.kind === 'crane') g.drops.forEach((p, t) => discs.push({ what: `drop ${t}`, p }));
+    for (const d of discs) {
+      const clear = clearanceAt(def, c.staticShapes, d.p);
+      if (clear < LANDING_CLEAR - 1e-6) err('landing', `gimmick ${g.id} ${d.what} at ${at(d.p)} is ${fmt(clear, 2)} m from a solid (>= ${LANDING_CLEAR})`);
+    }
+  }
+
+  // ---- anchored props in a bank's body path (warn: the bank stops until someone uproots it) -------------------------
+  for (const l of props) {
+    if (!l.anchored) continue;
+    const hit = def.bankRoutes.some((r) => samplePolyline(r.points, 0.5).some((p) => sdOBB(l.obb, p) < Math.min(BANK_MODEL.half.x, BANK_MODEL.half.y)));
+    if (hit) warn('bankPath', `${l.label} at ${at(l.pos)} sits in a bank's path: the bank stops on it until someone uproots it`);
+  }
+
+  return { sideValue, starters, breakables, naturalCrates, pads, spots, haul, fenceHammer };
+}
+
+/** Geometry fields of a gimmick, mirrored (for twin / axis-symmetry comparison). */
+function mirrorGimmick(g: GimmickDef, axis: number): GimmickDef {
+  const mb = (o: OBB): OBB => mirroredBox(o, axis);
+  const mp = (p: Vec2): Vec2 => mirrorPoint(p, axis);
+  switch (g.kind) {
+    case 'belt':
+      return { ...g, obb: mb(g.obb), dir: mirrorAngle(g.dir) };
+    case 'fountainShow':
+      return { ...g, center: mp(g.center) };
+    case 'tube':
+      return { ...g, intake: mb(g.intake), exit: mp(g.exit), exitDir: mirrorAngle(g.exitDir) };
+    case 'catapult':
+      return { ...g, seat: mb(g.seat), pedal: mb(g.pedal), landing: mp(g.landing) };
+    case 'crane':
+      return { ...g, base: mp(g.base), cab: mp(g.cab), pads: [mb(g.pads[1]), mb(g.pads[0])], drops: [mp(g.drops[1]), mp(g.drops[0])] };
+    case 'stomper':
+      return { ...g, center: mp(g.center) };
+    case 'teacup':
+      return { ...g, center: mp(g.center), spin: g.spin === 1 ? -1 : 1 };
+    case 'slick':
+      return { ...g, obb: mb(g.obb) };
+    case 'bumperCar':
+      return { ...g, path: g.path.map(mp) };
+    case 'wheel':
+      return { ...g, platform: mb(g.platform) };
+  }
+}
+
+/** Same geometry + timing (ids / twin links ignored). Boxes compare as corner sets, angles mod 2π. */
+function sameGimmick(a: GimmickDef, b: GimmickDef): boolean {
+  if (a.kind !== b.kind) return false;
+  const ang = (x: number, y: number): boolean => near(Math.cos(x), Math.cos(y)) && near(Math.sin(x), Math.sin(y));
+  const rec = (x: unknown, y: unknown, key: string): boolean => {
+    if (key === 'id' || key === 'twin') return true;
+    if (typeof x === 'number' && typeof y === 'number') return key === 'dir' || key === 'exitDir' ? ang(x, y) : near(x, y);
+    if (Array.isArray(x) && Array.isArray(y)) return x.length === y.length && x.every((v, i) => rec(v, y[i], key));
+    if (x && y && typeof x === 'object' && typeof y === 'object') {
+      const ox = x as Record<string, unknown>;
+      const oy = y as Record<string, unknown>;
+      if ('center' in ox && 'half' in ox && 'angle' in ox) return sameBox(ox as unknown as OBB, oy as unknown as OBB);
+      const keys = new Set([...Object.keys(ox), ...Object.keys(oy)]);
+      return [...keys].every((k) => rec(ox[k], oy[k], k));
+    }
+    return x === y;
+  };
+  return rec(a, b, '');
+}
+
+/**
+ * Chirality rule (content-plan §5.3): anything that moves or rotates either sits on the axis with an
+ * axis-symmetric effect, or is a mirrored twin moving in mirrored phase (opposite spin, same phase).
+ * Per-team devices (tube, catapult) and anything that spins or runs a path (teacup, bumper car) always
+ * need a twin; the crane serves both teams from the axis (pads / drops mirrored).
+ */
+function gimmickChirality(gimmicks: ReadonlyArray<GimmickDef>, axis: number, err: (code: string, msg: string) => void): void {
+  const byId = new Map(gimmicks.map((g) => [g.id, g]));
+  for (const g of gimmicks) {
+    const m = mirrorGimmick(g, axis);
+    const twinId = 'twin' in g ? g.twin : undefined;
+    if (twinId) {
+      const t = byId.get(twinId);
+      if (!t || t.kind !== g.kind || !('twin' in t) || t.twin !== g.id || t.id === g.id) {
+        err('chirality', `gimmick ${g.id}: twin ${twinId} must exist, be a ${g.kind} and name it back`);
+      } else if (!sameGimmick(m, t)) {
+        err('chirality', `gimmick ${g.id} and its twin ${t.id} are not mirrored (geometry, opposite spin, same phase)`);
+      }
+      continue;
+    }
+    const needsTwin = g.kind === 'tube' || g.kind === 'catapult' || g.kind === 'teacup' || g.kind === 'bumperCar';
+    if (needsTwin) {
+      err('chirality', `gimmick ${g.id} (${g.kind}) needs a mirrored twin`);
+      continue;
+    }
+    // Axis-symmetric by itself, or an unlinked mirrored counterpart of the same kind (belts / slicks).
+    if (!sameGimmick(m, g) && !gimmicks.some((t) => t !== g && sameGimmick(m, t))) {
+      err('chirality', `gimmick ${g.id} (${g.kind}) is neither axis-symmetric nor mirrored by another ${g.kind}`);
+    }
+  }
+}
+
 function identityChecks(
   def: LayoutDef,
   routes: RouteMetric[],
@@ -1314,9 +2037,10 @@ function identityChecks(
       for (const r of routes) {
         if (r.length < r.straight * 1.15) err('identity', `plaza: bank ${r.bankIndex} -> team ${r.team} route not forced around (len ${fmt(r.length)} vs straight ${fmt(r.straight)})`);
       }
-      // Outer small safes easy to reach: each spawn has two small safes within 20 m on foot.
+      // Outer small safes easy to reach: each spawn has two small safes within 20 m on foot
+      // (v2: the starter-socket ATM is the second early pick beside the corner small safe).
       def.spawns.forEach((_, si) => {
-        const close = safes.filter((s) => s.kind === 'smallSafe' && s.walkFromSpawn[si] <= 20).length;
+        const close = safes.filter((s) => (s.kind === 'smallSafe' || s.variant === 'atm') && s.walkFromSpawn[si] <= 20).length;
         if (close < 2) err('identity', `plaza: spawn ${si} has only ${close} small safes within 20 m`);
       });
       break;
@@ -1376,7 +2100,8 @@ function identityChecks(
 export function formatReport(r: ValidationReport): string {
   const m = r.metrics;
   const lines: string[] = [];
-  lines.push(`== ${r.id}  ${r.ok ? 'OK' : 'FAIL'}  (${m.size.x} x ${m.size.y} m, total ${m.totalValue}, outdoor ${m.outdoorSmall}S + ${m.outdoorLarge}L)`);
+  const tag = r.content === 'v2' ? ' [v2]' : '';
+  lines.push(`== ${r.id}${tag}  ${r.ok ? 'OK' : 'FAIL'}  (${m.size.x} x ${m.size.y} m, total ${m.totalValue}, outdoor ${m.outdoorSmall}S + ${m.outdoorLarge}L)`);
   lines.push(`   banks ${fmt(m.bankSeparation)} m apart · ${m.fences} fences · ${m.chokepoints} chokepoints · ${m.decor} decor`);
   if (Number.isFinite(m.oneSpot.anyDoor)) {
     lines.push(`   one-spot defense: best spot is ${fmt(m.oneSpot.anyDoor)} m from a door of both banks, ${fmt(m.oneSpot.allDoors)} m from all doors`);
@@ -1398,7 +2123,7 @@ export function formatReport(r: ValidationReport): string {
   for (const s of m.safes) {
     const fe = s.fenceEffect ? ` · fences busted: z0 ${fmt(s.fenceEffect.standing[0])}->${fmt(s.fenceEffect.busted[0])}${s.fenceEffect.standing.length > 1 ? ` z1 ${fmt(s.fenceEffect.standing[1])}->${fmt(s.fenceEffect.busted[1])}` : ''}` : '';
     lines.push(
-      `   safe ${s.index} ${s.kind === 'smallSafe' ? 'S' : 'L'} (${fmt(s.pos.x)},${fmt(s.pos.y)}): walk ${s.walkFromSpawn.map((d) => fmt(d)).join('/')} · carry z0 ${fmt(s.carryToZone[0])} z1 ${fmt(s.carryToZone[1])}${fe}`,
+      `   ${s.variant ? `${s.variant} ${s.index}` : `safe ${s.index} ${s.kind === 'smallSafe' ? 'S' : 'L'}`} (${fmt(s.pos.x)},${fmt(s.pos.y)}): walk ${s.walkFromSpawn.map((d) => fmt(d)).join('/')} · carry z0 ${fmt(s.carryToZone[0])} z1 ${fmt(s.carryToZone[1])}${fe}`,
     );
   }
   for (const p of m.paths) lines.push(`   ${p.cls.padEnd(6)} ${p.id}: ${fmt(p.minWidth, 3)}..${fmt(p.maxWidth, 3)} m`);
@@ -1406,6 +2131,25 @@ export function formatReport(r: ValidationReport): string {
   m.police.forEach((p, i) =>
     lines.push(`   police ${i}: car parks at (${fmt(p.park.x)},${fmt(p.park.y)}) heading ${fmt((p.angle * 180) / Math.PI, 0)} deg · officer step-out clearance ${fmt(p.stepOutClearance, 2)} m`),
   );
+  const v = m.v2;
+  if (v) {
+    lines.push(`   v2 value per half: west ${v.sideValue[0]} / east ${v.sideValue[1]}`);
+    for (const st of v.starters) {
+      lines.push(`   starter ATM (${fmt(st.pos.x)},${fmt(st.pos.y)}): walk ${fmt(st.walk)} m · ${fmt(st.zoneGap, 2)} m outside its zone · ${fmt(st.sweepGap + BANK_SWEEP_RADIUS, 2)} m from a bank route`);
+    }
+    for (const b of v.breakables) lines.push(`   breakable ${b.id} (${b.kind}): walk ${fmt(b.walk)} m · ${fmt(b.zoneGap, 2)} m from a zone`);
+    v.naturalCrates.forEach((n, si) =>
+      lines.push(`   spawn ${si} natural crate: ${n ? `${n.id} at ${fmt(n.walk)} m (detour ${fmt(n.detour, 2)} m toward ${n.target})` : 'none'}`),
+    );
+    for (const p of v.pads) {
+      lines.push(`   item pad ${p.id}${p.twin ? ` (twin ${p.twin})` : ' (axis)'}: walk ${fmt(p.walk)} m · ${fmt(p.sweepGap + BANK_SWEEP_RADIUS, 2)} m from a bank route`);
+    }
+    v.spots.forEach((sp, i) =>
+      lines.push(`   event spot ${i} (${fmt(sp.pos.x)},${fmt(sp.pos.y)}): clearance ${fmt(sp.clearance, 2)} m · loot ${fmt(sp.lootGap, 2)} m · 돈비 ring ${Math.round(sp.ringOpen * 100)} % open`),
+    );
+    for (const h of v.haul) lines.push(`   ${h.label} haul (${fmt(2 * PROP_HAUL_RADIUS)} m lanes): z0 ${fmt(h.toZone[0])} z1 ${fmt(h.toZone[1])} m`);
+    for (const f of v.fenceHammer) lines.push(`   fence ${f.id} hammer spot: t0 ${fmt(f.walk[0])} / t1 ${fmt(f.walk[1])} m`);
+  }
   for (const i of r.issues) lines.push(`   [${i.level}] ${i.code}: ${i.msg}`);
   return lines.join('\n');
 }

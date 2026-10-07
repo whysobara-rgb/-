@@ -52,6 +52,34 @@ export const SFX_CAPTION_KEYS: Partial<Record<SfxId, string>> = {
   tauntZoom: 'caption.tauntZoom',
   tauntFlex: 'caption.tauntFlex',
   tauntShrug: 'caption.tauntShrug',
+  // [C9] Content 2.0: items, coins, props, breakables (every cue captioned; see CONTENT_CAPTION_KEYS)
+  hammerWindup: 'caption.hammerWindup',
+  hammerSwing: 'caption.hammerSwing',
+  hammerBonk: 'caption.hammerBonk',
+  hammerClash: 'caption.hammerClash',
+  itemPickup: 'caption.itemPickup',
+  itemDrop: 'caption.itemDrop',
+  itemPoof: 'caption.itemPoof',
+  supplyIncoming: 'caption.supplyIncoming',
+  supplyLand: 'caption.supplyLand',
+  goldHammerSting: 'caption.goldHammerSting',
+  coinPickup: 'caption.coinPickup',
+  billPickup: 'caption.billPickup',
+  coinPop: 'caption.coinPop',
+  coinSpill: 'caption.coinSpill',
+  depositStart: 'caption.depositStart',
+  coinDeposit: 'caption.coinDeposit',
+  atmSpurt: 'caption.atmSpurt',
+  atmBonk: 'caption.atmBonk',
+  piggyOink: 'caption.piggyOink',
+  piggyCrack: 'caption.piggyCrack',
+  piggyJackpot: 'caption.piggyJackpot',
+  rootRip: 'caption.rootRip',
+  billFlutter: 'caption.billFlutter',
+  crateBreak: 'caption.crateBreak',
+  vendingHit: 'caption.vendingHit',
+  vendingBreak: 'caption.vendingBreak',
+  // [C9] end
 };
 
 /** Caption keys of the taunt sounds (owner addition); texts in CAPTION_FALLBACK / the UI tables. */
@@ -83,6 +111,40 @@ export const POLICE_CAPTION_KEYS: readonly string[] = [
 ];
 
 /**
+ * [C9] Caption keys of the Content 2.0 sounds (items, coins, props, breakables). Their ko / en
+ * texts live in CAPTION_FALLBACK below (the HUD shows them through installCaptionFallbacks until
+ * the UI tables carry them).
+ */
+export const CONTENT_CAPTION_KEYS: readonly string[] = [
+  'caption.hammerWindup',
+  'caption.hammerSwing',
+  'caption.hammerBonk',
+  'caption.hammerClash',
+  'caption.itemPickup',
+  'caption.itemDrop',
+  'caption.itemPoof',
+  'caption.supplyIncoming',
+  'caption.supplyLand',
+  'caption.goldHammerSting',
+  'caption.coinPickup',
+  'caption.billPickup',
+  'caption.coinPop',
+  'caption.coinSpill',
+  'caption.depositStart',
+  'caption.coinDeposit',
+  'caption.atmSpurt',
+  'caption.atmBonk',
+  'caption.piggyOink',
+  'caption.piggyCrack',
+  'caption.piggyJackpot',
+  'caption.rootRip',
+  'caption.billFlutter',
+  'caption.crateBreak',
+  'caption.vendingHit',
+  'caption.vendingBreak',
+];
+
+/**
  * Minimum ms between two captions with the same key (and side) where the default (450 ms) would
  * crowd the 3-line caption area: officers keep tweeting while they chase, and several officers
  * may shout in a row.
@@ -90,6 +152,14 @@ export const POLICE_CAPTION_KEYS: readonly string[] = [
 export const CAPTION_REPEAT_MS: Readonly<Record<string, number>> = {
   'caption.policeWhistle': 6000,
   'caption.policeBark': 9000,
+  // [C9] coins and swings come in bursts (a scoop takes 5 piles in a second): one line per burst
+  'caption.coinPickup': 2500,
+  'caption.billPickup': 2500,
+  'caption.coinPop': 1500,
+  'caption.hammerSwing': 1200,
+  'caption.hammerWindup': 800,
+  'caption.depositStart': 1500,
+  'caption.piggyOink': 1500,
 };
 
 /**
@@ -169,6 +239,33 @@ export const CAPTION_FALLBACK: Readonly<{ ko: Readonly<Record<string, string>>; 
     'caption.tauntZoom': '[후다닥 슝]',
     'caption.tauntFlex': '[반짝 근육 자랑]',
     'caption.tauntShrug': '[으쓱~]',
+    // [C9] Content 2.0
+    'caption.hammerWindup': '[뀨잇~ 뿅망치를 치켜드는 소리]',
+    'caption.hammerSwing': '[휙! 뿅망치 휘두르는 소리]',
+    'caption.hammerBonk': '[뿅! 뿅망치에 맞는 소리]',
+    'caption.hammerClash': '[챙! 뿅망치끼리 부딪힘]',
+    'caption.itemPickup': '[뾱뾱, 아이템을 주웠어요]',
+    'caption.itemDrop': '[딸그락, 아이템을 떨어뜨림]',
+    'caption.itemPoof': '[펑, 아이템이 사라짐]',
+    'caption.supplyIncoming': '[딩동~ 보급 풍선이 내려와요]',
+    'caption.supplyLand': '[쿵! 보급 상자 도착]',
+    'caption.goldHammerSting': '[빰빠밤! 황금 뿅망치가 와요]',
+    'caption.coinPickup': '[짤랑, 동전 줍는 소리]',
+    'caption.billPickup': '[팔락, 지폐 다발 줍는 소리]',
+    'caption.coinPop': '[짤랑짤랑, 동전이 튀어나옴]',
+    'caption.coinSpill': '[와르르! 주머니 동전이 쏟아짐]',
+    'caption.depositStart': '[스르륵, 주머니 여는 소리]',
+    'caption.coinDeposit': '[촤르르, 쏟아붓기 완료]',
+    'caption.atmSpurt': '[삐빅, 철컹! ATM에서 동전이 튀어나옴]',
+    'caption.atmBonk': '[텅! ATM을 들이받는 소리]',
+    'caption.piggyOink': '[꿀꿀! 돼지저금통]',
+    'caption.piggyCrack': '[쩍! 돼지저금통에 금이 감]',
+    'caption.piggyJackpot': '[와장창! 돼지저금통 잭팟]',
+    'caption.rootRip': '[뿌드득! 돈나무 뿌리가 뽑히는 소리]',
+    'caption.billFlutter': '[팔랑팔랑, 지폐가 날림]',
+    'caption.crateBreak': '[와직! 나무 상자가 부서짐]',
+    'caption.vendingHit': '[덜컹! 자판기가 콜록]',
+    'caption.vendingBreak': '[와장창! 자판기가 부서짐]',
   },
   en: {
     'caption.siren': '[Siren]',
@@ -217,6 +314,33 @@ export const CAPTION_FALLBACK: Readonly<{ ko: Readonly<Record<string, string>>; 
     'caption.tauntZoom': '[zoom]',
     'caption.tauntFlex': '[muscle sparkle]',
     'caption.tauntShrug': '[smug shrug]',
+    // [C9] Content 2.0
+    'caption.hammerWindup': '[Squeak! Hammer winding up]',
+    'caption.hammerSwing': '[Whoosh! Hammer swing]',
+    'caption.hammerBonk': '[Boink! Squeaky hammer hit]',
+    'caption.hammerClash': '[Clang! Hammers clash]',
+    'caption.itemPickup': '[Squeak-squeak, item grabbed]',
+    'caption.itemDrop': '[Clatter, item dropped]',
+    'caption.itemPoof': '[Poof, item gone]',
+    'caption.supplyIncoming': '[Ding-dong, supply drop coming down]',
+    'caption.supplyLand': '[Thud! Supply crate lands]',
+    'caption.goldHammerSting': '[Fanfare! Golden hammer incoming]',
+    'caption.coinPickup': '[Clink, coin scooped]',
+    'caption.billPickup': '[Flap, bills scooped]',
+    'caption.coinPop': '[Coins popping out]',
+    'caption.coinSpill': '[Spill! Coins everywhere]',
+    'caption.depositStart': '[Bag opening]',
+    'caption.coinDeposit': '[Coins pouring in, deposited]',
+    'caption.atmSpurt': '[Beep-boop, cha-ching! ATM spits coins]',
+    'caption.atmBonk': '[Bong! ATM bonked]',
+    'caption.piggyOink': '[Oink! Piggy bank]',
+    'caption.piggyCrack': '[Crack! Piggy bank cracking]',
+    'caption.piggyJackpot': '[Smash! Piggy bank jackpot]',
+    'caption.rootRip': '[Rrrip! Money tree uprooted]',
+    'caption.billFlutter': '[Bills fluttering down]',
+    'caption.crateBreak': '[Crunch! Crate smashed]',
+    'caption.vendingHit': '[Thunk! Vending machine coughs]',
+    'caption.vendingBreak': '[Crash! Vending machine busted]',
   },
 };
 

@@ -10,11 +10,12 @@
 import * as THREE from 'three';
 import type { TeamId, Vec2 } from '../sim';
 import { TEAM_STYLES } from '../shared/teams';
-import { FxSystem, HIGHLIGHT_COLORS, PAL, type DebrisBurst } from './models';
-import { radialGlowTexture } from './models/textures';
+import { FxSystem, HIGHLIGHT_COLORS, PAL, DebrisBurst } from './models';
+import { radialGlowTexture, makeCanvasTexture, FONT_STACK } from './models/textures';
 import { G, PartBuilder } from './models/geometry';
-import { createToonMaterial } from './models/materials';
+import { createToonMaterial, matVC } from './models/materials';
 import { scaledCount, type QualityPreset } from './quality';
+import { pawCoinGeometry, piggyShardGeometry } from './models/props';
 
 const _v = new THREE.Vector3();
 
@@ -101,14 +102,23 @@ export class ViewEffects {
   private readonly meters: Meter[] = [];
   private readonly meterGeo: THREE.BufferGeometry;
   private readonly target: { root: THREE.Group; brackets: THREE.Mesh; anchor: THREE.Mesh; mat: THREE.MeshBasicMaterial; anchorMat: THREE.MeshBasicMaterial };
-  private readonly bracketGeo = new Map<TargetKind, THREE.BufferGeometry>();
+  private readonly bracketGeo = new Map<string, THREE.BufferGeometry>();
   private time = 0;
+  /** (C7a) Paw-coin particles (fountains, climbs into the bag, deposits). */
+  readonly coinSpray: CoinSpray;
+  /** (C7a) World stamps (뿅! / 와르르! / 잭팟! …). */
+  readonly stamps: StampPool;
 
   constructor(preset: QualityPreset) {
     this.preset = preset;
     this.root.name = 'viewEffects';
     this.fx = new FxSystem({ dust: 320, confetti: 420, stars: 96, coins: 140, rings: 12 });
     this.root.add(this.fx.root);
+    this.coinSpray = new CoinSpray(160);
+    this.root.add(this.coinSpray.mesh);
+    // Few slots on purpose: at most ~4 world stamps at once (readability budget), oldest recycled.
+    this.stamps = new StampPool(5);
+    this.root.add(this.stamps.root);
     const pointerGeo = new THREE.ConeGeometry(0.32, 0.75, 4).rotateX(Math.PI);
     const ringGeo = new THREE.RingGeometry(0.62, 0.86, 40).rotateX(-Math.PI / 2);
     this.owned.push(pointerGeo, ringGeo);
@@ -628,10 +638,12 @@ export class ViewEffects {
   // ---------------------------------------------------------------------------
 
   /** Corner-bracket frame around a target footprint (cached per kind). */
-  private bracketGeometry(kind: TargetKind): THREE.BufferGeometry {
-    const hit = this.bracketGeo.get(kind);
+  private bracketGeometry(kind: TargetKind, footprint?: Vec2): THREE.BufferGeometry {
+    // (C7a) Props pass their own collider half extents (ATM / piggy / money tree / gold safe).
+    const key: string = footprint ? `${kind}|${footprint.x.toFixed(2)}|${footprint.y.toFixed(2)}` : kind;
+    const hit = this.bracketGeo.get(key);
     if (hit) return hit;
-    const half = kind === 'bank' ? { x: 4, y: 3 } : kind === 'largeSafe' ? { x: 0.7, y: 0.6 } : { x: 0.4, y: 0.4 };
+    const half = footprint ?? (kind === 'bank' ? { x: 4, y: 3 } : kind === 'largeSafe' ? { x: 0.7, y: 0.6 } : { x: 0.4, y: 0.4 });
     const margin = kind === 'bank' ? 0.55 : 0.28;
     const t = kind === 'bank' ? 0.26 : 0.1;
     const hx = half.x + margin;
@@ -653,7 +665,7 @@ export class ViewEffects {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.computeVertexNormals();
-    this.bracketGeo.set(kind, g);
+    this.bracketGeo.set(key, g);
     this.owned.push(g);
     return g;
   }
@@ -662,7 +674,15 @@ export class ViewEffects {
    * Show the grab marker around a target (sim pose; `y` = floor height) with a pulsing dot at
    * the grab anchor, or hide it with `kind = null`.
    */
-  setGrabTarget(kind: TargetKind | null, pose: { x: number; y: number; a: number }, y = 0, anchor: Vec2 | null = null, anchorY = 0, color: THREE.ColorRepresentation = GRAB_MARKER_COLOR): void {
+  setGrabTarget(
+    kind: TargetKind | null,
+    pose: { x: number; y: number; a: number },
+    y = 0,
+    anchor: Vec2 | null = null,
+    anchorY = 0,
+    color: THREE.ColorRepresentation = GRAB_MARKER_COLOR,
+    footprint?: Vec2,
+  ): void {
     const tg = this.target;
     if (!kind) {
       tg.root.visible = false;
@@ -670,7 +690,7 @@ export class ViewEffects {
       return;
     }
     tg.root.visible = true;
-    const geo = this.bracketGeometry(kind);
+    const geo = this.bracketGeometry(kind, footprint);
     if (tg.brackets.geometry !== geo) tg.brackets.geometry = geo;
     tg.root.position.set(pose.x, y + 0.03, pose.y);
     tg.root.rotation.set(0, -pose.a, 0);
@@ -694,6 +714,8 @@ export class ViewEffects {
   update(dt: number): void {
     this.time += dt;
     this.fx.update(dt);
+    this.coinSpray.update(dt);
+    this.stamps.update(dt);
     for (let i = this.bursts.length - 1; i >= 0; i--) {
       if (!this.bursts[i].update(dt)) {
         this.bursts[i].dispose();
@@ -710,6 +732,8 @@ export class ViewEffects {
   /** Drop every running effect (match unload). */
   clear(): void {
     this.fx.clear();
+    this.coinSpray.clear();
+    this.stamps.clear();
     for (const b of this.bursts) b.dispose();
     this.bursts.length = 0;
     this.finishFlights();
@@ -721,7 +745,733 @@ export class ViewEffects {
   dispose(): void {
     this.clear();
     this.fx.dispose();
+    this.coinSpray.dispose();
+    this.stamps.dispose();
     for (const o of this.owned) o.dispose();
+    this.root.removeFromParent();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Content 2.0 (C7a): coins, bonks, stamps, splinters
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Decorative coin fountain (the real piles are drawn by render/coins.ts): `n` paw coins shoot
+   * out in a ±60° fan around `dir` (radial when null) with a sparkle and a small ring.
+   */
+  coinFountain(pos: Vec2, dir: Vec2 | null, n: number, y = 0.4, power = 1): void {
+    const count = this.n(Math.min(24, n), 1);
+    const base = dir ? Math.atan2(dir.y, dir.x) : 0;
+    for (let i = 0; i < count; i++) {
+      const a = dir ? base + (count === 1 ? 0 : (i / (count - 1) - 0.5) * 2 * (Math.PI / 3)) + (Math.random() - 0.5) * 0.25 : (i / count) * Math.PI * 2 + Math.random() * 0.4;
+      const sp = (1.6 + Math.random() * 2.2) * power;
+      _v.set(Math.cos(a) * sp, (4.5 + Math.random() * 3) * power, Math.sin(a) * sp);
+      this.coinSpray.burst(pos.x, y, pos.y, _v.x, _v.y, _v.z, 0.9 + Math.random() * 0.5);
+    }
+    this.fx.sparkle({ x: pos.x, y: y - 0.2, z: pos.y }, { count: this.n(Math.min(14, 4 + n)), radius: 0.5, color: PAL.goldLight });
+    if (n >= 4) this.fx.ring({ x: pos.x, y: 0, z: pos.y }, { radius: Math.min(2.6, 1 + n * 0.12), color: PAL.goldLight, duration: 0.45 });
+  }
+
+  /**
+   * Coin climb (pickup): one coin hops from the pile into `target` (the raccoon's bag) with a
+   * sparkle on arrival; `step` (0..) grows the sparkle for consecutive pickups (one scale step
+   * per pile, ART §1 "동전 소리가 한 음씩 올라감").
+   */
+  coinClimb(from: Vec2, target: THREE.Object3D, step: number): void {
+    this.coinSpray.homing(from.x, 0.2, from.y, target, 0.24, 0, step);
+  }
+
+  /** Deposit pour: `n` coins arc from `from` (the bag) to a ground point, staggered. */
+  coinPour(from: THREE.Object3D, to: Vec2, n: number): void {
+    const count = this.n(Math.min(18, n), 2);
+    from.getWorldPosition(_v);
+    for (let i = 0; i < count; i++) this.coinSpray.homingTo(_v.x, _v.y, _v.z, to.x + (Math.random() - 0.5) * 0.8, 0.05, to.y + (Math.random() - 0.5) * 0.8, 0.35, i * 0.035);
+  }
+
+  /** Hammer / bonk impact: white ring, a pop flash card, stars and a dust puff (big = golden / home run). */
+  bonkImpact(pos: Vec2, dir: Vec2 | null, big: boolean, y = 0.6): void {
+    const c = { x: pos.x, y, z: pos.y };
+    this.fx.stars(c, { count: this.n(big ? 10 : 6, 3), size: big ? 0.22 : 0.17, color: big ? PAL.goldLight : undefined });
+    this.fx.ring({ x: pos.x, y: 0, z: pos.y }, { radius: big ? 3.2 : 2, color: '#FFFFFF', duration: big ? 0.45 : 0.32 });
+    this.fx.dust({ x: pos.x, y: 0, z: pos.y }, { count: this.n(big ? 10 : 5), spread: 0.4, size: 0.26, dir: dir ? { x: dir.x * 0.6, y: 0, z: dir.y * 0.6 } : null });
+    this.stamps.flash(pos.x, y + 0.35, pos.y, big ? 2.4 : 1.6);
+  }
+
+  /** A stamp (sticker word) above a world point; `big` for jackpots / home runs. */
+  stamp(key: StampKey, pos: Vec2, o: { y?: number; scale?: number } = {}): void {
+    this.stamps.show(key, pos.x, o.y ?? 1.9, pos.y, o.scale ?? 1);
+  }
+
+  /** Breakable splinters: rigid debris from BreakableRig.breakApart + dust and wood chips. */
+  splinters(pos: Vec2, pieces: readonly { geometry: THREE.BufferGeometry; matrix: THREE.Matrix4; velocity: THREE.Vector3; angular: THREE.Vector3; radius: number }[], kind: 'crate' | 'vending'): void {
+    const max = this.n(pieces.length, 3);
+    const burst = new DebrisBurst(
+      pieces.slice(0, max).map((p) => ({ ...p, material: matVC() })),
+      2.4,
+    );
+    this.root.add(burst.root);
+    this.bursts.push(burst);
+    const c = { x: pos.x, y: 0, z: pos.y };
+    this.fx.dust(c, { count: this.n(kind === 'crate' ? 10 : 14), spread: 0.8, size: 0.32, up: 1.3 });
+    this.fx.chunks({ x: pos.x, y: 0.3, z: pos.y }, { count: this.n(8, 2), colors: kind === 'crate' ? [PAL.wood, PAL.woodLight, PAL.woodDark] : ['#4FC3A1', '#E8FAFF', '#FFD45C'], size: 0.07, power: 1.2 });
+    this.fx.stars(c, { count: this.n(5, 2), size: 0.18 });
+    this.fx.ring(c, { radius: kind === 'crate' ? 1.8 : 2.4, color: '#FFFFFF', duration: 0.4 });
+  }
+
+  /** Piggy smash: pottery shards fly radially + a big gold sparkle ring. */
+  piggyShatter(pos: Vec2): void {
+    const n = this.n(10, 4);
+    const specs = [];
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      const m = new THREE.Matrix4().compose(
+        new THREE.Vector3(pos.x + Math.cos(a) * 0.4, 0.7, pos.y + Math.sin(a) * 0.4),
+        new THREE.Quaternion().setFromEuler(new THREE.Euler(a, a * 2, 0)),
+        new THREE.Vector3(1, 1, 1),
+      );
+      specs.push({
+        geometry: piggyShardGeometry(i % 4),
+        material: matVC(),
+        matrix: m,
+        velocity: new THREE.Vector3(Math.cos(a) * (3 + (i % 3)), 4 + (i % 2) * 2, Math.sin(a) * (3 + (i % 3))),
+        angular: new THREE.Vector3(8 + i, 6 - i, 4 + i * 0.5),
+        radius: 0.06,
+      });
+    }
+    const burst = new DebrisBurst(specs, 2.2);
+    this.root.add(burst.root);
+    this.bursts.push(burst);
+    this.fx.ring({ x: pos.x, y: 0, z: pos.y }, { radius: 4, color: PAL.goldLight, duration: 0.6 });
+    this.fx.sparkle({ x: pos.x, y: 0.4, z: pos.y }, { count: this.n(22), radius: 1.6, color: PAL.goldLight });
+    this.fx.confetti({ x: pos.x, y: 0.8, z: pos.y }, { count: this.n(40, 8), colors: ['#FF9EC0', '#FFD45C', '#FFFFFF', '#E8739A'], power: 0.8 });
+  }
+
+  /** Item poof (ground expiry / pickup spawn). */
+  poof(pos: Vec2, y = 0.3, color: THREE.ColorRepresentation = '#FFF3DE'): void {
+    this.fx.dust({ x: pos.x, y, z: pos.y }, { count: this.n(8, 3), spread: 0.45, size: 0.3, color, up: 1.2 });
+    this.fx.sparkle({ x: pos.x, y, z: pos.y }, { count: this.n(6, 2), radius: 0.4 });
+  }
+
+  /** Stamps follow the reduced-motion setting (no wobble / spin, plain pop). */
+  setCalm(calm: boolean): void {
+    this.stamps.calm = calm;
+  }
+
+  /** Stamp language (ko / en). */
+  setStampLanguage(lang: 'ko' | 'en'): void {
+    this.stamps.lang = lang;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Content 2.0 (C7a): pooled paw-coin particles
+// ---------------------------------------------------------------------------
+
+const _cm = new THREE.Matrix4();
+const _cq = new THREE.Quaternion();
+const _ce = new THREE.Euler();
+const _cp = new THREE.Vector3();
+const _cs = new THREE.Vector3();
+const _ct = new THREE.Vector3();
+
+/**
+ * Fixed-capacity instanced paw coins with two motions: ballistic (fountains; bounce on the ground
+ * and fade) and homing (climb into a moving target such as the raccoon's bag, or pour to a
+ * ground point). Swap-remove packing, no allocation per frame.
+ */
+export class CoinSpray {
+  readonly mesh: THREE.InstancedMesh;
+  private readonly cap: number;
+  private n = 0;
+  private next = 0;
+  private readonly p: Float32Array;
+  private readonly v: Float32Array;
+  private readonly from: Float32Array;
+  private readonly to: Float32Array;
+  private readonly rot: Float32Array;
+  private readonly life: Float32Array;
+  private readonly max: Float32Array;
+  private readonly delay: Float32Array;
+  private readonly mode: Uint8Array;
+  private readonly scale: Float32Array;
+  private readonly targets: (THREE.Object3D | null)[];
+  /** Sparkle callback at homing arrival (step = climb index), set by the owner. */
+  onArrive: ((x: number, y: number, z: number, step: number) => void) | null = null;
+  private readonly steps: Float32Array;
+
+  constructor(capacity: number) {
+    this.cap = capacity;
+    this.mesh = new THREE.InstancedMesh(pawCoinGeometry(), matVC(), capacity);
+    this.mesh.name = 'coinSpray';
+    this.mesh.count = 0;
+    this.mesh.frustumCulled = false;
+    this.mesh.castShadow = false;
+    this.mesh.userData.noOutline = true;
+    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.p = new Float32Array(capacity * 3);
+    this.v = new Float32Array(capacity * 3);
+    this.from = new Float32Array(capacity * 3);
+    this.to = new Float32Array(capacity * 3);
+    this.rot = new Float32Array(capacity * 2);
+    this.life = new Float32Array(capacity);
+    this.max = new Float32Array(capacity);
+    this.delay = new Float32Array(capacity);
+    this.mode = new Uint8Array(capacity);
+    this.scale = new Float32Array(capacity);
+    this.steps = new Float32Array(capacity);
+    this.targets = new Array<THREE.Object3D | null>(capacity).fill(null);
+  }
+
+  get alive(): number {
+    return this.n;
+  }
+
+  private slot(): number {
+    if (this.n < this.cap) return this.n++;
+    const i = this.next;
+    this.next = (this.next + 1) % this.cap;
+    return i;
+  }
+
+  burst(x: number, y: number, z: number, vx: number, vy: number, vz: number, life: number): void {
+    const i = this.slot();
+    this.p[i * 3] = x;
+    this.p[i * 3 + 1] = y;
+    this.p[i * 3 + 2] = z;
+    this.v[i * 3] = vx;
+    this.v[i * 3 + 1] = vy;
+    this.v[i * 3 + 2] = vz;
+    this.rot[i * 2] = Math.random() * 6.28;
+    this.rot[i * 2 + 1] = 8 + Math.random() * 10;
+    this.life[i] = life;
+    this.max[i] = life;
+    this.delay[i] = 0;
+    this.mode[i] = 0;
+    this.scale[i] = 0.85 + Math.random() * 0.3;
+    this.targets[i] = null;
+  }
+
+  homing(x: number, y: number, z: number, target: THREE.Object3D, dur: number, delay: number, step: number): void {
+    const i = this.slot();
+    this.from[i * 3] = x;
+    this.from[i * 3 + 1] = y;
+    this.from[i * 3 + 2] = z;
+    this.targets[i] = target;
+    this.life[i] = dur;
+    this.max[i] = dur;
+    this.delay[i] = delay;
+    this.mode[i] = 1;
+    this.steps[i] = step;
+    this.scale[i] = 1;
+    this.rot[i * 2] = 0;
+    this.rot[i * 2 + 1] = 14;
+  }
+
+  homingTo(x: number, y: number, z: number, tx: number, ty: number, tz: number, dur: number, delay: number): void {
+    const i = this.slot();
+    this.from[i * 3] = x;
+    this.from[i * 3 + 1] = y;
+    this.from[i * 3 + 2] = z;
+    this.to[i * 3] = tx;
+    this.to[i * 3 + 1] = ty;
+    this.to[i * 3 + 2] = tz;
+    this.targets[i] = null;
+    this.life[i] = dur;
+    this.max[i] = dur;
+    this.delay[i] = delay;
+    this.mode[i] = 2;
+    this.steps[i] = -1;
+    this.scale[i] = 0.9;
+    this.rot[i * 2] = Math.random() * 6;
+    this.rot[i * 2 + 1] = 12;
+  }
+
+  private copy(a: number, b: number): void {
+    this.p.copyWithin(b * 3, a * 3, a * 3 + 3);
+    this.v.copyWithin(b * 3, a * 3, a * 3 + 3);
+    this.from.copyWithin(b * 3, a * 3, a * 3 + 3);
+    this.to.copyWithin(b * 3, a * 3, a * 3 + 3);
+    this.rot.copyWithin(b * 2, a * 2, a * 2 + 2);
+    this.life[b] = this.life[a]!;
+    this.max[b] = this.max[a]!;
+    this.delay[b] = this.delay[a]!;
+    this.mode[b] = this.mode[a]!;
+    this.scale[b] = this.scale[a]!;
+    this.steps[b] = this.steps[a]!;
+    this.targets[b] = this.targets[a]!;
+  }
+
+  update(dt: number): void {
+    let i = 0;
+    while (i < this.n) {
+      if (this.delay[i]! > 0) {
+        this.delay[i] = Math.max(0, this.delay[i]! - dt);
+        _cm.makeScale(0, 0, 0);
+        this.mesh.setMatrixAt(i, _cm);
+        i++;
+        continue;
+      }
+      this.life[i] = this.life[i]! - dt;
+      const mode = this.mode[i]!;
+      if (this.life[i]! <= 0) {
+        if (mode !== 0 && this.onArrive) {
+          const tg = this.targets[i];
+          if (tg) tg.getWorldPosition(_ct);
+          else _ct.set(this.to[i * 3]!, this.to[i * 3 + 1]!, this.to[i * 3 + 2]!);
+          this.onArrive(_ct.x, _ct.y, _ct.z, this.steps[i]!);
+        }
+        this.n--;
+        if (i !== this.n) this.copy(this.n, i);
+        this.targets[this.n] = null;
+        continue;
+      }
+      this.rot[i * 2] = this.rot[i * 2]! + this.rot[i * 2 + 1]! * dt;
+      let s = this.scale[i]!;
+      if (mode === 0) {
+        const o = i * 3;
+        this.v[o + 1] = this.v[o + 1]! - 15 * dt;
+        this.p[o] = this.p[o]! + this.v[o]! * dt;
+        this.p[o + 1] = this.p[o + 1]! + this.v[o + 1]! * dt;
+        this.p[o + 2] = this.p[o + 2]! + this.v[o + 2]! * dt;
+        if (this.p[o + 1]! < 0.03) {
+          this.p[o + 1] = 0.03;
+          if (this.v[o + 1]! < 0) this.v[o + 1] = -this.v[o + 1]! * 0.35;
+          this.v[o] = this.v[o]! * 0.6;
+          this.v[o + 2] = this.v[o + 2]! * 0.6;
+        }
+        _cp.set(this.p[o]!, this.p[o + 1]!, this.p[o + 2]!);
+        const k = this.life[i]! / this.max[i]!;
+        if (k < 0.25) s *= k / 0.25;
+      } else {
+        const k = 1 - this.life[i]! / this.max[i]!;
+        const tg = this.targets[i];
+        if (tg) tg.getWorldPosition(_ct);
+        else _ct.set(this.to[i * 3]!, this.to[i * 3 + 1]!, this.to[i * 3 + 2]!);
+        const o = i * 3;
+        _cp.set(this.from[o]!, this.from[o + 1]!, this.from[o + 2]!).lerp(_ct, k);
+        _cp.y += Math.sin(Math.PI * k) * (mode === 1 ? 0.9 : 0.6);
+        s *= mode === 1 ? 1 - 0.45 * k * k : 1;
+      }
+      _ce.set(Math.PI / 2 + Math.sin(this.rot[i * 2]! * 0.5) * 0.3, this.rot[i * 2]!, 0);
+      _cq.setFromEuler(_ce);
+      _cs.setScalar(Math.max(0.001, s));
+      _cm.compose(_cp, _cq, _cs);
+      this.mesh.setMatrixAt(i, _cm);
+      i++;
+    }
+    this.mesh.count = this.n;
+    if (this.n) this.mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  clear(): void {
+    this.n = 0;
+    this.mesh.count = 0;
+    this.targets.fill(null);
+  }
+
+  dispose(): void {
+    this.clear();
+    this.mesh.dispose();
+    this.mesh.removeFromParent();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Content 2.0 (C7a): world stamps
+// ---------------------------------------------------------------------------
+
+/** Stamp ids (content-plan §4.5: 뿅! / 와르르! / 잭팟! / 홈런! / 털렸다! / 챙! / 쿵! / 슝!). */
+export type StampKey = 'bonk' | 'spill' | 'jackpot' | 'homeRun' | 'robbed' | 'clang' | 'thud' | 'whoosh';
+
+export const STAMP_TEXT: Readonly<Record<'ko' | 'en', Readonly<Record<StampKey, string>>>> = {
+  ko: { bonk: '뿅!', spill: '와르르!', jackpot: '잭팟!', homeRun: '홈런!', robbed: '털렸다!', clang: '챙!', thud: '쿵!', whoosh: '슝!' },
+  en: { bonk: 'BOINK!', spill: 'SPILL!', jackpot: 'JACKPOT!', homeRun: 'HOME RUN!', robbed: 'LOOTED!', clang: 'CLANG!', thud: 'THUD!', whoosh: 'WHOOSH!' },
+};
+
+/** Per-stamp colours: burst outer / inner, lettering gradient top / bottom, drop shade, size. */
+const STAMP_STYLE: Readonly<Record<StampKey, { burst: string; burst2: string; top: string; bottom: string; drop: string; size: number; spikes: number }>> = {
+  bonk: { burst: '#FF6F91', burst2: '#FFB3C8', top: '#FFFFFF', bottom: '#FFE3EC', drop: '#B5345A', size: 1.5, spikes: 12 },
+  spill: { burst: '#F6C64F', burst2: '#FFE7A1', top: '#FFF6B0', bottom: '#FFB13D', drop: '#9C6A12', size: 1.7, spikes: 16 },
+  jackpot: { burst: '#FF6F91', burst2: '#FFD45C', top: '#FFF6B0', bottom: '#FFC23D', drop: '#9C3A12', size: 2.5, spikes: 18 },
+  homeRun: { burst: '#E8505B', burst2: '#FFD45C', top: '#FFFFFF', bottom: '#FFE7A1', drop: '#8A1F2A', size: 2.4, spikes: 14 },
+  robbed: { burst: '#B9A3F0', burst2: '#FFD45C', top: '#FFF6B0', bottom: '#FFD23F', drop: '#5B3A9C', size: 2.2, spikes: 16 },
+  clang: { burst: '#DCE1EA', burst2: '#FFFFFF', top: '#FFFFFF', bottom: '#FFF2A8', drop: '#5F6779', size: 1.4, spikes: 10 },
+  thud: { burst: '#C08A5A', burst2: '#E2B485', top: '#FFF3DE', bottom: '#F2D6B0', drop: '#6E4A30', size: 1.5, spikes: 8 },
+  whoosh: { burst: '#8FE3C8', burst2: '#DFF8EF', top: '#FFFFFF', bottom: '#DFF8EF', drop: '#2F9479', size: 1.5, spikes: 10 },
+};
+
+function drawStamp(ctx: CanvasRenderingContext2D, w: number, h: number, key: StampKey | 'flash', text: string): void {
+  ctx.clearRect(0, 0, w, h);
+  const cx = w / 2;
+  const cy = h / 2 + 4;
+  const st = key === 'flash' ? null : STAMP_STYLE[key];
+  const spikes = st?.spikes ?? 10;
+  const burst = (r0: number, r1: number, sx: number, sy: number): void => {
+    ctx.beginPath();
+    for (let i = 0; i <= spikes * 2; i++) {
+      const a = (i / (spikes * 2)) * Math.PI * 2 - Math.PI / 2;
+      const r = i % 2 ? r0 : r1;
+      const x = cx + Math.cos(a) * r * sx;
+      const y = cy + Math.sin(a) * r * sy;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+  };
+  ctx.lineJoin = 'round';
+  if (!st) {
+    // Impact flash card: white jagged burst with a pink ink edge (no text).
+    burst(54, 118, 1.0, 1.0);
+    ctx.lineWidth = 10;
+    ctx.strokeStyle = '#FF6F91';
+    ctx.stroke();
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fill();
+    burst(28, 70, 1.0, 1.0);
+    ctx.fillStyle = '#FFF2A8';
+    ctx.fill();
+    return;
+  }
+  const sx = 1.75;
+  const sy = 0.8;
+  burst(72, 112, sx, sy);
+  ctx.lineWidth = 16;
+  ctx.strokeStyle = '#FFFFFF';
+  ctx.stroke();
+  ctx.lineWidth = 7;
+  ctx.strokeStyle = '#2A2131';
+  ctx.stroke();
+  ctx.fillStyle = st.burst;
+  ctx.fill();
+  burst(58, 92, sx, sy);
+  ctx.fillStyle = st.burst2;
+  ctx.fill();
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(-0.07);
+  const size = text.length > 6 ? 62 : text.length > 4 ? 76 : 96;
+  ctx.font = `bold ${size}px ${FONT_STACK}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round';
+  const maxW = w - 70;
+  const m = ctx.measureText(text).width;
+  if (m > maxW) ctx.scale(maxW / m, 1);
+  ctx.lineWidth = 28;
+  ctx.strokeStyle = '#FFFFFF';
+  ctx.strokeText(text, 0, 4);
+  ctx.lineWidth = 14;
+  ctx.strokeStyle = '#2A2131';
+  ctx.strokeText(text, 0, 4);
+  ctx.fillStyle = st.drop;
+  ctx.fillText(text, 0, 10);
+  const g = ctx.createLinearGradient(0, -size / 2, 0, size / 2);
+  g.addColorStop(0, st.top);
+  g.addColorStop(1, st.bottom);
+  ctx.fillStyle = g;
+  ctx.fillText(text, 0, 4);
+  ctx.restore();
+}
+
+interface StampSlot {
+  sprite: THREE.Sprite;
+  mat: THREE.SpriteMaterial;
+  age: number;
+  life: number;
+  size: number;
+  aspect: number;
+  x: number;
+  y: number;
+  z: number;
+  spin: number;
+  flash: boolean;
+}
+
+/**
+ * Pooled world stamps (sprites over the action, depth-test off): slam in with overshoot,
+ * wobble, float up and pop away (~0.95 s; flash cards ~0.2 s). Textures are cached per key and
+ * language; sprite materials are allocated once per slot.
+ */
+export class StampPool {
+  readonly root = new THREE.Group();
+  calm = false;
+  lang: 'ko' | 'en' = 'ko';
+  private readonly slots: StampSlot[] = [];
+  private readonly textures = new Map<string, THREE.Texture>();
+  private cursor = 0;
+
+  constructor(capacity: number) {
+    this.root.name = 'stamps';
+    for (let i = 0; i < capacity; i++) {
+      const mat = new THREE.SpriteMaterial({ transparent: true, depthTest: false, depthWrite: false, toneMapped: false });
+      const sprite = new THREE.Sprite(mat);
+      sprite.visible = false;
+      sprite.renderOrder = 31;
+      sprite.userData.noOutline = true;
+      sprite.raycast = () => {};
+      this.root.add(sprite);
+      this.slots.push({ sprite, mat, age: 0, life: 0, size: 1, aspect: 0.5, x: 0, y: 0, z: 0, spin: 1, flash: false });
+    }
+  }
+
+  private texture(key: StampKey | 'flash'): THREE.Texture {
+    const lang = this.lang;
+    const id = key === 'flash' ? 'flash' : `${key}|${lang}`;
+    let t = this.textures.get(id);
+    if (!t) {
+      const text = key === 'flash' ? '' : STAMP_TEXT[lang][key];
+      t = key === 'flash' ? makeCanvasTexture(256, 256, (ctx, w, h) => drawStamp(ctx, w, h, key, text), { mipmaps: false }) : makeCanvasTexture(512, 256, (ctx, w, h) => drawStamp(ctx, w, h, key, text), { fontText: text, mipmaps: false });
+      this.textures.set(id, t);
+    }
+    return t;
+  }
+
+  private take(): StampSlot {
+    // Prefer a free slot; otherwise recycle the oldest.
+    for (let k = 0; k < this.slots.length; k++) {
+      const s = this.slots[(this.cursor + k) % this.slots.length]!;
+      if (!s.sprite.visible) {
+        this.cursor = (this.cursor + k + 1) % this.slots.length;
+        return s;
+      }
+    }
+    let oldest = this.slots[0]!;
+    for (const s of this.slots) if (s.age / s.life > oldest.age / oldest.life) oldest = s;
+    return oldest;
+  }
+
+  show(key: StampKey, x: number, y: number, z: number, scale = 1): void {
+    const s = this.take();
+    s.mat.map = this.texture(key);
+    s.mat.needsUpdate = true;
+    s.sprite.visible = true;
+    s.age = 0;
+    s.life = 0.95;
+    // World size at the default match camera (~1.4x the sticker's design size).
+    s.size = STAMP_STYLE[key].size * 1.4 * scale;
+    s.aspect = 0.5;
+    s.x = x;
+    s.y = y;
+    s.z = z;
+    s.spin = Math.random() < 0.5 ? -1 : 1;
+    s.flash = false;
+  }
+
+  /** Short impact flash card (no text). */
+  flash(x: number, y: number, z: number, size: number): void {
+    const s = this.take();
+    s.mat.map = this.texture('flash');
+    s.mat.needsUpdate = true;
+    s.sprite.visible = true;
+    s.age = 0;
+    s.life = 0.2;
+    s.size = size;
+    s.aspect = 1;
+    s.x = x;
+    s.y = y;
+    s.z = z;
+    s.spin = Math.random() * 6;
+    s.flash = true;
+  }
+
+  get count(): number {
+    let n = 0;
+    for (const s of this.slots) if (s.sprite.visible) n++;
+    return n;
+  }
+
+  update(dt: number): void {
+    for (const s of this.slots) {
+      if (!s.sprite.visible) continue;
+      s.age += dt;
+      const t = s.age;
+      if (t >= s.life) {
+        s.sprite.visible = false;
+        continue;
+      }
+      if (s.flash) {
+        const k = t / s.life;
+        const sc = s.size * (0.6 + 0.6 * k);
+        s.sprite.scale.set(sc, sc, 1);
+        s.mat.opacity = 1 - k * k;
+        s.mat.rotation = s.spin;
+        s.sprite.position.set(s.x, s.y, s.z);
+        continue;
+      }
+      let sc: number;
+      if (t < 0.12) sc = 0.25 + 1.1 * (1 - Math.pow(1 - t / 0.12, 3));
+      else if (t < 0.24) sc = 1.35 - 0.35 * ((t - 0.12) / 0.12);
+      else sc = 1 + (this.calm ? 0 : 0.035 * Math.sin(t * 13));
+      let alpha = 1;
+      let rise = t > 0.24 ? (t - 0.24) * 0.55 : 0;
+      if (t > s.life - 0.2) {
+        const k = (s.life - t) / 0.2;
+        sc *= 0.7 + 0.3 * k + (1 - k) * 0.25;
+        alpha = k;
+        rise += (1 - k) * 0.4;
+      }
+      s.mat.opacity = alpha;
+      s.mat.rotation = this.calm ? 0 : s.spin * (t < 0.24 ? 0.2 * (1 - t / 0.24) : 0.03 * Math.sin(t * 7));
+      s.sprite.scale.set(s.size * sc, s.size * s.aspect * sc, 1);
+      s.sprite.position.set(s.x, s.y + rise, s.z);
+    }
+  }
+
+  clear(): void {
+    for (const s of this.slots) s.sprite.visible = false;
+  }
+
+  dispose(): void {
+    this.clear();
+    for (const s of this.slots) s.mat.dispose();
+    for (const t of this.textures.values()) t.dispose();
+    this.textures.clear();
+    this.root.removeFromParent();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Content 2.0 (C7a): hazard decals (soap slick, sneeze smoke)
+// ---------------------------------------------------------------------------
+
+let slickTex: THREE.Texture | null = null;
+function slickTexture(): THREE.Texture {
+  if (slickTex) return slickTex;
+  slickTex = makeCanvasTexture(
+    256,
+    256,
+    (ctx, w, h) => {
+      ctx.clearRect(0, 0, w, h);
+      const cx = w / 2;
+      const cy = h / 2;
+      // Lumpy soapy puddle: lilac-white blob with a bright rim.
+      ctx.beginPath();
+      for (let i = 0; i <= 40; i++) {
+        const a = (i / 40) * Math.PI * 2;
+        const r = 108 + Math.sin(a * 5) * 7 + Math.sin(a * 3 + 1) * 6;
+        const x = cx + Math.cos(a) * r;
+        const y = cy + Math.sin(a) * r;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      const g = ctx.createRadialGradient(cx - 20, cy - 20, 10, cx, cy, 120);
+      g.addColorStop(0, 'rgba(255,255,255,0.92)');
+      g.addColorStop(0.7, 'rgba(226,214,255,0.85)');
+      g.addColorStop(1, 'rgba(196,178,250,0.8)');
+      ctx.fillStyle = g;
+      ctx.fill();
+      ctx.lineWidth = 6;
+      ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+      ctx.stroke();
+      // Bubble rings + shine streaks.
+      const bubbles: [number, number, number][] = [
+        [-50, -30, 18],
+        [40, -50, 12],
+        [55, 30, 20],
+        [-30, 55, 14],
+        [10, 5, 9],
+        [-70, 20, 8],
+        [75, -10, 7],
+      ];
+      for (const [x, y, r] of bubbles) {
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = 'rgba(140,120,220,0.7)';
+        ctx.beginPath();
+        ctx.arc(cx + x, cy + y, r, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(255,255,255,0.9)';
+        ctx.beginPath();
+        ctx.arc(cx + x - r * 0.35, cy + y - r * 0.35, r * 0.25, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    },
+    { mipmaps: true },
+  );
+  return slickTex;
+}
+
+/** A soap slick on the ground: shimmering puddle decal plus a few wobbling bubbles. */
+export class SlickDecal {
+  readonly root = new THREE.Group();
+  private readonly decal: THREE.Mesh;
+  private readonly mat: THREE.MeshBasicMaterial;
+  private readonly bubbles: THREE.Mesh[] = [];
+  private static bubbleGeo: THREE.BufferGeometry | null = null;
+  private static bubbleMat: THREE.MeshBasicMaterial | null = null;
+
+  constructor() {
+    this.root.name = 'slick';
+    this.mat = new THREE.MeshBasicMaterial({ map: slickTexture(), transparent: true, depthWrite: false, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
+    this.decal = new THREE.Mesh(new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2), this.mat);
+    this.decal.position.y = 0.02;
+    this.decal.renderOrder = 2;
+    this.decal.userData.noOutline = true;
+    this.root.add(this.decal);
+    if (!SlickDecal.bubbleGeo) SlickDecal.bubbleGeo = new THREE.SphereGeometry(1, 12, 8);
+    if (!SlickDecal.bubbleMat) SlickDecal.bubbleMat = new THREE.MeshBasicMaterial({ color: '#F4EEFF', transparent: true, opacity: 0.55, depthWrite: false, toneMapped: false });
+    for (let i = 0; i < 5; i++) {
+      const b = new THREE.Mesh(SlickDecal.bubbleGeo, SlickDecal.bubbleMat);
+      b.userData.noOutline = true;
+      this.root.add(b);
+      this.bubbles.push(b);
+    }
+  }
+
+  /** Pose: center, radius, 0..1 opacity (fade in / out), clock (s). */
+  set(x: number, z: number, radius: number, alpha: number, time: number): void {
+    this.root.position.set(x, 0, z);
+    this.decal.scale.set(radius, 1, radius);
+    this.decal.rotation.y = Math.sin(time * 0.6) * 0.05;
+    this.mat.opacity = alpha;
+    this.bubbles.forEach((b, i) => {
+      const a = i * 1.26 + time * 0.3;
+      const r = radius * (0.25 + 0.15 * i);
+      const s = (0.07 + 0.03 * (i % 3)) * (0.8 + 0.2 * Math.sin(time * 3 + i)) * alpha;
+      b.position.set(Math.cos(a) * r, 0.05 + s, Math.sin(a) * r);
+      b.scale.setScalar(Math.max(0.001, s));
+    });
+  }
+
+  dispose(): void {
+    this.decal.geometry.dispose();
+    this.mat.dispose();
+    this.root.removeFromParent();
+  }
+}
+
+/** A sneeze-smoke cloud: a cluster of soft pastel puffs that churn slowly (wave 3 item). */
+export class SmokeCloud {
+  readonly root = new THREE.Group();
+  private readonly puffs: THREE.Mesh[] = [];
+  private readonly mat: THREE.MeshToonMaterial;
+
+  constructor() {
+    this.root.name = 'smoke';
+    this.mat = createToonMaterial({ color: '#E9E2F0', transparent: true, opacity: 0.8, rim: 0.5, depthWrite: false });
+    for (let i = 0; i < 9; i++) {
+      const m = new THREE.Mesh(G.ico(1), this.mat);
+      m.userData.noOutline = true;
+      m.castShadow = false;
+      this.root.add(m);
+      this.puffs.push(m);
+    }
+  }
+
+  set(x: number, z: number, radius: number, alpha: number, time: number): void {
+    this.root.position.set(x, 0, z);
+    this.mat.opacity = 0.8 * alpha;
+    this.puffs.forEach((m, i) => {
+      const a = (i / this.puffs.length) * Math.PI * 2 + time * 0.25;
+      const r = i === 0 ? 0 : radius * (0.45 + 0.2 * Math.sin(i * 2.1));
+      const s = radius * (0.38 + 0.08 * Math.sin(time * 1.3 + i)) * (0.4 + 0.6 * alpha);
+      m.position.set(Math.cos(a) * r, s * 0.7 + 0.1, Math.sin(a) * r);
+      m.scale.set(s, s * 0.8, s);
+    });
+  }
+
+  dispose(): void {
+    this.mat.dispose();
     this.root.removeFromParent();
   }
 }

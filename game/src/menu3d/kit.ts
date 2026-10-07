@@ -755,3 +755,357 @@ export function contactShadow(w: number, d: number, opacity = 0.32): THREE.Mesh 
 export function contactShadowMaterial(): THREE.Material | null {
   return shadowMat;
 }
+
+// ---------------------------------------------------------------------------------------------
+// Front door props (C10): rooftop marquee sign, squeaky toy hammer, big red button
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Canvas texture for the marquee face: the wordmark in chunky sun-yellow letters with an ink
+ * outline and a stacked hard shadow, a tomato ribbon with the English name, on a dotted plum
+ * panel. Redraws once the Jua glyphs are loaded (the canvas falls back to the font stack first).
+ */
+export function marqueeTexture(title: string, sub: string, o: { width?: number; height?: number } = {}): THREE.CanvasTexture {
+  const W = o.width ?? 1024;
+  const H = o.height ?? 420;
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const g = c.getContext('2d');
+  const stack = '"Jua", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif';
+  const draw = (): void => {
+    if (!g) return;
+    g.clearRect(0, 0, W, H);
+    const bg = g.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, '#4A3590');
+    bg.addColorStop(1, '#2B1F5C');
+    g.fillStyle = bg;
+    g.fillRect(0, 0, W, H);
+    // dot grid (marquee panel)
+    g.fillStyle = 'rgba(255, 246, 230, 0.07)';
+    for (let y = 14; y < H; y += 26) for (let x = 14 + ((y / 26) % 2) * 13; x < W; x += 26) g.fillRect(x - 2.5, y - 2.5, 5, 5);
+    // warm glow behind the letters
+    const glow = g.createRadialGradient(W / 2, H * 0.42, 10, W / 2, H * 0.42, W * 0.55);
+    glow.addColorStop(0, 'rgba(255, 196, 92, 0.38)');
+    glow.addColorStop(1, 'rgba(255, 196, 92, 0)');
+    g.fillStyle = glow;
+    g.fillRect(0, 0, W, H);
+    // wordmark: each syllable tilted a little differently, like stuck-on sign letters
+    const chars = Array.from(title);
+    let size = Math.round(H * 0.5);
+    g.font = `${size}px ${stack}`;
+    const measure = (): number => chars.reduce((s, ch) => s + (ch === ' ' ? size * 0.28 : g.measureText(ch).width * 1.02), 0);
+    while (measure() > W * 0.9 && size > 40) {
+      size -= 4;
+      g.font = `${size}px ${stack}`;
+    }
+    const total = measure();
+    let x = (W - total) / 2;
+    const baseY = H * 0.6;
+    const tilts = [-0.08, 0.05, -0.03, 0, 0.06, -0.05, 0.04];
+    const lifts = [0, -0.04, 0.02, 0, -0.03, 0.03, -0.02];
+    g.lineJoin = 'round';
+    g.textBaseline = 'alphabetic';
+    chars.forEach((ch, i) => {
+      if (ch === ' ') {
+        x += size * 0.28;
+        return;
+      }
+      const w = g.measureText(ch).width * 1.02;
+      g.save();
+      g.translate(x + w / 2, baseY + lifts[i % lifts.length]! * size);
+      g.rotate(tilts[i % tilts.length]!);
+      // stacked hard shadow
+      g.fillStyle = POP.ink;
+      for (let k = 4; k >= 1; k--) g.fillText(ch, -w / 2 + k * size * 0.022, k * size * 0.03);
+      g.lineWidth = size * 0.16;
+      g.strokeStyle = POP.ink;
+      g.strokeText(ch, -w / 2, 0);
+      g.fillStyle = i % 4 === 1 ? '#FFB21E' : i >= chars.indexOf(' ') && chars.indexOf(' ') > 0 ? POP.cream : POP.sun;
+      g.fillText(ch, -w / 2, 0);
+      // little shine on top of each letter
+      g.globalAlpha = 0.35;
+      g.fillStyle = '#FFFFFF';
+      g.fillRect(-w * 0.32, -size * 0.66, w * 0.18, size * 0.07);
+      g.globalAlpha = 1;
+      g.restore();
+      x += w;
+    });
+    // ribbon
+    const rw = W * 0.5;
+    const rh = H * 0.17;
+    const rx = (W - rw) / 2;
+    const ry = H * 0.73;
+    g.save();
+    g.translate(W / 2, ry + rh / 2);
+    g.rotate(-0.025);
+    g.translate(-W / 2, -(ry + rh / 2));
+    g.fillStyle = POP.ink;
+    g.beginPath();
+    g.moveTo(rx - 26, ry + 8);
+    g.lineTo(rx + rw + 26, ry + 8);
+    g.lineTo(rx + rw + 8, ry + rh / 2 + 8);
+    g.lineTo(rx + rw + 26, ry + rh + 8);
+    g.lineTo(rx - 26, ry + rh + 8);
+    g.lineTo(rx - 8, ry + rh / 2 + 8);
+    g.closePath();
+    g.fill();
+    g.fillStyle = POP.tomato;
+    g.strokeStyle = POP.ink;
+    g.lineWidth = 6;
+    g.beginPath();
+    g.moveTo(rx - 30, ry);
+    g.lineTo(rx + rw + 30, ry);
+    g.lineTo(rx + rw + 12, ry + rh / 2);
+    g.lineTo(rx + rw + 30, ry + rh);
+    g.lineTo(rx - 30, ry + rh);
+    g.lineTo(rx - 12, ry + rh / 2);
+    g.closePath();
+    g.fill();
+    g.stroke();
+    g.fillStyle = POP.cream;
+    g.font = `${Math.round(rh * 0.62)}px ${stack}`;
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    const spaced = Array.from(sub).join(' ');
+    g.fillText(spaced, W / 2, ry + rh * 0.54);
+    g.restore();
+  };
+  draw();
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  if (typeof document !== 'undefined' && document.fonts) {
+    void document.fonts
+      .load(`64px "Jua"`, title + sub)
+      .then((faces) => {
+        if (!faces.length) return;
+        draw();
+        tex.needsUpdate = true;
+      })
+      .catch(() => undefined);
+  }
+  return tex;
+}
+
+export interface MarqueeSign {
+  /** Root (origin on the roof between the legs; the face looks down +Z). */
+  readonly group: THREE.Group;
+  /** The lit face quad (screen bounds are measured from it). */
+  readonly face: THREE.Mesh;
+  /** Pivot the little hanging safe swings from (scene attaches a safe rig to it). */
+  readonly safePivot: THREE.Group;
+  /** Animate the bulb chase (t = seconds; `flash` 0..1 lights every bulb at once). */
+  update(t: number, reducedMotion: boolean, flash?: number): void;
+  dispose(): void;
+}
+
+/**
+ * Rooftop marquee billboard for the front door: a tomato cabinet with the wordmark face
+ * (`marqueeTexture`), a ring of chasing bulbs, lattice legs, a fringe of roots dangling from the
+ * bottom edge (the "뿌리째" motif) and a pivot for a small safe swinging on two chains.
+ * Bulbs are one unlit vertex-coloured mesh (one draw call); the cabinet, legs and roots are one
+ * baked prop. Reduced motion: the bulbs glow steadily (no chase).
+ */
+export function marqueeSign(tex: THREE.Texture, o: { width?: number; height?: number; legHeight?: number } = {}): MarqueeSign {
+  const W = o.width ?? 7.2;
+  const H = o.height ?? 2.95;
+  const legH = o.legHeight ?? 1.9;
+  const cy = legH + H / 2;
+  const r = rng(77);
+  const b = new PropBuilder();
+  // cabinet + inner recess + top crest
+  b.add(roundBox(W + 0.62, H + 0.62, 0.42, 0.14), POP.tomato, [0, cy, 0]);
+  b.add(roundBox(W + 0.18, H + 0.18, 0.12, 0.05), POP.ink, [0, cy, 0.2]);
+  b.add(roundBox(W * 0.34, 0.36, 0.3, 0.12), POP.sun, [0, cy + H / 2 + 0.38, 0.02]);
+  b.add(roundBox(W * 0.34 + 0.12, 0.12, 0.34, 0.05), POP.sunDark, [0, cy + H / 2 + 0.2, 0.02]);
+  // lattice legs (two A-frames) + braces
+  for (const sx of [-1, 1]) {
+    const x = sx * W * 0.3;
+    for (const dz of [-0.45, 0.25]) b.add(cyl(0.07, 0.08, legH + 0.3, 8), POP.steelDark, [x, (legH + 0.3) / 2, dz - 0.1]);
+    for (let k = 0; k < 3; k++) {
+      const y = 0.35 + k * 0.55;
+      b.add(roundBox(0.06, 0.06, 0.78, 0.02), POP.steel, [x, y, -0.2], { rot: [k % 2 ? 0.55 : -0.55, 0, 0] });
+    }
+    b.add(roundBox(0.5, 0.12, 0.9, 0.04), POP.steelDark, [x, 0.06, -0.15]);
+  }
+  b.add(roundBox(W * 0.62, 0.08, 0.08, 0.02), POP.steel, [0, legH * 0.55, -0.42]);
+  // soil lip + roots dangling from the bottom edge
+  const by = cy - H / 2 - 0.3;
+  for (let i = 0; i < 9; i++) {
+    const x = -W / 2 + 0.3 + (i / 8) * (W - 0.6) + (r() - 0.5) * 0.2;
+    b.add(ball(0.2 + r() * 0.14, 9), i % 2 ? POP.soil : POP.soilDark, [x, by + 0.05, 0.08 + r() * 0.1], { scale: [1.5, 0.8, 1] });
+  }
+  const rootXs = [-0.44, -0.33, -0.2, -0.06, 0.07, 0.17];
+  rootXs.forEach((fx, i) => {
+    const start = new THREE.Vector3(fx * W, by, 0.12);
+    const pts = [start];
+    let p = start.clone();
+    const len = 3 + Math.floor(r() * 2);
+    for (let k = 0; k < len; k++) {
+      p = p.clone().add(new THREE.Vector3((r() - 0.5) * 0.36, -0.22 - r() * 0.18, (r() - 0.5) * 0.12 + 0.03));
+      pts.push(p);
+    }
+    b.add(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 14, 0.055 + r() * 0.03, 6, false), i % 2 ? '#B9774A' : '#9C6440');
+    // a hair root off the side
+    const mid = pts[Math.min(2, pts.length - 1)]!;
+    const side = [mid, mid.clone().add(new THREE.Vector3(r() < 0.5 ? -0.22 : 0.22, -0.12, 0.02)), mid.clone().add(new THREE.Vector3(r() < 0.5 ? -0.3 : 0.3, -0.3, 0.04))];
+    b.add(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(side), 8, 0.03, 5, false), '#C98B55');
+  });
+  // hook bar for the swinging safe
+  const hookX = W * 0.33;
+  b.add(roundBox(0.9, 0.1, 0.1, 0.03), POP.steelDark, [hookX, by + 0.02, 0.18]);
+  const group = b.build('prop:marquee');
+
+  // lit face
+  const faceMat = new THREE.MeshBasicMaterial({ map: tex, toneMapped: false, fog: false });
+  faceMat.name = 'menu3d:marqueeFace';
+  const face = new THREE.Mesh(new THREE.PlaneGeometry(W, H), faceMat);
+  face.name = 'menu3d:marqueeFace';
+  face.position.set(0, cy, 0.27);
+  face.userData.noBatch = true;
+  face.userData.noOutline = true;
+  group.add(face);
+
+  // bulbs around the cabinet rim (front face), clockwise from the top-left corner
+  const bulbGeos: THREE.BufferGeometry[] = [];
+  const counts: number[] = [];
+  const hw = W / 2 + 0.16;
+  const hh = H / 2 + 0.16;
+  const per = 2 * (2 * hw + 2 * hh);
+  const n = Math.round(per / 0.36);
+  const pos = (s: number): [number, number] => {
+    let d = s * per;
+    if (d < 2 * hw) return [-hw + d, hh];
+    d -= 2 * hw;
+    if (d < 2 * hh) return [hw, hh - d];
+    d -= 2 * hh;
+    if (d < 2 * hw) return [hw - d, -hh];
+    d -= 2 * hw;
+    return [-hw, -hh + d];
+  };
+  for (let i = 0; i < n; i++) {
+    const [x, y] = pos(i / n);
+    const gb = new THREE.SphereGeometry(0.085, 8, 6).toNonIndexed();
+    gb.deleteAttribute('uv');
+    gb.translate(x, cy + y, 0.25);
+    counts.push(gb.attributes.position.count);
+    bulbGeos.push(gb);
+  }
+  const merged = mergeGeometries(bulbGeos, false)!;
+  for (const gb of bulbGeos) gb.dispose();
+  const colArr = new Float32Array(merged.attributes.position.count * 3);
+  merged.setAttribute('color', new THREE.BufferAttribute(colArr, 3));
+  const bulbs = new THREE.Mesh(merged, bulbVCMaterial());
+  bulbs.name = 'prop:marqueeBulbs';
+  bulbs.userData.noOutline = true;
+  bulbs.userData.noBatch = true;
+  group.add(bulbs);
+  const bright = new THREE.Color('#FFF1B8');
+  const dim = new THREE.Color('#B9763A');
+  const warm = new THREE.Color('#FFD36B');
+  const tmp = new THREE.Color();
+  let lastStep = -1;
+  let lastFlash = -1;
+  const update = (t: number, rm: boolean, flash = 0): void => {
+    const step = rm ? 0 : Math.floor(t * 9);
+    const fl = Math.round(flash * 20) / 20;
+    if (step === lastStep && fl === lastFlash) return;
+    lastStep = step;
+    lastFlash = fl;
+    let v = 0;
+    for (let i = 0; i < n; i++) {
+      if (rm) tmp.copy(warm);
+      else tmp.copy((i + step) % 3 === 0 ? bright : dim);
+      if (fl > 0) tmp.lerp(bright, fl);
+      for (let j = 0; j < counts[i]!; j++, v++) {
+        colArr[v * 3] = tmp.r;
+        colArr[v * 3 + 1] = tmp.g;
+        colArr[v * 3 + 2] = tmp.b;
+      }
+    }
+    (merged.attributes.color as THREE.BufferAttribute).needsUpdate = true;
+  };
+  update(0, false);
+
+  const safePivot = new THREE.Group();
+  safePivot.name = 'menu3d:marqueeSafePivot';
+  safePivot.position.set(hookX, by, 0.2);
+  group.add(safePivot);
+
+  return {
+    group,
+    face,
+    safePivot,
+    update,
+    dispose: () => {
+      merged.dispose();
+      face.geometry.dispose();
+      faceMat.dispose();
+      tex.dispose();
+      disposeProp(group);
+    },
+  };
+}
+
+/**
+ * 뿅망치 (squeaky toy hammer): a fat accordion head (alternating tomato / sun pleats between two
+ * cream bumpers) on a chunky striped handle. Original shape: the head is a squat bellows drum,
+ * not a mallet from any game. Grip at the origin, handle along +Y, head axis along X.
+ */
+export function squeakyHammer(len = 0.62, o: { gold?: boolean } = {}): THREE.Group {
+  const b = new PropBuilder();
+  const gold = o.gold === true;
+  const a = gold ? '#FFC21F' : POP.tomato;
+  const c2 = gold ? '#FFE88A' : POP.sun;
+  const cap = gold ? '#FFF1B8' : POP.cream;
+  const handle = gold ? '#E0A417' : POP.sun;
+  const hr = len * 0.07;
+  b.add(cyl(hr, hr * 1.1, len, 10), handle, [0, len / 2, 0]);
+  for (let k = 0; k < 3; k++) b.add(cyl(hr * 1.18, hr * 1.18, len * 0.06, 10), a, [0, len * (0.12 + k * 0.11), 0]);
+  b.add(ball(hr * 1.4, 10), a, [0, 0, 0]);
+  const headR = len * 0.26;
+  const headL = len * 0.62;
+  const pleats = 7;
+  for (let k = 0; k < pleats; k++) {
+    const x = -headL / 2 + (k + 0.5) * (headL / pleats);
+    const rr = headR * (k % 2 ? 0.88 : 1);
+    b.add(cyl(rr, rr, headL / pleats + 0.004, 18), k % 2 ? c2 : a, [x, len + headR * 0.6, 0], { rot: [0, 0, Math.PI / 2] });
+  }
+  for (const sx of [-1, 1]) {
+    b.add(cyl(headR * 1.05, headR * 1.05, len * 0.07, 20), cap, [sx * (headL / 2 + len * 0.035), len + headR * 0.6, 0], { rot: [0, 0, Math.PI / 2] });
+    b.add(cyl(headR * 0.45, headR * 0.45, len * 0.03, 14), a, [sx * (headL / 2 + len * 0.075), len + headR * 0.6, 0], { rot: [0, 0, Math.PI / 2] });
+  }
+  return b.build(gold ? 'prop:goldHammer' : 'prop:squeakyHammer', { castShadow: false });
+}
+
+export interface BigButton {
+  readonly group: THREE.Group;
+  /** The red cap (scaled for the press squash). */
+  readonly cap: THREE.Group;
+  dispose(): void;
+}
+
+/** Big red arcade-style push button on a steel pedestal plate (snack-table safe "GO" button). */
+export function bigRedButton(size = 0.42): BigButton {
+  const base = new PropBuilder();
+  base.add(roundBox(size * 1.5, size * 0.18, size * 1.5, 0.04), POP.steel, [0, size * 0.09, 0]);
+  base.add(cyl(size * 0.62, size * 0.68, size * 0.18, 20), POP.ink, [0, size * 0.26, 0]);
+  for (const [x, z] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) base.add(ball(size * 0.06, 6), POP.steelDark, [x * size * 0.6, size * 0.19, z * size * 0.6]);
+  const group = base.build('prop:bigButton');
+  const capB = new PropBuilder();
+  capB.add(cyl(size * 0.5, size * 0.55, size * 0.22, 22), POP.tomato, [0, size * 0.11, 0]);
+  capB.add(ball(size * 0.5, 18), POP.tomato, [0, size * 0.2, 0], { scale: [1, 0.45, 1] });
+  capB.add(ball(size * 0.14, 8), '#FFB0A8', [-size * 0.18, size * 0.36, -size * 0.12], { scale: [1, 0.4, 1] });
+  const cap = capB.build('prop:bigButtonCap');
+  cap.position.y = size * 0.34;
+  group.add(cap);
+  return {
+    group,
+    cap,
+    dispose: () => {
+      disposeProp(cap);
+      disposeProp(group);
+    },
+  };
+}

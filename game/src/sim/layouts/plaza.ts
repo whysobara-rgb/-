@@ -18,6 +18,7 @@
  * Authored for the west half; the builder mirrors everything to the east half.
  * The layout is also north/south symmetric (helper `ns`), with different shops.
  */
+import { BREAKABLE_SPECS, PROP_SPECS } from '../config';
 import { LayoutBuilder } from './builder';
 import type { LayoutDesignMeta } from './meta';
 import type { LayoutDef } from '../types';
@@ -41,6 +42,10 @@ const DOCK_HALF = 1.75; // 1.05 m beside the large safe: no raccoon-wide pocket 
 const DOCK_DEPTH = 2;
 /** Large safe in the dock: 1.05 m from the back wall (it pokes 0.25 m into the service lane). */
 const DOCK_SAFE_Y = 2.5 + DOCK_DEPTH - 0.6 - 1.05;
+/** (v2) Half depth of the ATM (PROP_SPECS.atm.half.y): it stands flush on a shop front. */
+const PROPS_ATM_DEPTH = PROP_SPECS.atm.half.y;
+/** (v2) Gap that counts as flush with a wall (validator: <= POCKET_FLUSH, > overlap margin). */
+const FLUSH = 0.06;
 
 function build(): { def: LayoutDef; meta: LayoutDesignMeta } {
   const b = new LayoutBuilder({
@@ -202,6 +207,25 @@ function build(): { def: LayoutDef; meta: LayoutDesignMeta } {
   // Cars pull up at the curb outside the north edge (wave 1) and the south edge (wave 2) on the
   // mirror axis; officers hop the fence into the post-office service lane (never parked on it).
   b.policeCurbs();
+
+  // --- Content 2.0 composition (content-plan §3.2; LayoutDef.v2, 4,000) -----------------------
+  // Retrofit of the classic loot: both dock large safes and the NW corner-nook small safe stay;
+  // the fountain-north small safe becomes the 대왕 돼지저금통 (kickoff ball), the fountain-south one
+  // the 돈나무; the SW corner-nook small safe makes way for the ATM starter socket on the shop front
+  // right below the zone. Crates sit on each spawn's first path (north to the corner safe, south to
+  // the ATM); the 꿀꺽 vending machine leans on the park bed facing the fountain (contested middle).
+  b.v2Safe('largeSafe', AX, DOCK_SAFE_Y);
+  b.v2Safe('largeSafe', AX, H - DOCK_SAFE_Y);
+  b.v2Safe('smallSafe', 3.0, 13.5); // NW corner nook (kept)
+  b.prop('piggy', AX, 21.0); // fountain north: kickoff ball
+  b.prop('moneyTree', AX, 31.0, PI / 2); // fountain south (along the axis): careful-carry tree, 2.5 m flower road home
+  b.prop('atm', 5.5, H - 6.5 - FLUSH - PROPS_ATM_DEPTH, PI); // starter socket: flush on the flower shop front, facing the zone
+  b.breakable('crate.north', 'crate', 4.5, 19.0); // spawn 0's path to the corner safe
+  b.breakable('crate.south', 'crate', 3.0, 43.4); // spawn 1's path to the ATM
+  b.breakable('vending', 'vending', AX - 6 + FLUSH + BREAKABLE_SPECS.vending.half.y, 23.0, -PI / 2); // on the park bed, facing the fountain
+  b.itemPad('pad.flower', 21.5, 26); // flower road (서쪽 꽃길)
+  b.itemPad('pad.axis', AX, 34.0); // fountain south, by the bank front
+  b.eventSpot(AX, 18.75); // fountain north, on the boulevard edge
 
   return b.build(
     'Collection plaza: banks north/south of a central park must roll the long way along the boulevards and swing into the zones; ' +

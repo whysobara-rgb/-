@@ -13,12 +13,18 @@
 import type {
   BankPlacementDef,
   BankRouteDef,
+  BreakableDef,
+  BreakableKind,
   ChokepointDef,
   DecorDef,
   DecorKind,
   FenceDef,
+  ItemPadDef,
   LayoutDef,
+  LayoutV2Def,
   PoliceEntryDef,
+  PropPlacementDef,
+  PropVariant,
   LayoutId,
   SafeKind,
   SafePlacementDef,
@@ -31,7 +37,7 @@ import type {
   Vec2,
   ZoneDef,
 } from '../types';
-import { POLICE_CAR, ZONE_DEFAULT_HALF } from '../config';
+import { BREAKABLE_SPECS, POLICE_CAR, ZONE_DEFAULT_HALF } from '../config';
 import { EPS, mirrorAngle, mirrorPoint, normAngle } from './geometry';
 import type { LayoutDesignMeta, PathClass, PathSpec } from './meta';
 
@@ -81,6 +87,13 @@ export class LayoutBuilder {
   /** west fence id -> east fence id (identity for on-axis fences). */
   private readonly fenceMirror = new Map<string, string>();
   private readonly usedIds = new Set<string>();
+  // Content 2.0 composition (LayoutDef.v2): emitted only when at least one v2 call was made.
+  private v2Used = false;
+  private readonly v2Safes: SafePlacementDef[] = [];
+  private readonly v2Props: PropPlacementDef[] = [];
+  private readonly v2Breakables: BreakableDef[] = [];
+  private readonly v2Pads: ItemPadDef[] = [];
+  private readonly v2Spots: Vec2[] = [];
 
   constructor(private readonly opts: BuilderOptions) {
     this.axis = opts.size.x / 2;
@@ -318,6 +331,76 @@ export class LayoutBuilder {
     return this;
   }
 
+  // -------------------------------------------------------------------------
+  // Content 2.0 composition (content-plan §3.2; LayoutDef.v2). Like everything else, every
+  // off-axis call also emits the mirrored east twin. The classic fields are never touched, so a
+  // map's classic definition stays byte-identical when it gains a v2 composition.
+  // -------------------------------------------------------------------------
+
+  /** v2 outdoor safe (`LayoutV2Def.safes` replaces `LayoutDef.safes` under `content: 'v2'`). */
+  v2Safe(kind: SafeKind, x: number, y: number, angle = 0): this {
+    this.v2Used = true;
+    const a = normAngle(angle);
+    this.v2Safes.push({ kind, pos: { x, y }, angle: a });
+    if (this.twin(x)) this.v2Safes.push({ kind, pos: { x: this.mx(x), y }, angle: mirrorAngle(a) });
+    return this;
+  }
+
+  /** Prop loot (ATM / 돼지저금통 / 돈나무 / 황금 금고). A single prop must sit on the axis. */
+  prop(variant: PropVariant, x: number, y: number, angle = 0): this {
+    this.v2Used = true;
+    const a = normAngle(angle);
+    this.v2Props.push({ variant, pos: { x, y }, angle: a });
+    if (this.twin(x)) this.v2Props.push({ variant, pos: { x: this.mx(x), y }, angle: mirrorAngle(a) });
+    return this;
+  }
+
+  /** Breakable (나무 상자 / 자판기); its size comes from BREAKABLE_SPECS. Ids get `.w` / `.e` twins. */
+  breakable(id: string, kind: BreakableKind, x: number, y: number, angle = 0): this {
+    this.v2Used = true;
+    const a = normAngle(angle);
+    const half = BREAKABLE_SPECS[kind].half;
+    if (!this.twin(x)) {
+      this.v2Breakables.push({ id: this.claim(id), kind, center: { x, y }, half: { ...half }, angle: a });
+      return this;
+    }
+    this.v2Breakables.push({ id: this.claim(idW(id)), kind, center: { x, y }, half: { ...half }, angle: a });
+    this.v2Breakables.push({ id: this.claim(idE(id)), kind, center: { x: this.mx(x), y }, half: { ...half }, angle: mirrorAngle(a) });
+    return this;
+  }
+
+  /**
+   * Supply-balloon item pad. Off the axis it emits the mirrored pair `${id}.w` / `${id}.e`, each
+   * naming the other as its twin (the drop schedule always gives twins the same item); on the
+   * axis it is the single axis pad (`twin: null`, the 황금 뿅망치 pad).
+   */
+  itemPad(id: string, x: number, y: number): this {
+    this.v2Used = true;
+    if (!this.twin(x)) {
+      this.v2Pads.push({ id: this.claim(id), pos: { x, y }, twin: null });
+      return this;
+    }
+    const w = this.claim(idW(id));
+    const e = this.claim(idE(id));
+    this.v2Pads.push({ id: w, pos: { x, y }, twin: e });
+    this.v2Pads.push({ id: e, pos: { x: this.mx(x), y }, twin: w });
+    return this;
+  }
+
+  /**
+   * Event spot (index order matters: index 0 is the axis spot every loot event uses). Off-axis
+   * spots are added as a west / east pair.
+   */
+  eventSpot(x: number, y: number): this {
+    this.v2Used = true;
+    if (this.v2Spots.length === 0 && this.mirror && !this.onAxis(x)) {
+      throw new Error(`layout ${this.opts.id}: event spot 0 must sit on the mirror axis`);
+    }
+    this.v2Spots.push({ x, y });
+    if (this.twin(x)) this.v2Spots.push({ x: this.mx(x), y });
+    return this;
+  }
+
   build(intent: string): { def: LayoutDef; meta: LayoutDesignMeta } {
     const spawns: SpawnDef[] = [...this.spawns];
     if (this.mirror) {
@@ -347,6 +430,17 @@ export class LayoutBuilder {
     if (this.policeList.length > 0) {
       def.policeEntries = this.policeList;
       def.policeDispatch = 'nearestAlarm';
+    }
+    if (this.v2Used) {
+      const v2: LayoutV2Def = {
+        safes: this.v2Safes,
+        props: this.v2Props,
+        breakables: this.v2Breakables,
+        gimmicks: [],
+        itemPads: this.v2Pads,
+        eventSpots: this.v2Spots,
+      };
+      def.v2 = v2;
     }
     return { def, meta: { paths: this.pathList, intent } };
   }

@@ -14,6 +14,13 @@
  * banners center, captions above the carry tag. World labels / arrows / popups live on the
  * full-size 'world' layer. Taunts (owner addition): a small taunt chip beside the ping button and
  * the radial taunt wheel in the middle while it is held (setTauntWheel).
+ *
+ * [F4] Tension HUD: the decisive-load prompt ("이게 들어가면 끝!" / "막아야 해!", from
+ * HudModel.matchPoint; it outranks the last-bank warning in the same slot), the swing readout
+ * "역전까지 N · 남은 M" under the scoreboard (HudModel.swing), a crown that hops to the leading
+ * team's sticker (setLeader), moment stamps (stamp(kind, { key, sub })), the banner queue
+ * (banner() / queueBanner(), one centre plate at a time; the climax plate shrinks into the
+ * "도주 준비!" badge) and the final-10 s digit slam on the timer.
  */
 import type { LayoutDef, LootKind, TeamId } from '../../sim/types';
 import { TEAM_STYLES } from '../../shared/teams';
@@ -32,10 +39,23 @@ import { OffscreenArrows } from './OffscreenArrows';
 import { Banners, Captions, ScorePopups, Stamps } from './Effects';
 import { EmoteWheel, type EmoteWheelModel } from './EmoteWheel';
 import type { BannerKind, CaptionOptions, HudBank, HudFace, HudModel, HudStampKind, HudStampOptions, ScorePopupOptions, TutorialPromptModel } from './types';
+// [F4] tension HUD
+import type { HudBannerSpec } from './types';
+import { matchPointText, type HudMatchPoint, type HudSwing } from './tension';
+import '../styles/hud-tension.css';
 
 const DASH_R = 26;
 const DASH_C = 2 * Math.PI * DASH_R;
 const URGENT_SEC = 30;
+/** [F4] Final seconds whose digits slam (scale pulse only). */
+const SLAM_SEC = 10;
+/**
+ * [F4] A match-point prompt that drops for less than this (ms) stays up: a carrier re-gripping or
+ * knocked down for a moment (knockdown 0.7 s) is still the same decisive load, not a new prompt.
+ */
+const MP_HOLD_MS = 750;
+/** [F4] Crown (same line weight / caps as the icon set; drawn here, the shared set has none). */
+const CROWN_SVG = '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M3.5 17.5L2.8 7.6l5 3.9L12 4.5l4.2 7 5-3.9-.7 9.9z" fill="currentColor" stroke="#2A2131" stroke-width="2.2" stroke-linejoin="round"/><path d="M4 20.5h16" fill="none" stroke="#2A2131" stroke-width="2.2" stroke-linecap="round"/><circle cx="12" cy="13.4" r="1.4" fill="#2A2131"/></svg>';
 
 /** Label shown next to an action glyph in the tutorial card. */
 const ACTION_HINT: Partial<Record<PromptAction, string>> = {
@@ -84,6 +104,14 @@ export class Hud {
   private readonly dashRing: SVGCircleElement;
   private readonly dashLabel: HTMLElement;
   private readonly fxEl: HTMLElement;
+  // --- [F4] tension HUD ---
+  private readonly swingEl: HTMLElement;
+  private readonly crownEl: HTMLElement;
+  private leader: TeamId | null = null;
+  private cSwing = '';
+  private cMp = '';
+  private mpShown: HudMatchPoint | null = null;
+  private mpSeenAt = 0;
   private readonly ro: ResizeObserver | null;
   private readonly unsubLang: () => void;
 
@@ -143,6 +171,11 @@ export class Hud {
     this.grabEl = h('div', { class: 'uh-grab' });
     this.grabEl.hidden = true;
     this.fxEl = h('div', { class: 'uh-hud__fx', 'aria-hidden': 'true' });
+    this.swingEl = h('div', { class: 'uh-swing', role: 'status' });
+    this.swingEl.hidden = true;
+    this.crownEl = h('span', { class: 'uh-crown', 'aria-hidden': 'true' });
+    this.crownEl.innerHTML = CROWN_SVG;
+    this.crownEl.hidden = true;
 
     const svgNS = 'http://www.w3.org/2000/svg';
     const ringSvg = document.createElementNS(svgNS, 'svg');
@@ -177,8 +210,9 @@ export class Hud {
       h(
         'div',
         { class: 'uh-hud__safe' },
-        h('div', { class: 'uh-hud__topWrap' }, this.top, this.lastBankEl, this.policeEl),
+        h('div', { class: 'uh-hud__topWrap' }, this.top, this.swingEl, this.lastBankEl, this.banners.badgeEl, this.policeEl),
         this.stamps.el,
+        this.banners.topEl,
         h('div', { class: 'uh-hud__left' }, this.tutorialEl),
         h('div', { class: 'uh-hud__bl' }, this.minimap.el),
         h('div', { class: 'uh-hud__bc' }, this.captions.el, this.carryEl, this.grabEl),
@@ -189,6 +223,7 @@ export class Hud {
       this.fxEl,
     );
     this.el.hidden = true;
+    this.banners.onTopPlate = (up) => setClass(this.el, 'has-topplate', up);
     this.worldEl = h('div', { class: 'uh-world' }, this.labels.el, this.arrows.el, this.popups.el, this.stamps.worldEl);
     this.worldEl.hidden = true;
     root.layer('hud').appendChild(this.el);
@@ -228,6 +263,12 @@ export class Hud {
     this.cMode = null;
     this.cPolice = '';
     this.model = null;
+    this.setLeader(null);
+    this.cSwing = '';
+    this.cMp = '';
+    this.mpShown = null;
+    this.swingEl.hidden = true;
+    setClass(this.el, 'has-topplate', false);
   }
 
   destroy(): void {
@@ -267,8 +308,45 @@ export class Hud {
     this.popups.pop(o, this.model?.myTeam ?? 0);
   }
 
+  /** Built-in banner, queued by its priority (final > climax > event > police > other). */
   banner(kind: BannerKind, params?: TParams, durationMs?: number): void {
     this.banners.show(kind, params, durationMs);
+  }
+
+  /** [F4] Any banner with an explicit priority (C8 event banners go through here). */
+  queueBanner(spec: HudBannerSpec): void {
+    this.banners.queueSpec(spec);
+  }
+
+  /**
+   * [F4] Crown on the leading team's sticker (null = level / none). Fed every tick from
+   * `MomentTracker.snapshot().leader`; hops over when the lead changes. Shape + emblem, never
+   * colour alone.
+   */
+  setLeader(team: TeamId | null): void {
+    if (team === this.leader && (team === null || this.crownEl.parentElement === this.teams[team]?.root)) return;
+    const prev = this.leader;
+    this.leader = team;
+    this.placeCrown(prev);
+  }
+
+  private placeCrown(prev: TeamId | null): void {
+    const team = this.leader;
+    const panel = team === null ? undefined : this.teams[team];
+    if (team === null || !panel || this.cMode !== 'match') {
+      this.crownEl.hidden = true;
+      this.crownEl.remove();
+      return;
+    }
+    const moved = this.crownEl.parentElement !== panel.root;
+    panel.root.appendChild(this.crownEl);
+    this.crownEl.hidden = false;
+    this.crownEl.dataset.team = String(team);
+    if (moved) {
+      // hop: from the other sticker's side when the lead flips, a drop-in when it is new
+      const from = prev !== null && prev !== team ? (team === 0 ? '6rem' : '-6rem') : '0';
+      animateEl(this.crownEl, [{ transform: `translate(${from}, -3.5rem) rotate(${team === 0 ? 30 : -30}deg) scale(0.7)`, opacity: 0.4 }, { transform: 'translate(0, -1.2rem) rotate(0deg) scale(1.15)', opacity: 1, offset: 0.6 }, { transform: 'none', opacity: 1 }], { duration: 520, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' });
+    }
   }
 
   /** 3, 2, 1, then 0 = '출발!'. */
@@ -350,11 +428,16 @@ export class Hud {
       if (clock !== this.cClock) {
         this.cClock = clock;
         setText(this.timerText, clock);
-        if (state === 'urgent' || state === 'final') {
+        if (sec !== null && sec <= SLAM_SEC && sec > 0 && m.mode === 'match') {
+          // [F4] final 10 s: the digits slam each second (a scale pulse only, no shake / flash)
+          animateEl(this.timerText, [{ scale: '1.7' }, { scale: '0.9', offset: 0.45 }, { scale: '1.04', offset: 0.75 }, { scale: '1' }], { duration: 420, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' });
+          uiSound('tick', { pitch: 1 + (10 - sec) * 0.03, volume: 0.6 });
+        } else if (state === 'urgent' || state === 'final') {
           animateEl(this.timerEl, [{ scale: '1.18' }, { scale: '0.94', offset: 0.5 }, { scale: '1' }], { duration: 360, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' });
           if (sec !== null && sec <= 10 && sec > 0) uiSound('tick', { pitch: 1 + (10 - sec) * 0.03, volume: 0.6 });
         }
       }
+      setClass(this.timerEl, 'is-slam', sec !== null && sec <= SLAM_SEC && sec > 0 && m.mode === 'match');
       if (state !== this.cTimerState) {
         this.cTimerState = state;
         this.timerEl.dataset.state = state;
@@ -373,10 +456,10 @@ export class Hud {
       setClass(this.banksEl, 'is-all', done > 0 && done === this.bankIcons.length);
     }
 
-    if (m.lastBankWarning !== this.cLastBank) {
-      this.cLastBank = m.lastBankWarning;
-      this.lastBankEl.hidden = !m.lastBankWarning;
-    }
+    // [F4] decisive-load prompt (outranks the last-bank warning in the same slot) + swing readout
+    this.paintPrompt(m);
+    this.paintSwing(m);
+    this.banners.setFinalCountdown(m.mode === 'match' && m.finalCountdown);
 
     this.paintPolice(m);
     this.paintCarry(m);
@@ -498,8 +581,77 @@ export class Hud {
       };
       this.top.replaceChildren(h('div', { class: 'uh-sb' }, team(0), center, team(1)));
     }
-    this.lastBankEl.replaceChildren(icon('siren'), h('span', null, t('banner.lastBank')));
+    this.cLastBank = null;
+    this.cMp = '';
     for (const b of this.bankIcons) b.key = '';
+    this.crownEl.remove();
+    this.placeCrown(null);
+  }
+
+  /**
+   * [F4] The slot under the scoreboard: the decisive-load prompt while a match point is on (held
+   * MP_HOLD_MS through one-tick blinks), else the last-bank warning, else hidden. 'tie' loads say
+   * "무승부" — never a win.
+   */
+  private paintPrompt(m: HudModel): void {
+    const now = performance.now();
+    const mp = m.mode === 'match' ? m.matchPoint ?? null : null;
+    if (mp) {
+      this.mpShown = mp;
+      this.mpSeenAt = now;
+    } else if (this.mpShown && now - this.mpSeenAt > MP_HOLD_MS) this.mpShown = null;
+    const show = this.mpShown;
+    const key = show ? `mp|${show.side}|${show.kind}|${show.value}|${show.what}|${show.bag}` : m.lastBankWarning ? 'last' : '';
+    if (key === this.cMp) return;
+    const before = this.cMp;
+    this.cMp = key;
+    this.cLastBank = m.lastBankWarning;
+    if (!key) {
+      this.lastBankEl.hidden = true;
+      delete this.lastBankEl.dataset.side;
+      return;
+    }
+    this.lastBankEl.hidden = false;
+    if (!show) {
+      delete this.lastBankEl.dataset.side;
+      delete this.lastBankEl.dataset.kind;
+      this.lastBankEl.replaceChildren(icon('siren'), h('span', null, t('banner.lastBank')));
+      return;
+    }
+    const txt = matchPointText(show);
+    this.lastBankEl.dataset.side = show.side;
+    this.lastBankEl.dataset.kind = show.kind;
+    this.lastBankEl.replaceChildren(
+      h('span', { class: 'uh-mp__icon' }, icon(show.side === 'ours' ? 'flag' : 'shield')),
+      h('span', { class: 'uh-mp__title' }, t(txt.title)),
+      h('span', { class: 'uh-mp__sub uh-num' }, t(txt.sub, { value: fmtScore(show.value), bag: fmtScore(show.bag) })),
+    );
+    // a new prompt (or a flip to the other side) slams in; a value change just nudges
+    const flipped = !before.startsWith(`mp|${show.side}|`);
+    if (flipped) animateEl(this.lastBankEl, [{ transform: 'translateY(-1.5rem) scale(1.6)', opacity: 0 }, { transform: 'scale(0.94, 1.06)', opacity: 1, offset: 0.6 }, { transform: 'none', opacity: 1 }], { duration: 420, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' });
+    else animateEl(this.lastBankEl, [{ scale: '1.08' }, { scale: '1' }], { duration: 240, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' });
+  }
+
+  /** [F4] "역전까지 N · 남은 M" / "N점 앞서요 · 남은 M" / "앞서려면 N · 남은 M". */
+  private paintSwing(m: HudModel): void {
+    const s: HudSwing | null = m.mode === 'match' ? m.swing ?? null : null;
+    const key = s ? `${s.mode}|${s.n}|${s.remaining}` : '';
+    if (key === this.cSwing) return;
+    const was = this.cSwing;
+    this.cSwing = key;
+    if (!s) {
+      this.swingEl.hidden = true;
+      return;
+    }
+    this.swingEl.hidden = false;
+    this.swingEl.dataset.mode = s.mode;
+    setChildren(
+      this.swingEl,
+      h('span', { class: 'uh-swing__lead uh-num' }, t(`hud.mp.swing.${s.mode}`, { n: fmtScore(s.n) })),
+      h('span', { class: 'uh-swing__dot', 'aria-hidden': 'true' }),
+      h('span', { class: 'uh-swing__left uh-num' }, t('hud.mp.swing.remaining', { m: fmtScore(s.remaining) })),
+    );
+    if (!was) animateEl(this.swingEl, [{ transform: 'translateY(-0.75rem) scale(0.7)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 320, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' });
   }
 
   private paintBank(b: BankIcon, s: HudBank | undefined): void {
@@ -672,6 +824,8 @@ export class Hud {
   /** Language changed: rebuild labels and force a full refresh on the next update. */
   private relabel(): void {
     this.cMode = null;
+    this.cSwing = '';
+    this.cMp = '';
     this.cCarry = '';
     this.cGrab = '';
     this.cPolice = '';

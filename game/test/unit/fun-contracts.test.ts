@@ -51,13 +51,14 @@ describe('fun round contracts (day-0 stubs)', () => {
     );
   });
 
-  it('MomentTracker.observe is pure and returns an array (stub: empty)', () => {
+  it('MomentTracker.observe returns an array and keeps a snapshot (WP5 implemented)', () => {
     const sim = makeSim(fullLayout(), [0, 1]);
     const tr = new MomentTracker({ localTeam: 0, localCharId: 1 });
     const ev = sim.step([undefined, undefined]);
     expect(Array.isArray(tr.observe(sim.state, ev, []))).toBe(true);
-    expect(tr.snapshot()).toEqual(EMPTY_MOMENT_SNAPSHOT); // stub (WP5 updates)
+    expect(tr.snapshot()).toEqual({ ...EMPTY_MOMENT_SNAPSHOT, tick: sim.state.tick }); // WP5: nothing has happened yet
     tr.reset();
+    expect(tr.snapshot()).toEqual(EMPTY_MOMENT_SNAPSHOT);
   });
 
   it('MatchConfig.botParams reaches the rival bots only (never the 2:2 teammate)', () => {
@@ -70,22 +71,22 @@ describe('fun round contracts (day-0 stubs)', () => {
     expect(buildMatch({ ...base, botParams: null }).bots.every((b) => b.params === undefined)).toBe(true);
   });
 
-  it('grantRivalReward unlocks the rival hat (stub: no taunt until WP9)', () => {
+  it('grantRivalReward unlocks the rival hat and its taunt (WP9)', () => {
     const save = new SaveManager(new MemorySaveBackend(), { flushOnHide: false });
     const c = structuredClone(save.data.cosmetics);
     const r = grantRivalReward(c, 'tongkeun');
     expect(r.hatNew).toBe(true);
     expect(c.unlocked).toContain(RIVAL_REWARD_HAT.tongkeun);
-    expect(grantRivalReward(c, 'tongkeun').hatNew).toBe(false);
-    expect(r.emoteNew).toBe(false); // stub (WP9 updates)
+    expect(r.emoteNew).toBe(true);
+    expect(c.unlockedEmotes).toEqual(['tongkeunFlex']);
+    expect(grantRivalReward(c, 'tongkeun')).toEqual({ hatNew: false, emoteNew: false });
     save.dispose();
   });
 
-  it('save v2 helpers never write the live v1 save before WP9', () => {
-    expect(SAVE_VERSION).toBe(1);
+  it('save v2 helpers write the live v2 save (WP9; behaviour in test/unit/progress-v2.test.ts)', () => {
+    expect(SAVE_VERSION).toBe(2);
     const backend = new MemorySaveBackend();
     const save = new SaveManager(backend, { flushOnHide: false });
-    const before = JSON.stringify(save.data);
     const summary: MatchOutcomeSummary = {
       matchId: '1:0',
       layoutId: 'plaza',
@@ -104,11 +105,13 @@ describe('fun round contracts (day-0 stubs)', () => {
       maxDeficit: 300,
       finishedAt: 0,
     };
-    expect(recordMatchOutcome(summary, save)).toEqual({ newRecord: null });
-    expect(rivalRecord('hodadak', 'quick.normal', save)).toEqual({ wins: 0, losses: 0, draws: 0, streak: 0, lastScore: 0, bestMargin: 0 });
-    for (const cup of CUP_IDS) expect(cupProgress(cup, save)).toMatchObject({ cup, cleared: false });
+    // First match on a fresh save: baselines only, no cheap "신기록".
+    expect(recordMatchOutcome(summary, save)).toMatchObject({ newRecord: null });
+    expect(rivalRecord('hodadak', 'quick.normal', save)).toEqual({ wins: 1, losses: 0, draws: 0, streak: 1, lastScore: 1700, bestMargin: 200 });
+    for (const cup of CUP_IDS) expect(cupProgress(cup, save)).toMatchObject({ cup, cleared: false, nextRival: 'hodadak' });
     for (const k of FUNNEL_KEYS) bumpFunnel(k, save);
-    expect(JSON.stringify(save.data)).toBe(before);
+    expect(save.data.funnel.counts.resultsShown).toBe(1);
+    expect(save.data.recent).toHaveLength(1);
     save.dispose();
   });
 

@@ -105,6 +105,35 @@ export interface RaccoonPose {
 /** Length of the pop tumble (sit + spring up). */
 export const RACCOON_TUMBLE_TIME = 0.85;
 
+/**
+ * (Content 2.0, C7a) Rig attach points for held items and the coin bag. Children added here
+ * follow the animated bones; the rig never removes them (owners dispose their own objects).
+ *  - handR / handL: at the paw end of each arm; local -y continues along the arm (a hammer's
+ *    handle hangs from the grip along -y, its head axis along local x = the swing direction).
+ *  - back: behind the torso, local +y up, local -x pointing away from the back.
+ *  - footL / footR: under each paw (sole at y = -0.03), local +x forward.
+ *  - headTop: just above the head (local +y up).
+ */
+export interface RaccoonAttach {
+  readonly handR: THREE.Object3D;
+  readonly handL: THREE.Object3D;
+  readonly back: THREE.Object3D;
+  readonly footL: THREE.Object3D;
+  readonly footR: THREE.Object3D;
+  readonly headTop: THREE.Object3D;
+}
+
+/** (C7a) How an item in the right paw drives the arms. */
+export type RaccoonGrip = 'hammer' | 'plunger' | 'bottle' | 'none';
+/** (C7a) Item use phase as the rig animates it (`t` 0..1 through the phase). */
+export interface RaccoonItemPose {
+  grip: RaccoonGrip;
+  phase: 'idle' | 'windup' | 'swing' | 'recover' | 'aim';
+  t: number;
+}
+/** (C7a) One-shot hit reactions: accordion squash (hammer bonk), big squash (home run), recoil (clash / bumper boing). */
+export type RaccoonReaction = 'bonk' | 'homeRun' | 'clash' | 'boing';
+
 export interface RaccoonRig {
   readonly root: THREE.Group;
   /** Empty object at head-top height for name labels / ping icons. */
@@ -117,6 +146,15 @@ export interface RaccoonRig {
   /** Show/hide the soft contact shadow (e.g. off when the view uses only shadow maps). */
   setBlobShadow(visible: boolean): void;
   dispose(): void;
+  // --- Content 2.0 (C7a, add-only) ---
+  /** Attach points for held items / the coin bag. */
+  readonly attach: RaccoonAttach;
+  /** Arm pose for the held item (null = no item in paw; applied on the next update). */
+  setItemPose(p: RaccoonItemPose | null): void;
+  /** Play a one-shot hit reaction (accordion squash etc.) from the next update. */
+  react(kind: RaccoonReaction): void;
+  /** Dizzy-star halo (plunger pull) independent of knockdowns. */
+  setDizzy(on: boolean): void;
 }
 
 export const RACCOON_HEIGHT = 1.05;
@@ -990,6 +1028,24 @@ export function createRaccoon(opts: { team: TeamId | null; look: CharacterLook }
     finger.userData.len = lid.distanceTo(base);
   }
 
+  // --- Content 2.0 attach points (C7a): created before the outlines so the ink / highlight
+  // passes see only the rig's own meshes (attached items manage their own look).
+  const attachPoint = (name: string, parent: THREE.Object3D, pos: readonly number[]): THREE.Group => {
+    const g = new THREE.Group();
+    g.name = `raccoon:attach:${name}`;
+    g.position.set(pos[0], pos[1], pos[2]);
+    parent.add(g);
+    return g;
+  };
+  const attach: RaccoonAttach = {
+    handR: attachPoint('handR', armR, [0.01, -0.2, 0.005]),
+    handL: attachPoint('handL', armL, [0.01, -0.2, -0.005]),
+    back: attachPoint('back', body, [-0.235, 0.4, 0]),
+    footL: attachPoint('footL', legL, [0.035, -0.205, 0]),
+    footR: attachPoint('footR', legR, [0.035, -0.205, 0]),
+    headTop: attachPoint('headTop', head, [HEAD_C[0], HEAD_C[1] + 0.33, 0]),
+  };
+
   const highlighter = new Highlighter(root);
   // Bold toon ink line so raccoons read at the high game camera (hidden while a colored
   // highlight / impact flash replaces it).
@@ -1043,6 +1099,15 @@ export function createRaccoon(opts: { team: TeamId | null; look: CharacterLook }
   let tauntW = 0;
   let tauntT = 0;
   const tp: TauntPose = neutralTauntPose();
+  // Content 2.0 (C7a): held item arm pose, one-shot reaction, dizzy halo.
+  let itemPose: RaccoonItemPose | null = null;
+  let itemW = 0;
+  /** Smoothed right-arm swing angle of the item pose (rotation.z), so phase changes blend. */
+  let itemRz = 2.2;
+  let reaction: RaccoonReaction | null = null;
+  let reactT = 0;
+  let dizzy = false;
+  let dizzyW = 0;
 
   const approach = (cur: number, target: number, rate: number, dt: number): number =>
     cur + (target - cur) * (1 - Math.exp(-rate * dt));
@@ -1305,6 +1370,58 @@ export function createRaccoon(opts: { team: TeamId | null; look: CharacterLook }
       arm.position.y = SHOULDER_Y + Math.sin(t * 53 + side) * 0.006 * w.strain;
     }
 
+    // --- held item (C7a): the right arm carries / winds up / swings the item -------------
+    // Overrides the right arm while empty-handed and upright; grabbing loot stows the item.
+    const itemTarget = itemPose && itemPose.grip !== 'none' && !pose.knockedDown && !pose.grabbing ? 1 : 0;
+    itemW = approach(itemW, itemTarget, itemTarget ? 22 : 12, dt);
+    if (itemW > 0.002 && itemPose) {
+      const ip = itemPose;
+      const k = THREE.MathUtils.clamp(ip.t, 0, 1);
+      // Right-arm swing angle (rotation.z: 0 = hanging, PI/2 = forward, PI = overhead).
+      let rzT: number;
+      let crouch = 0;
+      let leanT = 0;
+      if (ip.grip === 'hammer') {
+        const carry = 2.25 + Math.sin(t * 2.4 + idleSeed) * 0.06 - mv * 0.15;
+        if (ip.phase === 'windup') {
+          // Anticipation: cock the hammer way back over the head, crouch, lean back.
+          const e = 1 - (1 - k) * (1 - k);
+          rzT = carry + (3.25 - carry) * e;
+          crouch = 0.09 * e;
+          leanT = 0.22 * e;
+        } else if (ip.phase === 'swing') {
+          // The bonk: overhead down to forward-low (fast out, overshoot at the end).
+          const e = k < 0.7 ? Math.pow(k / 0.7, 0.55) : 1;
+          rzT = 3.25 + (0.35 - 3.25) * e + (k > 0.7 ? Math.sin((k - 0.7) / 0.3 * Math.PI) * -0.12 : 0);
+          crouch = 0.06 * (1 - e);
+          leanT = -0.3 * e;
+        } else if (ip.phase === 'recover') {
+          const e = k * k * (3 - 2 * k);
+          rzT = 0.35 + (carry - 0.35) * e;
+          leanT = -0.3 * (1 - e);
+        } else rzT = carry;
+      } else if (ip.grip === 'plunger') {
+        rzT = ip.phase === 'aim' ? 1.62 : ip.phase === 'swing' ? 1.55 + 0.25 * Math.sin(k * Math.PI) : 1.15 + Math.sin(t * 2.2 + idleSeed) * 0.05;
+        leanT = ip.phase === 'aim' ? -0.08 : 0;
+      } else {
+        // Bottle: held up in front, a squeeze pump on use.
+        rzT = 1.25 + (ip.phase === 'swing' ? 0.35 * Math.sin(k * Math.PI) : Math.sin(t * 2.6 + idleSeed) * 0.05);
+      }
+      // Wind-up / swing angles are applied directly (they are fast); carry poses are smoothed.
+      const fast = ip.phase === 'windup' || ip.phase === 'swing';
+      itemRz = fast || itemW < 0.05 ? rzT : approach(itemRz, rzT, 18, dt);
+      armR.rotation.z = lerp(armR.rotation.z, itemRz, itemW);
+      armR.rotation.x = lerp(armR.rotation.x, 0.12, itemW);
+      armR.rotation.y = lerp(armR.rotation.y, ip.grip === 'hammer' ? -0.25 : -0.1, itemW);
+      body.rotation.z += leanT * itemW;
+      pivot.position.y -= crouch * itemW;
+      if (crouch > 0) {
+        const sq = 1 - crouch * 1.4 * itemW;
+        body.scale.y *= sq;
+        body.scale.x /= Math.sqrt(sq);
+      }
+    }
+
     // --- head ------------------------------------------------------------------------
     const look = pose.headYaw ?? Math.sin(t * 0.37 + idleSeed) * 0.25 * (1 - mv) * (1 - w.grab) * (1 - w.sad);
     head.rotation.y = look * (1 - w.down);
@@ -1326,11 +1443,36 @@ export function createRaccoon(opts: { team: TeamId | null; look: CharacterLook }
     // --- taunt blend over the regular pose -------------------------------------------------
     applyTaunt(t);
 
+    // --- hit reaction (C7a): accordion squash that springs back ----------------------------
+    pivot.scale.set(1, 1, 1);
+    if (reaction) {
+      reactT += dt;
+      const big = reaction === 'homeRun';
+      const dur = reaction === 'bonk' || big ? 0.75 : 0.4;
+      if (reactT >= dur) reaction = null;
+      else if (reaction === 'bonk' || big) {
+        // Slam flat in ~70 ms (a toy accordion), then a wobbly elastic rebound.
+        const depth = big ? 0.62 : 0.5;
+        const sy =
+          reactT < 0.07 ? 1 - depth * (reactT / 0.07) : 1 - depth * Math.exp(-(reactT - 0.07) * 7) * Math.cos((reactT - 0.07) * 19);
+        const sxz = 1 / Math.sqrt(Math.max(0.3, sy));
+        pivot.scale.set(sxz, Math.max(0.3, sy), sxz);
+      } else {
+        // Recoil: a quick lean back and stretch.
+        const k = reactT / dur;
+        const env = Math.sin(Math.PI * k) * (1 - k);
+        body.rotation.z += (reaction === 'clash' ? 0.5 : 0.35) * env;
+        pivot.scale.set(1 - 0.12 * env, 1 + 0.16 * env, 1 - 0.12 * env);
+      }
+    }
+
     // --- FX children ----------------------------------------------------------------------
-    stars.visible = w.down > 0.05;
+    dizzyW = approach(dizzyW, dizzy ? 1 : 0, dizzy ? 18 : 6, dt);
+    const starW = Math.max(w.down, dizzyW);
+    stars.visible = starW > 0.05;
     if (stars.visible) {
-      stars.rotation.y = t * 6;
-      stars.scale.setScalar(Math.min(1, w.down * 1.4));
+      stars.rotation.y = t * (6 + 4 * dizzyW);
+      stars.scale.setScalar(Math.min(1, starW * 1.4) * (1 + 0.25 * dizzyW));
       stars.position.y = HEAD_C[1] + 0.36 + Math.sin(t * 5) * 0.02;
     }
     // (Strain sweat is a view emote now; the head drop stays for the carry boost.)
@@ -1355,7 +1497,7 @@ export function createRaccoon(opts: { team: TeamId | null; look: CharacterLook }
     const override = pose.expression ?? null;
     if (tauntW > 0.45 && !pose.knockedDown) kind = tp.face;
     else if (override) kind = override;
-    else if (pose.knockedDown || w.down > 0.6) kind = 'dizzy';
+    else if (pose.knockedDown || w.down > 0.6 || dizzyW > 0.5) kind = 'dizzy';
     else if (sitW > 0.4) kind = 'shock';
     else if (springW > 0.05) kind = 'happy';
     else if (pose.celebrating) kind = 'cheer';
@@ -1396,6 +1538,17 @@ export function createRaccoon(opts: { team: TeamId | null; look: CharacterLook }
     },
     setBlobShadow(visible: boolean) {
       blob.visible = visible;
+    },
+    attach,
+    setItemPose(p: RaccoonItemPose | null) {
+      itemPose = p;
+    },
+    react(kind: RaccoonReaction) {
+      reaction = kind;
+      reactT = 0;
+    },
+    setDizzy(on: boolean) {
+      dizzy = on;
     },
     dispose() {
       highlighter.dispose();

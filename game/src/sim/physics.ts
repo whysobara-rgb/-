@@ -20,6 +20,13 @@
  *     treats the bank as immovable (no self-propulsion from inside);
  *   * breakable fences: bank-vs-fence contacts have a capped normal impulse and report their
  *     approach speed so the rules layer can break the fence.
+ * - Content 2.0 (C3; every field neutral in classic, which stays bit-identical):
+ *   * ground fields per body: field velocity (belts) added to the floor velocity drag pulls
+ *     toward, drag / drive scales (slick, soap);
+ *   * kickable bodies (the piggy): a dashing character hits them at full mass (no soft push);
+ *   * kinematic bodies posed by setKinematicPose (teacups, truck, crane load) carry their riders
+ *     like a moving bank floor, rotation included;
+ *   * impacts without a character are reported through PhysicsHooks.onBodyImpact.
  *
  * Determinism: fixed iteration order everywhere (bodies by index, statics by index, contacts
  * in generation order), no randomness, no time sources.
@@ -159,7 +166,7 @@ export class Body {
   fvx = 0;
   fvy = 0;
   fw = 0;
-  // --- Content 2.0 (C0 contract, content-plan §4.5; the solver reads them once C3 lands) ---
+  // --- Content 2.0 (C0 contract, content-plan §4.5; read by the solver, C3) ---
   // Neutral values = classic behaviour. ContentSystems.prePhysics (v2 only) resets every body to
   // neutral each tick, then systems combine their contributions: field velocities ADD (belts,
   // fountain push), scales MULTIPLY (slick gimmicks, soap hazards). Classic never writes them.
@@ -172,6 +179,17 @@ export class Body {
   driveScale = 1;
   /** Kickable (the piggy): a dashing character skips softPushFactor against it. */
   kickable = false;
+  /** (C3) Kickable only: restitution of a dashing character's kick (the ball springs off the foot). */
+  kickRestitution = 0;
+  /**
+   * (C3) Kinematic floor bookkeeping for setKinematicPose bodies: the velocity the body had at the
+   * end of the previous substep (riders inherit the change, see step 7) and whether a pose was ever
+   * set (the first pose seeds it, so a body that starts moving does not kick its riders).
+   */
+  kpvx = 0;
+  kpvy = 0;
+  kpw = 0;
+  kinPosed = false;
 
   constructor(
     readonly index: number,
@@ -509,11 +527,27 @@ export interface PhysicsHooks {
 /**
  * (Content 2.0, C0 contract; owner C3) Drive a kinematic body (teacup floor, bumper car, truck,
  * crane load) to a pose computed as a pure function of (tick, substep), with the matching
- * velocities so riders and contacts see the motion. Call from `beforeSubstep`. Day-0 stub: throws
- * until C3 implements it (nothing calls it in classic).
+ * velocities so riders and contacts see the motion. Call from `beforeSubstep` with the pose at
+ * the START of that substep (every substep while it accelerates; between calls the body moves
+ * on at its velocity, so set v = 0 to park it). The body becomes `motion = 'kinematic'` without a weld parent; its own children may still weld
+ * to it. Riders (`b.floor === body`) are carried rigidly (step 7, incl. the centripetal term of
+ * a turning floor), contacts treat it as an immovable moving wall.
  */
 export function setKinematicPose(b: Body, x: number, y: number, a: number, vx: number, vy: number, w: number): void {
-  throw new Error(`setKinematicPose not implemented yet (C3): body ${b.entityId} -> (${x}, ${y}, ${a}) v (${vx}, ${vy}, ${w})`);
+  b.motion = 'kinematic';
+  b.weldParent = null;
+  if (!b.kinPosed) {
+    b.kinPosed = true;
+    b.kpvx = vx;
+    b.kpvy = vy;
+    b.kpw = w;
+  }
+  b.x = x;
+  b.y = y;
+  b.a = a;
+  b.vx = vx;
+  b.vy = vy;
+  b.w = w;
 }
 
 export interface PhysicsParams {
@@ -751,13 +785,20 @@ export class PhysicsWorld {
           fvy = f.vy + f.w * (b.x - f.x);
           fw = f.w;
         }
+        // Content 2.0 ground fields (neutral in classic, so classic is bit-identical): a belt /
+        // fountain field velocity adds to the floor velocity drag pulls toward; slick / soap scale
+        // the drag and the drive.
+        if (b.fieldVx !== 0 || b.fieldVy !== 0) {
+          fvx += b.fieldVx;
+          fvy += b.fieldVy;
+        }
         b.fvx = fvx;
         b.fvy = fvy;
         b.fw = fw;
-        b.vx += b.fx * b.invMass * h;
-        b.vy += b.fy * b.invMass * h;
+        b.vx += b.fx * b.driveScale * b.invMass * h;
+        b.vy += b.fy * b.driveScale * b.invMass * h;
         if (!b.noDrag) {
-          const k = 1 / (1 + b.linDrag * h);
+          const k = 1 / (1 + b.linDrag * b.dragScale * h);
           b.vx = fvx + (b.vx - fvx) * k;
           b.vy = fvy + (b.vy - fvy) * k;
           if (!b.fixedRotation) b.w = fw + (b.w - fw) * k;
@@ -807,9 +848,18 @@ export class PhysicsWorld {
       for (let i = 0; i < bodies.length; i++) {
         const b = bodies[i]!;
         const f = b.floor;
-        if (!b.enabled || b.motion !== 'dynamic' || !f || !f.enabled || f.motion !== 'dynamic') continue;
+        if (!b.enabled || b.motion !== 'dynamic' || !f || !f.enabled || f.motion === 'static') continue;
         const rx = b.x - f.x;
         const ry = b.y - f.y;
+        if (f.motion === 'kinematic') {
+          // (C3) kinematic floor (teacup, truck bed): its pose is set before the substep, so the
+          // change is measured against the previous substep's velocity (the turn itself is
+          // integrated rigidly in step 8).
+          b.vx += f.vx - f.w * ry - (f.kpvx - f.kpw * ry);
+          b.vy += f.vy + f.w * rx - (f.kpvy + f.kpw * rx);
+          if (!b.fixedRotation) b.w += f.w - f.kpw;
+          continue;
+        }
         const dvx = f.vx - f.w * ry - (f.pvx - f.pw * ry);
         const dvy = f.vy + f.w * rx - (f.pvy + f.pw * rx);
         b.vx += dvx;
@@ -820,13 +870,45 @@ export class PhysicsWorld {
       for (let i = 0; i < bodies.length; i++) {
         const b = bodies[i]!;
         if (!b.enabled || b.motion !== 'dynamic') continue;
+        const f = b.floor;
+        if (f && f.enabled && f.motion === 'kinematic') {
+          // (C3) rider of a kinematic floor: turn with it rigidly over the substep (pose and
+          // floor-relative velocity), so a teacup carries its riders round without drifting out.
+          const rx = b.x - f.x;
+          const ry = b.y - f.y;
+          const relx = b.vx - (f.vx - f.w * ry);
+          const rely = b.vy - (f.vy + f.w * rx);
+          const c = Math.cos(f.w * h);
+          const s = Math.sin(f.w * h);
+          const nrx = rx * c - ry * s;
+          const nry = rx * s + ry * c;
+          const rvx = relx * c - rely * s;
+          const rvy = relx * s + rely * c;
+          b.x = f.x + f.vx * h + nrx + rvx * h;
+          b.y = f.y + f.vy * h + nry + rvy * h;
+          b.vx = f.vx - f.w * nry + rvx;
+          b.vy = f.vy + f.w * nrx + rvy;
+          if (!b.fixedRotation) b.a += b.w * h;
+          continue;
+        }
         b.x += b.vx * h;
         b.y += b.vy * h;
         if (!b.fixedRotation) b.a += b.w * h;
       }
       for (let i = 0; i < bodies.length; i++) {
         const b = bodies[i]!;
-        if (b.enabled && b.motion === 'kinematic') PhysicsWorld.syncWeld(b);
+        if (!b.enabled || b.motion !== 'kinematic') continue;
+        PhysicsWorld.syncWeld(b);
+        if (b.kinPosed && !b.weldParent) {
+          // (C3) a posed kinematic body moves on with its velocity (the next setKinematicPose
+          // snaps it to its exact pose), so at the end of the tick it agrees with its riders
+          b.x += b.vx * h;
+          b.y += b.vy * h;
+          b.a += b.w * h;
+          b.kpvx = b.vx;
+          b.kpvy = b.vy;
+          b.kpw = b.w;
+        }
       }
       // 9. penetration bookkeeping (pre-integration depths of real, non-fence contacts).
       for (let i = 0; i < bodies.length; i++) bodies[i]!.maxPen = 0;
@@ -953,13 +1035,21 @@ export class PhysicsWorld {
     let imB = b ? b.solverInvMass : 0;
     let iiB = b ? b.solverInvI : 0;
     // soft push: a character (or officer) shoving loot moves it as if it were much heavier
+    // (C3) except a dashing character against a kickable body (the piggy): a full-mass kick
+    let kick = 0;
     if (b) {
       if ((a.cat & CAT_WALKER) !== 0 && (b.cat & CAT_WALKER) === 0) {
-        imB *= P.softPushFactor;
-        iiB *= P.softPushFactor;
+        if (b.kickable && a.cat === CAT_CHARACTER && a.noDrag) kick = b.kickRestitution;
+        else {
+          imB *= P.softPushFactor;
+          iiB *= P.softPushFactor;
+        }
       } else if ((b.cat & CAT_WALKER) !== 0 && (a.cat & CAT_WALKER) === 0) {
-        imA *= P.softPushFactor;
-        iiA *= P.softPushFactor;
+        if (a.kickable && b.cat === CAT_CHARACTER && b.noDrag) kick = a.kickRestitution;
+        else {
+          imA *= P.softPushFactor;
+          iiA *= P.softPushFactor;
+        }
       }
     }
     // A rider cannot propel the floor it stands on: contacts between a body and the walls of
@@ -1026,9 +1116,15 @@ export class PhysicsWorld {
       }
       const vn = vrx * nx + vry * ny;
       const approach = -vn;
+      // (C3) a kick springs the ball off the foot (restitution on the closing speed)
+      if (kick > 0 && approach > 0 && p.sep - approach * h < 0) p.target = Math.max(p.target, kick * approach);
       if (approach > 0 && p.sep - approach * h < 0) {
         if (c.fence && hooks.onFenceContact) hooks.onFenceContact(st!.fenceIndex, a, approach, p.px, p.py);
-        else if (charInvolved && approach > P.impactThreshold && hooks.onImpact && k === 0) hooks.onImpact(a, b, approach);
+        else if (approach > P.impactThreshold && k === 0) {
+          if (charInvolved) hooks.onImpact?.(a, b, approach);
+          // (C3) impacts without a character (loot vs wall / loot / officer): content only
+          else hooks.onBodyImpact?.(a, b, approach);
+        }
       } else if (c.fence && hooks.onFenceContact && p.sep <= 0.02) {
         // resting press: report actual (non-approaching) speed so press timers reset correctly
         hooks.onFenceContact(st!.fenceIndex, a, Math.max(0, approach), p.px, p.py);

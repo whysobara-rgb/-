@@ -375,6 +375,20 @@ export const COINS = {
   /** Pile values. */
   coin: 10,
   bill: 50,
+  /**
+   * Pile collision radius against statics / the arena bounds (piles pass under bodies). Just under
+   * CHARACTER.radius on purpose: a pile can only slide through gaps a raccoon fits through and
+   * only rests where a raccoon can stand within pickupRadius of it, so no pile is ever stranded.
+   */
+  radius: 0.4,
+  /** A pile slower than this (m/s) comes to rest (vel = 0). */
+  restSpeed: 0.05,
+  /** 'ring' bursts: landing radius per symmetric index as a fraction of [ring.min, ring.max] (cycled). */
+  ringFracs: [0, 1, 0.5] as readonly number[],
+  /** Dash bonk on a breakable: centre-to-box gap allowance beyond the character radius (m). */
+  dashHitGap: 0.1,
+  /** Coins popped by a hit that does not break a breakable come out this far outside its face (m). */
+  popMargin: 0.3,
 } as const;
 
 /** [C1] Breakables (content-plan §3.1). Removable statics reusing the fence static-removal path. */
@@ -428,18 +442,29 @@ export const PROP_RULES = {
     hammerProgress: 0.5,
   },
   piggy: {
+    /** Restitution of a dash kick (with the full-mass hit: about 6 m of travel on flat ground). */
+    kickRestitution: 0.3,
     cracksToSmash: 3,
+    /** A dash kick by the team opposing whoever touched it last (kick or grab); teammates never crack it. */
     dashCracks: 1,
     hammerCracks: 2,
     wallCrackSpeed: 5,
+    /** One knock = one crack: further wall cracks wait this long (contacts re-report while settling). */
+    wallCrackDebounceTicks: secondsToTicks(0.3),
     hazardCracks: 1,
   },
+  /** One dash counts once per prop: further contacts of the same dasher wait this long. */
+  dashHitDebounceTicks: secondsToTicks(0.3),
   moneyTree: {
     /** One bundle sheds per impact faster than this (debounced). */
     shedSpeed: 2.5,
     shedDebounceTicks: secondsToTicks(0.3),
     hammerBundles: 2,
     hammerProgress: 0.4,
+  },
+  /** The gold safe takes the hammer like a large safe. */
+  goldSafe: {
+    hammerProgress: 0.5,
   },
 } as const;
 
@@ -483,6 +508,12 @@ export const ITEMS = {
     breakableDamage: 3,
     fenceHits: 2,
     truckDoorDamage: 2,
+    /** Drive multiplier during the recovery (the wind-up and swing have no drive). */
+    recoverDriveScale: 0.5,
+    /** A swing that lands keeps this fraction of the lunge (the bonk stops you, like a dash hit). */
+    hitRecoil: 0.3,
+    /** Hammer vs hammer (챙!): both bounce back at this speed (m/s). */
+    clashBounceSpeed: 4,
   },
   goldHammer: { reach: 2.1, halfAngle: deg(80), knockbackScale: 1.5, policeStunTicks: secondsToTicks(4) },
   plunger: {
@@ -530,6 +561,8 @@ export const ITEMS = {
     /** Pickup by touch within this center distance. */
     pickupRadius: 0.9,
   },
+  /** Deck used by rules.items 'on' (wave 1: 'wave1' = hammers only; wave 2 switches to 'wave2'). */
+  onDeck: 'wave1' as 'wave1' | 'wave2',
   /** Seeded decks (shuffle without replacement, refilled when empty; twins always match). */
   decks: {
     wave1: ['hammer'] as readonly ItemKind[],

@@ -24,6 +24,7 @@
  * a 2.5 m edge lane, two 2.5 m terrace lanes (one leads straight to the bank's back door)
  * and a 1.1 m alley between them.
  */
+import { BREAKABLE_SPECS, PROP_SPECS } from '../config';
 import { LayoutBuilder } from './builder';
 import type { LayoutDesignMeta } from './meta';
 import type { LayoutDef } from '../types';
@@ -226,6 +227,27 @@ function build(): { def: LayoutDef; meta: LayoutDesignMeta } {
   // Cars pull up at the curb outside the north edge (wave 1) and the south edge (wave 2) on the
   // mirror axis; officers hop the fence into the police gate and come out at the bank's back lane.
   b.policeCurbs();
+
+  // --- Content 2.0 composition (content-plan §3.2; LayoutDef.v2, 4,000) -----------------------
+  // The two square large safes stay (1 m further toward their bank doors, out of the diagonals'
+  // sweeps) and the edge-nook small safe per side; the terrace and square small safes make way.
+  // 돼지 and 돈나무 flank the clock tower on the axis. The ATM starter socket stands on the row-2
+  // shop front north of the zone; crates on each spawn's first path, the vending machine on the
+  // terrace by the toy shop.
+  b.v2Safe('largeSafe', AX, 18.5);
+  b.v2Safe('largeSafe', AX, H - 18.5);
+  b.v2Safe('smallSafe', 1.5, ZONE.y + 5.2); // edge nook below the van (kept)
+  b.prop('piggy', AX, 21.0); // north of the clock tower
+  b.prop('moneyTree', AX, 27.0); // south of the clock tower
+  // row-2 ramen shop front, facing the zone (east of its cafe umbrella); the crate a step closer
+  b.prop('atm', 9.35, 17 + 0.06 + PROP_SPECS.atm.half.y, 0);
+  b.breakable('crate.north', 'crate', 10.6, 19.45); // spawn 0's first hit, on the way to the ATM
+  b.breakable('crate.south', 'crate', 10.9, H - 4.75 - 0.06 - BREAKABLE_SPECS.crate.half.y); // south terrace lane, below the laundry alley: spawn 1's way to the lane pad
+  b.breakable('vending', 'vending', 12.6, 11 + 0.06 + BREAKABLE_SPECS.vending.half.y, 0); // terrace, on the toy shop's back wall
+  b.itemPad('pad.terrace', 15.5, 15.5); // north terrace corner (pair 1)
+  b.itemPad('pad.lane', 15.0, H - 6); // south terrace lane mouth (pair 2)
+  b.itemPad('pad.axis', AX, H - 15.5); // south counter (in front of the south bank)
+  b.eventSpot(AX, 15.5); // north counter (시계탑 cuckoo announces it)
 
   return b.build(
     'Open counter: both bank fronts face a shared clock-tower crossing that also holds the two large safes. Bank routes are short ' +

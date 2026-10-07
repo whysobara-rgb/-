@@ -60,6 +60,8 @@ describe('sanitizeSaveData', () => {
       gameIndex: 3,
       layoutId: 'plaza',
       adaptation: { kind: 'guardDoors', lineKey: 'adapt.tongkeun.guardDoors.1' },
+      // v2: a series without a cup is filed under 보통.
+      cup: 'normal',
     });
     // Beaten rivals always grant their hat; unknown hats are dropped.
     expect(d.cosmetics.unlocked).toEqual(['none', 'teamCapA', 'teamCapB', 'hodadakBand', 'tongkeunHat', 'nunchiMask']);
@@ -182,7 +184,8 @@ describe('SaveManager', () => {
     const m2 = manager(b);
     const r = m2.load();
     expect(r.source).toBe('main');
-    expect(m2.data).toEqual(m.data);
+    // v2: a ladder win written without a cup (today's app path) is filed under 보통 at load.
+    expect(m2.data).toEqual({ ...m.data, cups: { ...m.data.cups, normal: ['hodadak'] } });
   });
 
   it('recovers from a corrupt main save using the backup and keeps a quarantined copy', () => {

@@ -61,6 +61,12 @@ import {
   type WipeShape,
 } from '../ui';
 import { CreditsScreen } from '../ui/screens/CreditsScreen';
+import { BootSplash } from '../ui/screens/BootSplash';
+import { vanWipe, type FrontMode, type MainMenuProps, type NextGoalView, type PlayerCardModel } from '../ui/screens/MainMenu';
+import { buildNewsFeed, newestNewsVersion } from '../ui/components/NewsTicker';
+import { t as tFront } from '../ui/i18n';
+import { bumpFunnel, setLastSeenVersion } from '../platform/progress';
+import { getNative } from '../platform/native';
 import { tournamentAchievements, wardrobeAchievement } from './achievements';
 import { MatchController, type MatchSummary } from './match';
 import type { LaunchParams } from './params';
@@ -96,7 +102,9 @@ export type AppState =
   | 'results'
   | 'intermission'
   | 'tutorialOffer'
-  | 'error';
+  | 'error'
+  /** C10 first-run boot splash (menu input + the title scene warming behind it). */
+  | 'splash';
 
 export interface AppDeps {
   ui: UiRoot;
@@ -351,7 +359,7 @@ export class App {
       return;
     }
     if (p.skipIntro) this.toMenu();
-    else this.toTitle();
+    else this.bootSplashThenTitle();
   }
 
   // ------------------------------------------------------------------------------------------
@@ -478,6 +486,7 @@ export class App {
   // ------------------------------------------------------------------------------------------
 
   toTitle(): void {
+    this.frontMenuAudio(null);
     if (this.match) this.toSceneTitle();
     this.d.audio.playMusic('title');
     this.scene3d(TitleScene, () => new TitleScene({ hat: this.d.save.data.cosmetics.equipped }));
@@ -487,50 +496,37 @@ export class App {
   toMenu(focus?: MainMenuItem): void {
     if (this.match || this.d.view.mode !== 'title') this.toSceneTitle();
     this.d.audio.playMusic('title');
-    const data = this.d.save.data;
-    const fresh = !data.tutorialDone && data.stats.matches === 0;
-    const badges: Partial<Record<MainMenuItem, string | { key: string; params?: Record<string, number> }>> = {};
-    if (fresh) badges.practice = 'common.new';
-    if (data.tournament.series) badges.tournament = { key: 'tournament.round', params: { n: ['hodadak', 'tongkeun', 'nunchi'].indexOf(data.tournament.series.rival) + 1 } };
-    if (newHats(data.cosmetics).length) badges.wardrobe = 'common.new';
-    const first: MainMenuItem = focus ?? (fresh ? 'practice' : 'quickMatch');
-    const hide = this.hideout('menu');
+    // C10 front door: props (player card, 게임 시작, mode statuses, next goal, news) come from
+    // frontDoorProps(); the first-launch practice suggestion is the highlighted 연습 card (no modal).
+    const props = this.frontDoorProps(focus);
+    const first = props.initialFocus ?? 'play';
+    const hide = this.hideout('front');
     hide?.setFocus(first);
+    this.frontMenuAudio(first);
     const menu = new MainMenu({
+      ...props,
       onSelect: (item) => this.onMenuSelect(item),
-      onFocusItem: (item) => hide?.setFocus(item),
+      onFocusItem: (item) => {
+        hide?.setFocus(item);
+        this.frontMenuAudio(item);
+      },
       onBack: () => this.wipeTo(() => this.toTitle(), 'raccoon'),
-      showQuit: isDesktopBuild(),
-      hat: data.cosmetics.equipped,
-      team: 0,
-      badges,
-      initialFocus: first,
     });
     this.show(menu, 'menu');
-    // First launch suggests the practice once per session (never forced).
-    if (fresh && !this.firstRunAsked && !this.d.params.autotest) {
-      this.firstRunAsked = true;
-      this.overlay = new ConfirmDialog({
-        titleKey: 'firstRun.title',
-        bodyKey: 'firstRun.body',
-        confirmKey: 'firstRun.ok',
-        cancelKey: 'firstRun.later',
-        defaultFocus: 'confirm',
-        onConfirm: () => {
-          this.closeOverlay();
-          this.startTutorial();
-        },
-        onCancel: () => {
-          this.closeOverlay();
-          menu.rearm();
-        },
-      });
-      this.overlay.show();
-    }
   }
 
   private onMenuSelect(item: MainMenuItem): void {
+    this.frontMenuAudio(null);
     switch (item) {
+      case 'play':
+        this.frontPlay();
+        break;
+      case 'goal':
+        this.frontGoal();
+        break;
+      case 'credits':
+        this.wipeTo(() => this.frontCredits(), 'star');
+        break;
       case 'practice':
         this.startTutorial();
         break;
@@ -550,6 +546,246 @@ export class App {
         this.confirmQuit();
         break;
     }
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // C10 front door: boot splash, props, 게임 시작 ceremony, next goal, credits, menu audio
+  // ------------------------------------------------------------------------------------------
+
+  /** Front-door next-goal card hidden for this session ("x" on the card). */
+  private frontGoalHidden = false;
+  /** Rotates the news headlines between sessions. */
+  private readonly newsStart = Math.floor(Math.random() * 40);
+
+  /**
+   * First run: the boot splash (paw-stamp thunk, wordmark, photosensitivity note) while the
+   * title scene renders hidden behind it to warm its shaders; any key skips it. Later runs go
+   * straight to the title.
+   */
+  private bootSplashThenTitle(): void {
+    let seen = false;
+    try {
+      seen = window.localStorage.getItem('uh.bootSplashSeen') === '1';
+    } catch {
+      seen = false;
+    }
+    const data = this.d.save.data;
+    if (seen || data.stats.matches > 0 || data.tutorialDone) {
+      this.toTitle();
+      return;
+    }
+    try {
+      window.localStorage.setItem('uh.bootSplashSeen', '1');
+    } catch {
+      // private window / blocked storage: the splash simply shows again next time
+    }
+    // Warm the title scene behind the opaque splash (stage.frame runs in renderScene while
+    // state is 'title'-like; the splash itself sits in the dialogs layer above it).
+    this.scene3d(TitleScene, () => new TitleScene({ hat: data.cosmetics.equipped }));
+    this.setState('splash');
+    let done = false;
+    const splash = new BootSplash({
+      onThunk: () => {
+        // Browsers block audio before a gesture; Electron allows it (autoplayPolicy).
+        if (getNative()) this.d.audio.play('bankLand', { volume: 0.55, pitch: 0.8 });
+      },
+      onDone: () => {
+        if (done) return;
+        done = true;
+        splash.destroy();
+        this.toTitle();
+      },
+    });
+    this.closeOverlay();
+    this.overlay = splash;
+    splash.show();
+  }
+
+  /** Quick-match setup 게임 시작 uses: the saved last setup, else this session's, else defaults. */
+  private frontQuickOpts(): QuickMatchOptions {
+    const lq = this.d.save.data.lastQuick;
+    if (lq) return { mode: lq.mode, layout: lq.layout, rival: lq.rival, difficulty: lq.difficulty };
+    if (this.quickTouched) return { ...this.quickOpts };
+    return { mode: '1v1', layout: 'random', rival: 'random', difficulty: 'normal' };
+  }
+
+  /** True once the player changed the quick setup this session. */
+  private get quickTouched(): boolean {
+    const q = this.quickOpts;
+    return !(q.mode === '1v1' && q.layout === 'plaza' && q.rival === 'hodadak' && q.difficulty === 'normal') || this.d.params.layout !== null;
+  }
+
+  private frontFirstRun(): boolean {
+    const data = this.d.save.data;
+    return !data.tutorialDone && data.stats.matches === 0;
+  }
+
+  /** Everything the front door shows (C10). */
+  private frontDoorProps(focus?: MainMenuItem): Omit<MainMenuProps, 'onSelect'> {
+    const data = this.d.save.data;
+    const fresh = this.frontFirstRun();
+    const rivals: RivalId[] = ['hodadak', 'tongkeun', 'nunchi'];
+    const beatenSet = new Set<RivalId>(data.tournament.beaten);
+    const cups = (data as { cups?: Partial<Record<string, RivalId[]>> }).cups;
+    if (cups) for (const list of Object.values(cups)) for (const r of list ?? []) beatenSet.add(r);
+    const beaten = rivals.filter((r) => beatenSet.has(r));
+    const badges: MainMenuProps['badges'] = {};
+    // (fresh saves: the 연습 card carries the "여기부터!" flag instead of a NEW badge)
+    if (newHats(data.cosmetics).length) badges.wardrobe = 'common.new';
+    const st = data.stats;
+    const player: PlayerCardModel = {
+      hat: data.cosmetics.equipped,
+      team: 0,
+      rank: `front.player.rank.${beaten.length}`,
+      hatName: `hat.${data.cosmetics.equipped}.name`,
+      record: st.matches > 0 ? { wins: st.wins, losses: st.losses, draws: st.draws, best: st.bestScore } : null,
+      rivals: rivals.map((rival) => ({ rival, beaten: beatenSet.has(rival) })),
+    };
+    // 게임 시작 line
+    const q = this.frontQuickOpts();
+    const mapName = q.layout === 'random' ? tFront('front.play.map.random') : tFront(getLayout(q.layout).nameKey);
+    const playSub = fresh ? 'front.play.sub.first' : { key: 'front.play.sub.quick', params: { mode: tFront(`mode.${q.mode}`), map: mapName } };
+    // mode statuses
+    const series = data.tournament.series;
+    const rivalName = (r: RivalId): string => tFront(RIVALS[r].nameKey);
+    const nextRival = rivals.find((r) => !beatenSet.has(r)) ?? null;
+    // "새 맵": match maps added after the launch three that this save has not played or previewed.
+    const seen = (data as { seenLayouts?: LayoutId[] }).seenLayouts ?? [];
+    const launchMaps: readonly LayoutId[] = ['plaza', 'shortcut', 'counter'];
+    const newMaps = MATCH_LAYOUT_IDS.filter((id) => !launchMaps.includes(id) && !seen.includes(id)).length;
+    const modeStatus: Partial<Record<FrontMode, MainMenuProps['playSub']>> = {
+      quickMatch: newMaps > 0 ? { key: 'front.mode.quickMatch.newMaps', params: { n: newMaps } } : { key: 'front.mode.quickMatch.status', params: { maps: MATCH_LAYOUT_IDS.length, rivals: rivals.length } },
+      tournament: series
+        ? { key: 'front.mode.tournament.series', params: { rival: rivalName(series.rival), round: rivals.indexOf(series.rival) + 1 } }
+        : nextRival
+          ? { key: 'front.mode.tournament.next', params: { rival: rivalName(nextRival) } }
+          : 'front.mode.tournament.done',
+      practice: data.tutorialDone ? 'front.mode.practice.again' : 'front.mode.practice.first',
+    };
+    const lastSeen = (data as { lastSeenVersion?: string | null }).lastSeenVersion ?? null;
+    const anyV2 = MATCH_LAYOUT_IDS.some((id) => !!(getLayout(id) as { v2?: unknown }).v2);
+    const news = buildNewsFeed({
+      available: (req) => (req === 'v2' ? anyV2 : req.startsWith('layout:') ? (MATCH_LAYOUT_IDS as string[]).includes(req.slice(7)) : false),
+      // A fresh save has seen nothing yet, but everything is new to it: mark nothing.
+      lastSeenVersion: st.matches > 0 || data.tutorialDone ? lastSeen ?? '0.5.0' : null,
+      start: this.newsStart,
+    });
+    return {
+      showQuit: isDesktopBuild(),
+      hat: data.cosmetics.equipped,
+      team: 0,
+      badges,
+      initialFocus: focus ?? (fresh ? 'practice' : 'play'),
+      firstRun: fresh,
+      playSub,
+      player,
+      modeStatus,
+      quickArt: getLayout(q.layout === 'random' ? MATCH_LAYOUT_IDS[0]! : q.layout),
+      tournamentRival: series?.rival ?? nextRival ?? 'nunchi',
+      nextGoal: this.frontGoalHidden ? null : this.frontNextGoal(),
+      onDismissGoal: () => (this.frontGoalHidden = true),
+      news,
+      logo3d: this.stage !== null,
+    };
+  }
+
+  /**
+   * "이어서 / 다음 목표" (v1 fallback until F7's nextGoal() lands): series in progress -> the
+   * practice for a fresh save -> the next rival's hat. Null when there is nothing to suggest.
+   */
+  private frontNextGoal(): NextGoalView | null {
+    const data = this.d.save.data;
+    const s = data.tournament.series;
+    const name = (r: RivalId): string => tFront(RIVALS[r].nameKey);
+    if (s) {
+      return {
+        id: `series:${s.rival}`,
+        kind: 'series',
+        label: 'front.goal.continue',
+        title: { key: 'front.goal.series', params: { rival: name(s.rival) } },
+        detail: { key: 'front.goal.series.detail', params: { w: s.wins, l: s.losses, n: nextGameNumber(s) } },
+        icon: 'trophy',
+      };
+    }
+    if (!data.tutorialDone) return { id: 'practice', kind: 'practice', title: 'front.goal.practice', detail: 'front.goal.practice.detail', icon: 'practice' };
+    const next = (['hodadak', 'tongkeun', 'nunchi'] as RivalId[]).find((r) => !data.tournament.beaten.includes(r));
+    if (next) return { id: `rival:${next}`, kind: 'tournament', title: { key: 'front.goal.rival', params: { rival: name(next) } }, detail: 'front.goal.rival.detail', icon: 'hat' };
+    return null;
+  }
+
+  private frontGoal(): void {
+    const goal = this.frontNextGoal();
+    const s = this.d.save.data.tournament.series;
+    if (goal?.kind === 'series' && s) {
+      this.startTournamentGame(s.rival, true);
+      return;
+    }
+    if (goal?.kind === 'practice') {
+      this.startTutorial();
+      return;
+    }
+    const rival = goal?.id.startsWith('rival:') ? (goal.id.slice(6) as RivalId) : undefined;
+    this.wipeTo(() => this.toTournament(rival), 'star');
+  }
+
+  /**
+   * 게임 시작: one press. The lead bonks the big red button with the 뿅망치, the gang ziplines off
+   * the roof, the van wipe covers the screen and the quick match (last setup) loads behind it.
+   * First launch: the practice instead.
+   */
+  private frontPlay(): void {
+    try {
+      bumpFunnel('playPressed');
+    } catch {
+      // funnel counters are optional (local playtest stats only)
+    }
+    const version = newestNewsVersion();
+    if (version) {
+      try {
+        setLastSeenVersion(version);
+      } catch {
+        // older save shape: nothing to remember
+      }
+    }
+    const fresh = this.frontFirstRun();
+    const go = (): void => {
+      if (fresh) this.startTutorial();
+      else {
+        const o = this.frontQuickOpts();
+        this.quickOpts = { ...o };
+        this.startQuick(o, true);
+      }
+    };
+    const hide = this.stage?.scene instanceof HideoutScene ? this.stage.scene : null;
+    this.d.audio.play('popup', { volume: 0.55, pitch: 0.75 });
+    const wait = hide ? hide.playCeremony() : 0;
+    const token = this.transitionToken;
+    window.setTimeout(() => {
+      if (token !== this.transitionToken || this.stateValue !== 'menu') return;
+      vanWipe(go);
+    }, Math.round(wait * 1000));
+  }
+
+  /** Credits from the front door (back returns to the front door, credits focused). */
+  private frontCredits(): void {
+    this.hideout('right')?.setFocus('credits');
+    this.show(new CreditsScreen({ version: this.d.version, onBack: () => this.wipeTo(() => this.toMenu('credits'), 'star') }), 'settings');
+  }
+
+  /**
+   * Front-door music: the title song heard "from the rooftop" (low-pass) while browsing; focusing
+   * 게임 시작 opens it up and raises the intensity. null = leaving the front door (restore).
+   */
+  private frontMenuAudio(item: MainMenuItem | null): void {
+    const a = this.d.audio;
+    if (item === null) {
+      a.setMuffled(false);
+      a.setMusicIntensity(0.5);
+      return;
+    }
+    const hot = item === 'play';
+    a.setMuffled(!hot);
+    a.setMusicIntensity(hot ? 1 : 0.4);
   }
 
   private confirmQuit(): void {

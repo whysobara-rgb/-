@@ -163,3 +163,82 @@ export function rumbleFor(e: SimEvent, sim: Pick<Simulation, 'getCharacter' | 'g
       return null;
   }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Moments -> feel (fun round WP5 / F5). Pure: match.ts applies the plan to GameView.glance and
+// TimeScale. HUD never goes through here; render-only reactions live in view.onMoments (WP3).
+// ---------------------------------------------------------------------------------------------
+
+/** Feel rules for moments (fun-plan WP5 §2; ART_DIRECTION §2). */
+export const MOMENT_FEEL = {
+  /** Slow-mo on `leadTaken` in the final 30 s and on `bigPlay`. */
+  slowmo: { scale: 0.5, seconds: 0.4 },
+  /** ... replaced by a short hit-stop while the local player steers a load (no input lag). */
+  steeringHitstop: 0.08,
+  leadTakenFinalTicks: 30 * 60,
+  /** Camera glance toward big plays (and jackpot / craneDrop / goldHammer, content-plan F3). */
+  glance: { weight: 0.25, ms: 900, minDist: 4, maxDist: 40 },
+} as const;
+
+export interface MomentFeelContext {
+  /** Settings: reduced motion turns every glance / slow-mo / hit-stop off. */
+  reducedMotion: boolean;
+  /** Sim speed (?speed=N tests): above 1 nothing changes the pace. */
+  speed: number;
+  /** The local player holds a load right now (steering it). */
+  steering: boolean;
+  /** Local player position (glance only toward things away from the player); null = none. */
+  playerPos: { x: number; y: number } | null;
+  /** Ticks until the end (Infinity without a time limit). */
+  ticksLeft: number;
+}
+
+export interface MomentFeelPlan {
+  glance: { pos: { x: number; y: number }; weight: number; ms: number } | null;
+  slowmo: { scale: number; seconds: number } | null;
+  hitstop: number;
+}
+
+const GLANCE_KINDS = new Set(['bigPlay', 'jackpot', 'craneDrop', 'goldHammer']);
+
+/**
+ * What this tick's moments do to the camera and the clock (at most one glance and one pace
+ * change per tick). Reduced motion: nothing at all.
+ */
+export function planMomentFeel(moments: readonly { kind: string; pos?: { x: number; y: number } }[], ctx: MomentFeelContext): MomentFeelPlan {
+  const plan: MomentFeelPlan = { glance: null, slowmo: null, hitstop: 0 };
+  if (ctx.reducedMotion || !moments.length) return plan;
+  const F = MOMENT_FEEL;
+  let pace = false;
+  for (const m of moments) {
+    if (m.kind === 'bigPlay' || (m.kind === 'leadTaken' && ctx.ticksLeft <= F.leadTakenFinalTicks)) pace = true;
+    if (!plan.glance && !ctx.steering && m.pos && GLANCE_KINDS.has(m.kind)) {
+      const d = ctx.playerPos ? Math.hypot(m.pos.x - ctx.playerPos.x, m.pos.y - ctx.playerPos.y) : Infinity;
+      if (d >= F.glance.minDist && d <= F.glance.maxDist) plan.glance = { pos: { x: m.pos.x, y: m.pos.y }, weight: F.glance.weight, ms: F.glance.ms };
+    }
+  }
+  if (pace && ctx.speed <= 1) {
+    if (ctx.steering) plan.hitstop = F.steeringHitstop;
+    else plan.slowmo = { ...F.slowmo };
+  }
+  return plan;
+}
+
+/** Apply a plan (match.ts): returns which effects actually ran (stats / tests). */
+export function applyMomentFeel(plan: MomentFeelPlan, time: TimeScale, glance: (pos: { x: number; y: number }, weight: number, ms: number) => void): { glance: boolean; slowmo: boolean; hitstop: boolean } {
+  const ran = { glance: false, slowmo: false, hitstop: false };
+  if (!time.isEnabled) return ran;
+  if (plan.glance) {
+    glance(plan.glance.pos, Math.min(0.3, plan.glance.weight), plan.glance.ms);
+    ran.glance = true;
+  }
+  if (plan.slowmo) {
+    time.slowmo(plan.slowmo.scale, plan.slowmo.seconds);
+    ran.slowmo = true;
+  }
+  if (plan.hitstop > 0) {
+    time.hitstop(plan.hitstop);
+    ran.hitstop = true;
+  }
+  return ran;
+}

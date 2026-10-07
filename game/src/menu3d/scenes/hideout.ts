@@ -18,15 +18,30 @@ import { createSafe, type SafeRig } from '../../render/models';
 import { MenuScene, damp, easeOutBack } from '../scene';
 import { Puppet, type Act } from '../puppet';
 import { POP, PropBuilder, addCrate, addGift, ball, cyl, disposeProp, glowDisc, disposeOwnedMesh, mirrorGlass, rng, roundBox, stringLights, wrench, type StringLights } from '../kit';
+import { bigRedButton, disposeRope, marqueeSign, marqueeTexture, rope, setRope, squeakyHammer, type BigButton, type MarqueeSign } from '../kit';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
-export type HideoutFocus = 'practice' | 'quickMatch' | 'tournament' | 'wardrobe' | 'settings' | 'quit' | null;
-/** Camera framing: 'menu' (list on the left), 'left' (panel on the right), 'center'. */
-export type HideoutFraming = 'menu' | 'left' | 'right' | 'center';
+export type HideoutFocus = 'practice' | 'quickMatch' | 'tournament' | 'wardrobe' | 'settings' | 'quit' | 'play' | 'credits' | 'goal' | null;
+/**
+ * Camera framing: 'menu' (list on the left), 'left' (panel on the right), 'center', and
+ * 'front' (the front door: marquee top-left, the gang centre-left, the right ~40% kept clear for
+ * the player card / 게임 시작 / mode cards; portrait screens get a taller variant).
+ */
+export type HideoutFraming = 'menu' | 'left' | 'right' | 'center' | 'front';
 
 export interface HideoutOptions {
   hat: HatId;
   framing?: HideoutFraming;
+  /** Marquee wordmark + ribbon (defaults to the Korean title and the English name). */
+  marquee?: { title: string; sub: string };
+}
+
+/** Normalised screen rectangle (0..1 of the viewport, y down). */
+export interface ScreenRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
 }
 
 const TRY_HATS: HatId[] = ['teamCapA', 'tongkeunHat', 'hodadakBand', 'nunchiMask', 'teamCapB'];
@@ -36,7 +51,20 @@ const FRAMES: Record<HideoutFraming, { pos: [number, number, number]; look: [num
   left: { pos: [4.4, 4.4, 12.6], look: [5.6, 1.2, 0] },
   right: { pos: [-1.0, 5.0, 13.0], look: [0.4, 1.6, -0.4] },
   center: { pos: [1.2, 5.6, 15.5], look: [1.6, 1.7, -0.6] },
+  front: { pos: [2.2, 5.0, 17.0], look: [3.9, 3.0, -1.2] },
 };
+/** Front door on portrait screens (fov keeps the 16:9 width): marquee on top, gang below it. */
+const FRONT_TALL = { pos: [-0.6, 5.4, 7.2] as [number, number, number], look: [-1.2, -2.2, -4.75] as [number, number, number] };
+
+/** Play-press ceremony timeline (seconds). */
+const CER = { slam: 0.3, zipStart: 0.5, zipDur: 0.62, stagger: 0.09, coverAt: 0.82 } as const;
+/** Zipline cable: from the front-left roof corner down past the camera's left edge. */
+const ZIP_A = new THREE.Vector3(-6.9, 2.75, 3.4);
+const ZIP_B = new THREE.Vector3(-17, -5.5, 10.5);
+const LEAD_HOME = new THREE.Vector3(1.3, 0, 1.5);
+/** Where the lead jumps to bonk the button. */
+const LEAD_BONK = new THREE.Vector3(2.15, 0, 0.55);
+const BUTTON_AT = new THREE.Vector3(2.0, 1.31, -0.42);
 
 export class HideoutScene extends MenuScene {
   readonly id = 'hideout';
@@ -52,6 +80,16 @@ export class HideoutScene extends MenuScene {
   private readonly props: THREE.Object3D[] = [];
   private readonly glows: THREE.Mesh[] = [];
   private readonly mirror: THREE.Mesh;
+  private readonly marquee: MarqueeSign;
+  private readonly hangSafe: SafeRig;
+  private readonly hammer: THREE.Group;
+  private readonly button: BigButton;
+  private readonly zipRope: THREE.Mesh;
+  private readonly zipPole: THREE.Group;
+  /** Seconds since the play ceremony started (null = idle). */
+  private cerT: number | null = null;
+  private cerBonked = false;
+  private readonly crewHome: THREE.Vector3[] = [];
   private focus: HideoutFocus = null;
   private framing: HideoutFraming;
   private hat: HatId;
@@ -87,23 +125,23 @@ export class HideoutScene extends MenuScene {
     // front lip
     b.add(roundBox(15.2, 0.25, 0.35, 0.05), '#E3C9B6', [0, 0.12, 4.1]);
     // water tower (back-left)
-    const wx = -5.4;
-    const wz = -3.6;
+    const wx = 6.1;
+    const wz = -3.9;
     for (const [lx, lz] of [[-0.7, -0.7], [0.7, -0.7], [-0.7, 0.7], [0.7, 0.7]] as const) b.add(cyl(0.08, 0.1, 2.4, 8), POP.woodDark, [wx + lx, 1.2, wz + lz]);
     b.add(cyl(1.15, 1.15, 1.8, 20), POP.wood, [wx, 3.3, wz]);
     for (const y of [2.65, 3.3, 3.95]) b.add(cyl(1.19, 1.19, 0.1, 20), POP.steelDark, [wx, y, wz]);
     b.add(cyl(0.05, 1.3, 0.8, 20), POP.tomato, [wx, 4.6, wz]);
     b.add(ball(0.12, 10), POP.sun, [wx, 5.05, wz]);
     // AC unit + vent pipes (back-right)
-    b.add(roundBox(1.6, 0.9, 1.0, 0.08), '#C9D3E2', [5.6, 0.45, -4.1]);
-    b.add(cyl(0.38, 0.38, 0.06, 18), '#8A93A6', [5.6, 0.92, -4.1]);
+    b.add(roundBox(1.6, 0.9, 1.0, 0.08), '#C9D3E2', [-5.7, 0.45, -4.3]);
+    b.add(cyl(0.38, 0.38, 0.06, 18), '#8A93A6', [-5.7, 0.92, -4.3]);
     b.add(cyl(0.12, 0.12, 1.4, 10), POP.steel, [3.8, 0.7, -4.6]);
     b.add(cyl(0.2, 0.12, 0.25, 10), POP.steelDark, [3.8, 1.45, -4.6]);
     // antenna
-    b.add(cyl(0.04, 0.05, 3.2, 6), POP.steelDark, [6.6, 1.6, -2.8]);
-    b.add(roundBox(1.0, 0.06, 0.06, 0.02), POP.steelDark, [6.6, 2.8, -2.8]);
-    b.add(roundBox(0.7, 0.06, 0.06, 0.02), POP.steelDark, [6.6, 3.15, -2.8]);
-    b.add(ball(0.09, 8), POP.tomato, [6.6, 3.25, -2.8]);
+    b.add(cyl(0.04, 0.05, 3.2, 6), POP.steelDark, [6.6, 1.6, -1.6]);
+    b.add(roundBox(1.0, 0.06, 0.06, 0.02), POP.steelDark, [6.6, 2.8, -1.6]);
+    b.add(roundBox(0.7, 0.06, 0.06, 0.02), POP.steelDark, [6.6, 3.15, -1.6]);
+    b.add(ball(0.09, 8), POP.tomato, [6.6, 3.25, -1.6]);
     // crates (hand placed, varied)
     addCrate(b, 0.95, POP.wood, 3, [5.0, 0, -1.7], 0.15);
     addCrate(b, 0.7, '#D99A5E', 6, [6.1, 0, -2.3], -0.4);
@@ -234,9 +272,9 @@ export class HideoutScene extends MenuScene {
     this.scene.add(this.safe.root);
     this.batcher.add(this.safe.root);
     this.lights = stringLights([
-      { a: new THREE.Vector3(-5.4, 4.3, -3.6), b: new THREE.Vector3(-0.8, 2.75, -2.9), count: 9, sag: 0.4 },
-      { a: new THREE.Vector3(-0.8, 2.75, -2.9), b: new THREE.Vector3(6.6, 3.2, -2.8), count: 15, sag: 0.55 },
-      { a: new THREE.Vector3(6.6, 3.2, -2.8), b: new THREE.Vector3(7.2, 3.0, 3.0), count: 9, sag: 0.45 },
+      { a: new THREE.Vector3(-6.9, 2.75, 3.3), b: new THREE.Vector3(-4.6, 2.75, -2.9), count: 9, sag: 0.4 },
+      { a: new THREE.Vector3(-0.8, 2.75, -2.9), b: new THREE.Vector3(6.6, 3.2, -1.6), count: 15, sag: 0.55 },
+      { a: new THREE.Vector3(6.6, 3.2, -1.6), b: new THREE.Vector3(7.2, 3.0, 3.0), count: 9, sag: 0.45 },
     ]);
     this.scene.add(this.lights.group);
     this.batcher.add(this.lights.group);
@@ -271,6 +309,8 @@ export class HideoutScene extends MenuScene {
       this.batcher.add(p.holder);
       this.rivals.push(p);
     });
+    this.hammer = squeakyHammer(0.72);
+    this.hammer.visible = false;
     this.wrench = wrench(0.4);
     this.wrench.visible = false;
     const paw = this.lead.rightPaw;
@@ -279,17 +319,100 @@ export class HideoutScene extends MenuScene {
       this.wrench.position.set(0, -0.36, 0.05);
       this.wrench.rotation.set(0, 0, -Math.PI / 2);
     } else this.scene.add(this.wrench);
+    if (paw) {
+      paw.add(this.hammer);
+      this.hammer.position.set(0, -0.38, 0.04);
+      this.hammer.rotation.set(0, Math.PI / 2, Math.PI);
+    } else this.scene.add(this.hammer);
+    this.crewHome.push(...this.crew.map((p) => p.holder.position.clone()));
 
+    // --- front door: rooftop marquee, GO button on the snack safe, zipline, the lead's 뿅망치 -----
+    const mq = o.marquee ?? { title: '뿌리째 털어라', sub: 'UPROOT HEIST' };
+    this.marquee = marqueeSign(marqueeTexture(mq.title, mq.sub), { legHeight: 3.2 });
+    this.marquee.group.position.set(-1.9, 0, -4.75);
+    this.marquee.group.rotation.y = 0.12;
+    this.scene.add(this.marquee.group);
+    this.batcher.add(this.marquee.group);
+    this.hangSafe = createSafe('smallSafe');
+    this.hangSafe.setAnchored(false);
+    this.hangSafe.root.scale.setScalar(0.8);
+    this.hangSafe.root.position.set(0, -1.15, 0);
+    this.marquee.safePivot.add(this.hangSafe.root);
+    for (const sx of [-0.16, 0.16]) {
+      const ch = rope(POP.steelDark, 0.025);
+      setRope(ch, new THREE.Vector3(sx, -0.62, 0), new THREE.Vector3(sx * 1.6, 0, 0));
+      this.marquee.safePivot.add(ch);
+      this.props.push(ch);
+    }
+    this.batcher.add(this.hangSafe.root);
+    this.button = bigRedButton(0.4);
+    this.button.group.position.copy(BUTTON_AT);
+    this.button.group.rotation.y = -0.25;
+    this.scene.add(this.button.group);
+    const zp = new PropBuilder();
+    zp.add(cyl(0.07, 0.09, 2.9, 8), POP.woodDark, [ZIP_A.x + 0.05, 1.45, ZIP_A.z - 0.05]);
+    zp.add(roundBox(0.5, 0.12, 0.12, 0.03), POP.woodDark, [ZIP_A.x + 0.05, 2.78, ZIP_A.z - 0.05]);
+    zp.add(new THREE.TorusGeometry(0.1, 0.03, 6, 12), POP.steel, [ZIP_A.x, ZIP_A.y - 0.04, ZIP_A.z], { rot: [Math.PI / 2, 0, 0] });
+    this.zipPole = zp.build('prop:zipPole');
+    this.scene.add(this.zipPole);
+    this.batcher.add(this.zipPole);
+    this.zipRope = rope(POP.ink, 0.035);
+    setRope(this.zipRope, ZIP_A, ZIP_B);
+    this.scene.add(this.zipRope);
     this.addShadow(this.scene, 3.4, 2.6, [2.65, 0, -0.7], 0.3);
-    this.addShadow(this.scene, 3.4, 3.4, [-5.4, 0, -3.6], 0.3);
+    this.addShadow(this.scene, 3.4, 3.4, [6.1, 0, -3.9], 0.3);
     this.addShadow(this.scene, 2.6, 2.2, [-6.3, 0, 1.0], 0.25);
     this.addShadow(this.scene, 2.6, 2.2, [5.4, 0, -1.9], 0.25);
     this.addShadow(this.scene, 3.8, 1.6, [-2.7, 0, -4.0], 0.25);
 
-    const f = FRAMES[this.framing];
+    const f = this.frameFor(this.framing);
     this.camPos.set(...f.pos);
     this.camLook.set(...f.look);
     this.setFocus('quickMatch');
+  }
+
+  private frameFor(fr: HideoutFraming): { pos: readonly [number, number, number]; look: readonly [number, number, number] } {
+    if (fr === 'front' && this.camera.aspect < 0.95) return FRONT_TALL;
+    return FRAMES[fr];
+  }
+
+  /**
+   * 게임 시작 ceremony: the lead hops to the snack-table safe and bonks the big red button with the
+   * 뿅망치, the bulbs flash, then the gang ziplines off the roof. Returns the seconds until the
+   * screen should be covered by the van wipe (reduced motion: a cut, no zipline).
+   */
+  playCeremony(): number {
+    if (this.cerT !== null) return Math.max(0, CER.coverAt - this.cerT);
+    this.cerT = 0;
+    this.cerBonked = false;
+    this.cue('whoosh', 0.6);
+    return this.reducedMotion ? 0.12 : CER.coverAt;
+  }
+
+  /** On-screen rectangle of the marquee face (0..1 of the viewport); null when off-screen. */
+  marqueeScreenRect(): ScreenRect | null {
+    const face = this.marquee.face;
+    face.updateWorldMatrix(true, false);
+    const g = face.geometry as THREE.PlaneGeometry;
+    g.computeBoundingBox();
+    const bb = g.boundingBox!;
+    let x0 = Infinity;
+    let y0 = Infinity;
+    let x1 = -Infinity;
+    let y1 = -Infinity;
+    const v = new THREE.Vector3();
+    for (const x of [bb.min.x, bb.max.x])
+      for (const y of [bb.min.y, bb.max.y]) {
+        v.set(x, y, 0).applyMatrix4(face.matrixWorld).project(this.camera);
+        const sx = (v.x + 1) / 2;
+        const sy = (1 - v.y) / 2;
+        x0 = Math.min(x0, sx);
+        x1 = Math.max(x1, sx);
+        y0 = Math.min(y0, sy);
+        y1 = Math.max(y1, sy);
+      }
+    if (!Number.isFinite(x0) || x1 < 0 || x0 > 1 || y1 < 0 || y0 > 1) return null;
+    return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
   }
 
   /** The highlighted main-menu item (null = idle). */
@@ -309,11 +432,21 @@ export class HideoutScene extends MenuScene {
     });
     if (showRivals) this.cue('boing');
     this.wrench.visible = f === 'settings';
-    if (f && f !== prev && !this.reducedMotion) this.lead.hop(0.28);
+    if (f === 'play' && prev !== 'play') this.cue('tick', 0.7);
+    if (f && f !== prev && !this.reducedMotion) this.lead.hop(f === 'play' ? 0.4 : 0.28);
   }
 
   setFraming(fr: HideoutFraming): void {
     this.framing = fr;
+    // Shown again after a play ceremony that did not lead anywhere: everyone back on the roof.
+    if (this.cerT !== null) {
+      this.cerT = null;
+      this.lead.holder.position.copy(LEAD_HOME);
+      this.crew.forEach((p, i) => {
+        p.holder.position.copy(this.crewHome[i]!);
+        p.holder.rotation.y = -Math.PI / 2 - (i === 0 ? 0.35 : 0.45);
+      });
+    }
   }
 
   /** Equipped hat changed (wardrobe). */
@@ -326,18 +459,22 @@ export class HideoutScene extends MenuScene {
     const rm = this.reducedMotion;
     this.focusT += dt;
     const f = this.focus;
+    const front = this.framing === 'front';
+    const cer = this.cerT;
+    // The hero carries the 뿅망치 on the front door (the wrench replaces it while tinkering).
+    this.hammer.visible = (front || cer !== null) && f !== 'settings';
     const leadAct: Act =
-      f === 'quickMatch' ? 'dash' : f === 'practice' ? 'stretch' : f === 'wardrobe' ? 'tryHat' : f === 'settings' ? 'tinker' : f === 'quit' ? 'wave' : f === 'tournament' ? 'idle' : 'idle';
-    this.lead.setAct(leadAct);
+      f === 'quickMatch' ? 'dash' : f === 'practice' ? 'stretch' : f === 'wardrobe' ? 'tryHat' : f === 'settings' ? 'tinker' : f === 'quit' ? 'wave' : f === 'play' ? 'hop' : f === 'credits' ? 'wave' : f === 'goal' ? 'cheer' : 'idle';
+    this.lead.setAct(cer !== null ? 'cheer' : leadAct);
     this.lead.headYaw = f === 'tournament' ? 0.9 : null;
     // Body turns: toward the safe to tinker, the mirror for hats, half around for the rivals.
     const faceCam = -Math.PI / 2;
-    const yawGoal = f === 'settings' ? 0.55 : f === 'wardrobe' ? faceCam - 0.9 : f === 'tournament' ? faceCam + 1.1 : faceCam + 0.25;
+    const yawGoal = cer !== null ? faceCam - 1.2 : f === 'settings' ? 0.55 : f === 'wardrobe' ? faceCam - 0.9 : f === 'tournament' ? faceCam + 1.1 : faceCam + 0.25;
     this.lead.holder.rotation.y += (yawGoal - this.lead.holder.rotation.y) * damp(rm ? 40 : 7, dt);
-    this.lead.expression = f === 'tournament' ? 'shock' : null;
-    const crewAct: Act = f === 'quickMatch' ? 'hop' : f === 'practice' ? 'stretch' : f === 'quit' ? 'wave' : f === 'tournament' ? 'idle' : 'idle';
+    this.lead.expression = f === 'tournament' ? 'shock' : cer !== null ? 'happy' : null;
+    const crewAct: Act = f === 'quickMatch' || f === 'play' ? 'hop' : f === 'practice' ? 'stretch' : f === 'quit' || f === 'credits' ? 'wave' : 'idle';
     this.crew.forEach((p, i) => {
-      p.setAct(i === 0 && f !== 'quit' && f !== 'practice' ? (f === 'quickMatch' ? 'cheer' : 'idle') : crewAct);
+      p.setAct(cer !== null ? 'cheer' : i === 0 && f !== 'quit' && f !== 'practice' && f !== 'credits' ? (f === 'quickMatch' || f === 'play' ? 'cheer' : 'idle') : crewAct);
       p.headYaw = f === 'tournament' ? 1.2 : f === 'settings' ? -0.6 : null;
       p.expression = f === 'tournament' ? 'shock' : null;
     });
@@ -369,6 +506,14 @@ export class HideoutScene extends MenuScene {
       const p = this.lead.holder.position;
       this.fx.dust({ x: p.x - 0.3, y: 0.05, z: p.z - 0.2 }, { count: 2, spread: 0.25, size: 0.22 });
     }
+    // 게임 시작 focused: the hero shoulders the hammer and the GO button glints now and then
+    if (f === 'play' && !rm && cer === null) {
+      this.sparkTimer -= dt;
+      if (this.sparkTimer <= 0) {
+        this.sparkTimer = 0.9 + Math.random() * 0.5;
+        this.fx.sparkle({ x: BUTTON_AT.x, y: BUTTON_AT.y + 0.35, z: BUTTON_AT.z }, { count: 5, radius: 0.3, color: '#FFF1B8' });
+      }
+    }
 
     this.lead.update(dt, t, rm);
     for (const p of this.crew) p.update(dt, t, rm);
@@ -376,11 +521,38 @@ export class HideoutScene extends MenuScene {
       p.setAct(i === 0 ? 'hop' : i === 1 ? 'flex' : 'smug');
       p.update(dt, t, rm);
     });
+    // Hammer pose (after the rig update: the arm override wins): resting on the shoulder, raised
+    // high while 게임 시작 is focused, swung down on the slam.
+    const arm = this.lead.rightPaw;
+    if (arm && this.hammer.visible) {
+      const raised = (f === 'play' && cer === null) || cer !== null;
+      let z = 0.3 + (rm ? 0 : Math.sin(t * 2.1) * 0.05);
+      if (raised) z = 2.95 + (rm ? 0 : Math.sin(t * 7) * 0.08);
+      if (cer !== null) {
+        const k = cer / CER.slam;
+        z = k < 1 ? 2.5 + k * 0.8 : Math.max(1.05, 3.3 - (cer - CER.slam) * 22);
+      }
+      arm.rotation.set(raised ? -0.15 : 0.1, 0, z);
+      // raised: the hammer extends past the paw; resting: held upright beside the shoulder
+      if (raised) {
+        this.hammer.position.set(0, -0.38, 0.04);
+        this.hammer.rotation.set(0, Math.PI / 2, Math.PI);
+      } else {
+        this.hammer.position.set(0.02, -0.4, 0.16);
+        this.hammer.rotation.set(0, Math.PI / 2, 0.12);
+      }
+    }
+    this.updateCeremony(dt);
     this.safe.update(dt);
     this.lights.twinkle(rm ? 0 : t);
+    // marquee: bulb chase, the hanging safe swings on its chains
+    const flash = cer !== null && cer >= CER.slam ? Math.max(0, 1 - (cer - CER.slam) * 2.2) : 0;
+    this.marquee.update(t, rm, flash);
+    this.marquee.safePivot.rotation.z = rm ? 0 : Math.sin(t * 1.7) * 0.2 + Math.sin(t * 0.63) * 0.05;
+    this.hangSafe.update(dt);
 
     // camera: framing + a small push toward the rivals
-    const fr = FRAMES[this.framing];
+    const fr = this.frameFor(this.framing);
     const k = damp(rm ? 30 : 3.2, dt);
     const lift = f === 'tournament' ? 0.6 : 0;
     const breathe = rm ? 0 : Math.sin(t * 0.3) * 0.12;
@@ -389,12 +561,71 @@ export class HideoutScene extends MenuScene {
     void easeOutBack;
   }
 
+  /** Advance the 게임 시작 ceremony (lead bonk, button squash, gang zipline). */
+  private updateCeremony(dt: number): void {
+    const cap = this.button.cap;
+    if (this.cerT === null) {
+      cap.scale.set(1, 1, 1);
+      return;
+    }
+    const rm = this.reducedMotion;
+    this.cerT += dt;
+    const c = this.cerT;
+    // lead hops over to the safe-table button
+    const lp = this.lead.holder.position;
+    if (rm) lp.copy(LEAD_BONK);
+    else lp.lerpVectors(LEAD_HOME, LEAD_BONK, Math.min(1, c / (CER.slam * 0.9)));
+    if (!rm && c < CER.slam) lp.y = Math.sin(Math.min(1, c / CER.slam) * Math.PI) * 0.55;
+    if (!this.cerBonked && (c >= CER.slam || rm)) {
+      this.cerBonked = true;
+      const at = new THREE.Vector3(BUTTON_AT.x, BUTTON_AT.y + 0.3, BUTTON_AT.z);
+      this.cue('boing', 1);
+      this.cue('stamp', 0.9);
+      this.shake(0.5);
+      if (!rm) {
+        this.fx.sparkle(at, { count: 14, radius: 0.6, color: POP.sun });
+        this.fx.confetti(at, { count: 40 });
+      }
+    }
+    // button squash + elastic return
+    const since = c - CER.slam;
+    const sq = since < 0 ? 1 : since < 0.08 ? 0.35 : 1 - 0.65 * Math.exp(-(since - 0.08) * 9) * Math.cos((since - 0.08) * 26);
+    cap.scale.set(1 + (1 - sq) * 0.35, Math.max(0.3, sq), 1 + (1 - sq) * 0.35);
+    if (rm) return;
+    // the gang ziplines off the roof, lead last (crew first: they were already cheering)
+    const riders = [...this.crew, this.lead];
+    riders.forEach((p, i) => {
+      const t0 = CER.zipStart + i * CER.stagger;
+      if (c < t0) return;
+      const k = Math.min(1, (c - t0) / CER.zipDur);
+      const start = i < this.crew.length ? this.crewHome[i]! : LEAD_BONK;
+      // first 20 %: a hop up to the cable; then slide down it, accelerating
+      if (k < 0.2) {
+        const q = k / 0.2;
+        p.holder.position.lerpVectors(start, ZIP_A, q);
+        p.holder.position.y = start.y + (ZIP_A.y - 1.45 - start.y) * q + Math.sin(q * Math.PI) * 0.5;
+      } else {
+        const q = Math.pow((k - 0.2) / 0.8, 1.6);
+        p.holder.position.lerpVectors(ZIP_A, ZIP_B, q);
+        p.holder.position.y -= 1.45;
+      }
+      p.holder.rotation.y = -Math.PI / 2 - 1.1;
+      p.setAct('cheer');
+    });
+  }
+
   protected override onDispose(): void {
     this.lead.dispose();
     for (const p of this.crew) p.dispose();
     for (const p of this.rivals) p.dispose();
     this.safe.dispose();
     disposeProp(this.wrench);
+    disposeProp(this.hammer);
+    this.button.dispose();
+    this.hangSafe.dispose();
+    this.marquee.dispose();
+    disposeRope(this.zipRope);
+    disposeProp(this.zipPole);
     for (const g of this.glows) disposeOwnedMesh(g);
     disposeOwnedMesh(this.mirror);
     for (const p of this.props) {

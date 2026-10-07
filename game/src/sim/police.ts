@@ -17,7 +17,8 @@
  * its step-in spots, or the fence beside it); their bodies are then removed from physics.
  *
  * Brain (fixed order: officers by id, characters by slot; perception on every 4th tick for all
- * officers at once so no team is ever "seen first"): targets are characters holding loot,
+ * officers at once so no team is ever "seen first"): targets are characters holding loot (or a
+ * non-empty coin bag, Content 2.0),
  * seen within POLICE.sightRadius with sim line of sight — or heard: holding the wall of a bank
  * whose alarm rings, within POLICE.hearRadius (remembered 3 s; the officer pursuing
  * one keeps heading for its last known spot for up to 8 s). The highest held
@@ -40,6 +41,7 @@ import { floorAt, knockDown } from './actions';
 import { CAT_POLICE, type Body } from './physics';
 import { PoliceNav } from './policeNav';
 import { isFreeCircle, lineOfSight } from './queries';
+import { heldValue } from './queries';
 import type { EntityId, LayoutDef, PoliceCarState, PoliceEntryDef, PoliceOfficerState, PolicePhase, Vec2 } from './types';
 
 /** Officer entity ids are POLICE_ID_BASE + 1, + 2, ... (never collide with characters / loot). */
@@ -370,7 +372,7 @@ export class PoliceSystem {
       const tb = ctx.chars[slot]!.body;
       const mem = o.memory.get(tch.id);
       const visible = !!mem && tick - mem.tick <= PERCEPTION_PERIOD;
-      if (!mem || !tch.grab) {
+      if (!mem || (!tch.grab && !tch.bag)) {
         this.loseTarget(o);
       } else {
         const gx = visible ? tb.x : mem.x;
@@ -431,7 +433,7 @@ export class PoliceSystem {
     const out = new Map<EntityId, { value: number; d: number }>();
     for (let i = 0; i < st.characters.length; i++) {
       const ch = st.characters[i]!;
-      if (!ch.grab || ch.knockdownTicks > 0) {
+      if ((!ch.grab && !ch.bag) || ch.knockdownTicks > 0) {
         o.memory.delete(ch.id);
         continue;
       }
@@ -439,7 +441,7 @@ export class PoliceSystem {
       const d = Math.hypot(cb.x - b.x, cb.y - b.y);
       let mem = o.memory.get(ch.id);
       // seen, or heard: dragging a bank whose alarm is ringing
-      const heard = d <= POLICE.hearRadius && ch.grab.part === 'bankWall' && ctx.state.alarm.ringing.includes(ch.grab.targetId);
+      const heard = d <= POLICE.hearRadius && !!ch.grab && ch.grab.part === 'bankWall' && ctx.state.alarm.ringing.includes(ch.grab.targetId);
       if (heard || (d <= POLICE.sightRadius && lineOfSight(ctx, here, { x: cb.x, y: cb.y }))) {
         if (mem) {
           mem.tick = tick;
@@ -455,8 +457,7 @@ export class PoliceSystem {
         o.memory.delete(ch.id);
         continue;
       }
-      const held = lootById(ctx, ch.grab.targetId);
-      const value = held && !held.state.recovered ? held.state.estimatedValue : 0;
+      const value = heldValue(ctx.state, ch.id); // [C1] held loot estimate + coin bag
       out.set(ch.id, { value, d: Math.hypot(mem.x - b.x, mem.y - b.y) });
     }
     return out;
@@ -544,7 +545,7 @@ export class PoliceSystem {
   private tryLunge(o: OfficerRt, slot: number): boolean {
     const ctx = this.ctx;
     const tch = ctx.state.characters[slot]!;
-    if (!tch.grab || tch.protectTicks > 0 || tch.knockdownTicks > 0) return false;
+    if ((!tch.grab && !tch.bag) || tch.protectTicks > 0 || tch.knockdownTicks > 0) return false;
     const b = o.body;
     const tb = ctx.chars[slot]!.body;
     const dx = tb.x - b.x;
@@ -863,7 +864,7 @@ export class PoliceSystem {
       let bny = 0;
       for (let j = 0; j < st.characters.length; j++) {
         const v = st.characters[j]!;
-        if (!v.grab || v.protectTicks > 0 || v.knockdownTicks > 0) continue;
+        if ((!v.grab && !v.bag) || v.protectTicks > 0 || v.knockdownTicks > 0) continue;
         const vb = ctx.chars[j]!.body;
         const dx = vb.x - ob.x;
         const dy = vb.y - ob.y;
@@ -887,6 +888,50 @@ export class PoliceSystem {
       this.endLunge(o, true, victim.id);
       s.targetCharId = null;
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // [C2] Item entry points (Content 2.0): hammer / golden hammer stun (wave 1), soap slip (wave 2)
+  // -------------------------------------------------------------------------
+
+  /** [C2] Officers on the field as item targets, ascending id, live body poses (valid inside substeps). */
+  itemTargets(): { id: EntityId; x: number; y: number }[] {
+    return this.officers.map((o) => ({ id: o.st.id, x: o.body.x, y: o.body.y }));
+  }
+
+  /**
+   * [C2] An item stuns officer `officerId` for `ticks` (hammer 3 s, golden hammer 4 s) with
+   * knockback (kvx, kvy) relative to its floor — the same state change as a raccoon dash stun
+   * (a lunge in progress ends, `policeStunned` with `byCharId`). Respects the re-stun immunity:
+   * an officer already stunned or still immune is only shoved (`shoveSpeed` along the knockback)
+   * and false is returned.
+   */
+  stunByItem(officerId: EntityId, ticks: number, kvx: number, kvy: number, byCharId: EntityId, shoveSpeed: number = DASH.teamShoveSpeed): boolean {
+    const o = this.officers.find((q) => q.st.id === officerId);
+    if (!o) return false;
+    const s = o.st;
+    const ob = o.body;
+    const kl = Math.hypot(kvx, kvy);
+    if (s.phase === 'stunned' || o.reStun > 0) {
+      if (kl > 1e-9) {
+        ob.vx += (kvx / kl) * shoveSpeed;
+        ob.vy += (kvy / kl) * shoveSpeed;
+      }
+      return false;
+    }
+    if (s.phase === 'tackle') this.endLunge(o, false, o.lungeTarget);
+    s.phase = 'stunned';
+    s.stunTicks = ticks;
+    s.tiredTicks = 0;
+    s.tackleTicks = 0;
+    ob.noDrag = false;
+    ob.fx = 0;
+    ob.fy = 0;
+    ob.vx = ob.fvx + kvx;
+    ob.vy = ob.fvy + kvy;
+    o.path = null;
+    emit(this.ctx, { type: 'policeStunned', tick: this.ctx.state.tick, officerId: s.id, byCharId });
+    return true;
   }
 
   // -------------------------------------------------------------------------

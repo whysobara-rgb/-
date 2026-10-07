@@ -37,6 +37,14 @@ import type { LaunchParams } from './params';
 import { pickBiggestEvent, type BiggestEvent } from './results';
 import { buildMatch, type MatchConfig } from './setup';
 import type { Moment } from '../shared/moments';
+// [WP5/F5] tracker, feel, command log, kickoff cue
+import { EMPTY_MOMENT_SNAPSHOT, KICKOFF_ARROW_MATCHES, KICKOFF_CUE_TICKS, MomentTracker, kickoffTarget, type BotIntentSample, type KickoffTarget, type MomentSnapshot } from './moments';
+import { applyMomentFeel, planMomentFeel } from './feel';
+import { CommandLog, canonicalizeCommands, replayCommandLog } from './replay';
+import { t as tr5 } from '../ui';
+// [WP4/F4] tension HUD: moment stamps
+import { MomentStamper } from '../ui/hud/tension';
+import { fmtScore as fmtScore4 } from '../ui/core/format';
 
 export const MAX_STEPS_PER_FRAME = 5;
 /** Real-time clamp for one frame (hidden tab, debugger, long GC). */
@@ -125,8 +133,6 @@ export class MatchController {
   private earned = new Set<string>();
   /** The police alert banner already explained the officers this match. */
   private policeArrivedExplained = false;
-  /** Wall time (performance.now) of the escape banner: police banners never cover it. */
-  private escapeBannerAt = -1e9;
   private readonly rumbleTimers: number[] = [];
   /** The first police dispatch of this match was explained to the player. */
   private policeExplained = false;
@@ -147,6 +153,17 @@ export class MatchController {
   private skipReal = 0;
   /** Counts of steps/frames (autotest diagnostics). */
   readonly stats = { steps: 0, frames: 0, renders: 0, hitstops: 0, slowmos: 0, maxStepsHit: 0 };
+  // --- [WP5/F5] moments, cues, command log ---
+  private momentTracker: MomentTracker | null = null;
+  private cmdLog: CommandLog | null = null;
+  /** Latest bark tick shown per bot (BotIntent.bark is not a one-shot). */
+  private readonly barkTicks = new Map<EntityId, number>();
+  /** Kickoff cue target (undefined = not chosen yet). */
+  private kickoff: KickoffTarget | null | undefined = undefined;
+  /** Finished matches on this save (kickoff arrow only below KICKOFF_ARROW_MATCHES). */
+  private finishedMatches: number | null = null;
+  /** [WP4/F4] moments -> HUD stamps (with per-kind cooldowns). */
+  private stamper: MomentStamper | null = null;
 
   constructor(svc: MatchServices, config: MatchConfig, hooks: MatchHooks) {
     this.svc = svc;
@@ -356,6 +373,7 @@ export class MatchController {
     cmds.length = sim.state.characters.length;
     cmds[0] = this.humanCommand();
     for (const b of this.bots) cmds[b.slot] = b.update(sim);
+    canonicalizeCommands(cmds); // [WP5/F5] the sim consumes exactly what the command log stores
     const events = sim.step(cmds);
     this.stats.steps++;
     this.trackEmote();
@@ -559,8 +577,10 @@ export class MatchController {
           break;
         case 'policeDispatched':
           // Police (owner addition beyond doc v0.5): a red/blue alert banner per wave.
-          // (The arrival banner, shown once, says what the officers do.)
-          if (performance.now() - this.escapeBannerAt > 3500) hud.banner('policeDispatched', undefined, this.policeExplained ? 2000 : 2800);
+          // (The arrival banner, shown once, says what the officers do.) [F4] Banners go through
+          // the HUD queue (climax > police: they never cover the escape plate); during the final
+          // countdown the police chip says it instead of a centre plate.
+          if (!sim.state.finalCountdown) hud.banner('policeDispatched', undefined, this.policeExplained ? 2000 : 2800);
           this.policeExplained = true;
           break;
         case 'safeUnloaded': {
@@ -578,7 +598,6 @@ export class MatchController {
         case 'finalCountdown': {
           const sec = Math.max(1, Math.round((e.endTick - e.tick) / TICK_RATE));
           hud.banner('escape', { sec });
-          this.escapeBannerAt = performance.now();
           this.svc.view.cameraKick({ shake: 0.25 });
           this.hudSlam(1);
           break;
@@ -617,7 +636,7 @@ export class MatchController {
         case 'policeArrived': {
           const p = this.svc.view.project(c.pos, 2.4);
           hud.stamp('police', { x: p.onScreen ? p.x : undefined, y: p.onScreen ? p.y : undefined });
-          if (!this.policeArrivedExplained && performance.now() - this.escapeBannerAt > 3500) {
+          if (!this.policeArrivedExplained && !this.sim.state.finalCountdown) {
             this.policeArrivedExplained = true;
             hud.banner('policeArrived');
           }
@@ -759,8 +778,54 @@ export class MatchController {
    * director.onMoments. Returns this tick's moments for funHud.
    */
   private funObserve(events: readonly SimEvent[]): Moment[] {
-    void events;
-    return [];
+    const sim = this.sim;
+    const { view } = this.svc;
+    const settings = this.svc.settings();
+    (this.cmdLog ??= new CommandLog(this.cmds.length)).record(this.cmds);
+    const tracker = (this.momentTracker ??= new MomentTracker({
+      localTeam: this.myTeam,
+      localCharId: this.meId,
+      earlyDecision: sim.rules.earlyDecision,
+      isFree: (p) => sim.isFree(p, 0.45),
+      onScreen: (p) => view.project(p, 1).onScreen,
+    }));
+    const samples: BotIntentSample[] = [];
+    for (const b of this.bots) {
+      const it = b.intent?.();
+      if (it) samples.push({ charId: sim.characterBySlot(b.slot).id, intent: it });
+    }
+    const moments = tracker.observe(sim.state, events, samples);
+    const snap = tracker.snapshot();
+    // feel: glance / slow-mo, or a short hit-stop while the player steers a load
+    const me = sim.getCharacter(this.meId);
+    const plan = planMomentFeel(moments, { reducedMotion: settings.reducedMotion, speed: this.svc.params.speed, steering: !!me?.grab, playerPos: me ? me.pos : null, ticksLeft: sim.ticksLeft() });
+    const wasSlow = this.time.slow;
+    const ran = applyMomentFeel(plan, this.time, (p, w, ms) => view.glance(p, w, ms));
+    if (ran.slowmo && !wasSlow) this.stats.slowmos++;
+    if (ran.hitstop) this.stats.hitstops++;
+    view.onMoments(moments);
+    // continuous cues from the snapshot (idempotent setters, every tick)
+    const mp = snap.matchPoint;
+    const side = (team: TeamId): 'ours' | 'theirs' => (team === this.myTeam ? 'ours' : 'theirs');
+    view.setDecisiveLoad(mp ? mp.lootIds : [], mp ? side(mp.team) : null);
+    view.setStealChance(snap.stealChance ? snap.stealChance.doorPos : null, snap.stealChance ? snap.stealChance.value : 0);
+    view.setRunHeat(snap.run && snap.run.tier > 0 ? snap.run.team : null, snap.run ? snap.run.tier : 0);
+    for (const s of samples) {
+      view.setBotWindup(s.charId, s.intent.phase === 'windup' ? { targetId: s.intent.windupTargetId ?? null } : null);
+      const bark = s.intent.bark;
+      if (bark && this.barkTicks.get(s.charId) !== bark.tick) {
+        this.barkTicks.set(s.charId, bark.tick);
+        if (settings.showOthersTaunts !== false) view.showBark(s.charId, tr5(`taunt.bark.${bark.key}`));
+      }
+    }
+    const left = sim.ticksLeft();
+    this.director.setTension({
+      matchPoint: mp ? side(mp.team) : null,
+      secondsLeft: Number.isFinite(left) ? Math.max(0, left) / TICK_RATE : Infinity,
+      run: snap.run ? { side: side(snap.run.team), recoveries: snap.run.recoveries, tier: snap.run.tier } : null,
+    });
+    this.director.onMoments(moments);
+    return moments;
   }
 
   /**
@@ -768,22 +833,83 @@ export class MatchController {
    * HUD stamps (cap 2), decisive-load prompt, swing readout, crown (Hud.setLeader), banner queue.
    */
   private funHud(moments: readonly Moment[]): void {
-    void moments;
+    const { hud } = this.svc;
+    if (this.isPractice) return;
+    // crown: fed every tick from the snapshot (it lasts while the lead lasts)
+    hud.setLeader(this.momentSnapshot().leader);
+    if (!moments.length) return;
+    // stamps: at most 2 per tick, merged ("역전!" + "은행째!"), "involved" ones only when the local
+    // team is on one side (src/ui/hud/tension.ts momentStamps). The decisive-load prompt and the
+    // swing readout come from the HudModel (adapters: matchPointInfo / swingInfo) every frame.
+    const sim = this.sim;
+    this.stamper ??= new MomentStamper({ myTeam: this.myTeam, meId: this.meId });
+    for (const sp of this.stamper.next(moments, sim.state.tick, (id) => sim.getCharacter(id)?.team)) {
+      const v = sp.params?.value;
+      hud.stamp(sp.kind, { team: sp.team, key: sp.key, sub: sp.sub, params: v === undefined ? undefined : { value: fmtScore4(Number(v)) } });
+    }
   }
 
   /** [WP5] Extra ping-pulse ids for the view (kickoff cue: the nearest small safe, first 5 s). */
   private funFocusTargets(): readonly EntityId[] {
-    return [];
+    const k = this.kickoffCue();
+    return k && typeof k.id === 'number' ? [k.id] : [];
   }
 
   /** [WP5] Extra off-screen arrows (kickoff arrow, only for players with < 10 finished matches). */
   private funArrows(): OffscreenTarget[] {
-    return [];
+    const k = this.kickoffCue();
+    if (!k) return [];
+    if (this.finishedMatches === null) {
+      try {
+        this.finishedMatches = getSaveManager().data.stats.matches;
+      } catch {
+        this.finishedMatches = 0;
+      }
+    }
+    if (this.finishedMatches >= KICKOFF_ARROW_MATCHES) return [];
+    const p = this.svc.view.project(k.pos, 1);
+    return [{ id: 'kickoff', x: p.x, y: p.y, kind: 'safe', team: this.myTeam }];
+  }
+
+  /**
+   * [WP5/F5] Kickoff cue target for the first 5 s of a real match (never in practice): classic —
+   * the nearest outdoor small safe; v2 — the nearest ATM (the view's pulse highlights loot ids,
+   * so crates are left to the content render). Chosen once; dropped early once it is grabbed.
+   */
+  private kickoffCue(): KickoffTarget | null {
+    if (this.isPractice || this.sim.state.tick >= KICKOFF_CUE_TICKS || this.phase === 'ending') return null;
+    if (this.kickoff === undefined) this.kickoff = kickoffTarget(this.sim.state, this.meId, { lootOnly: true });
+    const k = this.kickoff;
+    if (!k || typeof k.id !== 'number') return k;
+    const l = this.sim.getLoot(k.id);
+    if (!l || l.recovered || !l.anchored || l.grabbedBy.length) return null;
+    return k;
+  }
+
+  /** [WP5/F5] Current MomentTracker snapshot (WP4 funHud reads it; neutral before the first tick). */
+  momentSnapshot(): Readonly<MomentSnapshot> {
+    return this.momentTracker ? this.momentTracker.snapshot() : EMPTY_MOMENT_SNAPSHOT;
+  }
+
+  /** [WP5/F5] The command log of this match so far (null before the first tick). */
+  get commandLog(): CommandLog | null {
+    return this.cmdLog;
+  }
+
+  /** [WP5/F5] Replay this match's command log in a fresh Simulation (bug reports / tests). */
+  replayCheck(): { ticks: number; same: boolean } {
+    const log = this.cmdLog;
+    if (!log) return { ticks: 0, same: true };
+    const again = replayCommandLog(this.sim.setup, log);
+    return { ticks: log.ticks, same: JSON.stringify(again.eventLog) === JSON.stringify(this.sim.eventLog) };
   }
 
   /** [WP5] Match just ended (start of the end hold): view.playGetaway(winner), final cues. */
   private funEnding(result: MatchResult | null): void {
-    void result;
+    const { view } = this.svc;
+    view.setDecisiveLoad([], null);
+    view.setStealChance(null, 0);
+    view.playGetaway(result ? result.winner : null);
   }
 
   // ------------------------------------------------------------------------------------------

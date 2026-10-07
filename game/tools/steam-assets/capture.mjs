@@ -264,18 +264,22 @@ job('steal', {
 
 // --- police chase / tackle (counter 1v1) ----------------------------------------------------------
 job('police', {
-  query: () => ({ flow: 'quick', skipIntro: '1', layout: 'counter', mode: '1v1', rival: 'hodadak', police: '1' }),
+  query: () => ({ flow: 'quick', skipIntro: '1', layout: 'plaza', mode: '2v2', rival: 'hodadak', police: '1' }),
   async run(c) {
     const p = c.page;
-    await liveMatch(p, 150, 14);
+    // Real play until the AI's first uproot has called the police (alarm -> car -> officers).
+    await liveMatch(p, 60, 24);
     await S.ev(p, `(() => { const r = __dir.scenarios.police(); window.__pol = r;
-      __dir.set(0, __dir.idle({x:0,y:1})); __dir.set(1, __dir.idle({x:-1,y:0}));
-      const me = __dir.charId(0); __dir.tp(me, __dir.freeNear({x: 22, y: 20}), 0); })()`);
-    await S.pumpUntil(p, `__dir.sim.state.police.some(o => o.phase === 'patrol')`, 2400);
+      for (let s = 0; s < 4; s++) __dir.set(s, __dir.idle({x: s % 2 ? -1 : 1, y: 0}));
+      const me = __dir.charId(0); __dir.tp(me, __dir.freeNear({x: 30, y: 26}), 0); })()`);
+    // An officer on patrol out in the open middle of the plaza (no building between it and the
+    // camera), then the haul starts right in front of it.
+    const OPEN = `(o) => o.phase === 'patrol' && o.pos.x > 22 && o.pos.x < 58 && o.pos.y > 19 && o.pos.y < 33`;
+    await S.pumpUntil(p, `__dir.sim.state.police.some(${OPEN})`, 3600);
     // The player grabs a small safe just ahead of an officer and hauls it toward the van.
     await stage(p, `(() => {
       const sim = __dir.sim; const r = window.__pol;
-      const o = sim.state.police.find(o => o.phase === 'patrol');
+      const o = sim.state.police.find(${OPEN});
       const z = sim.layout.zones.find(z => z.team === 0);
       const d = { x: z.center.x - o.pos.x, y: z.center.y - o.pos.y }; const l = Math.hypot(d.x, d.y);
       const spot = __dir.freeNear({ x: o.pos.x + d.x / l * 4.2, y: o.pos.y + d.y / l * 4.2 + 2.5 }, 1.4);
@@ -307,7 +311,9 @@ job('police', {
 job('fence', {
   query: () => ({ flow: 'quick', skipIntro: '1', layout: 'shortcut', mode: '2v2', rival: 'tongkeun' }),
   async run(c) {
-    await liveMatch(c.page, 90, 22);
+    // The game's own AI busts both fences of this layout ~12 s in (bank hauled straight down the
+    // short way): stage it at the same point of the match, before they do.
+    await liveMatch(c.page, 60, 5);
     await stage(c.page, '__dir.scenarios.fence()');
     await S.pumpUntil(c.page, `__dir.hasEvent('fenceBroken')`, 900);
     await S.pump(c.page, 5);
@@ -324,7 +330,9 @@ job('final', {
   query: () => ({ flow: 'quick', skipIntro: '1', layout: 'plaza', mode: '2v2', rival: 'tongkeun', police: '1' }),
   async run(c) {
     const p = c.page;
-    await liveMatch(p, 150, 40);
+    // Short real play: the final countdown resets the clock to 0:30 anyway, and the getaway
+    // police wave only rolls in when no earlier wave is still on the field.
+    await liveMatch(p, 150, 10);
     // Both banks home: the player waits at the east edge of our zone with a small safe in paw.
     await stage(p, `(() => { __dir.scenarios.final();
       const sim = __dir.sim; const z = sim.layout.zones.find(z => z.team === 0);

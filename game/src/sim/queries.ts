@@ -2,11 +2,13 @@
  * Spatial queries over the live simulation (used by rules, anti-pin, bots via Simulation).
  */
 import { BANK_MODEL, CHARACTER, PROP_SPECS } from './config';
+import { COINS } from './config';
 import type { SimContext } from './context';
 import { bankFootprint, bankWalls, lootOBBOf } from './actions';
 import { circleOverlapsOBB, obbOverlap, pointInOBB, rayCircle, rayOBB } from './math';
 import { SHAPE_CIRCLE, type StaticShape } from './physics';
 import type { CharacterState, EntityId, LootKind, LootState, OBB, SimState, TeamId, Vec2 } from './types';
+import type { CoinPile } from './types';
 
 export function staticToOBB(s: StaticShape): OBB {
   return { center: { x: s.x, y: s.y }, half: { x: s.hx, y: s.hy }, angle: Math.atan2(s.uy, s.ux) };
@@ -190,6 +192,13 @@ export interface MatchPointInfo {
   value: number;
   lootIds: EntityId[];
   carrierIds: EntityId[];
+  /**
+   * (add-only, F4 / Content 2.0) Characters of `team` whose coin bag (주머니) is part of this load,
+   * ascending. Present only when bags count: a bag on its own (`lootIds` is then EMPTY and
+   * `carrierIds` = `bagCharIds`), or the bags of a held load's carriers riding along with it
+   * (deposited in the same zone visit). `value` includes those bags. Absent in classic.
+   */
+  bagCharIds?: EntityId[];
 }
 
 /** How far a team is from the other one (HUD "역전까지 N · 남은 M"). */
@@ -230,22 +239,37 @@ function endIfRecovered(st: MatchPointState, team: TeamId, value: number, earlyD
   return null;
 }
 
+/** Order key of a bag-only load: after every loot id (loot ids stay below the coin id range). */
+const BAG_LOAD_ORDER = 1e9;
+
 /**
  * Match point right now (null = none, or the match is over). Considers every unrecovered loot
  * that is in play: dwelling in a recovery zone (`recovery`, for that zone's team) or held by
  * characters while free (unanchored), for each team holding it. Safes loaded in a bank are
  * settled with the bank, never on their own, so only the bank counts for them.
  *
+ * Content 2.0 (F4): coin bags (주머니) are loads too — a bag scores by a 0.5 s deposit in its own
+ * team's zone, settled in the same step-4 batch as loot recoveries, so the same `checkEnd`
+ * arithmetic applies. Each character with a bag is a bag load (`lootIds` empty, `bagCharIds` =
+ * [it]); a held load also carries its team's carriers' bags (they arrive in the zone together).
+ * Classic states have no bags, so classic answers are unchanged.
+ *
  * Picks the largest `value`; ties broken by a load already dwelling in that team's zone (its
- * recovery is under way, so it beats another team merely holding the same load), then 'win'
- * before 'tie', more carriers, lower loot id, lower team id (deterministic).
+ * recovery or deposit is under way, so it beats another team merely holding the same load), then
+ * 'win' before 'tie', more carriers, lower loot id (bag-only loads after every loot, by character
+ * id), lower team id (deterministic).
  */
 export function matchPointInfo(state: Readonly<MatchPointState>, opts: MatchPointOptions = {}): MatchPointInfo | null {
   if (state.over) return null;
   const early = opts.earlyDecision ?? true;
   const teamOf = new Map<EntityId, TeamId>();
-  for (const c of state.characters) teamOf.set(c.id, c.team);
-  let best: (MatchPointInfo & { dwelling: boolean; lootId: EntityId }) | null = null;
+  const bagOf = new Map<EntityId, number>();
+  for (const c of state.characters) {
+    teamOf.set(c.id, c.team);
+    const bag = c.bag ?? 0;
+    if (bag > 0) bagOf.set(c.id, bag);
+  }
+  let best: Candidate | null = null;
   for (const l of state.loot) {
     if (l.recovered || l.loadedIn !== null) continue;
     const teams: TeamId[] = [];
@@ -257,29 +281,53 @@ export function matchPointInfo(state: Readonly<MatchPointState>, opts: MatchPoin
       }
     }
     for (const team of teams) {
-      const kind = endIfRecovered(state, team, l.estimatedValue, early);
-      if (!kind) continue;
       const carrierIds = l.anchored ? [] : l.grabbedBy.filter((id) => teamOf.get(id) === team).sort((a, b) => a - b);
-      const cand = {
+      const bagCharIds = carrierIds.filter((id) => bagOf.has(id));
+      let bags = 0;
+      for (const id of bagCharIds) bags += bagOf.get(id)!;
+      const value = l.estimatedValue + bags;
+      const kind = endIfRecovered(state, team, value, early);
+      if (!kind) continue;
+      const cand: Candidate = {
         team,
         kind,
-        value: l.estimatedValue,
+        value,
         lootIds: l.kind === 'bank' ? [l.id, ...[...l.loadedSafes].sort((a, b) => a - b)] : [l.id],
         carrierIds,
         dwelling: l.recovery?.team === team,
         lootId: l.id,
       };
+      if (bagCharIds.length) cand.bagCharIds = bagCharIds;
       if (!best || better(cand, best)) best = cand;
     }
   }
+  // every bag on its own (a carrier's bag also rides with its load above; the larger one wins)
+  for (const c of state.characters) {
+    const bag = bagOf.get(c.id);
+    if (bag === undefined) continue;
+    const kind = endIfRecovered(state, c.team, bag, early);
+    if (!kind) continue;
+    const cand: Candidate = {
+      team: c.team,
+      kind,
+      value: bag,
+      lootIds: [],
+      carrierIds: [c.id],
+      bagCharIds: [c.id],
+      dwelling: (c.depositTicks ?? 0) > 0,
+      lootId: BAG_LOAD_ORDER + c.id,
+    };
+    if (!best || better(cand, best)) best = cand;
+  }
   if (!best) return null;
-  return { team: best.team, kind: best.kind, value: best.value, lootIds: best.lootIds, carrierIds: best.carrierIds };
+  const out: MatchPointInfo = { team: best.team, kind: best.kind, value: best.value, lootIds: best.lootIds, carrierIds: best.carrierIds };
+  if (best.bagCharIds) out.bagCharIds = best.bagCharIds;
+  return out;
 }
 
-function better(
-  a: MatchPointInfo & { dwelling: boolean; lootId: EntityId },
-  b: MatchPointInfo & { dwelling: boolean; lootId: EntityId },
-): boolean {
+type Candidate = MatchPointInfo & { dwelling: boolean; lootId: EntityId };
+
+function better(a: Candidate, b: Candidate): boolean {
   if (a.value !== b.value) return a.value > b.value;
   // a recovery already under way is what happens next: it beats a mere holder's claim (a load
   // held by one team while it dwells in the other team's zone is THAT team's match point)
@@ -290,19 +338,60 @@ function better(
   return a.team < b.team;
 }
 
-/** Swing readout for `team` (pure; see SwingInfo). */
-export function swingInfo(state: Readonly<Pick<SimState, 'scores' | 'remainingValue' | 'loot'>>, team: TeamId): SwingInfo {
+/**
+ * Swing readout for `team` (pure; see SwingInfo).
+ *
+ * `toLead` is the smallest score gain that puts `team` strictly ahead: the next multiple of the
+ * field's value step above the deficit. The step is the greatest common divisor of every value
+ * still on the field — classic: loot values (100) -> deficit + 100; Content 2.0 (F4, "the swing
+ * readout counts coins"): coins, bags, props' inner coins and breakables come in 10s, so a
+ * 30-point deficit needs 40, not 130. Optional state fields are read when present (classic
+ * callers and old fixtures pass only scores / remainingValue / loot).
+ */
+export function swingInfo(
+  state: Readonly<Pick<SimState, 'scores' | 'remainingValue' | 'loot'> & Partial<Pick<SimState, 'coins' | 'characters' | 'breakables' | 'matchEvents'>>>,
+  team: TeamId,
+): SwingInfo {
   const mine = state.scores[team];
   const theirs = state.scores[team === 0 ? 1 : 0];
-  let step = Infinity;
-  for (const l of state.loot) if (l.baseValue > 0 && l.baseValue < step) step = l.baseValue;
-  if (!Number.isFinite(step)) step = 100;
+  let g = 0;
+  const add = (v: number | undefined): void => {
+    if (v && v > 0 && Number.isInteger(v)) g = gcd(g, v);
+  };
+  // coin value (inner coins, piles, bags, breakables, pending event coins) moves in single coins
+  // (spills split bags, piles merge into bags), so any of it makes the coin the step
+  const addCoins = (v: number | undefined): void => {
+    if (v && v > 0) {
+      add(v);
+      add(COINS.coin);
+    }
+  };
+  for (const l of state.loot) {
+    if (l.recovered) continue;
+    add(l.baseValue);
+    addCoins(l.innerValue);
+  }
+  for (const p of state.coins ?? []) addCoins(p.value);
+  for (const c of state.characters ?? []) addCoins(c.bag);
+  for (const b of state.breakables ?? []) if (!b.broken) addCoins(b.innerValue);
+  for (const e of state.matchEvents ?? []) addCoins(e.pendingValue);
+  if (g === 0) {
+    // nothing left on the field: the old rule (smallest loot value, else 100)
+    let step = Infinity;
+    for (const l of state.loot) if (l.baseValue > 0 && l.baseValue < step) step = l.baseValue;
+    g = Number.isFinite(step) ? step : 100;
+  }
   const deficit = theirs - mine;
   return {
     toTie: Math.max(0, deficit),
-    toLead: mine > theirs ? 0 : deficit + step,
+    toLead: mine > theirs ? 0 : (Math.floor(deficit / g) + 1) * g,
     remaining: state.remainingValue,
   };
+}
+
+function gcd(a: number, b: number): number {
+  while (b) [a, b] = [b, a % b];
+  return a;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -335,4 +424,55 @@ export function isCarryable(l: Readonly<LootState>): boolean {
 /** Nav / carry class of a loot item: a prop's PROP_SPECS kind, otherwise its kind. */
 export function navClassOf(l: Readonly<Pick<LootState, 'kind' | 'variant'>>): LootKind {
   return l.variant ? PROP_SPECS[l.variant].kind : l.kind;
+}
+
+/**
+ * [C1] Could `charId` take this pile right now if it were close enough? (Not knocked down, the bag
+ * cap allows it, and not its own freshly spilled pile.) Same rule as the sim's pickup contest.
+ */
+export function canPickUp(
+  state: Readonly<Pick<SimState, 'characters' | 'tick'>>,
+  charId: EntityId,
+  pile: Readonly<Pick<CoinPile, 'value' | 'noPickupCharId' | 'noPickupUntil'>>,
+): boolean {
+  const ch = state.characters[charId - 1];
+  if (!ch || ch.id !== charId || ch.knockdownTicks > 0) return false;
+  if ((ch.bag ?? 0) + pile.value > COINS.bagCap) return false;
+  return !(pile.noPickupCharId === charId && state.tick < pile.noPickupUntil);
+}
+
+/**
+ * [C1] The loose pile nearest to `from` that `charId` may take (canPickUp, ignoring distance), within
+ * `maxDist` (default: anywhere); ties -> lower id. null if none. For bots (C6 scoop) and HUD hints.
+ */
+export function nearestPile(
+  state: Readonly<Pick<SimState, 'characters' | 'tick' | 'coins'>>,
+  charId: EntityId,
+  from: Vec2,
+  maxDist = Infinity,
+): CoinPile | null {
+  let best: CoinPile | null = null;
+  let bestD = maxDist;
+  for (const p of state.coins) {
+    const d = Math.hypot(p.pos.x - from.x, p.pos.y - from.y);
+    if (d > bestD || (d === bestD && best !== null)) continue;
+    if (!canPickUp(state, charId, p)) continue;
+    best = p;
+    bestD = d;
+  }
+  return best;
+}
+
+/** [C1] Deposit (쏟아붓기) progress of a character, 0..1 (HUD deposit ring). 0 in classic. */
+export function depositProgress(state: Readonly<Pick<SimState, 'characters'>>, charId: EntityId): number {
+  const ch = state.characters[charId - 1];
+  if (!ch || ch.id !== charId) return 0;
+  return Math.min(1, (ch.depositTicks ?? 0) / COINS.depositTicks);
+}
+
+/** [C1] Value of every loose pile on the field (not in bags). */
+export function looseCoinValue(state: Readonly<Pick<SimState, 'coins'>>): number {
+  let v = 0;
+  for (const p of state.coins) v += p.value;
+  return v;
 }

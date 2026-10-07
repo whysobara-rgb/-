@@ -50,7 +50,7 @@ import type {
   TeamId,
   Vec2,
 } from '../sim';
-import { BANK_MODEL, EMOTE, PING, SAFE_SPECS, TICK_RATE } from '../sim';
+import { BANK_MODEL, EMOTE, PING, PROP_SPECS, SAFE_SPECS, TICK_RATE } from '../sim';
 import { LAYOUT_STRINGS } from '../sim/layouts/strings';
 import { TEAM_STYLES } from '../shared/teams';
 import {
@@ -97,6 +97,14 @@ import { PoliceView } from './police';
 import { PoseBuffer, damp, insideRect, lerpAngle, onBankSlab, pointVelocity, toLocal, wrapAngle, type Pose2 } from './sync';
 import { TauntTracker, type TauntWorld } from './taunts';
 import type { Moment, StreakTier } from '../shared/moments';
+// [C7a] Content 2.0 extras (coins, items, props; C7b appends gimmicks / events in extras.ts).
+import { createViewExtras, type ViewExtra, type ViewExtrasHost } from './extras';
+import { createPropRig, type PropRig } from './models/props';
+// [F3] Render beats (glance, getaway, decisive load, steal chance, run heat, wind-up, barks, results poses).
+import { BarkBubble, BeatLabel, BEATS, GlanceTracker, PulseRing, WindupRing, departParam, getawayDepart, vanFreeRun } from './beats';
+import { matchPointInfo, VAN } from '../sim';
+import { ko as KO_STRINGS } from '../ui/strings/ko';
+import { en as EN_STRINGS } from '../ui/strings/en';
 
 export type { ViewMode } from './camera';
 
@@ -440,6 +448,39 @@ export class GameView {
   private contextLost = false;
   /** Next advance() applies smoothed values instantly (load / mode switch), even with dt = 0. */
   private snapVisuals = true;
+  /** [C7a] Content 2.0 view extras (see extras.ts); empty until load(). */
+  private extras: ViewExtra[] = [];
+
+  // --- [F3] render beats (fun round WP3; see beats.ts) ---------------------------------------
+  private readonly glanceT = new GlanceTracker();
+  private readonly glanceOut = { x: 0, y: 0 };
+  /** Getaway beat: winner team (null = draw), start time, the winner van's free forward run. */
+  private getaway: { team: TeamId | null; start: number; run: number; nextPuff: number; revIdx: number; honked: boolean } | null = null;
+  /** Decisive load (match point): ids as fed (loot first, then bag carriers) + whose. */
+  private readonly decisiveIds: EntityId[] = [];
+  private decisiveSide: 'ours' | 'theirs' | null = null;
+  private readonly decisiveRing = new PulseRing('decisiveRing');
+  private readonly decisiveLabel = new BeatLabel('decisiveLabel');
+  /** Bag carriers marked as (part of) the decisive load: one extra ring each (2:2 shared hauls). */
+  private readonly bagRings: PulseRing[] = [];
+  private readonly bagIds: EntityId[] = [];
+  private decisiveHl: { id: EntityId; color: string } | null = null;
+  /** Steal-chance marker (door glow + "빼내기 +N"). */
+  private stealPos: Vec2 | null = null;
+  private stealValue = 0;
+  private readonly stealRing = new PulseRing('stealRing');
+  private readonly stealLabel = new BeatLabel('stealLabel');
+  /** Scoring-run heat on a van (tier 0 = none). */
+  private runHeat: { team: TeamId | null; tier: 0 | StreakTier } = { team: null, tier: 0 };
+  private runHeatShown: (string | null)[] = [null, null];
+  private nextHeatSpark = 0;
+  /** Bot dash wind-ups (start time, -1 = not winding up) + their spark rings; bark bubbles. */
+  private readonly windupList: { id: EntityId; start: number; ring: WindupRing }[] = [];
+  private readonly barkList: { id: EntityId; bubble: BarkBubble }[] = [];
+  /** Results-stage poses (setResultsPoses). */
+  private resultsPoses: { rival: 'taunt' | 'slump'; player: EmoteId | null } | null = null;
+  private resultsPoseStart = 0;
+  private readonly beatRoot = new THREE.Group();
 
   constructor(container: HTMLElement, settings: ViewSettings) {
     this.container = container;
@@ -503,6 +544,10 @@ export class GameView {
     this.scene.add(this.emotes.root);
     this.scene.add(this.markers.mesh);
     this.scene.add(this.banners.root);
+    // [F3] Beat visuals live outside `world` (it is cleared on unload) and are reused per match.
+    this.beatRoot.name = 'beats';
+    this.beatRoot.add(this.decisiveRing.root, this.stealRing.root, this.decisiveLabel.sprite, this.stealLabel.sprite);
+    this.scene.add(this.beatRoot);
 
     this.createRenderer();
     this.post = new PostFX(this.renderer, this.scene, this.cam.camera, this.preset);
@@ -599,7 +644,8 @@ export class GameView {
         rig.root.visible = !l.recovered;
         this.banks.set(l.id, bv);
       } else {
-        const rig = createSafe(l.kind);
+        // [C7a] Props (ATM / piggy / money tree / gold safe) use SafeRig-compatible prop rigs.
+        const rig = l.variant ? createPropRig(l.variant, this.settings.language ?? 'ko') : createSafe(l.kind);
         placeOnSim(rig.root, l.pos, l.angle, l.floorOf !== null ? BANK_FLOOR_Y : 0);
         rig.setAnchored(l.anchored);
         rig.root.visible = !l.recovered;
@@ -621,6 +667,8 @@ export class GameView {
     // Uproot choreography tracks (anchored loot; already-free loot gets its crater).
     for (const l of st.loot) {
       if (l.recovered) continue;
+      // [C7a] Free-standing props (the piggy) never had a ground home: no crater / roots.
+      if (l.variant && PROP_SPECS[l.variant].uprootTicks === 0) continue;
       const owner = l.kind !== 'bank' && l.homeBank !== null ? l.homeBank : null;
       const ob = owner !== null ? sim.getLoot(owner) : undefined;
       const ownerPose = ob ? { x: ob.pos.x, y: ob.pos.y, a: ob.angle, h: BANK_FLOOR_Y } : null;
@@ -661,6 +709,8 @@ export class GameView {
     }
 
     this.pigeons.reset(this.pigeonSpots(sim), layout.id.length * 7919 + layout.statics.length, this.preset.particles);
+    // [C7a] Content 2.0 extras (the single registration point).
+    this.extras = createViewExtras(this.extrasHost(sim));
 
     this.poses.clear();
     this.poses.capture(sim);
@@ -689,6 +739,7 @@ export class GameView {
   onEvents(events: SimEvent[], sim: Simulation): void {
     if (sim !== this.sim || !events.length) return;
     for (const e of events) this.handleEvent(e, sim);
+    for (const x of this.extras) x.onEvents(events);
   }
 
   render(sim: Simulation, alpha: number, frameDt: number, focus: ViewFocus | null): void {
@@ -723,6 +774,8 @@ export class GameView {
     for (const bv of this.banks.values()) this.updateBank(bv, sim, alpha, dt);
     // --- safes ------------------------------------------------------------------------
     for (const sv of this.safes.values()) this.updateSafe(sv, sim, alpha, dt);
+    // --- [C7a] Content 2.0 extras (after loot poses, before characters) ------------------
+    for (const x of this.extras) x.sync(st, alpha, dt);
     // --- characters -------------------------------------------------------------------
     for (const c of st.characters) {
       const cv = this.chars.get(c.id);
@@ -734,12 +787,16 @@ export class GameView {
     const siren = st.finalCountdown && mode !== 'title';
     for (const van of this.vans) {
       if (!van) continue;
-      van.setSiren(siren);
-      van.setEngine(siren || (mode === 'results' && this.stage?.team === van.team));
+      // [F3] Getaway beat (end hold): the winner's siren + roll, revving engines (bit 1 siren, 2 engine).
+      const away = this.getawayVan(van, dt);
+      const on = siren || (away & 1) !== 0;
+      van.setSiren(on);
+      van.setEngine(on || (away & 2) !== 0 || (mode === 'results' && this.stage?.team === van.team));
       van.update(dt);
       // Reduced motion: steady glow instead of flashing.
-      this.glows[van.team]?.update(siren, this.settings.reducedMotion ? 0 : this.time, dt);
+      this.glows[van.team]?.update(on, this.settings.reducedMotion ? 0 : this.time, dt);
     }
+    this.updateRunHeat(dt);
     // --- highlights + pings -------------------------------------------------------------
     this.updateHighlights(sim, focus);
     this.updatePings(sim, focus);
@@ -756,6 +813,8 @@ export class GameView {
     // --- occlusion ----------------------------------------------------------------------
     this.updateOcclusion(sim, focusChar, focus, dt);
     this.lights.setFocus(this.cam.focusPoint);
+    // --- [F3] world-pinned beats (after the camera: labels are clamped in screen space) ---
+    this.updateBeats(sim, dt);
 
     // --- results extras -----------------------------------------------------------------
     if (mode === 'results' && this.stage && this.stage.winner !== null && this.time >= this.stage.nextConfetti) {
@@ -773,7 +832,8 @@ export class GameView {
 
     // --- uproot choreography, police, moods + emotes, alarm grade --------------------------
     this.uproot.update(sim, dt);
-    this.police.update(sim, alpha, dt, mode !== 'preview');
+    // [F3] No officers / cars on the results stage (fun-plan WP3 §7): the stage is the gang's moment.
+    this.police.update(sim, alpha, dt, mode !== 'preview' && mode !== 'results');
     this.moods.update(sim, dt, mode === 'match', this.settings.reducedMotion);
     this.emotes.update(dt, this.cam.camera, (owner, out) => this.emoteAnchor(owner, out));
     this.banners.calm = this.settings.reducedMotion;
@@ -864,7 +924,7 @@ export class GameView {
   /** Head-top point for an emote owner (raccoon id or POLICE_OWNER + officer id). */
   private emoteAnchor(owner: number, out: THREE.Vector3): boolean {
     if (this.viewMode === 'preview') return false;
-    if (owner >= POLICE_OWNER) return this.police.anchor(owner - POLICE_OWNER, out);
+    if (owner >= POLICE_OWNER) return this.viewMode !== 'results' && this.police.anchor(owner - POLICE_OWNER, out);
     const cv = this.chars.get(owner);
     if (!cv || !cv.rig.root.visible) return false;
     const c = this.sim?.getCharacter(owner);
@@ -912,6 +972,10 @@ export class GameView {
     this.cam.snap();
     this.snapVisuals = true;
     if (mode !== 'results') for (const cv of this.chars.values()) cv.cheerUntil = 0;
+    // [F3] Beats belong to the mode they were started in (setResultsPoses comes after this call).
+    this.endGetaway();
+    this.glanceT.clear();
+    this.resultsPoses = null;
   }
 
   /**
@@ -997,40 +1061,86 @@ export class GameView {
   }
 
   // -------------------------------------------------------------------------------------------
-  // Fun round contracts (docs/ARCHITECTURE.md "Fun round contracts"; owner WP3). Documented
-  // no-op stubs until WP3 implements them; callers (src/game/feel.ts, match.ts) may call them now.
-  // All of them are presentation only (never touch the sim) and must respect reducedMotion.
+  // Fun round contracts (docs/ARCHITECTURE.md "Fun round contracts"; owner WP3 = Content 2.0 F3).
+  // Presentation only (never touch the sim); every one respects reducedMotion. Visual pieces live
+  // in beats.ts; the per-frame part is updateBeats() / getawayVan() / updateRunHeat().
   // -------------------------------------------------------------------------------------------
 
   /**
    * (fun round, WP3) Big-play glance: blend the camera target toward `pos` by `weight` (clamped
-   * to 0..0.3) for `ms` milliseconds, then back. No yaw change (doc §4). No-op with reducedMotion.
+   * to 0..0.3) for `ms` milliseconds, then back. No yaw change (doc §4); the shift is capped
+   * (BEATS.glance.maxShift) so the player never leaves the frame. No-op with reducedMotion and
+   * outside 'match'.
    */
   glance(pos: Vec2, weight: number, ms: number): void {
-    void pos;
-    void weight;
-    void ms;
+    if (this.disposed || this.settings.reducedMotion || this.viewMode !== 'match') return;
+    this.glanceT.begin(pos, weight, ms, this.time);
+  }
+
+  /** (tests / tools) Is a glance blending the camera right now? */
+  get glancing(): boolean {
+    return this.glanceT.weightAt(this.time) > 0;
   }
 
   /**
    * (fun round, WP3) Getaway beat during the end hold (match.ts END_HOLD_SECONDS): the winning
-   * team's van honks, puffs and pulls away 3–4 m with siren + strobe; `null` (draw) = both vans
-   * rev and stay. Call once when the match ends. Never blocks or delays rematch input.
+   * team's van honks, puffs and pulls away 3–4 m with siren + strobe (less when a static is in
+   * the way); its crew hops. `null` (draw) = both vans rev and stay. Call once when the match
+   * ends. Never blocks or delays rematch input (pure presentation; setMode() ends it).
    */
   playGetaway(team: TeamId | null): void {
-    void team;
+    if (this.disposed || !this.layout || !this.sim) return;
+    const t: TeamId | null = team === 0 || team === 1 ? team : null;
+    let run = 0;
+    const z = t !== null ? this.zoneOf(t) : null;
+    if (z) {
+      const sim = this.sim;
+      run = vanFreeRun(z.vanPos, z.vanAngle, VAN.half, (p, r) => sim.isFree(p, r));
+    }
+    this.endGetaway();
+    this.getaway = { team: t, start: this.time, run, nextPuff: this.time, revIdx: 0, honked: false };
+    if (t !== null) {
+      for (const c of this.sim.state.characters) {
+        const cv = c.team === t ? this.chars.get(c.id) : undefined;
+        if (cv) cv.cheerUntil = this.time + 2.3;
+      }
+    }
+  }
+
+  /** (tests / tools) The running getaway: winner (null = draw), seconds in, meters rolled. */
+  getawayInfo(): { team: TeamId | null; t: number; rolled: number; run: number } | null {
+    const g = this.getaway;
+    if (!g) return null;
+    const t = this.time - g.start;
+    return { team: g.team, t, rolled: g.team === null ? 0 : getawayDepart(t, g.run), run: g.run };
   }
 
   /**
-   * (fun round, WP3) Decisive-load glow: pulsing rim + world label on the load
+   * (fun round, WP3) Decisive-load glow: pulsing rim + ground ring + world label on the load
    * (`matchPointInfo().lootIds`). `side` = whose match point from the local player's view
    * ('ours' = string `hud.mp.ours` "이게 들어가면 끝!", 'theirs' = `hud.mp.theirs` "막아야 해!";
-   * both keys are defined by WP4); `null` (or empty ids) clears it. Only one load at a time;
-   * drawn above police markers. Safe to call every tick (idempotent).
+   * both keys are defined by WP4); `null` (or empty ids with a null side) clears it. Only one
+   * label at a time; drawn above police markers and clamped out of the HUD bands. Safe to call
+   * every tick (idempotent).
+   *
+   * Content 2.0 (F3 delta): a coin bag can be the decisive load. A character id among `ids`
+   * marks that bag carrier (ring at its feet, label over its head); when `ids` is empty but
+   * `side` is set (a bag-only load: `lootIds` is empty), the carriers come from
+   * `matchPointInfo().bagCharIds` (WP4's query; nothing is re-derived here).
    */
   setDecisiveLoad(ids: readonly EntityId[], side: 'ours' | 'theirs' | null): void {
-    void ids;
-    void side;
+    const s = side === 'ours' || side === 'theirs' ? side : null;
+    const n = s ? ids.length : 0;
+    let same = s === this.decisiveSide && n === this.decisiveIds.length;
+    for (let i = 0; same && i < n; i++) if (ids[i] !== this.decisiveIds[i]) same = false;
+    if (same) return;
+    this.decisiveIds.length = 0;
+    for (let i = 0; i < n; i++) this.decisiveIds.push(ids[i]!);
+    const sideChanged = s !== this.decisiveSide;
+    this.decisiveSide = s;
+    this.bagFallbackAt = -1;
+    if (!s) this.decisiveLabel.hide();
+    else if (sideChanged || !this.decisiveLabel.shown) this.decisiveLabel.set(this.beatText(s === 'ours' ? 'hud.mp.ours' : 'hud.mp.theirs'), s);
   }
 
   /**
@@ -1039,17 +1149,34 @@ export class GameView {
    * `MomentTracker.snapshot().stealChance`. `null` clears it. At most one marker. Idempotent.
    */
   setStealChance(doorPos: Vec2 | null, value: number): void {
-    void doorPos;
-    void value;
+    if (!doorPos || !Number.isFinite(doorPos.x) || !Number.isFinite(doorPos.y)) {
+      if (this.stealPos) {
+        this.stealPos = null;
+        this.stealLabel.hide();
+      }
+      return;
+    }
+    const v = Math.max(0, Math.round(Number.isFinite(value) ? value : 0));
+    if (!this.stealPos) this.stealPos = { x: doorPos.x, y: doorPos.y };
+    else {
+      this.stealPos.x = doorPos.x;
+      this.stealPos.y = doorPos.y;
+    }
+    if (v !== this.stealValue || !this.stealLabel.shown) {
+      this.stealValue = v;
+      this.stealLabel.set(this.beatText('hud.moment.stealChance', { value: v.toLocaleString('en-US') }), 'steal');
+    }
   }
 
   /**
    * (fun round, WP3) Results-stage poses: the rival plays its taunt when it won ('taunt') or
    * slumps when it lost ('slump'); the player's chosen victory taunt plays on a win (`null` =
-   * none). Call after setMode('results').
+   * none). Call after setMode('results') (a mode change clears it).
    */
   setResultsPoses(poses: { rival: 'taunt' | 'slump'; player: EmoteId | null }): void {
-    void poses;
+    if (!poses) return;
+    this.resultsPoseStart = this.time;
+    this.resultsPoses = { rival: poses.rival === 'taunt' ? 'taunt' : 'slump', player: poses.player && Object.prototype.hasOwnProperty.call(EMOTE.durationTicks, poses.player) ? poses.player : null };
   }
 
   /**
@@ -1058,8 +1185,24 @@ export class GameView {
    * detected internally, like setBotTelegraph.
    */
   setBotWindup(charId: EntityId, windup: { targetId: EntityId | null } | null): void {
-    void charId;
-    void windup;
+    let w = this.windupOf(charId);
+    if (!windup) {
+      if (w) w.start = -1;
+      return;
+    }
+    if ((w && w.start >= 0) || !this.chars.has(charId)) return;
+    if (!w) {
+      w = { id: charId, start: -1, ring: new WindupRing() };
+      this.beatRoot.add(w.ring.mesh);
+      this.windupList.push(w);
+    }
+    w.start = this.time;
+  }
+
+  /** Wind-up record of a character (null = never wound up this match). */
+  private windupOf(id: EntityId): { id: EntityId; start: number; ring: WindupRing } | null {
+    for (let i = 0; i < this.windupList.length; i++) if (this.windupList[i]!.id === id) return this.windupList[i]!;
+    return null;
   }
 
   /**
@@ -1069,30 +1212,335 @@ export class GameView {
    * taunt bubbles.
    */
   showBark(charId: EntityId, text: string, seconds?: number): void {
-    void charId;
-    void text;
-    void seconds;
+    if (this.disposed || !this.chars.has(charId) || typeof text !== 'string' || !text.trim()) return;
+    if (!this.tauntShown(charId)) return;
+    let rec: { id: EntityId; bubble: BarkBubble } | null = null;
+    for (const r of this.barkList) if (r.id === charId) rec = r;
+    if (!rec) {
+      rec = { id: charId, bubble: new BarkBubble() };
+      this.beatRoot.add(rec.bubble.sprite);
+      this.barkList.push(rec);
+    }
+    rec.bubble.show(text, seconds ?? BEATS.bark.seconds);
   }
 
   /**
    * (fun round, WP3) Story beats from MomentTracker, once per tick (possibly []). The view owns
    * the render-only reactions here: "!?" sweat mood (moods.ts) on the team that lost the lead
    * (`leadTaken`: the other team) or had its run broken (`streakBroken`), the `impactAt` pulse on
-   * `bigPlay`, small flourishes on stamps. Camera glance and time scale are NOT done here (feel
-   * calls `glance`; match.ts owns TimeScale). Moments are facts; never re-derive them here.
+   * `bigPlay` (and the content big plays: jackpot / craneDrop), small flourishes on stamps.
+   * Camera glance and time scale are NOT done here (feel calls `glance`; match.ts owns
+   * TimeScale). Moments are facts; never re-derive them here.
    */
   onMoments(moments: readonly Moment[]): void {
-    void moments;
+    const sim = this.sim;
+    if (!sim || !moments.length || this.viewMode !== 'match') return;
+    const fx = this.effects.fx;
+    for (const m of moments) {
+      const other = (m.team === 0 ? 1 : 0) as TeamId;
+      const at = m.pos ?? null;
+      switch (m.kind) {
+        case 'leadTaken':
+          this.moods.teamReact(sim, other, 'rattled', at);
+          this.moods.teamReact(sim, m.team, 'pumped', at);
+          break;
+        case 'equalized':
+          this.moods.teamReact(sim, m.team, 'pumped', at, 14);
+          break;
+        case 'streakBroken':
+          this.moods.teamReact(sim, m.team, 'rattled', at);
+          break;
+        case 'matchPointStopped':
+          // m.team = the team whose match point was stopped.
+          this.moods.teamReact(sim, other, 'pumped', at);
+          this.moods.teamReact(sim, m.team, 'rattled', at, 20);
+          break;
+        case 'bigPlay':
+          if (at) this.impactAt(at, 0.8, 0.55);
+          break;
+        case 'jackpot':
+        case 'craneDrop':
+          if (at) this.impactAt(at, 0.65, 0.45);
+          break;
+        case 'goldHammer':
+          if (at) fx.ring({ x: at.x, y: 0.05, z: at.y }, { radius: 2.6, color: '#FFD23F', duration: 0.55 });
+          break;
+        case 'tauntPunished':
+        case 'dodged':
+        case 'counterDash':
+          if (at) fx.sparkle({ x: at.x, y: 1.0, z: at.y }, { count: 6, radius: 0.6, color: m.kind === 'dodged' ? '#7FC8FF' : '#FFD45E' });
+          break;
+        default:
+          break;
+      }
+    }
   }
 
   /**
    * (fun round, WP3) Scoring-run heat: a subtle rim on `team`'s van while its run has a tier
    * (`MomentTracker.snapshot().run`); `team = null` or `tier = 0` clears it. Fed every tick;
-   * idempotent.
+   * idempotent. Tier 2 adds a few warm sparks over the roof (not with reduced motion).
    */
   setRunHeat(team: TeamId | null, tier: 0 | StreakTier): void {
-    void team;
-    void tier;
+    const on = (team === 0 || team === 1) && (tier === 1 || tier === 2);
+    this.runHeat.team = on ? team : null;
+    this.runHeat.tier = on ? tier : 0;
+  }
+
+  // --- [F3] beat internals ---------------------------------------------------------------------
+
+  /** Bag-only decisive load: carriers resolved from matchPointInfo (refreshed at most 4x / s). */
+  private bagFallbackAt = -1;
+
+  private zoneOf(team: TeamId): LayoutDef['zones'][number] | null {
+    const zs = this.layout?.zones;
+    if (!zs) return null;
+    for (let i = 0; i < zs.length; i++) if (zs[i]!.team === team) return zs[i]!;
+    return null;
+  }
+
+  /** UI strings the beats print (pinned cross-package keys; WP4 defines them). */
+  private beatText(key: 'hud.mp.ours' | 'hud.mp.theirs' | 'hud.moment.stealChance', params?: Record<string, string>): string {
+    const lang = this.settings.language ?? 'ko';
+    let s: string = (lang === 'en' ? EN_STRINGS[key] : KO_STRINGS[key]) ?? KO_STRINGS[key] ?? key;
+    if (params) for (const k in params) s = s.split(`{${k}}`).join(params[k]!);
+    return s;
+  }
+
+  /** Stop the getaway and put the vans (and their siren glows) back at their parking spots. */
+  private endGetaway(): void {
+    if (!this.getaway) return;
+    this.getaway = null;
+    for (const van of this.vans) {
+      if (!van) continue;
+      van.setDepart(0);
+      const z = this.zoneOf(van.team);
+      if (z) this.glows[van.team]?.place(z.vanPos, z.vanAngle);
+    }
+  }
+
+  /**
+   * Per-frame getaway for one van (match mode, end hold). Returns bit 1 = siren, bit 2 = engine.
+   * Winner: honk (bounce + ring) and rev, then the ease-in-out roll with exhaust puffs and a
+   * "슝!" as it pulls away; the siren glow follows the van. Draw: every van revs in place.
+   */
+  private getawayVan(van: VanRig, dt: number): number {
+    const g = this.getaway;
+    if (!g || this.viewMode !== 'match') return 0;
+    const t = this.time - g.start;
+    const prev = t - dt;
+    const z = this.zoneOf(van.team);
+    if (!z) return 0;
+    const ca = Math.cos(z.vanAngle);
+    const sa = Math.sin(z.vanAngle);
+    const fx = this.effects.fx;
+    const G = BEATS.getaway;
+    const puff = (n: number, size: number): void => {
+      van.exhaustPoint.getWorldPosition(_v3);
+      fx.dust({ x: _v3.x, y: _v3.y, z: _v3.z }, { count: n, spread: 0.25, size, color: '#8E8796', up: 0.35, dir: { x: -ca, y: 0.15, z: -sa } });
+    };
+    if (g.team === null) {
+      for (const r of G.drawRevs) {
+        if (prev < r && t >= r) {
+          van.bounce(0.55);
+          puff(4, 0.32);
+        }
+      }
+      return 2;
+    }
+    if (van.team !== g.team) return 0;
+    if (!g.honked) {
+      g.honked = true;
+      van.bounce(1.1);
+      fx.ring({ x: z.vanPos.x + ca * (VAN.half.x + 0.3), y: 0.9, z: z.vanPos.y + sa * (VAN.half.x + 0.3) }, { radius: 2.4, color: '#FFF6B0', duration: 0.4 });
+      puff(5, 0.34);
+    }
+    const m = getawayDepart(t, g.run);
+    if (prev <= G.revFor && t > G.revFor && g.run >= G.minRun) {
+      this.effects.stamp('whoosh', { x: z.vanPos.x + ca * 1.2, y: z.vanPos.y + sa * 1.2 }, { y: 2.9, scale: 1.1 });
+      van.bounce(0.6);
+    }
+    if (this.time >= g.nextPuff && t < G.revFor + G.driveFor + 0.2) {
+      g.nextPuff = this.time + G.puffEvery;
+      puff(2, 0.26);
+    }
+    van.setDepart(departParam(m));
+    const glow = this.glows[van.team];
+    if (glow) {
+      _loc.x = z.vanPos.x + ca * m;
+      _loc.y = z.vanPos.y + sa * m;
+      glow.place(_loc, z.vanAngle);
+    }
+    return 3;
+  }
+
+  /** Scoring-run heat rim (+ tier-2 sparks) on the vans; nothing outside 'match'. */
+  private updateRunHeat(dt: number): void {
+    const heat = this.viewMode === 'match' ? this.runHeat : null;
+    for (const van of this.vans) {
+      if (!van) continue;
+      const on = !!heat && heat.team === van.team && heat.tier > 0;
+      const color = on ? (heat!.tier === 2 ? '#FF7A3D' : '#FFC24D') : null;
+      if (color !== this.runHeatShown[van.team]) {
+        this.runHeatShown[van.team] = color;
+        van.setHighlight(color);
+      }
+      if (on && heat!.tier === 2 && !this.settings.reducedMotion && dt > 0 && this.time >= this.nextHeatSpark) {
+        this.nextHeatSpark = this.time + 0.45;
+        const z = this.zoneOf(van.team);
+        if (z) this.effects.fx.sparkle({ x: z.vanPos.x, y: VAN.height + 0.5, z: z.vanPos.y }, { count: 3, radius: 0.9, color: '#FFB13D' });
+      }
+    }
+  }
+
+  /** Ground-ring radius for a loot id (0 = not a live loot view). */
+  private loadRadius(id: EntityId): number {
+    const bv = this.banks.get(id);
+    if (bv) return bv.done ? 0 : BANK_METER_RADIUS + 0.35;
+    const sv = this.safes.get(id);
+    if (!sv || sv.done) return 0;
+    const fp = (sv.rig as Partial<PropRig>).footprint;
+    const h = fp ?? SAFE_SPECS[sv.kind].half;
+    return Math.hypot(h.x, h.y) + 0.45;
+  }
+
+  /** Label anchor height above a loot id's floor. */
+  private loadTop(id: EntityId): number {
+    if (this.banks.has(id)) return BANK_MODEL.roofHeight + 1.0;
+    const sv = this.safes.get(id);
+    if (!sv) return 2;
+    const ph = (sv.rig as Partial<PropRig>).height;
+    return sv.y + (ph ?? SAFE_SPECS[sv.kind].height) + 0.55;
+  }
+
+  /** Per-frame world beats: decisive load, steal marker, wind-up rings, bark bubbles. */
+  private updateBeats(sim: Simulation, dt: number): void {
+    const match = this.viewMode === 'match';
+    const calm = this.settings.reducedMotion;
+    const cam = this.cam.camera;
+    // --- decisive load ---------------------------------------------------------------------
+    const side = match ? this.decisiveSide : null;
+    let lootId: EntityId | null = null;
+    this.bagIds.length = 0;
+    this.decisiveHl = null;
+    if (side) {
+      for (let i = 0; i < this.decisiveIds.length; i++) {
+        const id = this.decisiveIds[i]!;
+        if (lootId === null && this.loadRadius(id) > 0) lootId = id;
+        else if (this.chars.has(id) && !this.bagIds.includes(id)) this.bagIds.push(id);
+      }
+      if (lootId === null && !this.bagIds.length) {
+        if (this.bagFallbackAt < 0 || this.time - this.bagFallbackAt > 0.25) {
+          this.bagFallbackAt = this.time;
+          this.bagFallback.length = 0;
+          const mp = matchPointInfo(sim.state, { earlyDecision: sim.rules.earlyDecision });
+          if (mp && mp.bagCharIds) for (const id of mp.bagCharIds) this.bagFallback.push(id);
+        }
+        for (let i = 0; i < this.bagFallback.length; i++) if (this.chars.has(this.bagFallback[i]!)) this.bagIds.push(this.bagFallback[i]!);
+      }
+    }
+    const color = side === 'theirs' ? '#FF5A5F' : '#FFD23F';
+    let labelX = 0;
+    let labelH = 0;
+    let labelZ = 0;
+    let labelOn = false;
+    if (lootId !== null) {
+      const bv = this.banks.get(lootId);
+      const pose = bv ? bv.pose : this.safes.get(lootId)!.pose;
+      const floor = bv ? 0 : this.safes.get(lootId)!.y;
+      this.decisiveRing.setColor(color);
+      this.decisiveRing.update(true, pose.x, floor, pose.y, this.loadRadius(lootId), dt, side === 'theirs' ? 1.6 : 1.1, calm);
+      labelX = pose.x;
+      labelZ = pose.y;
+      labelH = this.loadTop(lootId);
+      labelOn = true;
+      this.decisiveHl = { id: lootId, color };
+    } else this.decisiveRing.update(false, 0, 0, 0, 1, dt, 1, calm);
+    // bag carriers: one ring each; the label goes over the first one when no loot carries it
+    while (this.bagRings.length < this.bagIds.length) {
+      const r = new PulseRing('bagRing');
+      this.beatRoot.add(r.root);
+      this.bagRings.push(r);
+    }
+    for (let i = 0; i < this.bagRings.length; i++) {
+      const id = i < this.bagIds.length ? this.bagIds[i]! : null;
+      const cv = id !== null ? this.chars.get(id) : undefined;
+      const ring = this.bagRings[i]!;
+      if (!cv) {
+        ring.update(false, 0, 0, 0, 1, dt, 1, calm);
+        continue;
+      }
+      ring.setColor(color);
+      ring.update(true, cv.pose.x, cv.y, cv.pose.y, 1.0, dt, side === 'theirs' ? 1.6 : 1.1, calm);
+      if (!labelOn) {
+        labelX = cv.pose.x;
+        labelZ = cv.pose.y;
+        labelH = cv.y + RACCOON_LABEL_HEIGHT + 0.75;
+        labelOn = true;
+      }
+    }
+    if (labelOn && side) this.decisiveLabel.place(labelX, labelH, labelZ, cam, dt, calm ? 0 : 0.5 + 0.5 * Math.sin(this.time * (side === 'theirs' ? 9 : 6)));
+    else this.decisiveLabel.sprite.visible = false;
+    // --- steal chance ------------------------------------------------------------------------
+    const sp = match ? this.stealPos : null;
+    if (sp) {
+      this.stealRing.setColor('#7FE0B4');
+      this.stealRing.update(true, sp.x, 0, sp.y, 1.7, dt, 1.4, calm);
+      this.stealLabel.place(sp.x, 2.5, sp.y, cam, dt, calm ? 0 : 0.5 + 0.5 * Math.sin(this.time * 5));
+    } else {
+      this.stealRing.update(false, 0, 0, 0, 1, dt, 1, calm);
+      this.stealLabel.sprite.visible = false;
+    }
+    // --- wind-up rings -----------------------------------------------------------------------
+    for (let i = 0; i < this.windupList.length; i++) {
+      const w = this.windupList[i]!;
+      const cv = this.chars.get(w.id);
+      if (!match || w.start < 0 || !cv) w.ring.update(null, 0, 0, 0, dt, calm);
+      else w.ring.update(this.time - w.start, cv.pose.x, cv.y, cv.pose.y, dt, calm);
+    }
+    // --- bark bubbles ------------------------------------------------------------------------
+    for (let i = 0; i < this.barkList.length; i++) {
+      const { id, bubble } = this.barkList[i]!;
+      if (!bubble.shown) continue;
+      if (!match || !this.tauntShown(id) || !this.emoteAnchor(id, _v3)) {
+        bubble.hide();
+        continue;
+      }
+      bubble.update(_v3.x, _v3.y + 1.05, _v3.z, dt, calm);
+    }
+  }
+
+  private readonly bagFallback: EntityId[] = [];
+
+  /** Free the per-match beat visuals (rings per character, barks) and reset every beat. */
+  private resetBeats(): void {
+    this.glanceT.clear();
+    this.getaway = null;
+    this.decisiveIds.length = 0;
+    this.decisiveSide = null;
+    this.decisiveLabel.hide();
+    this.decisiveHl = null;
+    this.bagFallback.length = 0;
+    this.bagFallbackAt = -1;
+    this.stealPos = null;
+    this.stealLabel.hide();
+    this.runHeat.team = null;
+    this.runHeat.tier = 0;
+    this.runHeatShown[0] = this.runHeatShown[1] = null;
+    for (const w of this.windupList) w.ring.dispose();
+    this.windupList.length = 0;
+    for (const b of this.barkList) b.bubble.dispose();
+    this.barkList.length = 0;
+    for (const r of this.bagRings) r.dispose();
+    this.bagRings.length = 0;
+    this.decisiveRing.update(false, 0, 0, 0, 1, 1, 1, true);
+    this.stealRing.update(false, 0, 0, 0, 1, 1, 1, true);
+    this.resultsPoses = null;
+  }
+
+  /** Taunt the rival plays on the results stage (its signature taunt). */
+  private static rivalTaunt(rival: string | null | undefined): EmoteId | null {
+    return rival === 'hodadak' ? 'hodadakZoom' : rival === 'tongkeun' ? 'tongkeunFlex' : rival === 'nunchi' ? 'nunchiShrug' : null;
   }
 
   applySettings(s: ViewSettings): void {
@@ -1146,7 +1594,10 @@ export class GameView {
       });
     }
     if (prev.toneMapping !== s.toneMapping) this.applyToneMapping(this.renderer);
-    if (s.reducedMotion) this.cam.shake(-1);
+    if (s.reducedMotion) {
+      this.cam.shake(-1);
+      this.glanceT.clear(); // [F3]
+    }
   }
 
   resize(): void {
@@ -1198,6 +1649,12 @@ export class GameView {
     this.emotes.dispose();
     this.markers.dispose();
     this.banners.dispose();
+    // [F3] beat visuals (per-match ones went with unload())
+    this.decisiveRing.dispose();
+    this.stealRing.dispose();
+    this.decisiveLabel.dispose();
+    this.stealLabel.dispose();
+    this.beatRoot.removeFromParent();
     this.post.dispose();
     this.pigeons.dispose();
     this.lights.dispose();
@@ -1315,6 +1772,9 @@ export class GameView {
   }
 
   private unload(): void {
+    for (const x of this.extras) x.dispose();
+    this.extras = [];
+    this.resetBeats(); // [F3]
     this.effects.clear();
     this.uproot.clear();
     this.police.clear();
@@ -1575,6 +2035,46 @@ export class GameView {
     }
   }
 
+  /** [C7a] What the Content 2.0 extras may read / request from the view (extras.ts). */
+  private extrasHost(sim: Simulation): ViewExtrasHost {
+    return {
+      world: this.world,
+      effects: this.effects,
+      sim,
+      time: () => this.time,
+      preset: () => this.preset,
+      reducedMotion: () => this.settings.reducedMotion,
+      language: () => this.settings.language ?? 'ko',
+      mode: () => this.viewMode,
+      focusId: () => this.lastFocusId,
+      charRig: (id) => this.chars.get(id)?.rig ?? null,
+      charPose: (id) => {
+        const cv = this.chars.get(id);
+        return cv ? { x: cv.pose.x, y: cv.pose.y, a: cv.facing, h: cv.y } : null;
+      },
+      lootRig: (id) => {
+        const sv = this.safes.get(id);
+        return sv && !sv.done ? sv.rig : null;
+      },
+      lootPose: (id) => this.lootPose(id),
+      officerPos: (id) => this.police.officerPos(id),
+      hitstop: (s) => {
+        if (s > 0 && this.viewMode === 'match') this.hitstop = Math.max(this.hitstop, s);
+      },
+      shake: (at, amount, radius) => this.cam.shake(amount * this.nearFactorAt(at, radius)),
+      punch: (dir, strength) => {
+        if (!this.settings.reducedMotion) this.cam.punch(dir, strength);
+      },
+      impact: (at, strength, chroma) => this.impactAt(at, strength, chroma),
+      pulse: (id, amp) => this.pulse(id, amp),
+      scare: (at, r) => this.pigeons.scare(at, r),
+      nearFocus: (at, radius) => {
+        const f = this.focusPos();
+        return f ? Math.max(0, 1 - Math.hypot(at.x - f.x, at.y - f.y) / radius) : 0;
+      },
+    };
+  }
+
   /** 0..1 closeness of a sim point to the focus character (0.5 without a focus). */
   private nearFactorAt(p: Vec2, radius: number): number {
     const f = this.focusPos();
@@ -1824,7 +2324,7 @@ export class GameView {
     pose.headYaw = undefined;
     const spot = mode === 'results' ? this.stage?.spots.get(c.id) : undefined;
     if (spot) {
-      this.updateStagedChar(cv, spot, dt);
+      this.updateStagedChar(cv, spot, dt, c);
       return;
     }
 
@@ -1932,6 +2432,15 @@ export class GameView {
         }
       }
     }
+    // [F3] Readable dash wind-up (BotIntent.phase 'windup'): a coiled crouch + strain face while it
+    // lasts (the spark ring at the feet is updateBeats'). Held, not pulsed, so it reads as "about to go".
+    const wu = mode === 'match' ? this.windupOf(c.id) : null;
+    if (wu && wu.start >= 0 && c.knockdownTicks <= 0) {
+      const k = Math.min(1, (this.time - wu.start) / 0.08);
+      sqY *= 1 - 0.15 * k;
+      sqXZ *= 1 + 0.08 * k;
+      pose.expression = 'strain';
+    }
     const ps = this.pulseScale(c.id);
     sqY *= ps;
     sqXZ *= 2 - ps;
@@ -1973,8 +2482,10 @@ export class GameView {
    * Results pose (doc §13): winners hop and cheer in turns (staggered bounces with squash on
    * landing, an occasional spin jump); losers stand slumped and empty-handed, sigh now and then
    * (a little puff) and glance at the winners. Reduced motion: no hops/spins, poses only.
+   * [F3] setResultsPoses: the rival loops its signature taunt when it won ('taunt') or slumps
+   * when it lost ('slump'); the player's chosen victory taunt loops on a win (between hops).
    */
-  private updateStagedChar(cv: CharView, spot: StageSpot, dt: number): void {
+  private updateStagedChar(cv: CharView, spot: StageSpot, dt: number, c?: CharacterState): void {
     const pose = cv.poseObj;
     const t = this.time;
     const calm = this.settings.reducedMotion;
@@ -1987,13 +2498,45 @@ export class GameView {
     pose.dashing = false;
     pose.boosting = false;
     pose.knockedDown = false;
-    pose.celebrating = spot.cheer;
-    pose.sad = spot.sad;
+    pose.taunt = null;
+    let cheer = spot.cheer;
+    let sad = spot.sad;
+    // [F3] results poses
+    let taunt: EmoteId | null = null;
+    let tauntOffset = 0;
+    const rp = this.resultsPoses;
+    if (rp && c) {
+      const focusTeam = this.lastFocusId !== null ? this.chars.get(this.lastFocusId)?.team ?? null : null;
+      const rivalLook = c.look.rival ?? null;
+      if (rivalLook && focusTeam !== null && c.team !== focusTeam) {
+        if (rp.rival === 'taunt') taunt = GameView.rivalTaunt(rivalLook);
+        else {
+          cheer = false;
+          sad = true;
+        }
+      } else if (c.id === this.lastFocusId && rp.player && cheer) {
+        taunt = rp.player;
+        tauntOffset = 0.9;
+      }
+    }
+    let tauntOn = false;
+    if (taunt) {
+      const dur = EMOTE.durationTicks[taunt] / TICK_RATE;
+      const ph = (t - this.resultsPoseStart + tauntOffset + 0.35) % (dur + 1.1);
+      if (ph < dur) {
+        pose.taunt = { id: taunt, t: ph, dur };
+        tauntOn = true;
+      }
+    }
+    pose.celebrating = cheer && !tauntOn;
+    pose.sad = sad;
     let y = 0;
     let sy = 1;
     let sxz = 1;
     let facing = spot.facing;
-    if (spot.cheer) {
+    if (tauntOn) {
+      pose.expression = null;
+    } else if (cheer) {
       pose.expression = 'cheer';
       if (!calm) {
         // Bounce: 0.62 s hops, phase-shifted per raccoon; squash on contact.
@@ -2008,7 +2551,7 @@ export class GameView {
         const hop = Math.floor(t / period + spot.index * 0.37);
         if ((hop + spot.index) % 4 === 0 && ph < 0.72) facing += (ph / 0.72) * Math.PI * 2;
       }
-    } else if (spot.sad) {
+    } else if (sad) {
       pose.expression = 'sad';
       // Sigh: a slow slump-and-release every ~3 s with a tiny puff; glance at the winners.
       const sighPh = ((t + spot.index * 1.3) % 3.2) / 3.2;
@@ -2103,11 +2646,15 @@ export class GameView {
     if (focus) for (const id of focus.pingTargetIds) pinged.add(id);
     if (team !== null) for (const p of st.pings) if (p.team === team && p.targetId !== null && p.expiresTick > st.tick) pinged.add(p.targetId);
     const cand = show && focus?.grabCandidate ? focus.grabCandidate.targetId : null;
+    const dec = show ? this.decisiveHl : null;
+    const decOn = !!dec && (this.settings.reducedMotion || Math.sin(this.time * (this.decisiveSide === 'theirs' ? 10 : 7)) > -0.35);
 
     const colorFor = (l: LootState, roofOpen: boolean): string | null => {
       if (!show) return null;
       if (cand === l.id) return GRAB_MARKER_COLOR;
       if (l.recovery) return HIGHLIGHT_COLORS.inZone;
+      // [F3] Decisive load: a pulsing rim in the side's color (on / off with the ring's beat).
+      if (dec && dec.id === l.id) return decOn ? dec.color : null;
       if (pinged.has(l.id) && team !== null) return pulseOn ? TEAM_STYLES[team].color : TEAM_STYLES[team].tint;
       if (team !== null && l.grabbedBy.length) {
         for (const cid of l.grabbedBy) {
@@ -2125,7 +2672,7 @@ export class GameView {
     const gsv = gc ? this.safes.get(gc.targetId) : undefined;
     const fy = focusChar ? this.chars.get(focusChar.id)?.y ?? 0 : 0;
     if (gc && gbv && !gbv.done) this.effects.setGrabTarget('bank', gbv.pose, 0, gc.anchorWorld, fy);
-    else if (gc && gsv && !gsv.done) this.effects.setGrabTarget(gsv.kind, gsv.pose, gsv.y, gc.anchorWorld, fy);
+    else if (gc && gsv && !gsv.done) this.effects.setGrabTarget(gsv.kind, gsv.pose, gsv.y, gc.anchorWorld, fy, undefined, (gsv.rig as Partial<PropRig>).footprint);
     else this.effects.setGrabTarget(null, gbv?.pose ?? { x: 0, y: 0, a: 0 });
 
     for (const bv of this.banks.values()) {
@@ -2359,6 +2906,16 @@ export class GameView {
       ty += dy * att.w;
       overscan = 6 * att.w;
     }
+    // [F3] Big-play glance (feel.ts plans it; reducedMotion never starts one): blend the target
+    // toward the play, capped so the player stays in frame. Position only, never yaw (doc §4).
+    if (!calm && this.glanceT.active) {
+      const w = this.glanceT.apply(this.time, tx, ty, this.glanceOut);
+      if (w > 0) {
+        tx = this.glanceOut.x;
+        ty = this.glanceOut.y;
+        overscan = Math.max(overscan, (5 * w) / BEATS.glance.maxWeight);
+      }
+    }
     return { target: { x: tx, y: ty }, distance: dist, pitch: MATCH_PITCH, fov: MATCH_FOV, followRate: 4.5, clamp: true, overscan };
   }
 
@@ -2506,6 +3063,22 @@ export class GameView {
     for (const bv of this.banks.values()) {
       if (bv.done) continue;
       if (h < BANK_MODEL.roofHeight + 0.8 + pad && insideRect(p, bv.pose, BANK_MODEL.half, bv.pose.a, pad)) return true;
+    }
+    // [F3] Results / title shots: outdoor safes, Content 2.0 props (the money tree is 2.6 m) and
+    // the vans are solid too, so the camera never parks inside one.
+    for (const sv of this.safes.values()) {
+      if (sv.done) continue;
+      const rig = sv.rig as Partial<PropRig>;
+      const half = rig.footprint ?? SAFE_SPECS[sv.kind].half;
+      const top = sv.y + (rig.height ?? SAFE_SPECS[sv.kind].height);
+      if (h < top + pad && insideRect(p, sv.pose, half, sv.pose.a, pad)) return true;
+    }
+    // Vans only for the camera position itself (pad >= 1): the winners' van is a point of
+    // interest of the results shot, so its own rays must not count it as an obstacle.
+    if (pad >= 1) {
+      for (const z of L.zones) {
+        if (h < VAN.height + 0.3 + pad && insideRect(p, z.vanPos, VAN.half, z.vanAngle, pad)) return true;
+      }
     }
     return false;
   }

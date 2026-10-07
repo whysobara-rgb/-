@@ -9,6 +9,11 @@
 import type { EntityId, HatId, LootKind, PingKind, SafeKind, TeamId } from '../../sim/types';
 import type { TextRef } from '../i18n';
 import type { PromptAction } from '../core/prompts';
+import type { IconName } from '../core/icons';
+import type { BannerPriority, HudMatchPoint, HudSwing, MomentStampKind } from './tension';
+// [C8] Content 2.0 view-models
+import type { PropVariant } from '../../sim/types';
+import type { HudContentModel, MinimapCoin, MinimapItem, MinimapItemPad } from './contentTypes';
 
 export interface HudBank {
   id: EntityId;
@@ -28,6 +33,8 @@ export interface HudCarry {
   safes?: number;
   /** 0..1 recovery dwell progress while fully inside our zone; null/undefined otherwise. */
   recovering?: number | null;
+  /** [C8] Prop variant (ATM / 돼지저금통 / 돈나무 / 황금 금고): named and drawn as itself. */
+  variant?: PropVariant | null;
 }
 
 /** What the grab button would do right now (doc §4 highlight + prompt). */
@@ -43,6 +50,8 @@ export interface HudGrab {
   unanchorSec?: number;
   /** 0..1 while straining. */
   unanchorProgress?: number | null;
+  /** [C8] Prop variant (ATM / 돼지저금통 / 돈나무 / 황금 금고): named and drawn as itself. */
+  variant?: PropVariant | null;
 }
 
 export interface MinimapBank {
@@ -64,6 +73,8 @@ export interface MinimapSafe {
   /** Loaded inside a bank (drawn with the bank). */
   loaded?: boolean;
   heldBy?: TeamId | null;
+  /** [C8] Prop variant (drawn with its own marker). */
+  variant?: PropVariant | null;
 }
 
 export interface MinimapCharacter {
@@ -119,6 +130,13 @@ export interface MinimapModel {
   pings?: readonly MinimapPing[];
   /** Fence ids broken so far (static layer is redrawn when this changes). */
   brokenFences?: readonly string[];
+  // --- [C8] Content 2.0 (absent in classic) ---
+  /** [C8] Supply-drop pads (보급 풍선). */
+  itemPads?: readonly MinimapItemPad[];
+  /** [C8] Items on the field (descending or on the ground). */
+  items?: readonly MinimapItem[];
+  /** [C8] Loose coin piles (drawn as a density glow; `state.coins` can be passed as is). */
+  coins?: readonly MinimapCoin[];
 }
 
 interface LabelBase {
@@ -214,6 +232,11 @@ export interface HudModel {
   banks: readonly HudBank[];
   /** Last bank is being recovered: "회수하면 도주 준비 시작" (shown to both sides). */
   lastBankWarning: boolean;
+  // --- [F4] tension fields (add-only; absent = not shown) ---
+  /** [F4] Decisive-load prompt ("이게 들어가면 끝!" / "막아야 해!"); outranks lastBankWarning. */
+  matchPoint?: HudMatchPoint | null;
+  /** [F4] "역전까지 N · 남은 M" readout under the scoreboard (null = hidden). */
+  swing?: HudSwing | null;
   carry: HudCarry | null;
   grab: HudGrab | null;
   /** 0 = dash ready .. 1 = just used. */
@@ -223,6 +246,8 @@ export interface HudModel {
   police?: HudPolice | null;
   labels?: readonly WorldLabelModel[];
   arrows?: readonly OffscreenTarget[];
+  /** [C8] Content 2.0: item slot, bag chip, deposit ring, prop / item tags (null / absent in classic). */
+  content?: HudContentModel | null;
 }
 
 export interface ScorePopupOptions {
@@ -240,7 +265,9 @@ export interface ScorePopupOptions {
 export type BannerKind = 'escape' | 'timeUp' | 'decided' | 'allRecovered' | 'practiceDone' | 'go' | 'policeDispatched' | 'policeArrived';
 
 /** Stamp callouts for big moments, driven from real events. */
-export type HudStampKind = 'uproot' | 'steal' | 'bankWhole' | 'dodge' | 'police';
+export type HudStampKind = 'uproot' | 'steal' | 'bankWhole' | 'dodge' | 'police'
+  // [F4] stamps from moments (src/ui/hud/tension.ts momentStamps)
+  | MomentStampKind;
 
 export interface HudStampOptions {
   /** Team that made the play (colours the stamp; never the only cue — the text says it). */
@@ -251,6 +278,33 @@ export interface HudStampOptions {
   params?: Readonly<Record<string, string | number>>;
   /** How long it stays (ms); default ~1.6 s (2 s for the whole bank). */
   durationMs?: number;
+  /** [F4] Text key overriding the kind's default (e.g. the "theirs" wording of a moment stamp). */
+  key?: string;
+  /** [F4] Optional sub-line text key under the stamp (e.g. "은행째!" merged into "역전!"). */
+  sub?: string;
+}
+
+/**
+ * [F4] A centre banner offered to the HUD banner queue (Hud.queueBanner). Priority decides who
+ * gets the single centre plate: final > climax > event > police > other; a lower one waits (and
+ * is dropped once stale), a higher one replaces the current plate. C8 pushes event banners here:
+ *   hud.queueBanner({ title: 'event.moneyRain.warn', sub: 'event.moneyRain.warnSub', params: { sec: 5 },
+ *                     priority: 'event', tone: 'event', icon: 'gift', durationMs: 2600 });
+ */
+export interface HudBannerSpec {
+  /** Title text key. */
+  title: string;
+  /** Optional sub-line text key. */
+  sub?: string;
+  params?: Readonly<Record<string, string | number>>;
+  priority: BannerPriority;
+  /** Plate colour: 'event' (gold), 'grape' (default), 'sky', 'mint', 'tomato', 'police' (red / blue flash). */
+  tone?: 'event' | 'grape' | 'sky' | 'mint' | 'tomato' | 'police';
+  icon?: IconName;
+  /** Plate life in ms (default 2400). */
+  durationMs?: number;
+  /** Compact plate in the top third (default: compact for 'climax' and 'event'). */
+  compact?: boolean;
 }
 
 /** Portrait spec for a scoreboard face (the team's lead character). */

@@ -248,6 +248,9 @@ async function main(): Promise<void> {
         wardrobe: 'wardrobe',
         settings: 'settings-game',
         quit: 'confirm',
+        play: 'preview',
+        credits: 'index',
+        goal: 'tournament',
       };
       new MainMenu({
         hat: 'teamCapA',

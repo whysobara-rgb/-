@@ -39,21 +39,23 @@
         display: block;
         outline: none;
       }
-      /* Shown until the UI layer takes over (pure CSS, no fonts or JS needed). */
+      /* Shown until the UI layer takes over (pure CSS, no fonts or JS needed). Cream paper like
+         the boot splash (C10) and the Electron window background, so the first frame never flashes. */
       #boot-splash {
         position: fixed;
         inset: 0;
         display: grid;
         place-items: center;
-        background: radial-gradient(120% 90% at 50% 100%, #3a2a5c 0%, #150f2b 60%);
+        background: #fff6e6;
+        color: #2a2131;
         z-index: 10;
       }
       #boot-splash .ring {
         width: 64px;
         height: 64px;
         border-radius: 50%;
-        border: 8px solid rgba(255, 243, 222, 0.18);
-        border-top-color: #ffd66b;
+        border: 8px solid rgba(42, 33, 49, 0.14);
+        border-top-color: #ff5a4e;
         animation: uh-boot-spin 0.9s linear infinite;
       }
       #boot-splash .msg {

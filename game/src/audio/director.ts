@@ -41,6 +41,8 @@ import type { AudioEngine } from './audio';
 import type { LoopId, SfxId } from './ids';
 import { LAND_DELAY } from './sfxStage';
 import type { Moment } from '../shared/moments';
+import type { ItemKind } from '../sim/types'; // [C9]
+import { GOLD_STEP } from './sfxItems'; // [C9]
 
 /** The subset of `Simulation` the director reads (structural, so tests can fake it). */
 export interface AudioSimView {
@@ -72,6 +74,11 @@ export interface DirectorOptions {
    * plays. Game flow passes the "show others' taunts" setting here.
    */
   tauntFilter?: ((charId: EntityId) => boolean) | null;
+  /**
+   * [C9] Content 2.0 sounds (items, coins, props, breakables; see the "[C9]" section at the end of
+   * this file). Default true; false keeps the pre-Content-2.0 mapping (QA A/B of the mix).
+   */
+  contentSfx?: boolean;
 }
 
 /** (fun round contract, WP8) Argument of `MatchAudioDirector.setTension`. */
@@ -247,7 +254,9 @@ interface OfficerAudio {
 
 export class MatchAudioDirector {
   private readonly engine: AudioEngine;
-  private readonly opts: Required<Omit<DirectorOptions, 'listenerCharId' | 'hitstop' | 'tauntFilter'>> & { listenerCharId: EntityId | null };
+  private readonly opts: Required<Omit<DirectorOptions, 'listenerCharId' | 'hitstop' | 'tauntFilter' | 'contentSfx'>> & { listenerCharId: EntityId | null };
+  /** [C9] Content 2.0 sounds (null when DirectorOptions.contentSfx is false). */
+  private readonly content: ContentSfx | null;
   private tauntFilter: ((charId: EntityId) => boolean) | null;
   private hitstopOn: () => boolean;
   /** Distance walked since the last footstep, per character. */
@@ -286,6 +295,7 @@ export class MatchAudioDirector {
     };
     this.hitstopOn = MatchAudioDirector.hitstopFn(opts.hitstop);
     this.tauntFilter = opts.tauntFilter ?? null;
+    this.content = opts.contentSfx === false ? null : new ContentSfx(engine, opts.localTeam, (st) => this.listenerChar(st)); // [C9]
   }
 
   /** Which characters' taunts are heard (null = everyone's). The listener's own always plays. */
@@ -331,6 +341,7 @@ export class MatchAudioDirector {
     this.whistleRefillTick = -Infinity;
     this.targetWhistle.clear();
     this.setPoliceTension(0);
+    this.content?.reset(); // [C9]
   }
 
   /** Pre-match "3, 2, 1, GO": call with 3, 2, 1, 0. */
@@ -342,6 +353,7 @@ export class MatchAudioDirector {
 
   onEvents(events: readonly SimEvent[], sim: AudioSimView): void {
     for (const e of events) this.onEvent(e, sim);
+    this.content?.onEvents(events, sim); // [C9] Content 2.0 sounds (section at the end of the file)
   }
 
   private charPos(sim: AudioSimView, id: EntityId): Vec2 | undefined {
@@ -899,6 +911,254 @@ export class MatchAudioDirector {
     if (Math.abs(next - this.sentIntensity) > 0.002) {
       this.engine.setMusicIntensity(next);
       this.sentIntensity = next;
+    }
+  }
+}
+
+// =============================================================================================
+// [C9] Content 2.0 sounds — namespaced section, owner C9 (content-plan §6 C9, wave 1).
+// Items (뿅망치, 황금 뿅망치, 보급 풍선), coins (pickup climb, 와르르 spill, 쏟아붓기 deposit),
+// props (동전 ATM, 대왕 돼지저금통, 돈나무) and breakables (나무 상자, 꿀꺽 자판기). The director
+// forwards every tick's events after its own mapping (onEvents) and resets it on 'matchStart';
+// nothing else in the director depends on it. Recipes: ./sfxItems.ts, ./sfxProps.ts.
+// =============================================================================================
+
+/** [C9] Content sound tuning (ticks at 60 Hz unless named in seconds). Exported for tests. */
+export const CONTENT_AUDIO = {
+  /** Coin pickup climb: a pile taken within this many ticks of the same raccoon's last pile climbs one degree. */
+  climbWindowTicks: s2t(1.5),
+  /** Highest climb step (two pentatonic octaves above the first coin). */
+  climbMax: 9,
+  /** Pickup / deposit level: the listener, a teammate, a rival. */
+  pickupVolume: { own: 1, team: 0.8, rival: 0.6 },
+  /** Spill size thresholds (bag value spilled) for the small / medium / big cascade. */
+  spillSizes: [30, 70],
+  /** Deposit size thresholds (value banked) for the small / medium / big pour. */
+  depositSizes: [40, 100],
+  /** Step of the other team's deposit (lower and softer, like a rival recovery). */
+  rivalDepositStep: -2,
+  /** Home-run bonk (hammer on a soaped victim) climbs this many degrees. */
+  homeRunStep: 2,
+  /** Hammer bonk level per target (the strongest target of a swing plays, once per swing). */
+  bonkVolume: { knockdown: 1, char: 0.75, police: 0.9, loot: 0.85, breakable: 0.8, fence: 0.7, gimmick: 0.8, event: 0.85 },
+  /** Hammer KO on the listener: music duck (dB, s), lighter than a police tackle. */
+  koDuckDb: -5,
+  koDuckHold: 0.5,
+  /** Piggy oink pitch rise per crack (more cracks = more alarmed). */
+  oinkPitchPerCrack: 0.08,
+} as const;
+
+/** Rank of a hammer hit target: the strongest target of one swing decides its bonk. */
+const BONK_RANK: Readonly<Record<string, number>> = { fence: 0, gimmick: 1, breakable: 2, loot: 3, event: 3, police: 4, char: 5 };
+
+type ItemHitEvent = Extract<SimEvent, { type: 'itemHit' }>;
+
+const isHammer = (k: ItemKind): boolean => k === 'hammer' || k === 'goldHammer';
+const sizeIndex = (value: number, sizes: readonly number[]): number => {
+  let i = 0;
+  while (i < sizes.length && value > sizes[i]!) i++;
+  return i;
+};
+
+/**
+ * [C9] Maps the Content 2.0 sim events to sounds. Stateless across matches except for the coin
+ * climb (per raccoon) and the last known position of every loose item (ground items vanish from
+ * the state before their 'itemExpired' is heard).
+ */
+class ContentSfx {
+  private readonly climb = new Map<EntityId, { tick: number; step: number }>();
+  private readonly itemPos = new Map<EntityId, Vec2>();
+
+  constructor(
+    private readonly engine: AudioEngine,
+    private readonly localTeam: TeamId,
+    private readonly listener: (st: SimState) => CharacterState | undefined,
+  ) {}
+
+  reset(): void {
+    this.climb.clear();
+    this.itemPos.clear();
+  }
+
+  onEvents(events: readonly SimEvent[], sim: AudioSimView): void {
+    // Pre-pass: piggies cracked this tick (their kick stays quiet), the strongest hit per swing,
+    // smash positions (the smashed shell leaves the state before the event is heard).
+    let cracked: Set<EntityId> | null = null;
+    let bonks: Map<EntityId, ItemHitEvent> | null = null;
+    let smashAt: Map<EntityId | string, Vec2> | null = null;
+    let pickups: Extract<SimEvent, { type: 'coinPickup' }>[] | null = null;
+    for (const e of events) {
+      if (e.type === 'piggyCrack') (cracked ??= new Set()).add(e.lootId);
+      else if (e.type === 'itemHit' && isHammer(e.kind)) {
+        const m = (bonks ??= new Map());
+        const prev = m.get(e.charId);
+        if (!prev || this.bonkRank(e) > this.bonkRank(prev)) m.set(e.charId, e);
+      } else if (e.type === 'coinSpawn' && e.source === 'smash' && e.sourceId !== null) (smashAt ??= new Map()).set(e.sourceId, e.pos);
+      else if (e.type === 'coinPickup') (pickups ??= []).push(e);
+    }
+    const me = this.listener(sim.state);
+    for (const e of events) this.onEvent(e, sim, me, cracked, smashAt);
+    if (pickups) {
+      // The listener's own pickups first: two piles in one tick share the coin's retrigger guard.
+      pickups.sort((a, b) => (a.charId === me?.id ? 0 : 1) - (b.charId === me?.id ? 0 : 1));
+      for (const p of pickups) this.pickup(p, sim, me);
+    }
+    if (bonks) for (const hit of bonks.values()) this.bonk(hit, sim, me);
+  }
+
+  private bonkRank(e: ItemHitEvent): number {
+    return (BONK_RANK[e.target] ?? 0) * 2 + (e.knockdown ? 1 : 0);
+  }
+
+  private volumeFor(charId: EntityId, me: CharacterState | undefined, sim: AudioSimView): number {
+    const V = CONTENT_AUDIO.pickupVolume;
+    if (charId === me?.id) return V.own;
+    return sim.getCharacter(charId)?.team === this.localTeam ? V.team : V.rival;
+  }
+
+  private onEvent(e: SimEvent, sim: AudioSimView, me: CharacterState | undefined, cracked: Set<EntityId> | null, smashAt: Map<EntityId | string, Vec2> | null): void {
+    const a = this.engine;
+    const st = sim.state;
+    const charPos = (id: EntityId | null): Vec2 | undefined => (id === null ? undefined : sim.getCharacter(id)?.pos);
+    switch (e.type) {
+      // --- coins and the bag ------------------------------------------------------------------
+      case 'coinSpawn':
+        // spurt / bonk / shed have their prop's voice; spill, break and smash are heard through
+        // bagSpilled, the breakable and the piggy events; rain / truck / quake (wave 2 events) pop.
+        if (e.source === 'spurt') a.play('atmSpurt', { pos: e.pos });
+        else if (e.source === 'bonk') a.play('atmBonk', { pos: e.pos });
+        else if (e.source === 'shed') a.play('billFlutter', { pos: e.pos, volume: e.ids.length > 1 ? 1 : 0.85 });
+        else if (e.source === 'rain' || e.source === 'truck' || e.source === 'quake') a.play('coinPop', { pos: e.pos });
+        break;
+      case 'bagSpilled': {
+        const variant = sizeIndex(e.value, CONTENT_AUDIO.spillSizes);
+        a.play('coinSpill', { pos: charPos(e.charId), variant, volume: e.charId === me?.id ? 1 : 0.9 });
+        break;
+      }
+      case 'coinDepositStart':
+        a.play('depositStart', { pos: charPos(e.charId), tag: `dep:${e.charId}`, volume: e.team === this.localTeam ? 0.9 : 0.6 });
+        break;
+      case 'coinDepositCancel':
+        a.stop('depositStart', `dep:${e.charId}`);
+        break;
+      case 'coinsBanked': {
+        a.stop('depositStart', `dep:${e.charId}`);
+        const own = e.team === this.localTeam;
+        a.play('coinDeposit', {
+          variant: sizeIndex(e.value, CONTENT_AUDIO.depositSizes),
+          step: own ? 0 : CONTENT_AUDIO.rivalDepositStep,
+          volume: own ? 1 : 0.7,
+        });
+        break;
+      }
+      // --- props --------------------------------------------------------------------------------
+      case 'piggyCrack': {
+        const pos = sim.getLoot(e.lootId)?.pos ?? smashAt?.get(e.lootId);
+        if (e.smashed) {
+          a.play('piggyJackpot', { pos });
+        } else {
+          a.play('piggyCrack', { pos });
+          a.play('piggyOink', { pos, delay: 0.06, pitch: 1 + CONTENT_AUDIO.oinkPitchPerCrack * e.cracks });
+        }
+        break;
+      }
+      case 'propHit': {
+        // A kick that did not crack the piggy: a startled oink.
+        const l = sim.getLoot(e.lootId);
+        if (l?.variant === 'piggy' && !cracked?.has(e.lootId) && e.how === 'dash') {
+          a.play('piggyOink', { pos: l.pos, volume: 0.75, pitch: 1 + CONTENT_AUDIO.oinkPitchPerCrack * (l.cracks ?? 0) });
+        }
+        break;
+      }
+      case 'unanchored': {
+        const l = sim.getLoot(e.lootId);
+        if (l?.variant === 'moneyTree') a.play('rootRip', { pos: l.pos });
+        break;
+      }
+      // --- breakables ---------------------------------------------------------------------------
+      case 'breakableHit': {
+        const b = st.breakables.find((x) => x.id === e.id);
+        if (b && e.hp > 0 && b.kind === 'vending') a.play('vendingHit', { pos: b.center });
+        break;
+      }
+      case 'breakableBroken': {
+        const b = st.breakables.find((x) => x.id === e.id);
+        if (b) a.play(b.kind === 'vending' ? 'vendingBreak' : 'crateBreak', { pos: b.center });
+        break;
+      }
+      // --- items --------------------------------------------------------------------------------
+      case 'itemIncoming': {
+        const pos = st.items.find((i) => i.padId === e.padId)?.pos;
+        a.play('supplyIncoming', { pos, volume: 0.9 });
+        if (e.kind === 'goldHammer') a.play('goldHammerSting', { delay: 0.05 });
+        break;
+      }
+      case 'itemSpawn':
+        this.itemPos.set(e.itemId, { x: e.pos.x, y: e.pos.y });
+        a.play('supplyLand', { pos: e.pos });
+        break;
+      case 'itemPickup':
+        this.itemPos.delete(e.itemId);
+        a.play('itemPickup', { pos: charPos(e.charId), step: e.kind === 'goldHammer' ? 2 : 0, volume: e.charId === me?.id ? 1 : 0.75 });
+        break;
+      case 'itemUse': {
+        if (!isHammer(e.kind)) break;
+        const step = e.kind === 'goldHammer' ? GOLD_STEP : 0;
+        // A rival's wind-up is the dodge cue: never softer than our own.
+        const volume = e.charId !== me?.id && sim.getCharacter(e.charId)?.team === this.localTeam ? 0.8 : 1;
+        a.play(e.phase === 'windup' ? 'hammerWindup' : 'hammerSwing', { pos: charPos(e.charId), step, volume });
+        break;
+      }
+      case 'itemClash': {
+        const pa = charPos(e.aId);
+        const pb = charPos(e.bId);
+        a.play('hammerClash', { pos: pa && pb ? { x: (pa.x + pb.x) / 2, y: (pa.y + pb.y) / 2 } : pa ?? pb });
+        break;
+      }
+      case 'itemDropped':
+        this.itemPos.set(e.itemId, { x: e.pos.x, y: e.pos.y });
+        a.play('itemDrop', { pos: e.pos });
+        break;
+      case 'itemExpired': {
+        const pos = e.charId !== null ? charPos(e.charId) : e.itemId !== null ? this.itemPos.get(e.itemId) : undefined;
+        if (e.itemId !== null) this.itemPos.delete(e.itemId);
+        if (pos) a.play('itemPoof', { pos, volume: 0.7 });
+        break;
+      }
+      case 'matchStart':
+        this.reset();
+        break;
+    }
+  }
+
+  /** A pile taken by touch: 동전 tink or 지폐 snap, one degree higher per pile within 1.5 s. */
+  private pickup(e: Extract<SimEvent, { type: 'coinPickup' }>, sim: AudioSimView, me: CharacterState | undefined): void {
+    const C = CONTENT_AUDIO;
+    const prev = this.climb.get(e.charId);
+    const gap = prev ? e.tick - prev.tick : Infinity;
+    const step = prev && gap >= 0 && gap <= C.climbWindowTicks ? Math.min(C.climbMax, prev.step + 1) : 0;
+    this.climb.set(e.charId, { tick: e.tick, step });
+    this.engine.play(e.value >= 50 ? 'billPickup' : 'coinPickup', { pos: sim.getCharacter(e.charId)?.pos, step, volume: this.volumeFor(e.charId, me, sim) });
+  }
+
+  /** One "뿅!" per swing at its strongest target (+ the dizzy boing on a knockdown). */
+  private bonk(e: ItemHitEvent, sim: AudioSimView, me: CharacterState | undefined): void {
+    const a = this.engine;
+    const st = sim.state;
+    let pos: Vec2 | undefined;
+    if (e.target === 'char' && typeof e.targetId === 'number') pos = sim.getCharacter(e.targetId)?.pos;
+    else if (e.target === 'police') pos = (st.police ?? []).find((o) => o.id === e.targetId)?.pos;
+    else if (e.target === 'loot' && typeof e.targetId === 'number') pos = sim.getLoot(e.targetId)?.pos;
+    else if (e.target === 'breakable') pos = st.breakables.find((b) => b.id === e.targetId)?.center;
+    else if (e.target === 'fence') pos = st.fences.find((f) => f.id === e.targetId)?.center;
+    pos ??= sim.getCharacter(e.charId)?.pos;
+    const V = CONTENT_AUDIO.bonkVolume;
+    const volume = e.target === 'char' ? (e.knockdown ? V.knockdown : V.char) : V[e.target];
+    const step = e.kind === 'goldHammer' ? GOLD_STEP : e.homeRun ? CONTENT_AUDIO.homeRunStep : 0;
+    a.play('hammerBonk', { pos, volume, step });
+    if (e.target === 'char' && e.knockdown) {
+      a.play('knockdown', { pos, delay: 0.05, volume: 0.8 });
+      if (e.targetId === me?.id) a.duckMusic(CONTENT_AUDIO.koDuckDb, CONTENT_AUDIO.koDuckHold);
     }
   }
 }

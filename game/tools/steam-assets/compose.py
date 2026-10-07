@@ -192,21 +192,23 @@ def step_plates() -> None:
             save(out, STORE / 'plates' / lang / f'{src.stem[6:]}.png')
 
 
+# Store order -> the raw frame picked for it. The capture saves a few frames per moment
+# (_a/_b/_c: the same moment a fraction of a second apart); the pick is the one where the
+# HUD callouts sit clear of the action (reviewed by eye, see steam/store/README.md).
 SCREENSHOTS = [
-    ('01_match_start', 'shot_01_start'),
-    ('02_bank_uproot', 'shot_02_uproot'),
-    ('03_interior_steal', 'shot_03_steal'),
-    ('04_police_tackle', 'shot_04_police'),
-    ('05_fence_bust', 'shot_05_fence'),
-    ('06_final_countdown', 'shot_06_final'),
-    ('07_results_biggest_event', 'shot_07_results'),
-    ('08_rival_tournament', 'shot_08_rival'),
+    ('01_match_start', 'shot_01_start_a'),
+    ('02_bank_uproot', 'shot_02_uproot_b'),
+    ('03_interior_steal', 'shot_03_steal_c'),
+    ('04_police_tackle', 'shot_04_police_b'),
+    ('05_fence_bust', 'shot_05_fence_a'),
+    ('06_final_countdown', 'shot_06_final_b'),
+    ('07_results_biggest_event', 'shot_07_results_a'),
+    ('08_rival_tournament', 'shot_08_rival_a'),
     ('09_layout_preview', 'shot_09_preview'),
 ]
 EXTRA_SHOTS = [
     ('title', 'shot_00_title'),
-    ('police_chase', 'shot_04b_police_chase'),
-    ('final_chase', 'shot_06b_final_chase'),
+    ('final_siren_banner', 'shot_06_final_banner'),
     ('tournament_ladder', 'shot_08b_ladder'),
     ('bank_recovery', 'shot_10_recover'),
 ]
@@ -215,6 +217,10 @@ EXTRA_SHOTS = [
 def step_screens() -> None:
     print('screenshots')
     for lang in LANGS:
+        extra = STORE / 'screenshots' / lang / 'extra'
+        if extra.exists():
+            for old in extra.glob('*.png'):
+                old.unlink()
         for out_name, raw in SCREENSHOTS:
             src = RAW / lang / f'{raw}.png'
             if not src.exists():

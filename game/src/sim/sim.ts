@@ -551,9 +551,13 @@ export class Simulation {
     return isFreeCircle(this.ctx, p, radius);
   }
 
-  /** Boundary walls + layout static boxes + vans (circles: staticCircles(); fences: state.fences). */
+  /**
+   * Boundary walls + layout static boxes + vans (circles: staticCircles(); fences: state.fences).
+   * Content 2.0: unbroken breakables are included while they stand (live status:
+   * state.breakables); a broken one's shape is disabled and left out.
+   */
   staticOBBs(): OBB[] {
-    return this.ctx.physics.statics.filter((s) => s.type === 0 && s.fenceIndex < 0).map(staticToOBB);
+    return this.ctx.physics.statics.filter((s) => s.type === 0 && s.fenceIndex < 0 && s.enabled).map(staticToOBB);
   }
 
   staticCircles(): { center: Vec2; radius: number }[] {
