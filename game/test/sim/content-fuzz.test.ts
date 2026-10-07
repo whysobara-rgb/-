@@ -1,10 +1,14 @@
 /**
- * [C1] Content 2.0 invariant fuzz (content-plan §3.5, §6 C1): full matches with every system on
- * (rules defaults: items 'on', events 'on', gimmicks true), police on, 2:2, on every layout with a v2
- * composition — the real maps once C4 attaches `layout.v2`, and until then (and always) the real maps
- * and the full fixture with a test composition (their classic safes + mirrored crates / vending
- * machines). Drivers: a coin-hungry fuzz driver (scoops piles, smashes breakables, deposits, dashes
- * at rivals, random chaos) and the real bots (harness).
+ * [C1] Content 2.0 invariant fuzz (content-plan §3.5, §6 C1): full matches with the rules defaults
+ * (items 'on', events 'on', gimmicks true), police on, 2:2, on every layout with a v2 composition —
+ * the real maps' `layout.v2` (C4: props, gimmicks, breakables) where attached, else a test
+ * composition (their classic safes + mirrored crates / vending machines), plus the full fixture.
+ * While the event system is still the day-0 stub (C5 not landed: no event plan), an EventStandIn
+ * pours a 400 event out of `pendingValue` through ring / fan bursts the way C5 will, so the event
+ * value path (pending value in remainingValue, ring spawns, early decision and "모두 털림" with
+ * pending value) is covered; the real events replace it automatically once C5 lands. Each run prints
+ * which systems were live and the coin value per spawn source. Drivers: a coin-hungry fuzz driver
+ * (scoops piles, smashes breakables, deposits, dashes at rivals, random chaos) and the real bots.
  *
  * Checked every tick: conservation against state.totalValue captured at tick 0 (and the live
  * recomputation), scores only move by this tick's recoveries + deposits, bags in [0, bagCap] in 10s,
@@ -202,10 +206,12 @@ interface FuzzStats {
   tackles: number;
   maxPiles: number;
   end: string | null;
+  /** Coin value spawned per CoinSpawnSource. */
+  bySource: Record<string, number>;
 }
 
 class InvariantChecker {
-  readonly stats: FuzzStats = { ticks: 0, violations: [], spawned: 0, pickups: 0, banked: 0, spills: 0, spilledValue: 0, broken: 0, tackles: 0, maxPiles: 0, end: null };
+  readonly stats: FuzzStats = { ticks: 0, violations: [], spawned: 0, pickups: 0, banked: 0, spills: 0, spilledValue: 0, broken: 0, tackles: 0, maxPiles: 0, end: null, bySource: {} };
   private readonly total0: number;
   private prevScores: [number, number];
   private lastCoinId = 0;
@@ -241,6 +247,7 @@ class InvariantChecker {
         if (ch.team !== e.team) this.fail(`t${t}: coinsBanked team mismatch`);
       } else if (e.type === 'coinSpawn') {
         s.spawned += e.total;
+        s.bySource[e.source] = (s.bySource[e.source] ?? 0) + e.total;
         let sum = 0;
         for (const id of e.ids) {
           if (id <= this.lastCoinId) this.fail(`t${t}: coin id ${id} not ascending (last ${this.lastCoinId})`);
@@ -320,18 +327,87 @@ function checkReachable(sim: Simulation, stats: FuzzStats): void {
   }
 }
 
-function fuzzMatch(layout: LayoutDef, seed: number, rules: Partial<RuleConfig> = {}, teams: TeamId[] = [0, 0, 1, 1]): { stats: FuzzStats; log: string } {
+/**
+ * Stand-in for the C5 loot events while events.ts is the day-0 stub (events 'on' but no plan):
+ * one 400 event per match (seeded: 돈비 or 수송차) added as a MatchEventState with pendingValue
+ * before tick 0 (totalValue adjusted), poured out exactly as content-plan §5.4 describes —
+ * 돈비: 'ring' bursts (6–9 m) of five 동전 10 / one 지폐 50 around the axis spot every 0.5 s;
+ * 수송차: 'fan' bursts of 지폐 50 from a point driving along the axis. Value only moves
+ * pendingValue -> piles in the same tick. Inactive once the real event system makes a plan.
+ */
+class EventStandIn {
+  readonly active: boolean;
+  private readonly kind: 'moneyRain' | 'cashTruck';
+  private readonly start: number;
+  private burst = 0;
+
+  constructor(
+    private readonly sim: Simulation,
+    seed: number,
+  ) {
+    const st = sim.state;
+    const v2 = sim.layout.v2;
+    this.active = !!v2 && sim.rules.events === 'on' && st.eventPlan === null && st.matchEvents.length === 0;
+    const r = createRng((seed * 104729 + 7) >>> 0);
+    this.kind = r() < 0.5 ? 'moneyRain' : 'cashTruck';
+    this.start = 1800 + Math.floor(r() * 3600);
+    if (!this.active) return;
+    const spot = v2!.eventSpots[0] ?? { x: sim.layout.size.x / 2, y: sim.layout.size.y / 2 };
+    st.matchEvents.push({ kind: this.kind, phase: 'scheduled', startTick: this.start, pos: { x: spot.x, y: spot.y }, pendingValue: 400 });
+    st.totalValue += 400;
+    st.remainingValue += 400;
+  }
+
+  /** After each step (the slot of ContentSystems.postTick): pour out the pending value. */
+  tick(): void {
+    if (!this.active) return;
+    const st = this.sim.state;
+    const ev = st.matchEvents[st.matchEvents.length - 1]!;
+    if (st.over || st.tick < this.start || ev.pendingValue <= 0 || (st.tick - this.start) % 30 !== 0) return;
+    ev.phase = 'active';
+    const coins = ctxOf(this.sim).content!.coins;
+    const k = this.burst++;
+    if (this.kind === 'moneyRain') {
+      const values: (10 | 50)[] = k % 2 === 0 ? [10, 10, 10, 10, 10] : [50];
+      ev.pendingValue -= 50;
+      coins.spawnCoins({ pos: ev.pos, dir: k * 0.7, values, pattern: 'ring', source: 'rain', sourceId: null, byCharId: null, ring: { min: 6, max: 9 } });
+    } else {
+      const H = this.sim.layout.size.y;
+      const y = 2 + ((k * 3) % Math.max(4, H - 4));
+      ev.pendingValue -= 100;
+      coins.spawnCoins({ pos: { x: ev.pos.x, y }, dir: k % 2 ? 0 : Math.PI, values: [50, 50], pattern: 'fan', source: 'truck', sourceId: null, byCharId: null });
+    }
+    if (ev.pendingValue <= 0) ev.phase = 'done';
+  }
+}
+
+interface FuzzRun {
+  stats: FuzzStats;
+  log: string;
+  /** Which systems were live: props / gimmicks / breakables in the v2 composition, real event plan, stand-in. */
+  live: { props: number; gimmicks: number; breakables: number; realEvents: boolean; standIn: boolean };
+}
+
+function fuzzMatch(layout: LayoutDef, seed: number, rules: Partial<RuleConfig> = {}, teams: TeamId[] = [0, 0, 1, 1]): FuzzRun {
   const setup = { ...makeSetup(layout, teams, { content: 'v2', police: true, ...rules }), seed };
   const sim = new Simulation(setup);
+  const standIn = new EventStandIn(sim, seed);
   const driver = new CoinFuzzDriver(sim, seed);
   const check = new InvariantChecker(sim);
   const maxTicks = sim.rules.matchTicks + 60;
   for (let t = 0; t < maxTicks && !sim.state.over; t++) {
-    check.check(sim.step(driver.commands()));
+    const evs = sim.step(driver.commands());
+    standIn.tick(); // emits into this step's event array
+    check.check(evs);
     if (sim.state.tick % 600 === 0) checkReachable(sim, check.stats);
   }
   checkReachable(sim, check.stats);
-  return { stats: check.stats, log: JSON.stringify(sim.eventLog) };
+  const v2 = sim.layout.v2!;
+  return {
+    stats: check.stats,
+    log: JSON.stringify(sim.eventLog),
+    live: { props: v2.props.length, gimmicks: sim.rules.gimmicks ? v2.gimmicks.length : 0, breakables: v2.breakables.length, realEvents: sim.state.eventPlan !== null, standIn: standIn.active },
+  };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -356,8 +432,17 @@ describe('Content 2.0 invariant fuzz (v2, every system on, police on, 2:2)', () 
   for (const { name, layout } of layouts) {
     it(`${name}: ${SEEDS} full fuzz matches, 0 violations`, () => {
       const agg = { spawned: 0, pickups: 0, banked: 0, spills: 0, spilledValue: 0, broken: 0, tackles: 0, maxPiles: 0, ticks: 0, ends: {} as Record<string, number> };
+      const bySource: Record<string, number> = {};
+      let live: FuzzRun['live'] | null = null;
+      let realEvents = 0;
+      let standIns = 0;
       for (let k = 0; k < SEEDS; k++) {
-        const { stats } = fuzzMatch(layout, 1000 + k * 37);
+        const run = fuzzMatch(layout, 1000 + k * 37);
+        const { stats } = run;
+        live = run.live;
+        if (run.live.realEvents) realEvents++;
+        if (run.live.standIn) standIns++;
+        for (const [src, v] of Object.entries(stats.bySource)) bySource[src] = (bySource[src] ?? 0) + v;
         expect(stats.violations, `${name} seed ${1000 + k * 37}`).toEqual([]);
         agg.spawned += stats.spawned;
         agg.pickups += stats.pickups;
@@ -372,6 +457,10 @@ describe('Content 2.0 invariant fuzz (v2, every system on, police on, 2:2)', () 
       }
       // eslint-disable-next-line no-console
       console.log(`[content-fuzz] ${name}: ${SEEDS} matches ${agg.ticks} ticks, coins spawned ${agg.spawned} picked ${agg.pickups} banked ${agg.banked}, spills ${agg.spills} (${agg.spilledValue}), breakables broken ${agg.broken}, police tackles ${agg.tackles}, max piles ${agg.maxPiles}, ends ${JSON.stringify(agg.ends)}`);
+      // eslint-disable-next-line no-console
+      console.log(`[content-fuzz] ${name}: live props ${live!.props} gimmicks ${live!.gimmicks} breakables ${live!.breakables}, real event plans ${realEvents}/${SEEDS}, event stand-ins ${standIns}/${SEEDS}; coin value by source ${JSON.stringify(bySource)}`);
+      // event value reached the field one way or the other
+      expect((bySource.rain ?? 0) + (bySource.truck ?? 0)).toBeGreaterThan(0);
       // the driver exercises every term of the economy
       expect(agg.spawned).toBeGreaterThan(0);
       expect(agg.pickups).toBeGreaterThan(0);

@@ -14,13 +14,18 @@
  *   (`recovered = true`, `recoveredBy = null`, no `recovered` event: it scored nothing).
  * - 돈나무 (careful carry): once uprooted, every impact faster than 2.5 m/s while it moves (wall,
  *   loot, a raccoon it is swung into) sheds one 지폐 다발, debounced 0.3 s; so does a dash into it
- *   (anchored or not) and its carrier being knocked down. A hammer sheds 2.
+ *   once uprooted (an anchored tree never sheds to a dash) and its carrier being knocked down. A
+ *   hammer sheds 2 (anchored or not).
  * - 황금 금고: a plain heavy body (C5 builds it dormant with `createPropLoot`).
  *
  * Entry points for other packages (call through `ctx.content.props` in v2):
  * - `hammerHit(lootId, byCharId, dir)` — the hammer's prop effects (C2); false for non-props.
- * - `hazardHit(lootId, byCharId)` — fountain show / pile driver / quake on a prop (C4, C5).
- * - `crackPiggy(lootId, cracks, byCharId, how)` — raw crack entry point.
+ * - `hazardHit(lootId, byCharId, dir?)` — fountain show / pile driver / quake on a prop (C4, C5);
+ *   a smashing burst points along the mirror axis unless `dir` (radians) is given.
+ * - `crackPiggy(lootId, cracks, byCharId, dir?)` — raw crack entry point.
+ *
+ * Mirror symmetry (§3.3): every burst orders its 10s and 50s so a pile and its pattern partner
+ * carry equal values (`mirrorValues`), so a mirrored hit yields mirrored piles, mixed values too.
  * - free functions `addUnanchorProgress`, `flyBody`, `endFlight`, `createPropLoot`.
  *
  * Conservation: coins only MOVE out of `innerValue` (CoinSystem.spawnCoins, same statement block
@@ -207,7 +212,7 @@ interface Flight {
   exitVx: number;
   exitVy: number;
   /** Cargo of a flown bank: loot index and pose in the bank frame. */
-  cargo: { idx: number; lx: number; ly: number; la: number }[];
+  cargo: { idx: number; lx: number; ly: number; la: number; tempWeld: boolean }[];
 }
 
 /**
@@ -360,7 +365,9 @@ export class PropSystem extends ContentSystemBase {
     } else if (l.variant === 'moneyTree') {
       if (st.tick < prt.shedReadyTick) return;
       const body = this.ctx.loot[idx]!.body;
-      const dash = dashes.find((h) => h.approach > R.moneyTree.shedSpeed);
+      // a dash is a bump only once it is uprooted (an anchored tree is drained by the hammer,
+      // never by dash spam; §3.1 lists the dash bonk as the ATM's verb)
+      const dash = l.anchored ? undefined : dashes.find((h) => h.approach > R.moneyTree.shedSpeed);
       const impact = dash
         ? null
         : body.motion === 'dynamic'
@@ -471,13 +478,15 @@ export class PropSystem extends ContentSystemBase {
    * [C3 for C4 / C5] A hazard (fountain show, pile driver, quake) hit prop `lootId`: the piggy
    * takes 1 crack (`propHit` how 'hazard'). Uproot progress for anchored props stays the caller's
    * `addUnanchorProgress` (ATM spurts follow from it). Returns false when not a live prop.
+   * `dir` (radians) orients a smashing burst; the default points along the mirror axis (+y), so
+   * a hazard smash on the axis splits the jackpot evenly between the halves.
    */
-  hazardHit(lootId: EntityId, byCharId: EntityId | null = null): boolean {
+  hazardHit(lootId: EntityId, byCharId: EntityId | null = null, dir: number = AXIS_DIR): boolean {
     const idx = this.liveProp(lootId);
     if (idx < 0) return false;
     const l = this.ctx.state.loot[idx]!;
     if (l.variant !== 'piggy') return true;
-    const coins = this.crack(idx, PROP_RULES.piggy.hazardCracks, byCharId, { x: 1, y: 0 });
+    const coins = this.crack(idx, PROP_RULES.piggy.hazardCracks, byCharId, angleVec(dir));
     emit(this.ctx, { type: 'propHit', tick: this.ctx.state.tick, lootId, byCharId, how: 'hazard', coins });
     return true;
   }
@@ -485,11 +494,12 @@ export class PropSystem extends ContentSystemBase {
   /**
    * [C3] Add `cracks` to piggy `lootId` (emits `piggyCrack`; the smashing crack bursts every pile
    * and removes the shell). Returns the number of piles spawned. No-op for anything else.
+   * `dir` (radians) orients a smashing burst (default: along the mirror axis, as `hazardHit`).
    */
-  crackPiggy(lootId: EntityId, cracks: number, byCharId: EntityId | null): number {
+  crackPiggy(lootId: EntityId, cracks: number, byCharId: EntityId | null, dir: number = AXIS_DIR): number {
     const idx = this.liveProp(lootId);
     if (idx < 0 || this.ctx.state.loot[idx]!.variant !== 'piggy') return 0;
-    return this.crack(idx, cracks, byCharId, { x: 1, y: 0 });
+    return this.crack(idx, cracks, byCharId, angleVec(dir));
   }
 
   private liveProp(lootId: EntityId): number {
@@ -572,16 +582,18 @@ export class PropSystem extends ContentSystemBase {
     const inner = l.innerValue ?? 0;
     let c50 = Math.min(spec.inner.c50, Math.floor(inner / 50));
     let c10 = Math.floor((inner - c50 * 50) / 10);
-    const values: (10 | 50)[] = [];
-    while (values.length < n && c10 + c50 > 0) {
+    let t50 = 0;
+    let t10 = 0;
+    while (t50 + t10 < n && c10 + c50 > 0) {
       if ((prefer === 50 && c50 > 0) || c10 === 0) {
-        values.push(50);
+        t50++;
         c50--;
       } else {
-        values.push(10);
+        t10++;
         c10--;
       }
     }
+    const values = mirrorValues(t50, t10, pattern, prefer);
     if (values.length === 0) return 0;
     const body = this.ctx.loot[idx]!.body;
     const dl = Math.hypot(dir.x, dir.y);
@@ -624,7 +636,19 @@ export class PropSystem extends ContentSystemBase {
         if (!(ob.weldParent === body || (ob.motion === 'dynamic' && onFloor(body, ob.x, ob.y)))) continue;
         const dx = ob.x - body.x;
         const dy = ob.y - body.y;
-        cargo.push({ idx: j, lx: dx * c + dy * s, ly: -dx * s + dy * c, la: ob.a - body.a });
+        const lx = dx * c + dy * s;
+        const ly = -dx * s + dy * c;
+        // a free safe LOADED on the floor rides welded for the flight (bodies are disabled, so the
+        // weld only tells updateLoading it stays loaded: no unload / load events, the bank keeps
+        // its estimate); the weld comes off on landing
+        const tempWeld = ob.weldParent !== body && o.loadedIn === l.id;
+        if (tempWeld) {
+          ob.weldParent = body;
+          ob.weldLx = lx;
+          ob.weldLy = ly;
+          ob.weldLa = ob.a - body.a;
+        }
+        cargo.push({ idx: j, lx, ly, la: ob.a - body.a, tempWeld });
       }
     }
     this.flights.set(idx, {
@@ -648,8 +672,8 @@ export class PropSystem extends ContentSystemBase {
     l.airborne = air;
     if (l.dormant) l.dormant = false;
     l.recovery = null;
-    l.floorOf = null;
-    l.loadedIn = null;
+    // floorOf / loadedIn are left to updateLoading, which emits the safeUnloaded of a safe flown
+    // off a bank on its own and keeps a flown bank's cargo loaded (welded) all flight
     if (body.weldParent && !this.isCargo(idx)) {
       // an anchored interior safe flown on its own leaves its weld (lands anchored where it lands)
       body.weldParent = null;
@@ -725,6 +749,7 @@ export class PropSystem extends ContentSystemBase {
       const crt = ctx.loot[cg.idx]!;
       const ob = crt.body;
       o.airborne = null;
+      if (cg.tempWeld) ob.weldParent = null;
       ob.enabled = true;
       ob.vx = 0;
       ob.vy = 0;
@@ -768,6 +793,61 @@ function settleRt(rt: SimContext['loot'][number]): void {
   rt.lastY = rt.body.y;
   rt.lastA = rt.body.a;
   rt.stuckTicks = 0;
+}
+
+/** Burst direction along the map's mirror axis (x = W/2 maps onto itself): +y. */
+const AXIS_DIR = Math.PI / 2;
+
+/** Unit vector of `a`, exact on the axes (cos(π/2) is not 0 in floating point). */
+function angleVec(a: number): Vec2 {
+  if (a === AXIS_DIR) return { x: 0, y: 1 };
+  if (a === -AXIS_DIR) return { x: 0, y: -1 };
+  return { x: Math.cos(a), y: Math.sin(a) };
+}
+
+/**
+ * Order `n50` 50s and `n10` 10s so the burst is mirror-symmetric about its direction (§3.3: a
+ * mirrored hit yields mirrored piles). C1's tables pair pile i with n − i ('radial'; 0 and n/2
+ * lie on the axis) or n − 1 − i ('fan'; the middle pile lies on the axis), so partners must carry
+ * equal values. The 50s take the on-axis slots first, then pairs spread evenly round the burst.
+ * When no symmetric order exists (an even 'fan' with an odd count of each) the last pile of the
+ * non-preferred value stays inside.
+ */
+export function mirrorValues(n50: number, n10: number, pattern: 'fan' | 'radial', prefer: 10 | 50): (10 | 50)[] {
+  let n = n50 + n10;
+  if (n === 0) return [];
+  if (pattern === 'fan' && n % 2 === 0 && n50 % 2 === 1) {
+    if (prefer === 50) n10--;
+    else n50--;
+    n--;
+  }
+  const out = new Array<10 | 50>(n).fill(10);
+  const selfs: number[] = [];
+  const pairs: [number, number][] = [];
+  if (pattern === 'radial') {
+    selfs.push(0);
+    if (n % 2 === 0 && n > 1) selfs.push(n / 2);
+    for (let i = 1; i * 2 < n; i++) pairs.push([i, n - i]);
+  } else {
+    if (n % 2 === 1) selfs.push((n - 1) / 2);
+    for (let i = 0; i * 2 < n - 1; i++) pairs.push([i, n - 1 - i]);
+  }
+  let r50 = n50;
+  let r10 = n10;
+  for (const k of selfs) {
+    // fix the parity of the 50s first (then of the 10s); both even: prefer a bill on the axis
+    const v: 10 | 50 = r50 % 2 === 1 ? 50 : r10 % 2 === 1 ? 10 : r50 > 0 ? 50 : 10;
+    out[k] = v;
+    if (v === 50) r50--;
+    else r10--;
+  }
+  const p50 = r50 / 2;
+  for (let j = 0; j < p50; j++) {
+    const [a, b] = pairs[Math.floor(((j + 0.5) * pairs.length) / p50)]!;
+    out[a] = 50;
+    out[b] = 50;
+  }
+  return out;
 }
 
 const otherKey = (p: PendingImpact): number => (p.other ? p.other.entityId : 0);

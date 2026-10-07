@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { PROP_RULES, PROP_SPECS } from '../../src/sim/config';
 import { knockDown } from '../../src/sim/actions';
 import type { SimContext } from '../../src/sim/context';
-import { addUnanchorProgress } from '../../src/sim/props';
+import { addUnanchorProgress, mirrorValues } from '../../src/sim/props';
 import { computeRemainingValue } from '../../src/sim/rules';
 import { Simulation } from '../../src/sim/sim';
 import type { Command, LayoutDef, PropPlacementDef, RuleConfig, SimEvent, StaticBoxDef, TeamId, Vec2 } from '../../src/sim/types';
@@ -272,10 +272,23 @@ describe('돈나무', () => {
     expect(tree.innerValue).toBe(100);
   });
 
-  it('a raccoon walking into a resting tree sheds nothing; a dash into it sheds one (even anchored)', () => {
+  it('a raccoon walking into a resting tree sheds nothing; dashes never drain an anchored tree', () => {
     const sim = treeSim();
     sim.debug.teleport(1, { x: 47, y: 30 }, 0);
     expect(ofType(play(sim, 60, () => at(0, cmd(1, 0))), 'propHit')).toEqual([]);
+    // dash farming the anchored tree (one dash per dash cooldown, both teams): nothing sheds
+    for (let k = 0; k < 4; k++) {
+      sim.debug.teleport(1 + (k % 2), { x: k % 2 ? 52 : 48, y: 30 }, k % 2 ? Math.PI : 0);
+      const evs = play(sim, 70, (t) => at(k % 2, t === 0 ? dash(k % 2 ? -1 : 1) : cmd()));
+      expect(ofType(evs, 'propHit')).toEqual([]);
+    }
+    expect(sim.state.loot[0]!.innerValue).toBe(200);
+    expect(sim.state.loot[0]!.anchored).toBe(true);
+  });
+
+  it('a dash into an uprooted tree is a bump: sheds one', () => {
+    const sim = treeSim();
+    sim.debug.setAnchored(sim.state.loot[0]!.id, false);
     sim.debug.teleport(1, { x: 48, y: 30 }, 0);
     const evs = play(sim, 60, (t) => at(0, t === 0 ? dash(1) : cmd()));
     expect(ofType(evs, 'propHit')).toMatchObject([{ how: 'dash', byCharId: 1, coins: 1 }]);
@@ -382,6 +395,68 @@ describe('determinism and mirror symmetry', () => {
       expect(b.piles[i]!.y).toBeCloseTo(a.piles[i]!.y, 6);
     }
     expect(JSON.stringify(scene(false))).toBe(JSON.stringify(a));
+  });
+
+  /** Piggy on the mirror axis (x = 50), smashed by `smash`; coin piles once they come to rest. */
+  function piggySmash(smash: (ctx: SimContext, id: number) => void): { piles: { x: number; y: number; v: number }[]; west: number; east: number } {
+    const sim = propSim([{ variant: 'piggy', pos: { x: 50, y: 30 }, angle: Math.PI / 2 }]);
+    smash(ctxOf(sim), sim.state.loot[0]!.id);
+    play(sim, 180, () => idle(2));
+    const piles = sim.state.coins.map((c) => ({ x: c.pos.x - 50, y: c.pos.y - 30, v: c.value }));
+    let west = 0;
+    let east = 0;
+    for (const p of piles) {
+      if (p.x < -1e-6) west += p.v;
+      else if (p.x > 1e-6) east += p.v;
+    }
+    expect(piles.reduce((a, p) => a + p.v, 0)).toBe(300);
+    return { piles, west, east };
+  }
+
+  it('the piggy jackpot (mixed 10s and 50s) is mirror-symmetric: hazard smash splits evenly, mirrored hammers mirror', () => {
+    const hz = piggySmash((ctx, id) => {
+      for (let k = 0; k < 3; k++) ctx.content!.props.hazardHit(id, null);
+    });
+    expect(hz.west).toBe(hz.east);
+    // each bill has a mirrored bill
+    const bills = hz.piles.filter((p) => p.v === 50);
+    expect(bills.length).toBe(4);
+    for (const b of bills) expect(bills.some((q) => Math.abs(q.x + b.x) < 1e-6 && Math.abs(q.y - b.y) < 1e-6)).toBe(true);
+    // team 0 aims θ, team 1 aims π − θ (after a crack each): mirrored piles, values included
+    for (const th of [0.3, 1.1, -2.0]) {
+      const a = piggySmash((ctx, id) => {
+        ctx.content!.props.crackPiggy(id, 1, 1);
+        ctx.content!.props.hammerHit(id, 1, th);
+      });
+      const b = piggySmash((ctx, id) => {
+        ctx.content!.props.crackPiggy(id, 1, 2);
+        ctx.content!.props.hammerHit(id, 2, Math.PI - th);
+      });
+      expect([b.west, b.east]).toEqual([a.east, a.west]);
+      const key = (p: { x: number; y: number; v: number }): string => `${p.v}@${p.x.toFixed(5)},${p.y.toFixed(5)}`;
+      const am = a.piles.map((p) => key({ x: -p.x, y: p.y, v: p.v })).sort();
+      expect(b.piles.map(key).sort()).toEqual(am);
+    }
+  });
+
+  it('mirrorValues: pattern partners always carry equal values', () => {
+    for (const pattern of ['fan', 'radial'] as const) {
+      for (let n50 = 0; n50 <= 6; n50++) {
+        for (let n10 = 0; n10 <= 12; n10++) {
+          for (const prefer of [10, 50] as const) {
+            const v = mirrorValues(n50, n10, pattern, prefer);
+            const n = v.length;
+            const c50 = v.filter((x) => x === 50).length;
+            // nothing invented; at most one pile held back (an even fan with odd counts)
+            expect(c50).toBeLessThanOrEqual(n50);
+            expect(n - c50).toBeLessThanOrEqual(n10);
+            expect(n50 + n10 - n).toBe(pattern === 'fan' && (n50 + n10) % 2 === 0 && n50 % 2 === 1 ? 1 : 0);
+            for (let i = 0; i < n; i++) expect(v[i]).toBe(v[pattern === 'fan' ? n - 1 - i : (n - i) % n]);
+          }
+        }
+      }
+    }
+    expect(mirrorValues(4, 10, 'radial', 50)).toEqual([50, 10, 10, 10, 50, 10, 10, 50, 10, 10, 50, 10, 10, 10]);
   });
 
   it('PROP_RULES stay within the plan (ATM 4 spurt coins + bonk 2 + hammer 3 <= 10 inside)', () => {

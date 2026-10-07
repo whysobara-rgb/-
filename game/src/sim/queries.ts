@@ -416,6 +416,14 @@ export function heldValue(state: Readonly<Pick<SimState, 'characters' | 'loot'>>
   return v;
 }
 
+/**
+ * [C1] Police "carrying" test: holding loot, or a coin bag of at least COINS.policeBagMin.
+ * Empty hands and an empty bag are never chased or tackled.
+ */
+export function policeCarrying(ch: Readonly<Pick<CharacterState, 'grab' | 'bag'>>): boolean {
+  return !!ch.grab || (ch.bag ?? 0) >= COINS.policeBagMin;
+}
+
 /** True if the loot can be grabbed / carried / recovered right now: not recovered, not dormant, not airborne. */
 export function isCarryable(l: Readonly<LootState>): boolean {
   return !l.recovered && !l.dormant && !l.airborne;

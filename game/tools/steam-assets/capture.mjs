@@ -225,9 +225,10 @@ job('uproot', {
   query: () => ({ flow: 'quick', skipIntro: '1', layout: 'plaza', mode: '2v2', rival: 'hodadak' }),
   async run(c) {
     await liveMatch(c.page, 90, 12);
-    // The south bank: the camera then holds it mid-screen, so the world-anchored "은행째!" stamp
-    // above it stays clear of the top HUD row (on the north bank it slams in under the pills).
-    await stage(c.page, '__dir.scenarios.uproot({ bank: 1 })');
+    // The south bank, pulled from its north wall: the bank then sits below the gang on screen and
+    // the world-anchored "은행째!" stamp above it lands mid-screen, clear of the top HUD row (on
+    // the north bank it slams in under the pills).
+    await stage(c.page, "__dir.scenarios.uproot({ bank: 1, side: 'north' })");
     await S.pumpUntil(c.page, `__dir.loot(__dir.banks()[1].id).unanchorProgress >= 0.86`, 900);
     await c.save('plate_uproot_strain', false);
     await S.pumpUntil(c.page, `__dir.hasEvent('unanchored')`, 900);

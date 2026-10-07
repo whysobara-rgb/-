@@ -6,10 +6,10 @@
 import { describe, expect, it } from 'vitest';
 import { BREAKABLE_SPECS, CHARACTER, COINS, POLICE } from '../../src/sim/config';
 import { knockDown } from '../../src/sim/actions';
-import { damageBreakable } from '../../src/sim/breakables';
+import { damageBreakable, damageBreakableShared } from '../../src/sim/breakables';
 import { coinDir } from '../../src/sim/coins';
 import type { SimContext } from '../../src/sim/context';
-import { heldValue } from '../../src/sim/queries';
+import { heldValue, policeCarrying } from '../../src/sim/queries';
 import { computeRemainingValue } from '../../src/sim/rules';
 import { Simulation } from '../../src/sim/sim';
 import type { BreakableDef, Command, LayoutDef, RuleConfig, SimEvent, TeamId, Vec2 } from '../../src/sim/types';
@@ -164,12 +164,56 @@ describe('coin piles and spawning', () => {
       expect(r.pos.y).toBe(l.pos.y);
       expect([l.noPickupCharId, r.noPickupCharId]).toEqual([1, 2]);
     }
-    for (let t = 0; t < 120; t++) sim.step(idle(4));
-    for (let i = 0; i < left.length; i++) {
-      const l = left[i]!;
-      const r = right[left.length - 1 - i]!;
-      expect(Math.abs(r.pos.x - (100 - l.pos.x))).toBeLessThan(1e-9);
-      expect(Math.abs(r.pos.y - l.pos.y)).toBeLessThan(1e-9);
+    // the whole path stays a bit-exact mirror (grid positions, odd-symmetric steps), not just the
+    // spawn, until the victims take their piles back (lock over) - also mirrored
+    const live = (id: number) => sim.state.coins.find((p) => p.id === id) ?? null;
+    let checked = 0;
+    for (let t = 0; t < 120; t++) {
+      sim.step(idle(4));
+      for (let i = 0; i < left.length; i++) {
+        const l = live(left[i]!.id);
+        const r = live(right[left.length - 1 - i]!.id);
+        expect(r === null).toBe(l === null);
+        if (!l || !r) continue;
+        checked++;
+        expect(r.pos.x).toBe(100 - l.pos.x);
+        expect(r.pos.y).toBe(l.pos.y);
+        expect(r.vel.x).toBe(-l.vel.x);
+        expect(r.vel.y).toBe(l.vel.y);
+      }
+    }
+    expect(checked).toBeGreaterThan(6 * 50);
+    expect(sim.getCharacter(2)!.bag).toBe(sim.getCharacter(1)!.bag);
+    expect(conserved(sim)).toBe(true);
+  });
+
+  it('mirrored buried piles are un-buried to mirrored spots; walls stop mirrored piles mirrored', () => {
+    const layout = coinLayout({ safes: [{ kind: 'largeSafe', pos: { x: 50, y: 5 }, angle: 0 }] });
+    layout.statics = [
+      { id: 'wl', kind: 'wall', center: { x: 30, y: 30 }, half: { x: 1, y: 1 }, angle: 0, height: 2 },
+      { id: 'wr', kind: 'wall', center: { x: 70, y: 30 }, half: { x: 1, y: 1 }, angle: 0, height: 2 },
+    ];
+    layout.v2!.safes = layout.safes;
+    const sim = coinSim(layout);
+    const ctx = ctxOf(sim);
+    sim.getLoot(sim.state.loot[0]!.id)!.baseValue -= 80;
+    const coins = ctx.content!.coins;
+    // buried dead centre of each wall (every direction is equally near: the search must still mirror)
+    const [a] = coins.spawnCoins({ pos: { x: 30, y: 30 }, dir: 0, values: [10], pattern: 'ring', source: 'rain', sourceId: null, byCharId: null });
+    const [b] = coins.spawnCoins({ pos: { x: 70, y: 30 }, dir: Math.PI, values: [10], pattern: 'ring', source: 'rain', sourceId: null, byCharId: null });
+    // fans thrown into the walls from mirrored spots
+    const fl = coins.spawnCoins({ pos: { x: 27.3, y: 30.4 }, dir: 0.2, values: [10, 10, 10], pattern: 'fan', source: 'spurt', sourceId: null, byCharId: null });
+    const fr = coins.spawnCoins({ pos: { x: 100 - 27.3, y: 30.4 }, dir: Math.PI - 0.2, values: [10, 10, 10], pattern: 'fan', source: 'spurt', sourceId: null, byCharId: null });
+    const at = (id: number) => sim.state.coins.find((p) => p.id === id)!;
+    expect(at(b).pos.x).toBe(100 - at(a).pos.x);
+    expect(at(b).pos.y).toBe(at(a).pos.y);
+    expect(Math.abs(at(a).pos.x - 30) >= 1 + COINS.radius - 1e-9 || Math.abs(at(a).pos.y - 30) >= 1 + COINS.radius - 1e-9).toBe(true);
+    for (let t = 0; t < 180; t++) {
+      sim.step(idle(2));
+      for (let i = 0; i < 3; i++) {
+        expect(at(fr[2 - i]!).pos.x).toBe(100 - at(fl[i]!).pos.x);
+        expect(at(fr[2 - i]!).pos.y).toBe(at(fl[i]!).pos.y);
+      }
     }
     expect(conserved(sim)).toBe(true);
   });
@@ -402,6 +446,104 @@ describe('breakables', () => {
     expect(sim.state.breakables[0]!.broken).toBe(true);
   });
 
+  /** Vending machine at x = 50 (the mirror axis); slot 0 and 1 dash into it from exactly mirrored spots. */
+  function mirroredDashers(teams: TeamId[], kind: 'vending' | 'crate'): { sim: Simulation; dash: () => SimEvent[] } {
+    const sim = coinSim(coinLayout({ breakables: [kind === 'vending' ? vending('v', 50, 30) : crate('v', 50, 30)] }), teams);
+    const dash = (): SimEvent[] => {
+      sim.debug.teleport(1, { x: 48.2, y: 30 }, 0);
+      sim.debug.teleport(2, { x: 51.8, y: 30 }, Math.PI);
+      const evs: SimEvent[] = [];
+      for (let t = 0; t < 260; t++) evs.push(...sim.step([cmd(0, 0, false, t === 250), cmd(0, 0, false, t === 250)]));
+      return evs;
+    };
+    return { sim, dash };
+  }
+
+  it('two dashes on one machine in the same substep: summed damage, a face coin each, mirrored (slot order never decides)', () => {
+    const outcome = (teams: TeamId[]) => {
+      const { sim, dash } = mirroredDashers(teams, 'vending');
+      const evs = dash();
+      expect(ofType(evs, 'breakableHit').map((e) => [e.hp, e.byCharId])).toEqual([
+        [1, 1],
+        [1, 2],
+      ]);
+      const spawns = ofType(evs, 'coinSpawn');
+      expect(spawns.map((e) => [e.total, e.byCharId])).toEqual([
+        [10, 1],
+        [10, 2],
+      ]);
+      expect(sim.state.breakables[0]).toMatchObject({ hp: 1, innerValue: 40, broken: false });
+      const p1 = sim.state.coins.find((p) => p.id === spawns[0]!.ids[0]) ?? null;
+      const p2 = sim.state.coins.find((p) => p.id === spawns[1]!.ids[0]) ?? null;
+      // each hitter's coin popped out of its own face (or already picked up by that hitter)
+      const bag1 = sim.getCharacter(1)!.bag ?? 0;
+      const bag2 = sim.getCharacter(2)!.bag ?? 0;
+      expect(bag1).toBe(bag2);
+      if (p1 && p2) {
+        expect(p2.pos.x).toBe(100 - p1.pos.x);
+        expect(p2.pos.y).toBe(p1.pos.y);
+        expect(p1.pos.x).toBeLessThan(50);
+      } else expect([p1, p2]).toEqual([null, null]);
+      expect(conserved(sim)).toBe(true);
+      // second round: 2 damage on 1 hp -> one shared radial burst of the remaining 40, credited to nobody
+      sim.state.coins.length = 0; // (bookkeeping only: take the face coins out of play value-neutrally)
+      sim.getCharacter(1)!.bag = 0;
+      sim.getCharacter(2)!.bag = 0;
+      sim.state.totalValue = 40;
+      const evs2 = dash();
+      expect(ofType(evs2, 'breakableHit').map((e) => [e.hp, e.byCharId])).toEqual([
+        [0, 1],
+        [0, 2],
+      ]);
+      expect(ofType(evs2, 'breakableBroken').map((e) => e.byCharId)).toEqual([null]);
+      const burst = ofType(evs2, 'coinSpawn');
+      expect(burst.map((e) => [e.total, e.ids.length, e.byCharId, e.source])).toEqual([[40, 4, null, 'break']]);
+      const pts = (xs: { x: number; y: number }[]) => xs.map((q) => `${q.x},${q.y}`).sort();
+      const born = burst[0]!.ids;
+      const live = sim.state.coins.filter((p) => born.includes(p.id)).map((p) => p.pos);
+      expect(pts(live.map((q) => ({ x: 100 - q.x, y: q.y })))).toEqual(pts(live));
+      expect(sim.getCharacter(1)!.bag).toBe(sim.getCharacter(2)!.bag);
+      return { bag: sim.getCharacter(1)!.bag, live: pts(live) };
+    };
+    // the same hits with the teams swapped between the slots give the same (mirrored) result
+    expect(outcome([0, 1])).toEqual(outcome([1, 0]));
+  });
+
+  it('two dashes break a crate together: one radial burst, symmetric about the axis, no credit', () => {
+    const { sim, dash } = mirroredDashers([0, 1], 'crate');
+    const evs = dash();
+    expect(ofType(evs, 'breakableBroken').map((e) => e.byCharId)).toEqual([null]);
+    const burst = ofType(evs, 'coinSpawn');
+    expect(burst.map((e) => [e.total, e.byCharId])).toEqual([[20, null]]);
+    expect(sim.getCharacter(1)!.bag).toBe(sim.getCharacter(2)!.bag);
+    expect(conserved(sim)).toBe(true);
+  });
+
+  it('damageBreakableShared: inside coins split evenly when they cannot cover every hitter (rest stays inside)', () => {
+    const sim = coinSim(coinLayout({ breakables: [vending('v1', 53, 30)] }));
+    const ctx = ctxOf(sim);
+    const b = sim.state.breakables[0]!;
+    // 3 hp, but only 1 coin left inside (value moved out of play value-neutrally)
+    b.innerValue = 10;
+    sim.state.totalValue = 10;
+    ctx.events = [];
+    damageBreakableShared(ctx, 'v1', [
+      { damage: 1, byCharId: 2, dir: Math.PI },
+      { damage: 1, byCharId: 1, dir: 0 },
+    ]);
+    expect(ofType(ctx.events, 'breakableHit').map((e) => [e.hp, e.byCharId])).toEqual([
+      [1, 1],
+      [1, 2],
+    ]);
+    expect(ofType(ctx.events, 'coinSpawn')).toEqual([]);
+    expect(b).toMatchObject({ hp: 1, innerValue: 10 });
+    damageBreakableShared(ctx, 'v1', [{ damage: 1, byCharId: 1, dir: 0 }]);
+    expect(ofType(ctx.events, 'breakableBroken').map((e) => e.byCharId)).toEqual([1]);
+    expect(b).toMatchObject({ hp: 0, innerValue: 0, broken: true });
+    sim.step(idle(2));
+    expect(conserved(sim)).toBe(true);
+  });
+
   it('damageBreakable: hammer damage 3 breaks a vending machine at once; broken / unknown ids are no-ops', () => {
     const sim = coinSim(coinLayout({ breakables: [vending('v1', 53, 30), crate('c1', 40, 40)] }));
     const ctx = ctxOf(sim);
@@ -496,6 +638,14 @@ describe('scoring with coins', () => {
 });
 
 describe('police and bags (one-line hooks)', () => {
+  it('policeCarrying: held loot or a bag of at least COINS.policeBagMin (any non-empty bag by default)', () => {
+    expect(COINS.policeBagMin).toBe(10);
+    expect(policeCarrying({ grab: null, bag: 0 })).toBe(false);
+    expect(policeCarrying({ grab: null })).toBe(false);
+    expect(policeCarrying({ grab: null, bag: 10 })).toBe(true);
+    expect(policeCarrying({ grab: { targetId: 3 } as never, bag: 0 })).toBe(true);
+  });
+
   const BANK = { x: 50, y: 40 };
   function policeCoinSim(): Simulation {
     const layout = coinLayout({

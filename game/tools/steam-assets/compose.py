@@ -197,7 +197,7 @@ def step_plates() -> None:
 # HUD callouts sit clear of the action (reviewed by eye, see steam/store/README.md).
 SCREENSHOTS = [
     ('01_match_start', 'shot_01_start_a'),
-    ('02_bank_uproot', 'shot_02_uproot_b'),
+    ('02_bank_uproot', 'shot_02_uproot_a'),
     ('03_interior_steal', 'shot_03_steal_c'),
     ('04_police_tackle', 'shot_04_police_b'),
     ('05_fence_bust', 'shot_05_fence_a'),

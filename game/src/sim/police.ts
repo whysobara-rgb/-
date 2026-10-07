@@ -41,7 +41,7 @@ import { floorAt, knockDown } from './actions';
 import { CAT_POLICE, type Body } from './physics';
 import { PoliceNav } from './policeNav';
 import { isFreeCircle, lineOfSight } from './queries';
-import { heldValue } from './queries';
+import { heldValue, policeCarrying } from './queries';
 import type { EntityId, LayoutDef, PoliceCarState, PoliceEntryDef, PoliceOfficerState, PolicePhase, Vec2 } from './types';
 
 /** Officer entity ids are POLICE_ID_BASE + 1, + 2, ... (never collide with characters / loot). */
@@ -372,7 +372,7 @@ export class PoliceSystem {
       const tb = ctx.chars[slot]!.body;
       const mem = o.memory.get(tch.id);
       const visible = !!mem && tick - mem.tick <= PERCEPTION_PERIOD;
-      if (!mem || (!tch.grab && !tch.bag)) {
+      if (!mem || !policeCarrying(tch)) {
         this.loseTarget(o);
       } else {
         const gx = visible ? tb.x : mem.x;
@@ -433,7 +433,7 @@ export class PoliceSystem {
     const out = new Map<EntityId, { value: number; d: number }>();
     for (let i = 0; i < st.characters.length; i++) {
       const ch = st.characters[i]!;
-      if ((!ch.grab && !ch.bag) || ch.knockdownTicks > 0) {
+      if (!policeCarrying(ch) || ch.knockdownTicks > 0) {
         o.memory.delete(ch.id);
         continue;
       }
@@ -545,7 +545,7 @@ export class PoliceSystem {
   private tryLunge(o: OfficerRt, slot: number): boolean {
     const ctx = this.ctx;
     const tch = ctx.state.characters[slot]!;
-    if ((!tch.grab && !tch.bag) || tch.protectTicks > 0 || tch.knockdownTicks > 0) return false;
+    if (!policeCarrying(tch) || tch.protectTicks > 0 || tch.knockdownTicks > 0) return false;
     const b = o.body;
     const tb = ctx.chars[slot]!.body;
     const dx = tb.x - b.x;
@@ -864,7 +864,7 @@ export class PoliceSystem {
       let bny = 0;
       for (let j = 0; j < st.characters.length; j++) {
         const v = st.characters[j]!;
-        if ((!v.grab && !v.bag) || v.protectTicks > 0 || v.knockdownTicks > 0) continue;
+        if (!policeCarrying(v) || v.protectTicks > 0 || v.knockdownTicks > 0) continue;
         const vb = ctx.chars[j]!.body;
         const dx = vb.x - ob.x;
         const dy = vb.y - ob.y;

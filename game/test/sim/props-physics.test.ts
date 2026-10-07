@@ -152,6 +152,76 @@ describe('kinematic floors (setKinematicPose)', () => {
     expect(turnDrift(3, 2, 'char', 4)).toBeLessThan(0.02);
   });
 
+  it('a match of teacup steps (40 x 90°, 4.5 m cup): loot and raccoons stay put on the floor (< 2 cm, no outward creep)', () => {
+    for (const rider of ['char', 'safe'] as const) {
+      for (const sub of [2, 3]) {
+        const w = world();
+        const floor = w.createBody(5001, 0);
+        floor.addCircle(0, 0, 0.1);
+        floor.setMass(1000, 1000);
+        floor.motion = 'kinematic';
+        floor.x = 50;
+        floor.y = 30;
+        const r = 4;
+        const b = rider === 'char' ? character(w, 1, 50 + r, 30) : safeBody(w, 10, 50 + r, 30, 0.55, 0.45, 90);
+        b.floor = floor;
+        const MOVE = 90;
+        const PER = 270;
+        const STEPS = 40;
+        const ang = (t: number): [number, number] => {
+          const k = Math.floor(t / PER);
+          const ph = t - k * PER;
+          if (k >= STEPS) return [(STEPS * Math.PI) / 2, 0];
+          if (ph >= MOVE) return [((k + 1) * Math.PI) / 2, 0];
+          const u = ph / MOVE;
+          return [((k + 3 * u * u - 2 * u * u * u) * Math.PI) / 2, (((6 * u - 6 * u * u) / (MOVE * DT)) * Math.PI) / 2];
+        };
+        let tick = 0;
+        for (; tick < PER * STEPS + 10; tick++) {
+          w.step(DT, sub, {
+            beforeSubstep: (s2, n) => {
+              const [a, wv] = ang(tick + s2 / n);
+              setKinematicPose(floor, 50, 30, a, 0, 0, wv);
+            },
+          });
+        }
+        const [a] = ang(tick);
+        expect(Math.hypot(b.x - (50 + r * Math.cos(a)), b.y - (30 + r * Math.sin(a)))).toBeLessThan(0.02);
+        expect(Math.abs(Math.hypot(b.x - 50, b.y - 30) - r)).toBeLessThan(0.005);
+      }
+    }
+  });
+
+  it('a truck whose first pose is already moving carries its rider from the start (start and stop alike)', () => {
+    for (const sub of [2, 5]) {
+      const w = world();
+      const truck = w.createBody(5003, 0);
+      truck.addBox(0, 2, 3, 0.2);
+      truck.addBox(0, -2, 3, 0.2);
+      truck.setMass(1000, 1000);
+      truck.motion = 'kinematic';
+      truck.x = 20;
+      truck.y = 30;
+      const b = character(w, 1, 21, 30.5);
+      b.floor = truck;
+      // 6 m/s from the first pose for 2 s, then parked
+      const pose = (t: number): [number, number] => (t < 120 ? [20 + 6 * t * DT, 6] : [20 + 6 * 120 * DT, 0]);
+      let tick = 0;
+      let worst = 0;
+      for (; tick < 200; tick++) {
+        w.step(DT, sub, {
+          beforeSubstep: (s2, n) => {
+            const [x, v] = pose(tick + s2 / n);
+            setKinematicPose(truck, x, 30, 0, v, 0, 0);
+          },
+        });
+        worst = Math.max(worst, Math.hypot(b.x - truck.x - 1, b.y - 30.5));
+      }
+      expect(worst).toBeLessThan(0.02);
+      expect(Math.abs(b.vx)).toBeLessThan(1e-6);
+    }
+  });
+
   it('pushes dynamic bodies like a moving wall', () => {
     const w = world();
     const car = w.createBody(5002, 0);

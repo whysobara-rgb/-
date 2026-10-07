@@ -13,7 +13,8 @@
  *   safes and characters pass over them; they do not ride bank floors. Gimmicks (C4) move them by
  *   changing `CoinPile.vel` (belts, fountain, rinks); the integration below applies it next tick.
  *   A pile found inside a static (spawned there, or a static appeared on it) is moved to the
- *   nearest free spot (spiralSearch). Piles never despawn.
+ *   nearest free spot (unburySpot, mirror-equivariant). Piles never despawn. Positions live on a 2^-20 m grid and
+ *   move by whole grid units (see GRID), so mirrored piles stay bit-exact mirrors along their paths.
  * - Spawn patterns are fixed tables relative to (pos, dir): 'fan' ±COINS.fanHalfAngle, 'radial'
  *   evenly around, 'ring' landing ring. Directions come from a quantised unit-vector table that is
  *   mirror-exact (angle a and π − a give (−c, s) and (c, s) bit for bit) and the fan offsets /
@@ -32,10 +33,10 @@
  */
 import { BREAKABLE_DAMAGE, CHARACTER, COINS, DASH, DT } from './config';
 import { emit, type SimContext } from './context';
-import { damageBreakable } from './breakables';
+import { damageBreakableShared, type BreakableHit } from './breakables';
 import { circleOverlapsOBB } from './math';
 import { SHAPE_CIRCLE } from './physics';
-import { canPickUp, spiralSearch, staticToOBB } from './queries';
+import { canPickUp, staticToOBB } from './queries';
 import { ContentSystemBase } from './systemBase';
 import type { CoinPile, CoinSpawnSource, EntityId, SpillCause, TeamId, Vec2 } from './types';
 import { nextEntityId } from './world';
@@ -104,6 +105,29 @@ function dirIndex(angle: number): number {
 export function coinDir(angle: number): Vec2 {
   const i = dirIndex(angle);
   return { x: DIR_COS[i]!, y: DIR_SIN[i]! };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Mirror-exact positions: piles live on a dyadic grid
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Pile positions are kept on a 2^-20 m grid (≈ 1 µm) and every step moves them by a whole number
+ * of grid units. On that grid W − x and x ± d are exact in float64 (arena sizes are whole metres),
+ * and the rounding below is odd-symmetric, so a pile mirrored about x = W/2 (or y = H/2) with a
+ * negated velocity stays its bit-exact mirror image forever (not just at spawn).
+ */
+const GRID = 1048576; // 2^20 units per metre
+
+/** Round half to even (odd-symmetric, and symmetric about any even integer). */
+function roundEven(t: number): number {
+  const r = Math.round(t);
+  return r - t === 0.5 && r % 2 !== 0 ? r - 1 : r;
+}
+
+/** Snap a coordinate to the pile grid. */
+function snap(x: number): number {
+  return roundEven(x * GRID) / GRID;
 }
 
 /** Pile launch velocity factor per tick of drag. */
@@ -179,10 +203,10 @@ export class CoinSystem extends ContentSystemBase {
       if (req.pattern === 'ring') {
         const fr = COINS.ringFracs;
         const r = req.ring ? req.ring.min + (req.ring.max - req.ring.min) * fr[Math.min(i, n - i) % fr.length]! : 0;
-        pos = { x: req.pos.x + dx * r, y: req.pos.y + dy * r };
+        pos = { x: snap(req.pos.x + dx * r), y: snap(req.pos.y + dy * r) };
         vel = { x: 0, y: 0 };
       } else {
-        pos = { x: req.pos.x, y: req.pos.y };
+        pos = { x: snap(req.pos.x), y: snap(req.pos.y) };
         vel = { x: dx * speed, y: dy * speed };
       }
       const pile: CoinPile = {
@@ -255,7 +279,8 @@ export class CoinSystem extends ContentSystemBase {
   /**
    * After every substep (after character dash hits): a dash that reaches an unbroken breakable
    * inside the dash cone (DASH.hitConeHalfAngle) ends on it and deals BREAKABLE_DAMAGE.dash.
-   * Hits are collected first, then applied in character id order.
+   * Hits are collected first, then resolved per breakable with all its hitters at once
+   * (damageBreakableShared: summed damage, symmetric pops, never slot order).
    */
   override afterSubstep(_substep: number): void {
     const ctx = this.ctx;
@@ -308,7 +333,15 @@ export class CoinSystem extends ContentSystemBase {
       ch.dashTicks = 0;
       ctx.chars[h.slot]!.body.noDrag = false;
     }
-    for (const h of hits) damageBreakable(ctx, h.id, BREAKABLE_DAMAGE.dash, st.characters[h.slot]!.id, h.dir);
+    // per breakable (layout order), all of this substep's hitters at once: summed damage, shared
+    // pops; never resolved one hitter after another (slot order would decide who gets the coins)
+    for (const br of st.breakables) {
+      let group: BreakableHit[] | null = null;
+      for (const h of hits) {
+        if (h.id === br.id) (group ??= []).push({ damage: BREAKABLE_DAMAGE.dash, byCharId: st.characters[h.slot]!.id, dir: h.dir });
+      }
+      if (group) damageBreakableShared(ctx, br.id, group);
+    }
   }
 
   /** Step 2 (after fences): integrate loose piles (drag, static collisions, un-burying). */
@@ -436,14 +469,18 @@ export class CoinSystem extends ContentSystemBase {
 
   /** Move a pile out of statics / back into the arena (nearest free spot), keeping its velocity. */
   private place(pile: CoinPile): void {
-    if (this.free(pile.pos.x, pile.pos.y)) return;
+    const p0 = pile.pos;
+    // (re-)snap: a gimmick or prop may have written an off-grid position
+    p0.x = snap(p0.x);
+    p0.y = snap(p0.y);
+    if (this.free(p0.x, p0.y)) return;
     const size = this.ctx.layout.size;
     const r = COINS.radius;
     const from = {
-      x: Math.min(size.x - r, Math.max(r, pile.pos.x)),
-      y: Math.min(size.y - r, Math.max(r, pile.pos.y)),
+      x: snap(Math.min(size.x - r, Math.max(r, p0.x))),
+      y: snap(Math.min(size.y - r, Math.max(r, p0.y))),
     };
-    const spot = spiralSearch(from, (p) => this.free(p.x, p.y), 12, 0.2);
+    const spot = this.unburySpot(from);
     if (spot) {
       pile.pos.x = spot.x;
       pile.pos.y = spot.y;
@@ -453,6 +490,34 @@ export class CoinSystem extends ContentSystemBase {
       pile.vel.x = 0;
       pile.vel.y = 0;
     }
+  }
+
+  /**
+   * Nearest free grid spot around `from` (rings 0.2 m apart up to 12 m), mirror-equivariant: each
+   * ring is scanned from the direction toward the mirror axis x = W/2 outwards in ± pairs (+ first
+   * on the left half, − first on the right half), using the mirror-exact direction table, so a
+   * mirrored buried pile lands on the mirrored spot.
+   */
+  private unburySpot(from: Vec2): Vec2 | null {
+    if (this.free(from.x, from.y)) return { x: from.x, y: from.y };
+    const right = from.x > this.ctx.layout.size.x / 2;
+    const base = right ? DIR_STEPS / 2 : 0;
+    const sgn = right ? -1 : 1;
+    const step = 0.2;
+    for (let ring = 1; ring * step <= 12 + 1e-9; ring++) {
+      const r = ring * step;
+      const n = Math.max(8, Math.ceil((2 * Math.PI * r) / step));
+      for (let j = 0; j * 2 <= n; j++) {
+        const off = Math.round((j * DIR_STEPS) / n);
+        for (const o of j === 0 || j * 2 === n ? [off] : [off, -off]) {
+          const idx = (((base + sgn * o) % DIR_STEPS) + DIR_STEPS) % DIR_STEPS;
+          const x = snap(from.x + DIR_COS[idx]! * r);
+          const y = snap(from.y + DIR_SIN[idx]! * r);
+          if (this.free(x, y)) return { x, y };
+        }
+      }
+    }
+    return null;
   }
 
   private integrate(pile: CoinPile): void {
@@ -471,12 +536,15 @@ export class CoinSystem extends ContentSystemBase {
       return;
     }
     const p = pile.pos;
+    p.x = snap(p.x);
+    p.y = snap(p.y);
     if (!this.free(p.x, p.y)) {
       this.place(pile);
       return;
     }
-    const nx = p.x + v.x * DT;
-    const ny = p.y + v.y * DT;
+    // whole grid units (odd-symmetric rounding of the step): exact, and exactly mirrored
+    const nx = p.x + roundEven(v.x * DT * GRID) / GRID;
+    const ny = p.y + roundEven(v.y * DT * GRID) / GRID;
     if (this.free(nx, ny)) {
       p.x = nx;
       p.y = ny;

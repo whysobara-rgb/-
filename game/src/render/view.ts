@@ -1099,6 +1099,12 @@ export class GameView {
     }
     this.endGetaway();
     this.getaway = { team: t, start: this.time, run, nextPuff: this.time, revIdx: 0, honked: false };
+    // The camera leans toward the winners' van for the hold (same capped glance as big plays;
+    // none with reduced motion), so the drive-off reads even when the player stands far away.
+    if (z && !this.settings.reducedMotion && this.viewMode === 'match') {
+      const lead = Math.min(run, BEATS.getaway.distance) * 0.6;
+      this.glanceT.begin({ x: z.vanPos.x + Math.cos(z.vanAngle) * lead, y: z.vanPos.y + Math.sin(z.vanAngle) * lead }, BEATS.glance.maxWeight, 2300, this.time);
+    }
     if (t !== null) {
       for (const c of this.sim.state.characters) {
         const cv = c.team === t ? this.chars.get(c.id) : undefined;
@@ -1584,6 +1590,11 @@ export class GameView {
     }
     const langChanged = (prev.language ?? 'ko') !== (s.language ?? 'ko') || prev.signResolver !== s.signResolver;
     if (langChanged && this.scenery) this.scenery.setSignResolver(this.signResolver());
+    if (langChanged) {
+      // [F3] beat labels follow the language
+      if (this.decisiveSide) this.decisiveLabel.set(this.beatText(this.decisiveSide === 'ours' ? 'hud.mp.ours' : 'hud.mp.theirs'), this.decisiveSide);
+      if (this.stealPos) this.stealLabel.set(this.beatText('hud.moment.stealChance', { value: this.stealValue.toLocaleString('en-US') }), 'steal');
+    }
     if ((langChanged || prev.zoneLabel !== s.zoneLabel) && this.layout) {
       for (const z of this.zones) z.dispose();
       const label = this.zoneLabel();
@@ -3319,6 +3330,31 @@ export class GameView {
     }
   }
 
+  /**
+   * [F3] Do these world points project inside the results frame (with the game-flow framing drop
+   * applied the way cameraGoal does, no sway)? Leaves room at the bottom for the button row.
+   */
+  private stageFits(center: Vec2, yaw: number, pitchDeg: number, dist: number, pts: readonly THREE.Vector3[]): boolean {
+    const cam = (GameView.fitCam ??= new THREE.PerspectiveCamera(RESULTS_FOV, 16 / 9, 0.5, 420));
+    cam.fov = RESULTS_FOV;
+    cam.aspect = this.width / Math.max(1, this.height);
+    cam.updateProjectionMatrix();
+    const p = pitchDeg * DEG;
+    const drop = this.resultsDrop > 0 ? (Math.atan(2 * this.resultsDrop * Math.tan((RESULTS_FOV * Math.PI) / 360)) * dist) / Math.max(0.3, Math.sin(p)) : 0;
+    const tx = center.x + Math.cos(yaw) * drop;
+    const ty = center.y + Math.sin(yaw) * drop;
+    cam.position.set(tx - Math.cos(yaw) * Math.cos(p) * dist, Math.sin(p) * dist, ty - Math.sin(yaw) * Math.cos(p) * dist);
+    cam.lookAt(tx, 0, ty);
+    cam.updateMatrixWorld();
+    for (const q of pts) {
+      _ndc.copy(q).project(cam);
+      if (_ndc.z > 1 || Math.abs(_ndc.x) > 0.93 || _ndc.y < -0.86) return false;
+    }
+    return true;
+  }
+
+  private static fitCam: THREE.PerspectiveCamera | null = null;
+
   // ===========================================================================
   // Results staging (doc §13: winners celebrate at their van; the loser stands empty-handed)
   // ===========================================================================
@@ -3384,6 +3420,12 @@ export class GameView {
     for (const s of spots.values()) pts.push(new THREE.Vector3(s.x, 0.7, s.y));
     pts.push(new THREE.Vector3(van.x, 1.6, van.y));
     const shot = this.pickShot(center, yaw0, [30, 36, 42], [11.5, 10.5, 13], pts, RESULTS_FOV);
+    // [F3] Every staged raccoon stays whole on screen with the results framing drop (the loser
+    // stands a step closer to the camera and used to get cut by the bottom edge): back off until
+    // they fit (the clearance of the chosen direction holds; only the distance grows).
+    const bodies: THREE.Vector3[] = [];
+    for (const sp of spots.values()) bodies.push(new THREE.Vector3(sp.x, 0.05, sp.y), new THREE.Vector3(sp.x, 1.45, sp.y));
+    for (let k = 0; k < 8 && !this.stageFits(center, shot.yaw, shot.pitch, shot.dist, bodies); k++) shot.dist += 0.6;
     return {
       center,
       spots,

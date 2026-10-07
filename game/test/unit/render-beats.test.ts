@@ -111,17 +111,27 @@ describe('beat label', () => {
     cam.updateMatrixWorld();
     const label = new BeatLabel('t');
     label.set('막아야 해!', 'theirs');
+    label.place(0, 2, 0, cam, 1, 0, 0);
+    expect(label.sprite.position.x).toBeCloseTo(0, 4);
+    expect(label.sprite.position.y).toBeCloseTo(2, 4);
+    // default: lifted ~34 px above the anchor (clears the HUD value chip)
+    const a = new THREE.Vector3(0, 2, 0).project(cam);
     label.place(0, 2, 0, cam, 1, 0);
-    expect(label.sprite.position.x).toBeCloseTo(0, 6);
-    expect(label.sprite.position.y).toBeCloseTo(2, 6);
+    const b = label.sprite.position.clone().project(cam);
+    expect(((b.y - a.y) / 2) * 720).toBeCloseTo(BEATS.label.liftPx, 3);
+    // far right: the whole plate stays inside the screen
+    label.place(60, 2, 0, cam, 1, 0);
+    const r = label.sprite.position.clone().project(cam);
+    const halfW = (label.sprite.scale.x / (2 * Math.tan(((38 * Math.PI) / 180) / 2) * cam.aspect));
+    expect(r.x + halfW).toBeLessThanOrEqual(1);
     // far up-screen (north): projects above the band -> clamped
     label.place(0, 2, -30, cam, 1, 0);
     const ndc = label.sprite.position.clone().project(cam);
     expect(ndc.y).toBeLessThanOrEqual(BEATS.label.maxY + 1e-6);
-    // ~46 px at 720p regardless of distance (constant pixel size)
+    // label px at 720p regardless of distance (constant pixel size)
     const px = (label.sprite.scale.y / (2 * Math.tan(((38 * Math.PI) / 180) / 2))) * 720;
     expect(px).toBeCloseTo(BEATS.label.px, 1);
-    expect(labelScaleFor(46, 38)).toBeCloseTo(label.sprite.scale.y, 6);
+    expect(labelScaleFor(BEATS.label.px, 38)).toBeCloseTo(label.sprite.scale.y, 6);
     label.hide();
     expect(label.shown).toBe(false);
     label.dispose();

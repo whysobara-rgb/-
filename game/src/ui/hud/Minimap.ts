@@ -8,12 +8,21 @@
  *                     and only when loot moved >= 0.5 px
  *  3. actor DOM     — pooled markers for characters and pings, moved with transforms
  *                     (a few style writes per frame; the ping pulse is a CSS animation).
+ *
+ * [C8] Content 2.0: supply pads (dashed rings with a balloon) and coin density (gold glows,
+ * piles binned per 2.5 m cell) on the loot layer under the safes; props drawn by their own
+ * shape; field items as DOM markers (a descending crate pulses, the golden hammer is gold).
  */
-import type { LayoutDef, SafeKind, TeamId } from '../../sim/types';
+import type { ItemKind, LayoutDef, PropVariant, SafeKind, TeamId } from '../../sim/types';
 import { h, svgFromMarkup } from '../core/dom';
 import { icon, teamEmblem } from '../core/icons';
 import { drawBackground, drawBank, drawLayoutBase, drawSafe, fitTransform, setupCanvas, type MapTransform } from './mapDraw';
+import { binCoins, drawCoinCell, drawItemPad, drawProp, makeCoinGlow, type CoinCell } from './mapDraw';
+import { itemGlyph } from './contentIcons';
 import type { MinimapModel } from './types';
+
+/** [C8] Coin density cell size (m). */
+const COIN_CELL = 2.5;
 
 /** Redraw cap (20 Hz): at ~3.5 px/m a walking raccoon moves < 1 px per redraw. */
 const MIN_FRAME_MS = 50;
@@ -22,7 +31,7 @@ interface Marker {
   el: HTMLElement;
   /** Facing wedge (me only). */
   rot: HTMLElement | null;
-  kind: 'me' | 'char' | 'ping' | 'cop' | 'car';
+  kind: 'me' | 'char' | 'ping' | 'cop' | 'car' | 'item';
   team: TeamId;
   x: number;
   y: number;
@@ -54,6 +63,10 @@ export class Minimap {
   private lootSig = NaN;
   private lastDraw = -Infinity;
   private readonly ro: ResizeObserver | null;
+  // [C8] coin density scratch (reused every redraw)
+  private readonly coinCells: CoinCell[] = [];
+  private readonly coinKeys = new Map<number, number>();
+  private coinGlow: HTMLCanvasElement | null = null;
 
   constructor() {
     this.staticCanvas = h('canvas', { class: 'uh-minimap__canvas', 'aria-hidden': 'true' });
@@ -131,6 +144,15 @@ export class Minimap {
         this.place(mk, tf.ox + p.x * tf.scale, tf.oy + p.y * tf.scale, 0);
       }
     }
+    // [C8] items on the field (public): a descending crate pulses over its pad
+    if (m.items) {
+      for (const it of m.items) {
+        if (!Number.isFinite(it.x) || !Number.isFinite(it.y)) continue;
+        const mk = this.marker(`i:${it.id}`, 'item', 0);
+        this.setItem(mk, it.kind, it.incoming);
+        this.place(mk, tf.ox + it.x * tf.scale, tf.oy + it.y * tf.scale, 0);
+      }
+    }
     for (const [key, mk] of this.markers) {
       if (mk.seen) continue;
       mk.el.remove();
@@ -157,6 +179,8 @@ export class Minimap {
         el.append(teamEmblem(team, 'uh-emblem', 'color'));
       } else if (kind === 'cop') {
         el.append(h('div', { class: 'uh-mm__copRing' }), h('div', { class: 'uh-mm__cop' }, icon('police')));
+      } else if (kind === 'item') {
+        el.append(h('div', { class: 'uh-mm__itemRing' }), h('div', { class: 'uh-mm__item' }));
       } else if (kind === 'car') {
         rot = h('div', { class: 'uh-mm__car' }, h('i', { class: 'uh-mm__carRed' }), h('i', { class: 'uh-mm__carBlue' }));
         el.append(rot);
@@ -171,6 +195,17 @@ export class Minimap {
     }
     mk.seen = true;
     return mk;
+  }
+
+  /** [C8] Item marker content: the item sticker + incoming state (written on change only). */
+  private setItem(mk: Marker, kind: ItemKind, incoming: boolean): void {
+    if (mk.el.dataset.item !== kind) {
+      mk.el.dataset.item = kind;
+      const disc = mk.el.querySelector('.uh-mm__item');
+      disc?.replaceChildren(itemGlyph(kind));
+    }
+    const inc = incoming ? '1' : '0';
+    if (mk.el.dataset.incoming !== inc) mk.el.dataset.incoming = inc;
   }
 
   private place(mk: Marker, x: number, y: number, angle: number): void {
@@ -230,13 +265,23 @@ export class Minimap {
     const ctx = setupCanvas(this.lootCanvas, this.cssW, this.cssH);
     if (!ctx) return;
     ctx.clearRect(0, 0, this.cssW, this.cssH);
+    // [C8] supply pads + coin density under everything else on this layer
+    if (m.itemPads) {
+      const minPx = Math.max(3.5, this.cssW * 0.018);
+      for (const p of m.itemPads) drawItemPad(ctx, tf, { x: p.x, y: p.y }, { theme: 'night', axis: p.twin === null, minPx });
+    }
+    if (m.coins && m.coins.length) {
+      if (!this.coinGlow) this.coinGlow = makeCoinGlow(32);
+      const minPx = Math.max(2.5, this.cssW * 0.012);
+      for (const c of binCoins(m.coins, COIN_CELL, this.coinCells, this.coinKeys)) drawCoinCell(ctx, tf, c, this.coinGlow, minPx);
+    }
     for (const b of m.banks) {
       const sp = this.bankSprite(b.recovered, b.carriedBy ?? null);
       this.blit(ctx, sp, tf.ox + b.x * tf.scale, tf.oy + b.y * tf.scale, b.angle);
     }
     for (const s of m.safes) {
       if (s.recovered) continue;
-      const sp = this.safeSprite(s.kind, !!s.loaded, s.heldBy ?? null);
+      const sp = s.variant ? this.propSprite(s.variant, s.heldBy ?? null) : this.safeSprite(s.kind, !!s.loaded, s.heldBy ?? null);
       this.blit(ctx, sp, tf.ox + s.x * tf.scale, tf.oy + s.y * tf.scale, s.angle);
     }
   }
@@ -280,6 +325,16 @@ export class Minimap {
     });
   }
 
+  /** [C8] Prop by its own shape (ATM / 돼지저금통 / 돈나무 / 황금 금고). */
+  private propSprite(variant: PropVariant, heldBy: TeamId | null): Sprite {
+    const tf = this.tf!;
+    const minPx = Math.max(6, this.cssW * 0.034);
+    const size = Math.ceil(Math.max(minPx, 2.6 * tf.scale) * 1.4 + 8);
+    return this.makeSprite(`prop:${variant}:${heldBy ?? '-'}`, size, size, (ctx) => {
+      drawProp(ctx, { scale: tf.scale, ox: size / 2, oy: size / 2 }, variant, { x: 0, y: 0 }, 0, { theme: 'night', minPx, heldBy });
+    });
+  }
+
   private bankSprite(recovered: boolean, carriedBy: TeamId | null): Sprite {
     const tf = this.tf!;
     const minPx = this.cssW * 0.11;
@@ -316,6 +371,16 @@ export class Minimap {
       mix(s.recovered ? 1 : 0);
       mix(s.heldBy ?? -1);
       mix(s.loaded ? 1 : 0);
+      mix(s.variant ? s.variant.length : 0);
+    }
+    // [C8] pads (static per match) + coin piles (moving piles change the hash; 20 Hz cap applies)
+    mix(m.itemPads ? m.itemPads.length * 1000 : 0);
+    if (m.coins) {
+      mix(m.coins.length * 7);
+      for (const c of m.coins) {
+        mix(c.pos.x * 0.5);
+        mix(c.pos.y * 0.5);
+      }
     }
     return hsh;
   }

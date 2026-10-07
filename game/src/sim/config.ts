@@ -389,6 +389,12 @@ export const COINS = {
   dashHitGap: 0.1,
   /** Coins popped by a hit that does not break a breakable come out this far outside its face (m). */
   popMargin: 0.3,
+  /**
+   * Police: a bag of at least this value counts as carrying (observe / chase / lunge / tackle),
+   * like held loot (queries.policeCarrying). 10 = any non-empty bag (content-plan §3.5); a tuning
+   * knob for the §8 tackle-rate target (C11).
+   */
+  policeBagMin: 10,
 } as const;
 
 /** [C1] Breakables (content-plan §3.1). Removable statics reusing the fence static-removal path. */

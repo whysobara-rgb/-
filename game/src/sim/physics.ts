@@ -534,14 +534,16 @@ export interface PhysicsHooks {
  * a turning floor), contacts treat it as an immovable moving wall.
  */
 export function setKinematicPose(b: Body, x: number, y: number, a: number, vx: number, vy: number, w: number): void {
+  if (!b.kinPosed) {
+    // the first pose is measured against the velocity it had before (a body at rest: 0), so a
+    // truck whose first pose is already moving carries its riders from the start, like a stop
+    b.kinPosed = true;
+    b.kpvx = b.motion === 'static' ? 0 : b.vx;
+    b.kpvy = b.motion === 'static' ? 0 : b.vy;
+    b.kpw = b.motion === 'static' ? 0 : b.w;
+  }
   b.motion = 'kinematic';
   b.weldParent = null;
-  if (!b.kinPosed) {
-    b.kinPosed = true;
-    b.kpvx = vx;
-    b.kpvy = vy;
-    b.kpw = w;
-  }
   b.x = x;
   b.y = y;
   b.a = a;
@@ -781,9 +783,20 @@ export class PhysicsWorld {
         let fw = 0;
         const f = b.floor;
         if (f && f.enabled) {
-          fvx = f.vx - f.w * (b.y - f.y);
-          fvy = f.vy + f.w * (b.x - f.x);
+          const rx = b.x - f.x;
+          const ry = b.y - f.y;
+          fvx = f.vx - f.w * ry;
+          fvy = f.vy + f.w * rx;
           fw = f.w;
+          if (f.motion === 'kinematic' && f.kinPosed) {
+            // (C3) rider of a posed kinematic floor (teacup, truck bed): its pose was set before
+            // this substep, so inherit the change of floor velocity HERE, before drag pulls toward
+            // the new floor velocity (carrying it after drag would count the change twice and walk
+            // riders outward on every turn). Welded floors keep the post-solve carry of step 7.
+            b.vx += fvx - (f.kpvx - f.kpw * ry);
+            b.vy += fvy - (f.kpvy + f.kpw * rx);
+            if (!b.fixedRotation) b.w += f.w - f.kpw;
+          }
         }
         // Content 2.0 ground fields (neutral in classic, so classic is bit-identical): a belt /
         // fountain field velocity adds to the floor velocity drag pulls toward; slick / soap scale
@@ -851,15 +864,9 @@ export class PhysicsWorld {
         if (!b.enabled || b.motion !== 'dynamic' || !f || !f.enabled || f.motion === 'static') continue;
         const rx = b.x - f.x;
         const ry = b.y - f.y;
-        if (f.motion === 'kinematic') {
-          // (C3) kinematic floor (teacup, truck bed): its pose is set before the substep, so the
-          // change is measured against the previous substep's velocity (the turn itself is
-          // integrated rigidly in step 8).
-          b.vx += f.vx - f.w * ry - (f.kpvx - f.kpw * ry);
-          b.vy += f.vy + f.w * rx - (f.kpvy + f.kpw * rx);
-          if (!b.fixedRotation) b.w += f.w - f.kpw;
-          continue;
-        }
+        // (C3) a posed kinematic floor's change was carried in step 2 (the turn itself is
+        // integrated rigidly in step 8)
+        if (f.motion === 'kinematic' && f.kinPosed) continue;
         const dvx = f.vx - f.w * ry - (f.pvx - f.pw * ry);
         const dvy = f.vy + f.w * rx - (f.pvy + f.pw * rx);
         b.vx += dvx;

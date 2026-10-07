@@ -19,6 +19,10 @@
 @keyframes uh-mp-ours { 0%, 100% { transform: scale(1) rotate(-1deg); } 50% { transform: scale(1.04) rotate(0.5deg); } }
 @keyframes uh-mp-theirs { 0%, 100% { transform: scale(1) rotate(1deg); } 50% { transform: scale(1.07) rotate(-1deg); } }
 
+/* One row under the scoreboard: the getaway badge + the swing readout side by side. */
+.uh-tensionrow { display: flex; align-items: center; justify-content: center; gap: 0.5rem; margin-top: -0.25rem; }
+.uh-tensionrow:not(:has(> :not([hidden]))) { display: none; }
+
 /* ---------------------------------------------------------------------------------------- */
 /* Swing readout: "역전까지 300 · 남은 1,200"                                                   */
 /* ---------------------------------------------------------------------------------------- */
@@ -27,7 +31,6 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin-top: -0.25rem;
   padding: 0.15rem 1rem 0.2rem;
   border-radius: 999px;
   font-family: var(--uh-font-display);

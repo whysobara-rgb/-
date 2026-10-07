@@ -43,6 +43,9 @@ import type { BannerKind, CaptionOptions, HudBank, HudFace, HudModel, HudStampKi
 import type { HudBannerSpec } from './types';
 import { matchPointText, type HudMatchPoint, type HudSwing } from './tension';
 import '../styles/hud-tension.css';
+// [C8] Content 2.0 HUD (item slot, bag chip, deposit ring, prop / item tags): one mount point
+import { ContentHud } from './ContentHud';
+import { propGlyph, propNameKey } from './contentIcons';
 
 const DASH_R = 26;
 const DASH_C = 2 * Math.PI * DASH_R;
@@ -92,6 +95,8 @@ export class Hud {
   readonly stamps: Stamps;
   /** Taunt wheel + taunt chip (owner addition). */
   readonly taunts: EmoteWheel;
+  /** [C8] Content 2.0 HUD parts (item slot in the dash button, bag chip, deposit ring, world tags). */
+  readonly content: ContentHud;
 
   private readonly root: UiRoot;
   private readonly top: HTMLElement;
@@ -107,6 +112,7 @@ export class Hud {
   // --- [F4] tension HUD ---
   private readonly swingEl: HTMLElement;
   private readonly crownEl: HTMLElement;
+  private topWrapEl: HTMLElement | null = null;
   private leader: TeamId | null = null;
   private cSwing = '';
   private cMp = '';
@@ -210,7 +216,7 @@ export class Hud {
       h(
         'div',
         { class: 'uh-hud__safe' },
-        h('div', { class: 'uh-hud__topWrap' }, this.top, this.swingEl, this.lastBankEl, this.banners.badgeEl, this.policeEl),
+        (this.topWrapEl = h('div', { class: 'uh-hud__topWrap' }, this.top, h('div', { class: 'uh-tensionrow' }, this.banners.badgeEl, this.swingEl), this.lastBankEl, this.policeEl)),
         this.stamps.el,
         this.banners.topEl,
         h('div', { class: 'uh-hud__left' }, this.tutorialEl),
@@ -228,6 +234,8 @@ export class Hud {
     this.worldEl.hidden = true;
     root.layer('hud').appendChild(this.el);
     root.layer('world').appendChild(this.worldEl);
+    // [C8] mount point
+    this.content = new ContentHud({ dash: this.dashEl, bottom: this.carryEl.parentElement as HTMLElement, before: this.carryEl, world: this.worldEl });
 
     this.ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => this.measure()) : null;
     this.ro?.observe(root.el);
@@ -269,11 +277,13 @@ export class Hud {
     this.mpShown = null;
     this.swingEl.hidden = true;
     setClass(this.el, 'has-topplate', false);
+    this.content.reset(); // [C8]
   }
 
   destroy(): void {
     this.ro?.disconnect();
     this.unsubLang();
+    this.content.destroy(); // [C8]
     this.minimap.destroy();
     this.el.remove();
     this.worldEl.remove();
@@ -356,6 +366,13 @@ export class Hud {
 
   /** Stamp callout for a big moment ("뽑았다!", "가로채기!", "은행째!", "태클 피했다!", "경찰이다!"). */
   stamp(kind: HudStampKind, o: HudStampOptions = {}): void {
+    // [F4] a world-anchored stamp never lands on the scoreboard / prompt column: anchors above
+    // its bottom (plus the stamp's own height, it is drawn above the anchor) are pushed down
+    if (o.y !== undefined && Number.isFinite(o.y) && this.topWrapEl && !this.el.hidden) {
+      const host = this.root.el.getBoundingClientRect();
+      const minY = this.topWrapEl.getBoundingClientRect().bottom - host.top + 6 * this.remPx;
+      if (o.y < minY) o = { ...o, y: minY };
+    }
     this.stamps.show(kind, o, this.model?.myTeam ?? 0);
   }
 
@@ -486,6 +503,7 @@ export class Hud {
     if (m.minimap) this.minimap.update(m.minimap, m.myTeam, now);
     this.labels.update(m.labels);
     this.arrows.update(m.arrows, this.remPx);
+    this.content.update(m.content ?? null, now); // [C8]
   }
 
   // --- internals -------------------------------------------------------------------------------
@@ -703,7 +721,7 @@ export class Hud {
 
   private paintCarry(m: HudModel): void {
     const c = m.carry;
-    const key = c ? `${c.kind}|${c.value}|${c.building ?? ''}|${c.safes ?? ''}` : '';
+    const key = c ? `${c.kind}|${c.value}|${c.building ?? ''}|${c.safes ?? ''}|${c.variant ?? ''}` : '';
     if (key !== this.cCarry) {
       const before = this.cCarry;
       this.cCarry = key;
@@ -720,14 +738,14 @@ export class Hud {
           h(
             'div',
             { class: 'uh-carry__main' },
-            objectPortrait(c.kind as LootKind, 'uh-carry__art'),
+            c.variant ? propGlyph(c.variant, 'uh-cglyph uh-carry__art') : objectPortrait(c.kind as LootKind, 'uh-carry__art'), // [C8]
             h(
               'div',
               { class: 'uh-carry__text' },
               h('span', { class: 'uh-carry__value uh-num' }, t('hud.estimate', { value: c.value })),
               showBreakdown
                 ? h('span', { class: 'uh-carry__breakdown' }, t('hud.bankBreakdown', { building: c.building ?? 0, safes: c.safes ?? 0 }))
-                : h('span', { class: 'uh-carry__breakdown' }, t(`loot.${c.kind}.name`)),
+                : h('span', { class: 'uh-carry__breakdown' }, c.variant ? t(propNameKey(c.variant)) : t(`loot.${c.kind}.name`)), // [C8]
             ),
           ),
           h('div', { class: 'uh-carry__foot' }, h('span', { class: 'uh-carry__note' }, t('hud.carryNote')), h('div', { class: 'uh-carry__bar' }, h('i'))),
@@ -751,7 +769,7 @@ export class Hud {
 
   private paintGrab(m: HudModel): void {
     const g = m.grab;
-    const key = g ? `${g.action}|${g.target}|${g.value}|${g.anchored ? 1 : 0}|${g.unanchorSec ?? ''}` : '';
+    const key = g ? `${g.action}|${g.target}|${g.value}|${g.anchored ? 1 : 0}|${g.unanchorSec ?? ''}|${g.variant ?? ''}` : '';
     if (key !== this.cGrab) {
       const before = this.cGrab;
       this.cGrab = key;
@@ -762,7 +780,7 @@ export class Hud {
         this.grabEl.hidden = false;
         this.grabEl.dataset.action = g.action;
         const lootKind: LootKind = g.target === 'bankWall' ? 'bank' : g.target;
-        const name = g.target === 'bankWall' ? t('loot.bankWall') : t(`loot.${g.target}.name`);
+        const name = g.variant ? t(propNameKey(g.variant)) : g.target === 'bankWall' ? t('loot.bankWall') : t(`loot.${g.target}.name`); // [C8] props by name
         setChildren(
           this.grabEl,
           h(
@@ -770,7 +788,7 @@ export class Hud {
             { class: 'uh-grab__main' },
             glyphChip('grab'),
             h('span', { class: 'uh-grab__verb' }, t(g.action === 'grab' ? 'hud.grab' : 'hud.release')),
-            objectPortrait(lootKind, 'uh-grab__art'),
+            g.variant ? propGlyph(g.variant, 'uh-cglyph uh-grab__art') : objectPortrait(lootKind, 'uh-grab__art'), // [C8]
             h('span', { class: 'uh-grab__name' }, name),
             h('span', { class: 'uh-grab__value uh-num' }, fmtScore(g.value)),
           ),

@@ -190,7 +190,15 @@
     // Rivals come in from the open plaza side (south of the north bank, north of the south one).
     const sy = b.pos.y > D.sim.layout.size.y / 2 ? -1 : 1;
     const n = D.sim.state.characters.length;
-    if (o.side === 'south') {
+    if (o.side === 'north') {
+      // North wall, pulling north: the bank sits below the gang on screen, so the stamp that
+      // pops above it lands mid-screen.
+      const faceY = b.pos.y - 4 - 0.55;
+      D.tp(D.charId(0), { x: b.pos.x - 1.3, y: faceY }, Math.PI / 2);
+      D.tp(D.charId(1), { x: b.pos.x + 1.35, y: faceY - 0.05 }, Math.PI / 2);
+      D.set(0, D.hold({ x: 0.15, y: -1 }, { x: 0, y: 1 }));
+      D.set(1, D.hold({ x: -0.1, y: -1 }, { x: 0, y: 1 }));
+    } else if (o.side === 'south') {
       const faceY = b.pos.y + 4 + 0.55;
       D.tp(D.charId(0), { x: b.pos.x - 1.3, y: faceY }, -Math.PI / 2);
       D.tp(D.charId(1), { x: b.pos.x + 1.35, y: faceY + 0.05 }, -Math.PI / 2);

@@ -57,13 +57,15 @@ export const BEATS = {
   },
   label: {
     /** Label height at 720p (CSS px); scales with the viewport height. */
-    px: 46,
+    px: 52,
     /** NDC clamp box: below the scoreboard / decisive prompt band, above the bottom HUD. */
     maxY: 0.42,
     minY: -0.72,
-    maxX: 0.84,
+    maxX: 0.9,
+    /** Tail lift (px at 720p) so the label sits above the HUD's value chip over the load. */
+    liftPx: 34,
   },
-  bark: { seconds: 2.4, width: 2.5 },
+  bark: { seconds: 2.4, width: 3.3 },
 } as const;
 
 // ---------------------------------------------------------------------------------------------
@@ -261,6 +263,7 @@ function drawLabel(ctx: CanvasRenderingContext2D, w: number, h: number, text: st
 }
 
 const _ndc = new THREE.Vector3();
+const _box = { minY: 0, maxY: 0, maxX: 0 };
 
 /** Sprite scale (sizeAttenuation off) for a label `px` tall at a viewport height of 720. */
 export function labelScaleFor(px: number, fovDeg: number): number {
@@ -346,9 +349,15 @@ export class BeatLabel {
    * Pin the label's tail to world point (x, y = height, z), clamped into the safe screen box.
    * `pulse` 0..1 adds a gentle breathing scale (0 = still). Call after the camera update.
    */
-  place(x: number, h: number, z: number, camera: THREE.PerspectiveCamera, dt: number, pulse: number): void {
+  place(x: number, h: number, z: number, camera: THREE.PerspectiveCamera, dt: number, pulse: number, liftPx = BEATS.label.liftPx): void {
     if (!this.key) return;
     this.sprite.visible = true;
+    this.pop = Math.min(1, this.pop + Math.max(0, dt) / 0.18);
+    const k = this.pop;
+    const popS = k < 1 ? 0.35 + 0.65 * (1 - Math.pow(1 - k, 3)) + Math.sin(Math.PI * k) * 0.18 : 1;
+    const base = labelScaleFor(BEATS.label.px, camera.fov);
+    const s = base * popS * (1 + 0.05 * pulse);
+    this.sprite.scale.set((s * LABEL_W) / LABEL_H, s, 1);
     _ndc.set(x, h, z).project(camera);
     // Behind the camera (never with the high match camera): mirror into the screen.
     if (_ndc.z > 1) {
@@ -356,15 +365,17 @@ export class BeatLabel {
       _ndc.y = -_ndc.y;
       _ndc.z = 0.98;
     }
-    if (clampNdc(_ndc)) {
-      _ndc.unproject(camera);
-      this.sprite.position.copy(_ndc);
-    } else this.sprite.position.set(x, h, z);
-    this.pop = Math.min(1, this.pop + Math.max(0, dt) / 0.18);
-    const k = this.pop;
-    const popS = k < 1 ? 0.35 + 0.65 * (1 - Math.pow(1 - k, 3)) + Math.sin(Math.PI * k) * 0.18 : 1;
-    const s = labelScaleFor(BEATS.label.px, camera.fov) * popS * (1 + 0.05 * pulse);
-    this.sprite.scale.set((s * LABEL_W) / LABEL_H, s, 1);
+    // Lift the tail above the HUD's own world value chip over the load (constant pixels).
+    _ndc.y += (liftPx / 720) * 2;
+    // Keep the whole plate on screen: the x clamp leaves room for half its drawn width.
+    const tanHalf = Math.tan(((camera.fov * Math.PI) / 180) / 2);
+    const halfW = ((base * LABEL_W) / LABEL_H / (2 * tanHalf * camera.aspect)) * this.frac;
+    _box.minY = BEATS.label.minY;
+    _box.maxY = BEATS.label.maxY;
+    _box.maxX = Math.max(0.2, Math.min(BEATS.label.maxX, 0.98 - halfW));
+    clampNdc(_ndc, _box);
+    _ndc.unproject(camera);
+    this.sprite.position.copy(_ndc);
   }
 
   /** Width fraction of the drawn plate (tests). */

@@ -6,8 +6,8 @@
  * Shapes carry identity, colors are secondary (doc §13): small safe = square, large safe =
  * wide rectangle, bank = walled rectangle with door gaps, teams = star / moon emblems.
  */
-import type { FenceDef, LayoutDef, SafeKind, StaticBoxKind, StaticCircleKind, TeamId, Vec2 } from '../../sim/types';
-import { BANK_MODEL, SAFE_SPECS, VAN } from '../../sim/config';
+import type { FenceDef, LayoutDef, PropVariant, SafeKind, StaticBoxKind, StaticCircleKind, TeamId, Vec2 } from '../../sim/types';
+import { BANK_MODEL, PROP_SPECS, SAFE_SPECS, VAN } from '../../sim/config';
 import { LOOT_STYLE, TEAM_STYLES } from '../../shared/teams';
 import { MOON_PATH, STAR_POINTS } from '../core/icons';
 
@@ -496,4 +496,184 @@ export function setupCanvas(canvas: HTMLCanvasElement, cssW: number, cssH: numbe
   if (!ctx) return null;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   return ctx;
+}
+
+// ---------------------------------------------------------------------------------------------
+// [C8] Content 2.0: props, supply pads, coin density (minimap + layout preview)
+// ---------------------------------------------------------------------------------------------
+
+const PROP_COLORS: Record<PropVariant, { fill: string; dark: string }> = {
+  atm: { fill: '#4FD6A6', dark: '#1F9A6E' },
+  piggy: { fill: '#FF8FB8', dark: '#C2507A' },
+  moneyTree: { fill: '#7FB77E', dark: '#3F6E3E' },
+  goldSafe: { fill: '#FFC21F', dark: '#9C7413' },
+};
+
+export interface PropDrawOptions {
+  theme: MapTheme;
+  /** Minimum on-map size of the long side (px). */
+  minPx?: number;
+  /** Held / carried by a team (team-coloured outline). */
+  heldBy?: TeamId | null;
+}
+
+/**
+ * A prop by its own shape (identity by shape, colour secondary): ATM = upright box with a screen,
+ * 돼지저금통 = round body with a snout bump, 돈나무 = leafy round crown on a trunk bar, 황금 금고 =
+ * gold box with a dial and a sparkle.
+ */
+export function drawProp(ctx: CanvasRenderingContext2D, tf: MapTransform, variant: PropVariant, pos: Vec2, angle: number, o: PropDrawOptions): void {
+  const spec = PROP_SPECS[variant];
+  const col = PROP_COLORS[variant];
+  const paper = o.theme === 'paper';
+  const ink = paper ? '#2E2442' : 'rgba(255,249,240,0.92)';
+  const realLong = Math.max(spec.half.x, spec.half.y) * 2 * tf.scale;
+  const k = o.minPx && realLong < o.minPx ? o.minPx / realLong : 1;
+  const hx = spec.half.x * tf.scale * k;
+  const hy = spec.half.y * tf.scale * k;
+  inFrame(ctx, tf, pos, angle, () => {
+    if (o.heldBy !== undefined && o.heldBy !== null) {
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = TEAM_STYLES[o.heldBy].color;
+      if (spec.shape === 'circle') {
+        ctx.beginPath();
+        ctx.arc(0, 0, hx + 2.5, 0, Math.PI * 2);
+      } else roundRect(ctx, -hx - 2.5, -hy - 2.5, hx * 2 + 5, hy * 2 + 5, 3);
+      ctx.stroke();
+    }
+    ctx.lineWidth = paper ? 1.4 : 1.1;
+    ctx.strokeStyle = ink;
+    ctx.fillStyle = col.fill;
+    if (variant === 'piggy') {
+      ctx.beginPath();
+      ctx.arc(0, 0, hx, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(hx * 0.95, 0, hx * 0.38, 0, Math.PI * 2);
+      ctx.fillStyle = '#FFC6DA';
+      ctx.fill();
+      ctx.stroke();
+      return;
+    }
+    if (variant === 'moneyTree') {
+      ctx.fillStyle = '#B07A4A';
+      roundRect(ctx, -hx, -hy * 0.45, hx * 2, hy * 0.9, hy * 0.4);
+      ctx.fill();
+      ctx.stroke();
+      const r = Math.max(hy * 1.6, Math.min(hx, hy * 2.2));
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.fillStyle = col.fill;
+      ctx.fill();
+      ctx.stroke();
+      if (r >= 4) {
+        ctx.fillStyle = '#A9F0D3';
+        ctx.fillRect(-r * 0.45, -r * 0.35, r * 0.5, r * 0.3);
+        ctx.fillRect(r * 0.05, r * 0.05, r * 0.5, r * 0.3);
+      }
+      return;
+    }
+    roundRect(ctx, -hx, -hy, hx * 2, hy * 2, Math.min(hx, hy) * 0.3);
+    ctx.fill();
+    ctx.stroke();
+    if (Math.min(hx, hy) >= 3) {
+      ctx.fillStyle = variant === 'atm' ? '#D9F1FF' : '#FFF6E8';
+      if (variant === 'atm') roundRect(ctx, -hx * 0.6, -hy * 0.6, hx * 1.2, hy * 0.7, 1);
+      else {
+        ctx.beginPath();
+        ctx.arc(0, 0, Math.min(hx, hy) * 0.42, 0, Math.PI * 2);
+      }
+      ctx.fill();
+    }
+  });
+}
+
+/** A supply-drop pad: a dashed landing ring with a small balloon (axis pad slightly bigger). */
+export function drawItemPad(ctx: CanvasRenderingContext2D, tf: MapTransform, pos: Vec2, o: { theme: MapTheme; axis?: boolean; minPx?: number }): void {
+  const c = toMap(tf, pos);
+  const r = Math.max((o.minPx ?? 4) * (o.axis ? 1.2 : 1), 0.9 * tf.scale);
+  const paper = o.theme === 'paper';
+  ctx.save();
+  ctx.setLineDash([Math.max(1.5, r * 0.45), Math.max(1.5, r * 0.35)]);
+  ctx.lineWidth = Math.max(1.2, r * 0.22);
+  ctx.strokeStyle = paper ? '#8E6CF0' : 'rgba(205, 189, 255, 0.85)';
+  ctx.beginPath();
+  ctx.arc(c.x, c.y, r, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  // balloon + string
+  const br = r * 0.42;
+  ctx.beginPath();
+  ctx.moveTo(c.x, c.y + br * 0.9);
+  ctx.lineTo(c.x, c.y + br * 1.9);
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.ellipse(c.x, c.y, br * 0.85, br, 0, 0, Math.PI * 2);
+  ctx.fillStyle = paper ? '#FF8FB8' : 'rgba(255, 143, 184, 0.9)';
+  ctx.fill();
+  ctx.restore();
+}
+
+/** Coin density: piles binned into `cell`-metre cells (value summed, position averaged). */
+export interface CoinCell {
+  x: number;
+  y: number;
+  value: number;
+  n: number;
+}
+
+export function binCoins(coins: readonly { pos: Vec2; value: number }[], cell: number, out: CoinCell[] = [], keyOf: Map<number, number> = new Map()): CoinCell[] {
+  out.length = 0;
+  keyOf.clear();
+  for (const c of coins) {
+    if (!Number.isFinite(c.pos.x) || !Number.isFinite(c.pos.y)) continue;
+    const key = Math.floor(c.pos.x / cell) * 4096 + Math.floor(c.pos.y / cell);
+    const i = keyOf.get(key);
+    if (i === undefined) {
+      keyOf.set(key, out.length);
+      out.push({ x: c.pos.x * c.value, y: c.pos.y * c.value, value: c.value, n: 1 });
+    } else {
+      const b = out[i]!;
+      b.x += c.pos.x * c.value;
+      b.y += c.pos.y * c.value;
+      b.value += c.value;
+      b.n++;
+    }
+  }
+  for (const b of out) {
+    b.x /= b.value;
+    b.y /= b.value;
+  }
+  return out;
+}
+
+/** One coin-density blob (gold glow + core), radius grows with the cell's value. */
+export function drawCoinCell(ctx: CanvasRenderingContext2D, tf: MapTransform, cell: CoinCell, glow: CanvasImageSource | null, minPx = 3): void {
+  const c = toMap(tf, cell);
+  const r = Math.min(minPx * 3.4, minPx + Math.sqrt(cell.value) * minPx * 0.18);
+  if (glow) ctx.drawImage(glow, c.x - r * 2, c.y - r * 2, r * 4, r * 4);
+  ctx.beginPath();
+  ctx.arc(c.x, c.y, Math.max(1.5, r * 0.5), 0, Math.PI * 2);
+  ctx.fillStyle = '#FFD23F';
+  ctx.fill();
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(42, 33, 49, 0.9)';
+  ctx.stroke();
+}
+
+/** A soft gold glow sprite (size×size CSS px) for coin cells. */
+export function makeCoinGlow(size: number): HTMLCanvasElement {
+  const canvas = document.createElement('canvas');
+  const ctx = setupCanvas(canvas, size, size);
+  if (ctx) {
+    const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    g.addColorStop(0, 'rgba(255, 222, 90, 0.85)');
+    g.addColorStop(0.45, 'rgba(255, 200, 60, 0.35)');
+    g.addColorStop(1, 'rgba(255, 190, 40, 0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, size, size);
+  }
+  return canvas;
 }

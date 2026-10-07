@@ -208,6 +208,39 @@ describe('flyBody', () => {
     expect(bank.estimatedValue).toBe(1000);
     expect(conserved(sim)).toBe(true);
   });
+
+  it('a flown bank emits no load / unload events (welded and free floor cargo); a safe flown off alone unloads once', () => {
+    const sim = fullSim();
+    const ctx = ctxOf(sim);
+    const bank = sim.state.loot.find((l) => l.kind === 'bank')!;
+    sim.debug.setAnchored(bank.id, false);
+    sim.step(idle(2));
+    const cargo = sim.state.loot.filter((l) => l.loadedIn === bank.id);
+    expect(cargo.length).toBe(3);
+    // free one interior safe: it now rides the floor as a free (dynamic) safe, still loaded
+    sim.debug.setAnchored(cargo[0]!.id, false);
+    for (let t = 0; t < 5; t++) sim.step(idle(2));
+    expect(cargo[0]!.loadedIn).toBe(bank.id);
+    const est0 = bank.estimatedValue;
+    flyBody(ctx, bank.id, { x: bank.pos.x, y: bank.pos.y + 4 }, 40, 'crane');
+    const loadEvents: string[] = [];
+    for (let t = 0; t < 50; t++) {
+      for (const e of sim.step(idle(2))) if (e.type === 'safeLoaded' || e.type === 'safeUnloaded') loadEvents.push(`${e.type}@${e.tick}`);
+      expect(bank.estimatedValue).toBe(est0);
+    }
+    expect(bank.airborne).toBeNull();
+    expect(loadEvents).toEqual([]);
+    for (const l of cargo) expect(l.loadedIn).toBe(bank.id);
+    // the free one is free again after landing (the flight weld came off)
+    expect(ctx.loot[ctx.lootIndex.get(cargo[0]!.id)!]!.body.weldParent).toBeNull();
+    // the free floor safe flown off on its own: exactly one safeUnloaded, the estimate drops
+    flyBody(ctx, cargo[0]!.id, { x: bank.pos.x, y: bank.pos.y + 12 }, 30, 'catapult');
+    const evs: { type: string; safeId?: number }[] = [];
+    for (let t = 0; t < 40; t++) evs.push(...sim.step(idle(2)).filter((e) => e.type === 'safeLoaded' || e.type === 'safeUnloaded'));
+    expect(evs.map((e) => `${e.type}:${e.safeId}`)).toEqual([`safeUnloaded:${cargo[0]!.id}`]);
+    expect(bank.estimatedValue).toBe(est0 - cargo[0]!.estimatedValue);
+    expect(conserved(sim)).toBe(true);
+  });
 });
 
 describe('physics fuzz with every prop (MAX_SUBSTEPS 8)', () => {
