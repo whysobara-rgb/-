@@ -703,7 +703,10 @@ class _TierBlock extends StatelessWidget {
                         imageUrl: item.imageUrl,
                         holo: hero,
                         imageAspect: cols == 1 ? 1.7 : (hero ? 0.92 : 1.12),
-                        meta: formatWon(item.estimatedValue),
+                        // 두 칸일 때는 정가를 줄여 써서 확률 알약과 한 줄에 둔다.
+                        meta: cols == 1
+                            ? formatWon(item.estimatedValue)
+                            : formatWonShort(item.estimatedValue),
                         trailing: formatPercent(item.probabilityPercent),
                       ),
                     ),

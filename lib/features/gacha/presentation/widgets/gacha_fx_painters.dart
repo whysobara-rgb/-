@@ -41,33 +41,6 @@ StageField stageFieldStep(Rarity from, Rarity to, double t) {
 Color stageInk(Rarity r) =>
     r == Rarity.ssr ? const Color(0xFF3A2600) : Colors.white;
 
-/// 블러 없이 그리는 부드러운 타원 그림자(원형 그라데이션을 세로로 눌러 그린다).
-void softShadow(
-  Canvas canvas,
-  Offset center,
-  double rx,
-  double squash,
-  Color color,
-) {
-  canvas.save();
-  canvas.translate(center.dx, center.dy);
-  canvas.scale(1, squash);
-  canvas.drawCircle(
-    Offset.zero,
-    rx,
-    Paint()
-      ..shader = RadialGradient(
-        colors: [
-          color,
-          color.withValues(alpha: color.a * 0.4),
-          Colors.transparent,
-        ],
-        stops: const [0, 0.55, 1],
-      ).createShader(Rect.fromCircle(center: Offset.zero, radius: rx)),
-  );
-  canvas.restore();
-}
-
 /// ── 무대 배경 ─────────────────────────────────────────────────────
 ///
 /// 등급 색면(가운데 밝고 가장자리 깊은 방사형) + 위에서 내려오는 흰 빛줄기 +

@@ -1,15 +1,14 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../../core/domain/product_category.dart';
-import '../../core/domain/rarity.dart';
 import 'pack_art.dart';
-import 'product_art.dart';
 
 /// 2차(나이트 볼트) 아트 킷의 호환 층.
 ///
-/// 3차에서 플레이스홀더 그림은 [PackArt](박스 패키지)와 [ProductArt]
-/// (상품 일러스트)로 바뀌었다. 다른 화면이 쓰던 이름(BoxArt, VaultEmblem,
-/// GuillochePainter, vaultTone)은 생성자 그대로 남겨 두고 새 그림을 그린다.
+/// 3차에서 플레이스홀더 그림은 [PackArt](박스 패키지)와 상품 일러스트
+/// (product_art.dart)로 바뀌었다. 다른 화면이 쓰는 이름(BoxArt,
+/// GuillochePainter)은 생성자 그대로 남겨 두고, BoxArt는 새 패키지를 그린다.
+/// 쓰는 곳이 없어진 금고 엠블럼·아이소메트릭 상자·vaultTone은 지웠다.
 /// 새 코드에서는 pack_art.dart / product_art.dart를 직접 쓴다.
 
 /// 기요셰(guilloché) 각인: 원 [rings]개를 겹친 로제트. 아주 낮은 불투명도로
@@ -60,26 +59,6 @@ class GuillochePainter extends CustomPainter {
       old.scale != scale;
 }
 
-/// 상품 플레이스홀더. 3차부터 [ProductArt](분류별 상품 일러스트)를 그린다.
-class VaultEmblem extends StatelessWidget {
-  final ProductCategory category;
-  final Rarity? rarity;
-
-  /// 2차 호환용(레어도가 없을 때의 색). 지금은 쓰지 않는다.
-  final Color? tone;
-
-  const VaultEmblem({
-    super.key,
-    required this.category,
-    this.rarity,
-    this.tone,
-  });
-
-  @override
-  Widget build(BuildContext context) =>
-      ProductArt(category: category, rarity: rarity ?? Rarity.n);
-}
-
 /// 박스 그림. 3차부터 밝은 스튜디오 위의 박스 패키지([PackScene])를 그린다.
 /// [tone]은 박스 고유 색, [category]는 패키지 디자인(워드마크·무늬)을 고른다.
 class BoxArt extends StatelessWidget {
@@ -106,15 +85,4 @@ class BoxArt extends StatelessWidget {
     scale: (scale * 1.55).clamp(0.3, 0.92),
     centerY: centerY,
   );
-}
-
-/// 서버 색(박스·배너 accentColorHex)을 그림에 쓰기 좋게 보정한다.
-/// 무채색(#1A1A1A 등)은 플래티넘으로 바꾼다.
-Color vaultTone(Color c) {
-  final hsl = HSLColor.fromColor(c);
-  if (hsl.saturation < 0.12) return const Color(0xFFD5D9E0);
-  return hsl
-      .withLightness(hsl.lightness.clamp(0.5, 0.64))
-      .withSaturation(hsl.saturation.clamp(0.5, 0.88))
-      .toColor();
 }
