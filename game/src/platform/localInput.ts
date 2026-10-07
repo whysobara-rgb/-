@@ -17,6 +17,7 @@
 import type { Vec2 } from '../sim/types';
 import { DEFAULT_BINDINGS, MATCH_ACTIONS, EMOTE_ACTIONS, cloneBindings, isMouseCode, parsePadCode, type ActionBindings, type Bindings, type MatchAction } from './bindings';
 import { applyRadialDeadzone, clampUnit, type GamepadLike, type MatchFrame, type PointerPos } from './input';
+import { wheelClickFree } from './emotes';
 
 export type KeyboardDeviceId = 'kbA' | 'kbB';
 /** 'kbA' | 'kbB' | 'pad:0'..'pad:3'. */
@@ -274,7 +275,7 @@ export class LocalInputRouter {
       emoteWheelDown: isDown('emoteWheel'),
       wheelStick: { x: 0, y: 0 },
       wheelKeys: { ...move },
-      wheelClick: dev === 'kbA' && pressed.has('Mouse0') ? (this.pressPointer.get('Mouse0') ?? this.pointerPos) : null,
+      wheelClick: dev === 'kbA' && pressed.has('Mouse0') && wheelClickFree(ks) ? (this.pressPointer.get('Mouse0') ?? this.pointerPos) : null,
     };
     pressed.clear();
     this.queue[dev].length = 0;

@@ -15,8 +15,11 @@
  * No rival around: the raccoon keeps its facing. When the view knows where its camera is
  * (`TauntWorld.cameraDir`), the face taunts never turn the face more than TAUNT_FACE_MAX_OFF away
  * from the camera (a rival "up" the screen would otherwise hide the tongue, the fan or the flex
- * behind the back of the head: the raccoon turns to a 3/4 view toward the rival instead), and a
- * wiggle with nobody in front shakes its bottom at the camera (looking back over the shoulder).
+ * behind the back of the head). A rival behind the taunter is mirrored to the camera's side first:
+ * the raccoon turns toward the rival's side of the screen, by as much as the rival is off to that
+ * side (a rival straight up the screen gets the taunt played at the camera, not an arbitrary
+ * 3/4 turn), so it never faces the rival exactly but its face always reads. A wiggle with nobody
+ * in front shakes its bottom at the camera (looking back over the shoulder).
  *
  * Pure logic (no three.js): unit-tested with mocked character states.
  */
@@ -89,7 +92,7 @@ export function isEmoteId(x: unknown): x is EmoteId {
 
 /** True when the character is doing something that stops a taunt right away. */
 export function tauntBlocked(c: CharacterState): boolean {
-  if (c.grab || c.dashTicks > 0 || c.knockdownTicks > 0 || c.boostTicks > 0) return true;
+  if (c.grab || c.dashTicks > 0 || c.knockdownTicks > 0 || c.boostTicks > 0 || (c.dizzyTicks ?? 0) > 0) return true;
   return Math.hypot(c.moveIntent?.x ?? 0, c.moveIntent?.y ?? 0) > EMOTE.cancelMove;
 }
 
@@ -194,8 +197,18 @@ export class TauntTracker {
       const k = Math.atan2(cam.y, cam.x);
       // the wiggle with a rival keeps its back to the rival (bottom or face over the shoulder:
       // either way the joke reads); with nobody in front it wiggles at the camera
-      if (entry.id !== 'wiggle') facing = clampToward(facing ?? c.facing, k, TAUNT_FACE_MAX_OFF);
-      else if (!tp) facing = clampToward(c.facing, k + Math.PI, TAUNT_FACE_MAX_OFF);
+      if (entry.id !== 'wiggle') {
+        let want = facing ?? c.facing;
+        if (tp) {
+          // A rival behind the taunter (farther from the camera): mirror its bearing to the
+          // camera's side, so the face turns toward the rival's side of the screen (more the
+          // more it is off to the side) instead of snapping to one bound; straight behind, the
+          // raccoon taunts at the camera (the rival sees its own taunt bubble either way).
+          const off = wrapPi(want - k);
+          if (Math.abs(off) > Math.PI / 2) want = k + Math.sign(off || 1) * (Math.PI - Math.abs(off));
+        }
+        facing = clampToward(want, k, TAUNT_FACE_MAX_OFF);
+      } else if (!tp) facing = clampToward(c.facing, k + Math.PI, TAUNT_FACE_MAX_OFF);
     }
     return { id: entry.id, t, dur, facing, targetId: entry.targetId };
   }

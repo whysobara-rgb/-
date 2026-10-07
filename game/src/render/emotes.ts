@@ -35,6 +35,11 @@ export interface EmoteOptions {
   loop?: boolean;
   /** Size multiplier. */
   scale?: number;
+  /**
+   * Bubbles: extra offset (m) up and to the camera-right of the usual spot, so a bubble that
+   * plays over a face pose (taunts) sits clear of the speaker's head and face. Default 0.
+   */
+  clear?: number;
 }
 
 interface Slot {
@@ -44,6 +49,8 @@ interface Slot {
   loop: boolean;
   priority: number;
   scale: number;
+  /** Extra up / right offset (m), see EmoteOptions.clear. */
+  clear: number;
   /** Seconds left in the pop-out (>= 0 while leaving). */
   out: number;
   seed: number;
@@ -221,6 +228,7 @@ export class EmoteSystem {
       loop: !!o.loop,
       priority: prio,
       scale: o.scale ?? 1,
+      clear: o.clear ?? 0,
       out: -1,
       seed: (this.seed = (this.seed * 16807) % 2147483647) / 2147483647,
     };
@@ -422,8 +430,8 @@ export class EmoteSystem {
         }
         _s.set(scale, scale, scale);
         if (bubbled) {
-          _p.copy(base).addScaledVector(right, st.dx + ox);
-          _p.y += 0.42 + st.lift + oy;
+          _p.copy(base).addScaledVector(right, st.dx + ox + s.clear * 0.5);
+          _p.y += 0.42 + st.lift + oy + s.clear;
         } else {
           _p.copy(base).addScaledVector(right, -0.5 + ox);
           _p.y += 0.02 + st.lift * 0.5 + oy;

@@ -52,6 +52,26 @@ describe('taunt facing keeps the face readable from the camera', () => {
     }
   });
 
+  it('a rival behind the taunter is mirrored to the camera side: straight up -> at the camera, never an arbitrary side', () => {
+    for (const id of faceIds) {
+      const me = char(1, 0, { x: 0, y: 0 });
+      const up = sample(id, me, world([me, char(3, 1, { x: 0, y: -2.4 })]));
+      expect(angleTo(up.facing!, CAM)).toBeLessThan(1e-9);
+      // straight right stays a bounded turn to the right; up-right is the mirror of down-right
+      const right = sample(id, me, world([me, char(3, 1, { x: 2.4, y: 0 })])).facing!;
+      expect(angleTo(right, CAM)).toBeCloseTo(TAUNT_FACE_MAX_OFF);
+      expect(Math.cos(right)).toBeGreaterThan(0);
+      const upRight = sample(id, me, world([me, char(3, 1, { x: 2, y: -2 })])).facing!;
+      const downRight = sample(id, me, world([me, char(3, 1, { x: 2, y: 2 })])).facing!;
+      expect(upRight).toBeCloseTo(downRight);
+      expect(angleTo(up.facing!, right)).toBeGreaterThan(0.5); // "up" no longer looks like "right"
+      // continuous as the rival walks around behind: no jump across straight-up
+      const l = sample(id, me, world([me, char(3, 1, { x: -0.05, y: -2.4 })])).facing!;
+      const r = sample(id, me, world([me, char(3, 1, { x: 0.05, y: -2.4 })])).facing!;
+      expect(angleTo(l, r)).toBeLessThan(0.05);
+    }
+  });
+
   it('a rival toward the camera or beside: faces it exactly', () => {
     const me = char(1, 0, { x: 0, y: 0 });
     const rival = char(3, 1, { x: 2, y: 3 });

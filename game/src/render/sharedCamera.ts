@@ -11,8 +11,11 @@
 import type { Vec2 } from '../sim';
 import { MATCH_DIST, MATCH_FOV, MATCH_PITCH } from './camera';
 
-/** Furthest the shared camera pulls back (m). ~22 px raccoons at 720p. */
-export const SHARED_MAX_DIST = 36;
+/**
+ * Furthest the shared camera pulls back (m): raccoons stay ~28 px tall at 720p (~42 px at 1080p)
+ * and every human also wears a ground ring + "P1" tag in their colour.
+ */
+export const SHARED_MAX_DIST = 44;
 /** Fraction of the visible half-extent the group may use (the rest is margin for labels / HUD). */
 const INNER = 0.78;
 

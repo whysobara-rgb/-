@@ -139,6 +139,9 @@ export interface ViewSettings {
   showOthersTaunts?: boolean;
 }
 
+/** Taunt bubbles sit this much (m) higher and further right than other bubbles, clear of the pose's face (match camera). */
+const TAUNT_BUBBLE_CLEAR = 0.4;
+
 /** Taunt bubble sticker per taunt emote. */
 export const TAUNT_BUBBLE: Readonly<Record<EmoteId, EmoteKind>> = {
   wiggle: 'tauntWiggle',
@@ -920,7 +923,7 @@ export class GameView {
       }
       if (!this.tauntShown(ch.charId) || (this.viewMode !== 'match' && this.viewMode !== 'preview')) continue;
       const dur = EMOTE.durationTicks[ch.id] / TICK_RATE;
-      this.emotes.show(ch.charId, kind, { duration: dur + 0.15, priority: 3, scale: 1.22 });
+      this.emotes.show(ch.charId, kind, { duration: dur + 0.15, priority: 3, scale: 1.22, clear: TAUNT_BUBBLE_CLEAR });
       const cv = this.chars.get(ch.charId);
       if (!cv) continue;
       const head = { x: cv.pose.x, y: cv.y + 1.15, z: cv.pose.y };
@@ -1727,7 +1730,7 @@ export class GameView {
         if (id === this.lastFocusId) continue;
         const cur = this.taunts.playing(id);
         if (!cur || cur.endTick <= tick) continue;
-        this.emotes.show(id, TAUNT_BUBBLE[cur.id], { duration: (cur.endTick - tick) / TICK_RATE + 0.15, priority: 3, scale: 1.22 });
+        this.emotes.show(id, TAUNT_BUBBLE[cur.id], { duration: (cur.endTick - tick) / TICK_RATE + 0.15, priority: 3, scale: 1.22, clear: TAUNT_BUBBLE_CLEAR });
       }
     }
     const next = qualityPreset(s.quality);

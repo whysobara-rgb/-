@@ -215,7 +215,16 @@ export class EmoteWheel {
   geometry(): { x: number; y: number; dead: number } | null {
     const center = this.el.querySelector('.uh-ewheel__center');
     const r = !this.el.hidden && center ? center.getBoundingClientRect() : null;
-    if (r && r.width > 0 && r.height > 0) return { x: r.left + r.width / 2, y: r.top + r.height / 2, dead: Math.min(r.width, r.height) / 2 };
+    if (r && r.width > 0 && r.height > 0) {
+      // During the open pop-in the slot ring is drawn scaled down (0.55 -> 1) while the center
+      // disc is not: shrink the deadzone with it, so a slot is picked where it is drawn right now.
+      // (measured against the unanimated center so any ancestor transform / UI scale cancels out)
+      const cw = (center as HTMLElement).offsetWidth;
+      const layout = cw > 0 ? this.disc.offsetWidth / cw : 0;
+      const drawn = this.disc.getBoundingClientRect().width / r.width;
+      const pop = layout > 0 && drawn > 0 ? Math.min(1, drawn / layout) : 1;
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2, dead: (Math.min(r.width, r.height) / 2) * pop };
+    }
     const host = this.el.parentElement;
     if (!host || typeof window === 'undefined') return null;
     const b = host.getBoundingClientRect();

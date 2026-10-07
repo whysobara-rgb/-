@@ -6,8 +6,9 @@
  * left click plays at once; cancel closes.
  */
 import { describe, expect, it } from 'vitest';
-import { EMOTE_IDS, EmoteWheelController, wheelSlotAngle, type WheelInput } from '../../src/platform/emotes';
+import { EMOTE_IDS, EmoteWheelController, WHEEL_MOUSE_TAKEOVER_PX, wheelClickFree, wheelSlotAngle, type WheelInput } from '../../src/platform/emotes';
 import { InputManager } from '../../src/platform/input';
+import { defaultBindings } from '../../src/platform/bindings';
 import { BASE_EMOTES } from '../../src/sim/types';
 
 const N = EMOTE_IDS.length;
@@ -116,6 +117,43 @@ describe('taunt wheel: the mouse picks the slot it is on (center-relative)', () 
     expect(w.update({ ...inp, held: false, pointer: slotCenter(2, g) }).confirmed).toBe('bleh');
   });
 
+  it('a stick / key pick survives a bumped mouse: the center disc never clears it, a small nudge never steals it', () => {
+    const w = new EmoteWheelController(EMOTE_IDS);
+    const inp = base(g);
+    const mid = { x: g.cx, y: g.cy }; // cursor resting on the center disc (screen center)
+    w.update({ ...inp, pointer: mid });
+    expect(w.update({ ...inp, pointer: mid, stick: { x: 1, y: 0 } }).hover).toBe(1);
+    // the pad player bumps the desk: a few px, still on the center disc -> pick kept
+    expect(w.update({ ...inp, pointer: { x: mid.x + 6, y: mid.y + 3 } }).hover).toBe(1);
+    // even a real move that stays on the center disc keeps it (the disc clears mouse picks only)
+    expect(w.update({ ...inp, pointer: { x: mid.x + 30, y: mid.y } }).hover).toBe(1);
+    expect(w.update({ ...inp, held: false, pointer: { x: mid.x + 30, y: mid.y } }).confirmed).toBe('bleh');
+    // cursor resting out on a slot: a nudge under WHEEL_MOUSE_TAKEOVER_PX does not switch the pick
+    const w2 = new EmoteWheelController(EMOTE_IDS);
+    const on2 = slotCenter(2, g);
+    w2.update({ ...inp, pointer: on2 });
+    expect(w2.update({ ...inp, pointer: on2, keys: { x: -1, y: 0 } }).hover).toBe(3);
+    expect(w2.update({ ...inp, pointer: on2 }).hover).toBe(3);
+    expect(w2.update({ ...inp, pointer: { x: on2.x + WHEEL_MOUSE_TAKEOVER_PX * 0.6, y: on2.y } }).hover).toBe(3);
+    // a deliberate move onto a slot takes it over; then the mouse rules hold again (not sticky)
+    expect(glide(w2, inp, on2, slotCenter(4, g)).hover).toBe(4);
+    expect(glide(w2, inp, slotCenter(4, g), mid).hover).toBeNull();
+  });
+
+  it('during the open pop-in (slots drawn scaled down, HUD deadzone scaled with them) the drawn slot is picked', () => {
+    // HUD geometry() while the ring is at scale 0.55: deadzone 0.55x, slot centers at 0.55x radius
+    const pop = 0.55;
+    const inp: WheelInput = { ...base(g), center: { x: g.cx, y: g.cy, dead: g.dead * pop } };
+    for (let i = 0; i < N; i++) {
+      const w = new EmoteWheelController(EMOTE_IDS);
+      const a = wheelSlotAngle(i, N);
+      const drawn = { x: g.cx + Math.sin(a) * g.slotR * pop, y: g.cy - Math.cos(a) * g.slotR * pop };
+      w.update({ ...inp, pointer: { x: g.cx, y: g.cy } });
+      const out = w.update({ ...inp, pointer: drawn, click: drawn });
+      expect(out.confirmed).toBe(EMOTE_IDS[i]);
+    }
+  });
+
   it('left click plays the slot under it at once; no reopen while T is still held', () => {
     const w = new EmoteWheelController(BASE_EMOTES);
     const inp = base(g);
@@ -186,5 +224,25 @@ describe('InputManager: wheel click', () => {
     const g = input.pollMatch();
     expect(g.wheelClick).toBeNull();
     expect(g.pingAtPointer).toEqual({ clientX: 420, clientY: 270 });
+  });
+
+  it('with grab / dash / ping rebound to the left button, a left click is that action, not a wheel click', () => {
+    expect(wheelClickFree(defaultBindings().keyboard)).toBe(true);
+    for (const a of ['grab', 'dash', 'ping'] as const) {
+      const b = defaultBindings();
+      b.keyboard[a] = ['Mouse0'];
+      expect(wheelClickFree(b.keyboard)).toBe(false);
+      const target = new EventTarget();
+      const input = new InputManager({ target, doc: null, now: () => 1000, getGamepads: () => [], keyboard: null, chordKeys: true });
+      input.setBindings(b);
+      input.pollMatch();
+      target.dispatchEvent(mouse('mousemove', 300, 200));
+      target.dispatchEvent(mouse('mousedown', 310, 205));
+      const f = input.pollMatch();
+      expect(f.wheelClick).toBeNull();
+      if (a === 'grab') expect(f.grabPressed).toBe(true);
+      if (a === 'dash') expect(f.dashPressed).toBe(true);
+      if (a === 'ping') expect(f.pingAtPointer).toEqual({ clientX: 310, clientY: 205 });
+    }
   });
 });

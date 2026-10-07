@@ -19,10 +19,13 @@
  * Mouse: the slot is the one the cursor is on, measured from the wheel's ON-SCREEN center (the HUD
  * reports it, `WheelInput.center`), so the highlight always matches what the player sees, from any
  * cursor position, resolution or UI scale. The mouse takes over only once it has moved a few px
- * (a cursor resting somewhere when the wheel opens pre-selects nothing, and never overrides a
- * stick / key pick until it moves again), and it is not sticky: back on the center disc (or the
- * empty up-left sector) means "no taunt". A left click plays the slot under it at once (a locked
- * gift box just shakes; a click on the center closes the wheel).
+ * (a cursor resting somewhere when the wheel opens pre-selects nothing), and it is not sticky:
+ * back on the center disc (or the empty up-left sector) means "no taunt". A stick / key pick
+ * belongs to the pad: the mouse takes it back only after a deliberate move
+ * (WHEEL_MOUSE_TAKEOVER_PX) onto another slot, never by resting on the center disc. A left click
+ * plays the slot under it at once (a locked gift box just shakes; a click on the center closes
+ * the wheel); with grab / dash / ping rebound to the left button the click is that action
+ * instead (input.ts reports no wheel click, `wheelClickFree`).
  *
  * Releasing the wheel button confirms; grab / dash / pause / right-click close the wheel without
  * a taunt.
@@ -49,6 +52,17 @@ export const WHEEL_PICK_DEADZONE = 0.5;
 export const WHEEL_POINTER_PX = 28;
 /** Mouse travel (CSS px) before the mouse takes over the pick (a resting cursor picks nothing). */
 export const WHEEL_MOUSE_WAKE_PX = 4;
+
+/** Match actions that close the wheel; while one sits on the left mouse button, a click is that action (no click-to-play). */
+export const WHEEL_CLICK_BLOCKERS = ['grab', 'dash', 'ping'] as const;
+
+/** Left click may play a wheel slot: Mouse0 is not bound to an action that closes the wheel. */
+export function wheelClickFree(keyboard: { readonly [A in (typeof WHEEL_CLICK_BLOCKERS)[number]]?: readonly string[] }): boolean {
+  return !WHEEL_CLICK_BLOCKERS.some((a) => (keyboard[a] ?? []).includes('Mouse0'));
+}
+
+/** Mouse travel (CSS px) before the mouse takes back a pick the stick / keys made (a bumped desk is not a pick). */
+export const WHEEL_MOUSE_TAKEOVER_PX = 24;
 
 /** Taunts the player owns: the four base ones plus every rival taunt listed in the save. */
 export function unlockedEmotes(cosmetics: { readonly unlockedEmotes?: readonly string[] | null } | null | undefined): EmoteId[] {
@@ -140,6 +154,8 @@ export class EmoteWheelController {
   private mouseAnchor: { x: number; y: number } | null = null;
   /** The mouse drives the hover (it moved since the wheel opened / since the last stick pick). */
   private mouseActive = false;
+  /** The current hover came from the stick / keys (the mouse needs a real move to take it back). */
+  private padPick = false;
   /** Slot the stick / keys already pointed at when the wheel opened (ignored until it changes). */
   private staleStick: number | null = null;
   private staleKeys: number | null = null;
@@ -172,6 +188,7 @@ export class EmoteWheelController {
     this.origin = null;
     this.mouseAnchor = null;
     this.mouseActive = false;
+    this.padPick = false;
     this.staleStick = this.staleKeys = null;
   }
 
@@ -215,6 +232,7 @@ export class EmoteWheelController {
       this.origin = inp.pointer ? { ...inp.pointer } : null;
       this.mouseAnchor = this.origin;
       this.mouseActive = false;
+      this.padPick = false;
       this.staleStick = wheelSlotAt(inp.stick, n);
       this.staleKeys = wheelSlotAt(inp.keys, n);
       out.justOpened = true;
@@ -237,11 +255,22 @@ export class EmoteWheelController {
       this.hoverValue = pick;
       // the stick / keys took over: the mouse waits until it moves again
       this.mouseActive = false;
+      this.padPick = true;
       this.mouseAnchor = p ? { ...p } : null;
     } else if (p) {
       const a = this.mouseAnchor!;
-      if (!this.mouseActive && Math.hypot(p.x - a.x, p.y - a.y) > WHEEL_MOUSE_WAKE_PX) this.mouseActive = true;
-      if (this.mouseActive) this.hoverValue = this.mouseSlot(p, inp);
+      // a resting cursor wakes after a few px; after a stick / key pick it takes a deliberate move
+      // (a bumped mouse or desk must not steal the pad player's pick)
+      const wake = this.padPick ? WHEEL_MOUSE_TAKEOVER_PX : WHEEL_MOUSE_WAKE_PX;
+      if (!this.mouseActive && Math.hypot(p.x - a.x, p.y - a.y) > wake) this.mouseActive = true;
+      if (this.mouseActive) {
+        const m = this.mouseSlot(p, inp);
+        // the center disc / empty sector clears only a mouse pick, never a stick / key one
+        if (m !== null || !this.padPick) {
+          this.hoverValue = m;
+          this.padPick = false;
+        }
+      }
     }
     // Left click: play the slot under the click at once (a gift box shakes and the wheel stays).
     if (inp.click) {
@@ -250,6 +279,7 @@ export class EmoteWheelController {
       if (id !== undefined && !this.unlocked.has(id)) {
         this.hoverValue = slot;
         this.mouseActive = true;
+        this.padPick = false;
         out.lockedPick = id;
       } else return this.finish(slot, out);
     }

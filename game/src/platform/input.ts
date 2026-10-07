@@ -67,6 +67,7 @@ import {
 } from './glyphs';
 import { isDesktopBuild } from './native';
 import type { GrabMode } from './settings';
+import { wheelClickFree } from './emotes';
 
 export type InputDevice = 'keyboard' | 'mouse' | 'gamepad';
 
@@ -101,7 +102,9 @@ export interface MatchFrame {
   wheelKeys: Vec2;
   /**
    * Left mouse button pressed this poll, at the cursor where it went down (taunt wheel: click a
-   * slot to play it). Reported whatever Mouse0 is bound to; null otherwise.
+   * slot to play it). Null otherwise, and also while Mouse0 is bound to grab, dash or ping: those
+   * close the wheel, so with such a binding a left click is that action and the wheel picks by
+   * hover + release only (WHEEL_CLICK_BLOCKERS).
    */
   wheelClick?: PointerPos | null;
 }
@@ -679,7 +682,7 @@ export class InputManager {
       emoteWheelDown: down('emoteWheel'),
       wheelStick: this.readWheelStick(pad),
       wheelKeys: this.readMoveKeys(),
-      wheelClick: st.pressed.has('Mouse0') ? (st.pressPointer.get('Mouse0') ?? this.pointer) : null,
+      wheelClick: st.pressed.has('Mouse0') && wheelClickFree(this.bindings.keyboard) ? (st.pressPointer.get('Mouse0') ?? this.pointer) : null,
     };
     this.finishPoll(st, pad);
     return frame;
