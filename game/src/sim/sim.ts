@@ -37,6 +37,7 @@ import {
   setLootFree,
   updateUnanchor,
 } from './actions';
+import { endEmotes } from './emotes';
 import { isFiniteVec } from './math';
 import { CAT_BANK, PhysicsWorld, type Body, type PhysicsHooks } from './physics';
 import { PoliceSystem, policeEntriesFor } from './police';
@@ -193,6 +194,7 @@ export class Simulation {
 
     // 6. end check
     checkEnd(ctx);
+    if (st.over) endEmotes(ctx); // a taunt playing at the buzzer stops (emotes.ts)
 
     // 7. police: alarms, dispatch, cars (owner addition; never after the end — officers freeze)
     if (ctx.police) {

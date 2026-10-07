@@ -199,6 +199,11 @@ export interface MatchPointInfo {
    * (deposited in the same zone visit). `value` includes those bags. Absent in classic.
    */
   bagCharIds?: EntityId[];
+  /**
+   * (add-only, F4) Present (true) only with `MatchPointOptions.uprooting` when the load is still
+   * anchored and being uprooted by `team` alone (no carried or dwelling load is decisive).
+   */
+  uprooting?: true;
 }
 
 /** How far a team is from the other one (HUD "역전까지 N · 남은 M"). */
@@ -217,6 +222,14 @@ export interface SwingInfo {
 export interface MatchPointOptions {
   /** Mirror of `RuleConfig.earlyDecision` (default true, as in DEFAULT_RULES / every match). */
   earlyDecision?: boolean;
+  /**
+   * (add-only, F4; default false = the frozen answer) When no carried / dwelling load or bag is
+   * decisive, also consider an anchored load that only one team is pulling (being uprooted): if
+   * it goes in, the match is over too. The HUD prompt uses this so a deciding safe uprooted next
+   * to the zone is announced while it is pulled, not only for its last second of carry; the
+   * MomentTracker, audio and render keep the default.
+   */
+  uprooting?: boolean;
 }
 
 type MatchPointState = Pick<SimState, 'over' | 'scores' | 'remainingValue' | 'loot' | 'characters'>;
@@ -258,6 +271,9 @@ const BAG_LOAD_ORDER = 1e9;
  * recovery or deposit is under way, so it beats another team merely holding the same load), then
  * 'win' before 'tie', more carriers, lower loot id (bag-only loads after every loot, by character
  * id), lower team id (deterministic).
+ *
+ * `opts.uprooting` (add-only, F4 HUD prompt): only when nothing above is decisive, an anchored
+ * load pulled by one team alone counts too (`uprooting: true` on the answer).
  */
 export function matchPointInfo(state: Readonly<MatchPointState>, opts: MatchPointOptions = {}): MatchPointInfo | null {
   if (state.over) return null;
@@ -319,9 +335,36 @@ export function matchPointInfo(state: Readonly<MatchPointState>, opts: MatchPoin
     };
     if (!best || better(cand, best)) best = cand;
   }
+  if (!best && opts.uprooting) {
+    for (const l of state.loot) {
+      if (l.recovered || l.loadedIn !== null || !l.anchored || l.dormant || !l.grabbedBy.length) continue;
+      const team = teamOf.get(l.grabbedBy[0]!);
+      if (team === undefined || l.grabbedBy.some((id) => teamOf.get(id) !== team)) continue;
+      const carrierIds = [...l.grabbedBy].sort((a, b) => a - b);
+      const bagCharIds = carrierIds.filter((id) => bagOf.has(id));
+      let bags = 0;
+      for (const id of bagCharIds) bags += bagOf.get(id)!;
+      const value = l.estimatedValue + bags;
+      const kind = endIfRecovered(state, team, value, early);
+      if (!kind) continue;
+      const cand: Candidate = {
+        team,
+        kind,
+        value,
+        lootIds: l.kind === 'bank' ? [l.id, ...[...l.loadedSafes].sort((a, b) => a - b)] : [l.id],
+        carrierIds,
+        dwelling: false,
+        lootId: l.id,
+        uprooting: true,
+      };
+      if (bagCharIds.length) cand.bagCharIds = bagCharIds;
+      if (!best || better(cand, best)) best = cand;
+    }
+  }
   if (!best) return null;
   const out: MatchPointInfo = { team: best.team, kind: best.kind, value: best.value, lootIds: best.lootIds, carrierIds: best.carrierIds };
   if (best.bagCharIds) out.bagCharIds = best.bagCharIds;
+  if (best.uprooting) out.uprooting = true;
   return out;
 }
 

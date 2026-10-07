@@ -648,3 +648,289 @@ export function alarmBellBuffer(ctx: BaseAudioContext): AudioBuffer {
     return monoBuffer(ctx, out);
   });
 }
+
+// ---------------------------------------------------------------------------------------------
+// Soft haul textures (the drag / bankRumble loops). Band-limited by construction: rounded
+// partials and low-passed noise only, so nothing hisses or clicks however fast they are played.
+// ---------------------------------------------------------------------------------------------
+
+/** Raised-cosine attack gain at sample i of an `att`-sample attack (no click, no step). */
+const softAttack = (i: number, att: number): number => (i < att ? 0.5 - 0.5 * Math.cos((Math.PI * i) / att) : 1);
+
+const bumpWindows = new Map<string, Float32Array>();
+
+/** A bump's gain curve: raised-cosine attack, then a raised-cosine fade over its last third. */
+function bumpWindow(full: number, att: number): Float32Array {
+  const key = `${full}:${att}`;
+  let w = bumpWindows.get(key);
+  if (!w) {
+    w = new Float32Array(full);
+    const rel0 = Math.floor(full * 0.66);
+    for (let i = 0; i < full; i++) {
+      const tail = i > rel0 ? 0.5 + 0.5 * Math.cos((Math.PI * (i - rel0)) / (full - rel0)) : 1;
+      w[i] = softAttack(i, att) * tail;
+    }
+    bumpWindows.set(key, w);
+  }
+  return w;
+}
+
+/**
+ * One rounded "tok" (felt mallet on a wooden toy): damped partials [ratio, amplitude, decay s]
+ * over f0, a pitch that starts a little sharp and settles (the plump toy "boop"), a raised-cosine
+ * attack and a faded end (never a step, so never a click). Oscillators run as rotations and the
+ * glide is updated every 32 samples (phase-continuous).
+ */
+function softBump(
+  sr: number,
+  f0: number,
+  parts: readonly (readonly [number, number, number])[],
+  o: { attack: number; glide: number; glideTau: number; length: number },
+): Float32Array {
+  const n = Math.floor(sr * o.length);
+  const d = new Float32Array(n);
+  const win = bumpWindow(n, Math.max(1, Math.floor(sr * o.attack)));
+  const P = parts.length;
+  const cs = new Float64Array(P);
+  const sn = new Float64Array(P);
+  const rc = new Float64Array(P);
+  const rs = new Float64Array(P);
+  const e = new Float64Array(P);
+  const k = new Float64Array(P);
+  for (let p = 0; p < P; p++) {
+    // Spread start phases so the partials never all peak together (a rounder, less peaky bump).
+    cs[p] = Math.cos(p * 2.1);
+    sn[p] = Math.sin(p * 2.1);
+    e[p] = parts[p][1];
+    k[p] = Math.exp(-1 / (parts[p][2] * sr));
+  }
+  const BLOCK = 32;
+  const kGlide = Math.exp(-BLOCK / (o.glideTau * sr));
+  let glide = o.glide;
+  for (let i = 0; i < n; ) {
+    const w = (2 * Math.PI * f0 * (1 + glide)) / sr;
+    for (let p = 0; p < P; p++) {
+      rc[p] = Math.cos(w * parts[p][0]);
+      rs[p] = Math.sin(w * parts[p][0]);
+    }
+    const end = Math.min(n, i + BLOCK);
+    for (; i < end; i++) {
+      let s = 0;
+      for (let p = 0; p < P; p++) {
+        const x = cs[p] * rc[p] - sn[p] * rs[p];
+        sn[p] = sn[p] * rc[p] + cs[p] * rs[p];
+        cs[p] = x;
+        s += sn[p] * e[p];
+        e[p] *= k[p];
+      }
+      d[i] = s * win[i];
+    }
+    glide *= kGlide;
+  }
+  return d;
+}
+
+/** `count` pre-synthesized bumps at pitches spread evenly over f0 * (1 +- spread). */
+function bumpBank(
+  sr: number,
+  f0: number,
+  spread: number,
+  count: number,
+  parts: readonly (readonly [number, number, number])[],
+  o: { attack: number; glide: number; glideTau: number; length: number },
+): Float32Array[] {
+  const bank: Float32Array[] = [];
+  for (let k = 0; k < count; k++) bank.push(softBump(sr, f0 * (1 + spread * ((2 * k) / (count - 1) - 1)), parts, o));
+  return bank;
+}
+
+/** Mix a bump into d at sample `at`, scaled by amp. */
+function addScaled(d: Float32Array, at: number, b: Float32Array, amp: number): void {
+  const n = Math.min(b.length, d.length - at);
+  for (let i = 0; i < n; i++) d[at + i] += amp * b[i];
+}
+
+/**
+ * Rolling-bump texture of a heavy toy hauled over paving (the 'drag' loop): rounded wooden "tok"s
+ * in loose "du-gu" pairs (a short gap inside a pair, a longer one between pairs, now and then a
+ * skipped or extra bump so it never ticks like a metronome) over a soft low-passed rolling bed
+ * that swells with each contact. Nothing above ~1.5 kHz. 5.2 s, seamless; the loop plays it at a
+ * rate that follows the haul speed, so "dugu-dugu" speeds up as the object does.
+ */
+export function rollBuffer(ctx: BaseAudioContext): AudioBuffer {
+  return cachedBuffer(ctx, 'tex:roll', () => {
+    const sr = ctx.sampleRate;
+    const fade = Math.floor(sr * 0.08);
+    const seconds = 5.2;
+    const len = Math.floor(sr * seconds) + fade;
+    const rnd = makeRng(5150);
+    const d = new Float32Array(len);
+    const contact = new Float32Array(len);
+    // Fundamental, the wooden "tok" overtone (inharmonic, short) and a soft low body thump.
+    const parts = [
+      [1, 1, 0.075],
+      [2.27, 0.18, 0.013],
+      [0.5, 0.4, 0.05],
+    ] as const;
+    const shape = { attack: 0.0045, glide: 0.06, glideTau: 0.012, length: 0.26 };
+    // Five pitches per stroke (+-4.5 %): "du" and the slightly higher "gu".
+    const du = bumpBank(sr, 245, 0.045, 5, parts, shape);
+    const gu = bumpBank(sr, 282, 0.045, 5, parts, shape);
+    // Contact swell of the rolling bed after each bump (~90 ms decay, same window).
+    const cn = Math.floor(sr * shape.length);
+    const cwin = bumpWindow(cn, Math.max(1, Math.floor(sr * shape.attack)));
+    const cproto = new Float32Array(cn);
+    for (let i = 0; i < cn; i++) cproto[i] = Math.exp(-i / (0.09 * sr)) * cwin[i];
+    let t = 0.03;
+    let k = 0;
+    while (t < len / sr - 0.01) {
+      const second = k % 2 === 1;
+      const bank = second ? gu : du;
+      const b = bank[Math.min(bank.length - 1, Math.floor(rnd() * bank.length))];
+      const amp = (second ? 0.78 : 1) * (0.88 + 0.12 * rnd());
+      const at = Math.floor(t * sr);
+      addScaled(d, at, b, amp);
+      for (let i = 0, n = Math.min(cn, len - at); i < n; i++) contact[at + i] = Math.max(contact[at + i], amp * cproto[i]);
+      if (!second) t += 0.085 + rnd() * 0.025;
+      else {
+        t += 0.19 + rnd() * 0.07;
+        // Now and then a lone bump or a quick extra one (uneven paving).
+        const r = rnd();
+        if (r < 0.08) t += 0.12;
+        else if (r < 0.14) k++;
+      }
+      k++;
+    }
+    // Rolling bed: brown noise through two one-pole lowpasses (~420 Hz), breathing with contact.
+    const a = 1 - Math.exp((-2 * Math.PI * 420) / sr);
+    let br = 0;
+    let l1 = 0;
+    let l2 = 0;
+    for (let i = 0; i < len; i++) {
+      br = (br + 0.02 * (rnd() * 2 - 1)) / 1.02;
+      l1 += a * (br - l1);
+      l2 += a * (l1 - l2);
+      d[i] += l2 * 0.8 * (0.3 + 0.7 * contact[i]);
+    }
+    tamePeaks(d, sr, 9);
+    const out = makeLoopable(d, fade);
+    normalizePeak(out, 0.9);
+    return monoBuffer(ctx, out);
+  });
+}
+
+/**
+ * Round off the loudest peaks of a pre-rendered texture (a smooth look-ahead soft-knee limiter):
+ * peaks more than `crestDb` over the RMS are pulled in 3:1, with a gain that glides over a few ms
+ * so it never clicks. Keeps a bump texture punchy but not spiky (no single bump sticks out).
+ */
+function tamePeaks(d: Float32Array, sr: number, crestDb: number): void {
+  const n = d.length;
+  let e = 0;
+  for (let i = 0; i < n; i++) e += d[i] * d[i];
+  const thr = Math.sqrt(e / n) * Math.pow(10, crestDb / 20);
+  // Peak per 2 ms block, then the max over +-6 ms around each block.
+  const B = Math.max(1, Math.floor(sr * 0.002));
+  const nb = Math.ceil(n / B);
+  const bm = new Float32Array(nb);
+  for (let i = 0; i < n; i++) {
+    const v = Math.abs(d[i]);
+    const j = (i / B) | 0;
+    if (v > bm[j]) bm[j] = v;
+  }
+  const gb = new Float32Array(nb);
+  for (let j = 0; j < nb; j++) {
+    let m = 0;
+    for (let q = Math.max(0, j - 3); q <= Math.min(nb - 1, j + 3); q++) m = Math.max(m, bm[q]);
+    gb[j] = m > thr ? (thr + (m - thr) / 3) / m : 1;
+  }
+  // Per-sample gain, zero-phase smoothed (forward + backward one-pole, ~2 ms): it never steps.
+  const g = new Float32Array(n);
+  for (let i = 0; i < n; i++) g[i] = gb[(i / B) | 0];
+  const k = Math.exp(-1 / (0.002 * sr));
+  let y = 1;
+  for (let i = 0; i < n; i++) g[i] = y = k * y + (1 - k) * g[i];
+  y = 1;
+  for (let i = n - 1; i >= 0; i--) g[i] = y = k * y + (1 - k) * g[i];
+  for (let i = 0; i < n; i++) d[i] *= g[i];
+}
+
+/** One period of a harmonic tone with a soft "oh" vowel (harmonics weighted around 340 Hz). */
+function groanCycle(f0: number, n = 2048): Float32Array {
+  const c = new Float32Array(n);
+  // Harmonics stay under ~700 Hz (~850 Hz at the loop's fastest rate): a buzzier series would
+  // beat at f0 (roughness) up there.
+  for (let h = 1; h * f0 < 700; h++) {
+    const f = h * f0;
+    const formant = Math.exp(-Math.pow(Math.log2(f / 340), 2) / (2 * 0.6 * 0.6));
+    const a = (0.25 + formant) / h;
+    for (let i = 0; i < n; i++) c[i] += a * Math.sin((2 * Math.PI * h * i) / n);
+  }
+  return c;
+}
+
+/**
+ * Slow heave texture of a whole building hauled along (the 'bankRumble' loop): big soft
+ * foundation "thunk... thunk"s (deep rounded partials, slow attack, long decay, now and then a
+ * double) and every couple of seconds a gentle musical groan, a vowel-like tone on a D-minor chord
+ * tone (D2 / F2 / A2, the songs' key) that swells, bends up a little and settles. 6 s, seamless.
+ */
+export function heaveBuffer(ctx: BaseAudioContext): AudioBuffer {
+  return cachedBuffer(ctx, 'tex:heave', () => {
+    const sr = ctx.sampleRate;
+    const fade = Math.floor(sr * 0.12);
+    const seconds = 6;
+    const len = Math.floor(sr * seconds) + fade;
+    const rnd = makeRng(6262);
+    const d = new Float32Array(len);
+    const parts = [
+      [1, 1, 0.3],
+      [2.02, 0.7, 0.14],
+      [3.05, 0.4, 0.06],
+    ] as const;
+    // Four thunk pitches over 104 Hz * (0.95 .. 1.11): the upper ones also serve the doubles.
+    const thunks = bumpBank(sr, 104 * 1.03, 0.08, 4, parts, { attack: 0.035, glide: 0.08, glideTau: 0.03, length: 0.8 });
+    const pickThunk = (lo: number): Float32Array => thunks[Math.min(3, lo + Math.floor(rnd() * 3))];
+    let t = 0.08;
+    while (t < len / sr - 0.02) {
+      addScaled(d, Math.floor(t * sr), pickThunk(0), 0.88 + 0.12 * rnd());
+      if (rnd() < 0.18) addScaled(d, Math.floor((t + 0.15 + rnd() * 0.04) * sr), pickThunk(1), 0.55);
+      t += 0.5 + rnd() * 0.35;
+    }
+    // Groans: wavetable tone, raised-sine swell, a small bend up and back, slow vibrato.
+    const notes = [73.42, 87.31, 110, 73.42];
+    let g = 0.6;
+    let gi = 0;
+    while (g < len / sr - 0.3) {
+      const f0 = notes[gi++ % notes.length];
+      const dur = 1.1 + rnd() * 0.6;
+      const table = groanCycle(f0);
+      const N = table.length;
+      const s0 = Math.floor(g * sr);
+      const n = Math.min(len - s0, Math.floor(dur * sr));
+      const vib = 4 + rnd() * 1.2;
+      let ph = rnd() * N;
+      // Pitch and swell move slowly: updated every 16 samples (the phase stays continuous).
+      let inc = 0;
+      let env = 0;
+      for (let i = 0; i < n; i++) {
+        if ((i & 15) === 0) {
+          const u = i / n;
+          const bend = Math.sin(Math.PI * u);
+          inc = (f0 * (1 + 0.035 * bend) * (1 + 0.006 * Math.sin((2 * Math.PI * vib * i) / sr)) * N) / sr;
+          env = 0.46 * bend * Math.sqrt(bend);
+        }
+        ph += inc;
+        if (ph >= N) ph -= N;
+        const j = Math.floor(ph);
+        const x = table[j] + (table[(j + 1) % N] - table[j]) * (ph - j);
+        d[s0 + i] += x * env;
+      }
+      g += dur + 0.8 + rnd() * 1.2;
+    }
+    tamePeaks(d, sr, 3);
+    const out = makeLoopable(d, fade);
+    normalizePeak(out, 0.9);
+    return monoBuffer(ctx, out);
+  });
+}

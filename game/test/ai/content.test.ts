@@ -6,12 +6,13 @@
  */
 import { describe, expect, it } from 'vitest';
 import { Simulation } from '../../src/sim/sim';
-import { ITEMS, ITEM_FOREVER } from '../../src/sim/config';
+import { CHARACTER, ITEMS, ITEM_FOREVER } from '../../src/sim/config';
 import { LAYOUTS } from '../../src/sim/layouts/index';
 import type { CharacterState, Command, LayoutId, RosterEntry, SimEvent } from '../../src/sim/types';
 import { EMPTY_COMMAND } from '../../src/sim/types';
 import { Bot } from '../../src/ai/bot';
 import { DIFFICULTY_PARAMS, HUMAN_PROXY_PARAMS, contentSkill } from '../../src/ai/params';
+import { LUNGE_BONUS, leadPoint } from '../../src/ai/itemSense';
 import { perceptionAccess } from '../../src/ai/perception';
 import { createMatch } from '../../src/ai/harness';
 import type { Difficulty, RivalId } from '../../src/ai/types';
@@ -189,5 +190,71 @@ describe('C6 balance-review fixes', () => {
     }
     const regrabs = bots.flatMap((b) => b.log.filter((l) => /regrab bank/.test(l)));
     expect(regrabs.length).toBeLessThanOrEqual(3);
+  }, 120_000);
+});
+
+describe('C6 code-review fixes', () => {
+  // A foe with its own hammer stands 1 s in sight out of reach, then walks at a held-still hammer
+  // bot: ticks from "lead point in reach" to the deliberate swing press.
+  function reactTicks(diff: Difficulty, seed: number): number | null {
+    const { sim, bots } = v2Match('plaza', [{ team: 0, bot: { personality: 'nunchi', difficulty: diff } }, { team: 1 }], seed);
+    const bot = bots[0]!;
+    const me = sim.state.characters[0]!;
+    const foe = sim.state.characters[1]!;
+    for (let t = 0; t < 30; t++) sim.step([bot.update(sim), EMPTY_COMMAND]);
+    let spot: { x: number; y: number } | null = null;
+    for (let y = 8; y < sim.layout.size.y - 8 && !spot; y += 1) {
+      for (let x = 8; x < sim.layout.size.x - 12 && !spot; x += 1) if (sim.isFree({ x, y }, 2.5) && sim.isFree({ x: x + 3, y }, 2.5) && sim.isFree({ x: x + 6, y }, 2.5)) spot = { x, y };
+    }
+    sim.debug.teleport(me.id, spot!);
+    sim.debug.teleport(foe.id, { x: spot!.x + 6, y: spot!.y });
+    const hammer = () => ({ kind: 'hammer' as const, uses: 5, expiresTick: ITEM_FOREVER, cooldown: 0, phase: 'idle' as const, phaseTicks: 0, aim: 0 });
+    me.item = hammer();
+    foe.item = hammer();
+    const lq = DIFFICULTY_PARAMS[diff].leadQuality;
+    let inReach = -1;
+    for (let t = 0; t < 240; t++) {
+      const c = bot.update(sim);
+      const lp = leadPoint(foe.pos, foe.vel, lq);
+      if (t >= 60 && inReach < 0 && Math.hypot(lp.x - me.pos.x, lp.y - me.pos.y) - CHARACTER.radius <= ITEMS.hammer.reach + LUNGE_BONUS) inReach = t;
+      if (bot.stats.itemSwings > 0) return t >= 60 && inReach >= 0 ? t - inReach : null;
+      const dir = { x: me.pos.x - foe.pos.x, y: me.pos.y - foe.pos.y };
+      const L = Math.hypot(dir.x, dir.y) || 1;
+      sim.step([{ ...c, move: { x: 0, y: 0 } }, t < 60 ? EMPTY_COMMAND : { ...EMPTY_COMMAND, move: { x: (dir.x / L) * 0.6, y: (dir.y / L) * 0.6 } }]);
+    }
+    return null;
+  }
+
+  it('hammer swings at opponents wait for the reaction delay (novice slow, challenge quick)', () => {
+    const samples = (diff: Difficulty): number[] => {
+      const out: number[] = [];
+      for (let seed = 1; seed <= 24 && out.length < 2; seed++) {
+        const r = reactTicks(diff, seed);
+        if (r !== null) out.push(r);
+      }
+      return out;
+    };
+    const novice = samples('novice');
+    const challenge = samples('challenge');
+    expect(novice.length).toBe(2);
+    expect(challenge.length).toBe(2);
+    for (const d of novice) expect(d).toBeGreaterThanOrEqual(DIFFICULTY_PARAMS.novice.reactionDelay * 0.75);
+    for (const d of challenge) expect(d).toBeLessThanOrEqual(DIFFICULTY_PARAMS.challenge.reactionDelay + 4);
+  }, 120_000);
+
+  it('bots never pre-position for a supply drop before it is announced (no hidden-schedule camping)', () => {
+    const { sim, bots } = v2Match('plaza', [{ team: 0, bot: { personality: 'hodadak' } }, { team: 1, bot: { personality: 'nunchi' } }], 21);
+    let fetchTicks = 0;
+    for (let t = 0; t < 110 * 60 && !sim.state.over; t++) {
+      const cmds = bots.map((b) => b!.update(sim));
+      for (const b of bots) {
+        if (b!.intent().goal !== 'fetchItem') continue;
+        fetchTicks++;
+        // a fetch always has an announced (incoming) or landed item to go to
+        expect(sim.state.items.length).toBeGreaterThan(0);
+      }
+      sim.step(cmds);
+    }
+    expect(fetchTicks).toBeGreaterThan(0);
   }, 120_000);
 });

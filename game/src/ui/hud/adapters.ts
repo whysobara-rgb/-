@@ -55,12 +55,21 @@ export interface SimView {
 
 export type Projector = (p: Vec2, height: number) => { x: number; y: number; onScreen: boolean };
 
+/**
+ * Where a loot / character is DRAWN this frame (GameView.renderedPos: the pose interpolated
+ * between sim ticks), or null to use its sim position. Labels anchored to the raw sim position
+ * move in 60 Hz steps up to a tick ahead of the object (a 1.5-4 px buzz at 120/144 Hz).
+ */
+export type PoseLookup = (id: EntityId, kind: 'loot' | 'char') => Vec2 | null;
+
 export interface HudAdapterOptions {
   meId: EntityId;
   myTeam: TeamId;
   mode?: HudModel['mode'];
   /** Screen projection (GameView.project). Without it, labels and arrows are omitted. */
   project?: Projector;
+  /** Rendered (interpolated) positions to anchor labels on (default: sim positions). */
+  posOf?: PoseLookup;
   /** Opponent visibility for the minimap (default: never — public info only). */
   isOpponentVisible?: (c: CharacterState) => boolean;
   /** Meters within which safe value tags are shown (default 7). */
@@ -75,6 +84,26 @@ export interface HudAdapterOptions {
 }
 
 const dist2 = (a: Vec2, b: Vec2): number => (a.x - b.x) ** 2 + (a.y - b.y) ** 2;
+
+/** Proximity tags stay up until NEAR_HYST m past the near radius (no pop at the edge). */
+const NEAR_HYST = 0.75;
+const nearValueTags = new WeakMap<SimView, Set<EntityId>>();
+const nearPropTags = new WeakMap<SimView, Set<EntityId>>();
+
+/** Last call's near-shown ids (`was`) and a fresh set for this call (`now`). */
+function nearSet(map: WeakMap<SimView, Set<EntityId>>, sim: SimView): { was: Set<EntityId>; now: Set<EntityId> } {
+  const was = map.get(sim) ?? new Set<EntityId>();
+  const now = new Set<EntityId>();
+  map.set(sim, now);
+  return { was, now };
+}
+
+/** Inside the near radius, or still inside its hysteresis band after being shown last frame. */
+function nearHold(s: { was: Set<EntityId>; now: Set<EntityId> }, id: EntityId, d2: number, near2: number, hold2: number): boolean {
+  const near = d2 < near2 || (s.was.has(id) && d2 < hold2);
+  if (near) s.now.add(id);
+  return near;
+}
 
 /**
  * Language-following name for a character's world tag:
@@ -225,12 +254,16 @@ export function labelsFromSim(
   sim: SimView,
   me: CharacterState,
   project: Projector,
-  o: { nearRadius?: number; nameTags?: boolean } = {},
+  o: { nearRadius?: number; nameTags?: boolean; posOf?: PoseLookup } = {},
 ): { labels: WorldLabelModel[]; arrows: OffscreenTarget[] } {
   const st = sim.state;
   const labels: WorldLabelModel[] = [];
   const arrows: OffscreenTarget[] = [];
   const near2 = (o.nearRadius ?? 7) ** 2;
+  // anchors: the drawn (interpolated) pose when the view supplies it, else the sim position
+  const at = (id: EntityId, kind: 'loot' | 'char', fallback: Vec2): Vec2 => o.posOf?.(id, kind) ?? fallback;
+  const nearShown = nearSet(nearValueTags, sim);
+  const hold2 = ((o.nearRadius ?? 7) + NEAR_HYST) ** 2;
   const cand = me.grab ? null : sim.getGrabCandidate(me.id);
   const heldId = me.grab?.targetId ?? null;
   const heldLoot = heldId !== null ? sim.getLoot(heldId) : undefined;
@@ -242,8 +275,9 @@ export function labelsFromSim(
     const isBank = l.kind === 'bank';
     const focus = l.id === cand?.targetId || l.id === heldId || pinged.has(l.id);
     const inCarriedBank = heldLoot?.kind === 'bank' && l.loadedIn === heldLoot.id;
+    const lp = at(l.id, 'loot', l.pos);
     if (isBank) {
-      const p = project(l.pos, BANK_MODEL.roofHeight + 1.2);
+      const p = project(lp, BANK_MODEL.roofHeight + 1.2);
       const carried = carrierTeam(st, l);
       if (p.onScreen) {
         labels.push({
@@ -259,22 +293,22 @@ export function labelsFromSim(
           focus,
         });
       }
-    } else if (l.kind !== 'bank' && !l.variant && (focus || inCarriedBank || dist2(l.pos, me.pos) < near2)) {
+    } else if (l.kind !== 'bank' && !l.variant && (focus || inCarriedBank || nearHold(nearShown, l.id, dist2(l.pos, me.pos), near2, hold2))) {
       // [C8] props (variant) are tagged by contentFromSim ("ATM 200 · 동전 8"), not as a safe
-      const p = project(l.pos, SAFE_SPECS[l.kind].height + 0.6);
+      const p = project(lp, SAFE_SPECS[l.kind].height + 0.6);
       if (p.onScreen) labels.push({ kind: 'value', id: l.id, x: p.x, y: p.y, loot: l.kind, value: l.baseValue, loaded: l.loadedIn !== null, focus });
     }
     if (l.recovery) {
-      const p = project(l.pos, isBank ? BANK_MODEL.roofHeight + 3.4 : (l.variant ? PROP_SPECS[l.variant].height : SAFE_SPECS[l.kind as 'smallSafe'].height) + 1.8);
+      const p = project(lp, isBank ? BANK_MODEL.roofHeight + 3.4 : (l.variant ? PROP_SPECS[l.variant].height : SAFE_SPECS[l.kind as 'smallSafe'].height) + 1.8);
       if (p.onScreen) labels.push({ kind: 'recovery', id: l.id, x: p.x, y: p.y, progress: l.recovery.ticks / sim.rules.recoveryTicks, team: l.recovery.team });
     }
     // Arrows: things carried by my team, or pinged by my team.
     const holderTeam = carrierTeam(st, l);
     if (holderTeam === me.team && l.id !== heldId) {
-      const p = project(l.pos, 1);
+      const p = project(lp, 1);
       arrows.push({ id: `carry:${l.id}`, x: p.x, y: p.y, behind: false, kind: isBank ? 'bank' : 'carry', team: me.team, value: l.estimatedValue });
     } else if (pinged.has(l.id)) {
-      const p = project(l.pos, 1);
+      const p = project(lp, 1);
       arrows.push({ id: `ping:${l.id}`, x: p.x, y: p.y, kind: isBank ? 'bank' : 'safe', team: me.team, value: l.estimatedValue });
     }
   }
@@ -294,7 +328,7 @@ export function labelsFromSim(
   }
   if (o.nameTags ?? st.characters.length > 2) {
     for (const c of st.characters) {
-      const p = project(c.pos, 2.3);
+      const p = project(at(c.id, 'char', c.pos), 2.3);
       if (p.onScreen) labels.push({ kind: 'name', id: c.id, x: p.x, y: p.y, text: characterNameRef(c, me.id, me.team), team: c.team, isMe: c.id === me.id });
     }
   }
@@ -309,7 +343,7 @@ export function hudModelFromSim(sim: SimView, o: HudAdapterOptions): HudModel {
   const remainingBank = banks.find((b) => !b.recovered);
   const remainingLoot = remainingBank ? sim.getLoot(remainingBank.id) : undefined;
   const timeLeftSec = Number.isFinite(st.endTick) ? Math.max(0, st.endTick - st.tick) / TICK_RATE : null;
-  const lw = me && o.project ? labelsFromSim(sim, me, o.project, { nearRadius: o.nearRadius, nameTags: o.nameTags }) : null;
+  const lw = me && o.project ? labelsFromSim(sim, me, o.project, { nearRadius: o.nearRadius, nameTags: o.nameTags, posOf: o.posOf }) : null;
   const mode = o.mode ?? (sim.rules.timeLimit ? 'match' : 'practice');
   const tension = mode === 'match' ? tensionFromSim(sim, o.myTeam, o.matchPoint) : { matchPoint: null, swing: null };
   return {
@@ -330,7 +364,7 @@ export function hudModelFromSim(sim: SimView, o: HudAdapterOptions): HudModel {
     arrows: lw?.arrows,
     matchPoint: tension.matchPoint,
     swing: tension.swing,
-    content: me ? contentFromSim(sim, me, o.project, { nearRadius: o.nearRadius }) : null,
+    content: me ? contentFromSim(sim, me, o.project, { nearRadius: o.nearRadius, posOf: o.posOf }) : null,
   };
 }
 
@@ -346,7 +380,8 @@ export function tensionFromSim(sim: SimView, myTeam: TeamId, mp?: MatchPointInfo
     latch.reset();
     return { matchPoint: null, swing: null };
   }
-  const info = latch.update(mp === undefined ? matchPointInfo(st, { earlyDecision: sim.rules.earlyDecision }) : mp, st);
+  // the prompt also announces a deciding load while one team uproots it (`uprooting`, add-only)
+  const info = latch.update(mp === undefined ? matchPointInfo(st, { earlyDecision: sim.rules.earlyDecision, uprooting: true }) : mp, st);
   return { matchPoint: hudMatchPoint(info, st, myTeam), swing: hudSwing(st, myTeam) };
 }
 
@@ -411,11 +446,11 @@ export function bagFromState(me: CharacterState): HudBag | null {
 }
 
 /** Ring under my feet while the deposit timer runs (needs a projector). */
-export function depositRingFromState(me: CharacterState, project: Projector | undefined): HudDepositRing | null {
+export function depositRingFromState(me: CharacterState, project: Projector | undefined, posOf?: PoseLookup): HudDepositRing | null {
   const bag = me.bag ?? 0;
   const d = me.depositTicks ?? 0;
   if (!project || bag <= 0 || d <= 0 || me.knockdownTicks > 0) return null;
-  const p = project(me.pos, 0.05);
+  const p = project(posOf?.(me.id, 'char') ?? me.pos, 0.05);
   if (!p.onScreen) return null;
   return { x: p.x, y: p.y, progress: Math.min(1, d / COINS.depositTicks), value: bag, team: me.team };
 }
@@ -425,17 +460,20 @@ export function depositRingFromState(me: CharacterState, project: Projector | un
  * near me: "나무 상자 · 동전 2"; every item on screen (the HUD shows a name tag only on the first
  * sightings of its kind). Proximity only (doc §4: not every number at once).
  */
-export function contentLabelsFromSim(sim: SimView, me: CharacterState, project: Projector, o: { nearRadius?: number } = {}): ContentLabelModel[] {
+export function contentLabelsFromSim(sim: SimView, me: CharacterState, project: Projector, o: { nearRadius?: number; posOf?: PoseLookup } = {}): ContentLabelModel[] {
   const st = sim.state;
   const out: ContentLabelModel[] = [];
   const near2 = (o.nearRadius ?? 7) ** 2;
+  const nearShown = nearSet(nearPropTags, sim);
+  const hold2 = ((o.nearRadius ?? 7) + NEAR_HYST) ** 2;
   const cand = me.grab ? null : sim.getGrabCandidate(me.id);
   const heldId = me.grab?.targetId ?? null;
   for (const l of st.loot) {
     if (!l.variant || l.recovered || l.dormant || l.airborne) continue;
     const focus = l.id === cand?.targetId || l.id === heldId;
-    if (!focus && dist2(l.pos, me.pos) >= near2) continue;
-    const p = project(l.pos, PROP_SPECS[l.variant].height + PROP_TAG_LIFT);
+    if (!focus && !nearHold(nearShown, l.id, dist2(l.pos, me.pos), near2, hold2)) continue;
+    // anchored on the drawn (interpolated) pose, like the safe value tags
+    const p = project(o.posOf?.(l.id, 'loot') ?? l.pos, PROP_SPECS[l.variant].height + PROP_TAG_LIFT);
     if (!p.onScreen) continue;
     const inner = Math.max(0, l.innerValue ?? 0);
     out.push({
@@ -468,12 +506,12 @@ export function contentLabelsFromSim(sim: SimView, me: CharacterState, project: 
 }
 
 /** HudModel.content for the local player; null in classic. */
-export function contentFromSim(sim: SimView, me: CharacterState, project: Projector | undefined, o: { nearRadius?: number } = {}): HudContentModel | null {
+export function contentFromSim(sim: SimView, me: CharacterState, project: Projector | undefined, o: { nearRadius?: number; posOf?: PoseLookup } = {}): HudContentModel | null {
   if (sim.rules.content !== 'v2') return null;
   return {
     item: itemSlotFromState(sim.state, me),
     bag: bagFromState(me),
-    deposit: depositRingFromState(me, project),
+    deposit: depositRingFromState(me, project, o.posOf),
     labels: project ? contentLabelsFromSim(sim, me, project, o) : [],
     downed: me.knockdownTicks > 0,
     teamScore: sim.state.scores[me.team] ?? 0,

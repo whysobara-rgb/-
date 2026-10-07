@@ -10,12 +10,22 @@
  * `cosmetics.unlockedEmotes` (a save without the field owns none). Locked slots can be hovered
  * (the HUD shows a gift box and how to earn it) but never fire.
  *
- * Picking: the pad's stronger stick, the movement keys, or the mouse moved away from where it was
- * when the wheel opened. A stick / key direction that was already held when the wheel opened
- * (the player was running) is ignored until it goes back to neutral or turns to another slot, so
- * tapping the wheel button while running never fires a taunt by itself. The last pick sticks when
- * the stick springs back to the middle, so "flick, then let go of LB" works. Releasing the wheel
- * button confirms; grab / dash / pause close the wheel without a taunt.
+ * Picking: the pad's stronger stick, the movement keys, or the mouse. A stick / key direction
+ * that was already held when the wheel opened (the player was running) is ignored until it goes
+ * back to neutral or turns to another slot, so tapping the wheel button while running never fires
+ * a taunt by itself. The last stick / key pick sticks when the stick springs back to the middle,
+ * so "flick, then let go of LB" works.
+ *
+ * Mouse: the slot is the one the cursor is on, measured from the wheel's ON-SCREEN center (the HUD
+ * reports it, `WheelInput.center`), so the highlight always matches what the player sees, from any
+ * cursor position, resolution or UI scale. The mouse takes over only once it has moved a few px
+ * (a cursor resting somewhere when the wheel opens pre-selects nothing, and never overrides a
+ * stick / key pick until it moves again), and it is not sticky: back on the center disc (or the
+ * empty up-left sector) means "no taunt". A left click plays the slot under it at once (a locked
+ * gift box just shakes; a click on the center closes the wheel).
+ *
+ * Releasing the wheel button confirms; grab / dash / pause / right-click close the wheel without
+ * a taunt.
  */
 import { BASE_EMOTES, type EmoteId } from '../sim/types';
 import type { Vec2 } from '../sim/types';
@@ -35,8 +45,10 @@ export const EMOTE_RIVAL: Readonly<Partial<Record<EmoteId, 'hodadak' | 'tongkeun
 
 /** Stick / key travel that picks a slot. */
 export const WHEEL_PICK_DEADZONE = 0.5;
-/** Mouse travel (CSS px from where the wheel opened) that picks a slot. */
+/** Mouse deadzone (CSS px) around the wheel center when the HUD does not report its center disc. */
 export const WHEEL_POINTER_PX = 28;
+/** Mouse travel (CSS px) before the mouse takes over the pick (a resting cursor picks nothing). */
+export const WHEEL_MOUSE_WAKE_PX = 4;
 
 /** Taunts the player owns: the four base ones plus every rival taunt listed in the save. */
 export function unlockedEmotes(cosmetics: { readonly unlockedEmotes?: readonly string[] | null } | null | undefined): EmoteId[] {
@@ -96,7 +108,14 @@ export interface WheelInput {
   keys: Vec2;
   /** Cursor position (client px), when known. */
   pointer: { x: number; y: number } | null;
-  /** Grab / dash / pause pressed: close without a taunt. */
+  /**
+   * The drawn wheel's center (client px) and the radius of its center disc (the mouse deadzone),
+   * from the HUD. Without it the mouse measures from where the cursor was when the wheel opened.
+   */
+  center?: { x: number; y: number; dead: number } | null;
+  /** Left click this tick (client px): plays the slot under it right away. */
+  click?: { x: number; y: number } | null;
+  /** Grab / dash / pause / right-click pressed: close without a taunt. */
   cancel: boolean;
 }
 
@@ -117,6 +136,10 @@ export class EmoteWheelController {
   private hoverValue: number | null = null;
   private wasHeld = false;
   private origin: { x: number; y: number } | null = null;
+  /** Where the cursor was when the mouse last went idle (open, or a stick / key pick). */
+  private mouseAnchor: { x: number; y: number } | null = null;
+  /** The mouse drives the hover (it moved since the wheel opened / since the last stick pick). */
+  private mouseActive = false;
   /** Slot the stick / keys already pointed at when the wheel opened (ignored until it changes). */
   private staleStick: number | null = null;
   private staleKeys: number | null = null;
@@ -147,7 +170,29 @@ export class EmoteWheelController {
     this.openValue = false;
     this.hoverValue = null;
     this.origin = null;
+    this.mouseAnchor = null;
+    this.mouseActive = false;
     this.staleStick = this.staleKeys = null;
+  }
+
+  /** Slot under a cursor position on the drawn wheel (null: center disc, empty sector, unknown). */
+  private mouseSlot(p: { x: number; y: number }, inp: WheelInput): number | null {
+    const c = inp.center ?? (this.origin ? { ...this.origin, dead: WHEEL_POINTER_PX } : null);
+    if (!c || !Number.isFinite(c.x) || !Number.isFinite(c.y)) return null;
+    const dead = Number.isFinite(c.dead) && c.dead > 0 ? c.dead : WHEEL_POINTER_PX;
+    return wheelSlotAt({ x: p.x - c.x, y: p.y - c.y }, EMOTE_IDS.length, dead);
+  }
+
+  /** Play (or, for a gift box, shake) a slot and close; null closes without a taunt. */
+  private finish(slot: number | null, out: WheelStep): WheelStep {
+    const id = slot !== null ? EMOTE_IDS[slot] : undefined;
+    if (id !== undefined) {
+      if (this.unlocked.has(id)) out.confirmed = id;
+      else out.lockedPick = id;
+    }
+    this.close();
+    out.justClosed = true;
+    return out;
   }
 
   /** A direction held since the wheel opened counts only once it went neutral or changed slot. */
@@ -168,6 +213,8 @@ export class EmoteWheelController {
       this.openValue = true;
       this.hoverValue = null;
       this.origin = inp.pointer ? { ...inp.pointer } : null;
+      this.mouseAnchor = this.origin;
+      this.mouseActive = false;
       this.staleStick = wheelSlotAt(inp.stick, n);
       this.staleKeys = wheelSlotAt(inp.keys, n);
       out.justOpened = true;
@@ -178,25 +225,35 @@ export class EmoteWheelController {
       out.justClosed = true;
       return out;
     }
-    // Pick: stick, then keys, then the mouse (each only when deliberately pushed).
+    // Pick: stick, then keys (each only when deliberately pushed; the last pick sticks), then the
+    // mouse once it moved (the slot under the cursor on the drawn wheel; not sticky).
     let pick = this.fresh(wheelSlotAt(inp.stick, n), 'staleStick');
     const keyPick = this.fresh(wheelSlotAt(inp.keys, n), 'staleKeys');
     if (pick === null) pick = keyPick;
-    if (pick === null && inp.pointer) {
-      if (!this.origin) this.origin = { ...inp.pointer };
-      pick = wheelSlotAt({ x: inp.pointer.x - this.origin.x, y: inp.pointer.y - this.origin.y }, n, WHEEL_POINTER_PX);
+    const p = inp.pointer;
+    if (p && !this.origin) this.origin = { ...p };
+    if (p && !this.mouseAnchor) this.mouseAnchor = { ...p };
+    if (pick !== null) {
+      this.hoverValue = pick;
+      // the stick / keys took over: the mouse waits until it moves again
+      this.mouseActive = false;
+      this.mouseAnchor = p ? { ...p } : null;
+    } else if (p) {
+      const a = this.mouseAnchor!;
+      if (!this.mouseActive && Math.hypot(p.x - a.x, p.y - a.y) > WHEEL_MOUSE_WAKE_PX) this.mouseActive = true;
+      if (this.mouseActive) this.hoverValue = this.mouseSlot(p, inp);
     }
-    if (pick !== null) this.hoverValue = pick;
-    if (!inp.held) {
-      const id = this.hoverValue !== null ? EMOTE_IDS[this.hoverValue] : undefined;
-      if (id !== undefined) {
-        if (this.unlocked.has(id)) out.confirmed = id;
-        else out.lockedPick = id;
-      }
-      this.close();
-      out.justClosed = true;
-      return out;
+    // Left click: play the slot under the click at once (a gift box shakes and the wheel stays).
+    if (inp.click) {
+      const slot = this.mouseSlot(inp.click, inp);
+      const id = slot !== null ? EMOTE_IDS[slot] : undefined;
+      if (id !== undefined && !this.unlocked.has(id)) {
+        this.hoverValue = slot;
+        this.mouseActive = true;
+        out.lockedPick = id;
+      } else return this.finish(slot, out);
     }
+    if (!inp.held) return this.finish(this.hoverValue, out);
     out.open = true;
     out.hover = this.hoverValue;
     return out;

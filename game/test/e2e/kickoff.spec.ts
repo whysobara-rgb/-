@@ -38,12 +38,20 @@ async function cue(page: Page): Promise<CueInfo | null> {
   return uproot<CueInfo | null>(page, 'u.app.currentMatch ? u.app.currentMatch.kickoffCueInfo() : null');
 }
 
+/** End the match and go back to the menu (retried: the end hold / results may still be opening). */
 async function leaveMatch(page: Page): Promise<void> {
-  await uproot(page, '(u.endMatch(), u.app.toMenu(), 0)');
-  await waitState(page, 'menu', 120_000);
+  await uproot(page, '(u.endMatch(), 0)');
+  for (let i = 0; i < 60; i++) {
+    if ((await appState(page)) === 'menu') return;
+    await uproot(page, '(u.app.toMenu(), 0)');
+    await page.waitForTimeout(2000);
+  }
+  await waitState(page, 'menu', 10_000);
 }
 
 test('kickoff cue: arrow only on matches 1-9 of a fresh save; pulse / cue gone after 5 s', async ({ page }) => {
+  // five match starts at speed 1 under software GL
+  test.setTimeout(25 * 60 * 1000);
   const problems = watchConsole(page);
   const missing: string[] = [];
   page.on('response', (r) => {

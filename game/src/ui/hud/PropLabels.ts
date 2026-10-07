@@ -14,13 +14,16 @@ import type { ItemKind } from '../../sim/types';
 import { t } from '../i18n';
 import { animateEl, h, setClass, setText } from '../core/dom';
 import { fmtScore } from '../core/format';
-import { placeLabel, type Box } from '../core/declutter';
+import { layoutTags, newTagMemory, type Box, type Tag } from '../core/declutter';
 import { breakableGlyph, breakableNameKey, itemGlyph, itemHintKey, itemNameKey, propGlyph, propNameKey } from './contentIcons';
 import type { ContentLabelModel } from './contentTypes';
 
 type Kind = ContentLabelModel['kind'];
 
-interface Entry {
+/** Monotonic age stamp: among equal priorities the older tag keeps its spot. */
+let seqNext = 0;
+
+interface Entry extends Tag {
   kind: Kind;
   el: HTMLElement;
   inner: HTMLElement;
@@ -50,6 +53,8 @@ export class PropLabels {
   private readonly free: Entry[] = [];
   private readonly order: Entry[] = [];
   private readonly placed: Box[] = [];
+  /** Time of the previous layout (ms) for easing nudges; NaN = none yet. */
+  private lastT = NaN;
 
   constructor() {
     this.el = h('div', { class: 'uh-ctags', 'aria-hidden': 'true' });
@@ -105,8 +110,10 @@ export class PropLabels {
       const el = h('div', { class: 'uh-ctag' }, inner);
       el.hidden = true;
       this.el.appendChild(el);
-      e = { kind, el, inner, art, main, sub, pips, x: NaN, y: NaN, ax: 0, ay: 0, w: 0, h: 0, dirty: true, prio: 0, seen: false, artKey: '', textKey: '' };
+      e = { kind, el, inner, art, main, sub, pips, x: NaN, y: NaN, ax: 0, ay: 0, w: 0, h: 0, dirty: true, prio: 0, seen: false, artKey: '', textKey: '', seq: 0, ...newTagMemory() };
     }
+    Object.assign(e, newTagMemory());
+    e.seq = seqNext++;
     e.kind = kind;
     e.el.className = `uh-ctag uh-ctag--${kind}`;
     e.artKey = '';
@@ -177,6 +184,9 @@ export class PropLabels {
   }
 
   private layout(): void {
+    const now = performance.now();
+    const dt = Number.isFinite(this.lastT) ? (now - this.lastT) / 1000 : 0;
+    this.lastT = now;
     const order = this.order;
     order.length = 0;
     for (const e of this.active.values()) {
@@ -188,19 +198,18 @@ export class PropLabels {
       if (e.w <= 0) this.place(e, e.ax, e.ay);
       else order.push(e);
     }
-    order.sort((a, b) => a.prio - b.prio || a.ay - b.ay);
+    // same temporal de-overlap as WorldLabels: sticky sides, eased nudges, exact anchors
     const placed = this.placed;
     placed.length = 0;
-    for (const e of order) this.place(e, e.ax, placeLabel(placed, e.ax, e.ay, e.w, e.h, GAP));
+    layoutTags(order, placed, dt, GAP);
+    for (const e of order) this.place(e, e.ax, e.ay + e.off.x);
   }
 
   private place(e: Entry, ax: number, ay: number): void {
-    const x = Math.round(ax * 2) / 2;
-    const y = Math.round(ay * 2) / 2;
-    if (x !== e.x || y !== e.y) {
-      e.x = x;
-      e.y = y;
-      e.el.style.transform = `translate3d(${x}px,${y}px,0)`;
-    }
+    // fractional px (no 0.5 px snapping shimmer); no write for sub-0.05 px changes
+    if (Math.abs(ax - e.x) < 0.05 && Math.abs(ay - e.y) < 0.05) return;
+    e.x = ax;
+    e.y = ay;
+    e.el.style.transform = `translate3d(${ax.toFixed(2)}px,${ay.toFixed(2)}px,0)`;
   }
 }

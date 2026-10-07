@@ -214,6 +214,22 @@ describe('director [F8]: match point heartbeat', () => {
     e2.clear();
     feed(e2, d2, 100, { matchPoint: 'ours' });
     expect(e2.played('tensionHeartbeat').every((b) => b.o?.volume === TENSION_AUDIO.heartbeatVolume.ours)).toBe(true);
+    // their match point: the same warning duck (heartbeatVolume.theirs x warnHeartbeatScale), no music duck
+    const { eng: e3, dir: d3 } = setup();
+    feed(e3, d3, 10, { matchPoint: 'theirs' });
+    d3.onEvents([{ type: 'matchEvent', tick: 10, kind: 'moneyRain', phase: 'warn', pos: { x: 0, y: 0 } }], sim);
+    e3.clear();
+    feed(e3, d3, 200, { matchPoint: 'theirs' });
+    const warnedTheirs = e3.played('tensionHeartbeat');
+    expect(warnedTheirs.length).toBeGreaterThan(2);
+    expect(warnedTheirs.every((b) => Math.abs((b.o?.volume ?? 1) - TENSION_AUDIO.heartbeatVolume.theirs * TENSION_AUDIO.warnHeartbeatScale) < 1e-9)).toBe(true);
+    expect(warnedTheirs.every((b) => (b.o?.step ?? 0) < 0)).toBe(true);
+    expect(e3.calls.filter((c) => c.fn === 'duck')).toHaveLength(0);
+    d3.onEvents([{ type: 'matchEvent', tick: 210, kind: 'moneyRain', phase: 'start', pos: { x: 0, y: 0 } }], sim);
+    e3.clear();
+    feed(e3, d3, 100, { matchPoint: 'theirs' });
+    expect(e3.played('tensionHeartbeat').every((b) => b.o?.volume === TENSION_AUDIO.heartbeatVolume.theirs)).toBe(true);
+    expect(e3.calls.filter((c) => c.fn === 'duck').length).toBeGreaterThan(0);
   });
 
   it('stops for good at the end of the match', () => {
@@ -364,9 +380,9 @@ describe('director [F8]: coin climb on unanswered runs', () => {
     expect(eng.played('scoreSmall').at(-1)!.o?.step).toBe(TENSION_AUDIO.climbMax);
   });
 
-  it('the climb also follows the run size: one more degree per climbPointsPerStep points, from zero on every new run', () => {
+  it('the climb also follows the run size: one more degree per climbRunShare x totalValue points, from zero on every new run', () => {
     const { eng, dir, sim } = setup();
-    const P = TENSION_AUDIO.climbPointsPerStep;
+    const P = TENSION_AUDIO.climbRunShare * sim.state.totalValue;
     const bank = (tick: number, value: number): SimEvent => ({ type: 'recovered', tick, lootId: 9, kind: 'bank', team: 0, value, safeIds: [], safesValue: 0, holders: [] }) as SimEvent;
     dir.setTension({ ...calm, run: { side: 'ours', recoveries: 1, tier: 0 } });
     dir.onEvents([bank(100, 2 * P + 50)], sim); // one loaded bank opens the run: 0 + 2
@@ -380,6 +396,25 @@ describe('director [F8]: coin climb on unanswered runs', () => {
     dir.setTension({ ...calm, run: { side: 'ours', recoveries: 1, tier: 0 } });
     dir.onEvents([rec(600, 0, 82)], sim);
     expect(eng.played('scoreSmall').at(-1)!.o?.step).toBe(0);
+  });
+
+  it('the size step is a share of the match total, so it tracks content (classic 3200 vs v2 4000 vs 4400 with a loot event)', () => {
+    const bank = (tick: number, value: number): SimEvent => ({ type: 'recovered', tick, lootId: 9, kind: 'bank', team: 0, value, safeIds: [], safesValue: 0, holders: [] }) as SimEvent;
+    const stepFor = (total: number, value: number): number => {
+      const { eng, dir, sim } = setup();
+      (sim.state as { totalValue: number }).totalValue = total;
+      dir.setTension({ ...calm, run: { side: 'ours', recoveries: 1, tier: 0 } });
+      dir.onEvents([bank(100, value)], sim);
+      return eng.played('scoreBank').at(-1)!.o!.step!;
+    };
+    for (const total of [3200, 4000, 4400]) {
+      const per = TENSION_AUDIO.climbRunShare * total;
+      expect(stepFor(total, Math.ceil(per) - 1), `total ${total}`).toBe(0);
+      expect(stepFor(total, Math.ceil(per)), `total ${total}`).toBe(1);
+      expect(stepFor(total, Math.ceil(2 * per)), `total ${total}`).toBe(2);
+    }
+    // the same 560-point bank is a full step in classic but not in v2
+    expect(stepFor(3200, 560)).toBeGreaterThan(stepFor(4000, 560));
   });
 
   it('without the fun-round wiring the old 8 s combo still applies', () => {

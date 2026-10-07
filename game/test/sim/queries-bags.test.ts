@@ -135,6 +135,48 @@ describe('matchPointInfo: coin bags are loads (F4)', () => {
   });
 });
 
+describe('matchPointInfo uprooting option (F4 HUD prompt, add-only)', () => {
+  it('an anchored deciding load pulled by one team counts only with the option, and only when nothing in play decides', () => {
+    const st = baseState();
+    const [s1, s2] = outdoor(st, 'smallSafe');
+    leaveOnly(st, [s1!.id, s2!.id]); // 200 left
+    setScores(st, 1600); // 1600 : 1400 -> team 0 banking 100 wins (1700 > 1400 + 100)
+    const a = st.loot.find((l) => l.id === s1!.id)!;
+    expect(a.anchored).toBe(true);
+    a.grabbedBy = [1];
+    a.unanchorProgress = 0.4;
+    expect(matchPointInfo(st)).toBeNull(); // the frozen default: anchored never counts
+    const up = matchPointInfo(st, { uprooting: true })!;
+    expect(up).toEqual({ team: 0, kind: 'win', value: 100, lootIds: [s1!.id], carrierIds: [1], uprooting: true });
+    // contested (both teams pulling): nobody's
+    a.grabbedBy = [1, 3];
+    expect(matchPointInfo(st, { uprooting: true })).toBeNull();
+    // nobody pulling: nothing
+    a.grabbedBy = [];
+    expect(matchPointInfo(st, { uprooting: true })).toBeNull();
+    // a carried / dwelling deciding load outranks any uprooting one
+    a.grabbedBy = [1];
+    hold(st, s2!.id, [3]); // team 1 banking 100 -> 1500 vs 1600 + 0? not decisive
+    expect(matchPointInfo(st, { uprooting: true })).toMatchObject({ uprooting: true, lootIds: [s1!.id] });
+    hold(st, s2!.id, [2]);
+    const carried = matchPointInfo(st, { uprooting: true })!;
+    expect(carried).toEqual({ team: 0, kind: 'win', value: 100, lootIds: [s2!.id], carrierIds: [2] });
+    expect('uprooting' in carried).toBe(false);
+  });
+
+  it("a non-deciding or 'tie' uprooting load is reported with the same end arithmetic", () => {
+    const st = baseState();
+    const [s1] = outdoor(st, 'smallSafe');
+    leaveOnly(st, [s1!.id]); // the last 100
+    setScores(st, 1500); // 1500 : 1600 -> team 0 banking it levels: a draw
+    const a = st.loot.find((l) => l.id === s1!.id)!;
+    a.grabbedBy = [2];
+    expect(matchPointInfo(st, { uprooting: true })).toMatchObject({ team: 0, kind: 'tie', uprooting: true });
+    a.grabbedBy = [4]; // team 1 banking it -> 1700 : 1500, the last value: a win
+    expect(matchPointInfo(st, { uprooting: true })).toMatchObject({ team: 1, kind: 'win', uprooting: true });
+  });
+});
+
 describe('swingInfo counts coins (F4)', () => {
   it('10-point steps once coins / bags are on the field; classic stays at 100', () => {
     const st = baseState();

@@ -933,6 +933,19 @@ export class GameView {
     return true;
   }
 
+  /**
+   * Where a loot / character is drawn this frame (the pose interpolated between sim ticks by the
+   * last render), for HUD label anchors: project(renderedPos(id) ?? simPos, h) stays glued to
+   * the object at any display rate. Null when it is not drawn (fall back to the sim position).
+   */
+  renderedPos(id: EntityId, kind: 'loot' | 'char'): Vec2 | null {
+    if (kind === 'char') return this.chars.get(id)?.pose ?? null;
+    const bv = this.banks.get(id);
+    if (bv) return bv.done ? null : bv.pose;
+    const sv = this.safes.get(id);
+    return sv && !sv.done ? sv.pose : null;
+  }
+
   /** Project a sim point at `height` meters to CSS pixels inside the container. */
   project(p: Vec2, height: number): { x: number; y: number; onScreen: boolean; behind: boolean } {
     const cam = this.cam.camera;

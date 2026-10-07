@@ -22,14 +22,23 @@ import { closestPointOnOBB, obbInsideOBB, pointInOBB, rayCircle, rayOBB } from '
 import { GrabJoint, SHAPE_CIRCLE, type Body } from './physics';
 import type { CharacterState, Command, EntityId, GrabCandidate, KnockdownCause, LootState, OBB, TeamId, Vec2 } from './types';
 import { EMPTY_COMMAND } from './types';
+import { cancelEmoteOnKnockdown, isEmoteId, stepEmote } from './emotes';
 import { boxInertia } from './world';
 
 /** Half-angle of the fallback grab cone when nothing is directly pointed at. */
 export const GRAB_CONE = (70 * Math.PI) / 180;
 /** How fast a fresh grab pulls the holder to holdDistance (m/s). */
 const GRAB_SETTLE_SPEED = 3;
-/** Stick within ~80 degrees of the holder->anchor direction counts as pushing. */
-const PUSH_COS = Math.cos((80 * Math.PI) / 180);
+/**
+ * Push cone with hysteresis: a stick within PUSH_ENTER of the holder->anchor direction starts
+ * pushing, and a push continues until the stick leaves PUSH_LEAVE. (A single 80 degree cone
+ * turned the whole drive toward the anchor at its edge, so a 2 degree stick change flipped a
+ * sideways drag into a push the other way: the haul veered against the stick.)
+ */
+export const PUSH_ENTER_COS = Math.cos((50 * Math.PI) / 180);
+export const PUSH_LEAVE_COS = Math.cos((70 * Math.PI) / 180);
+/** Extra angular drag (1/s) of a hauled bank while nobody pushes it ("yaw grip"). */
+export const BANK_PULL_YAW_DRAG = 10;
 /** Characters closer than this (center distance minus 2r) count as touched by a dash. */
 const DASH_HIT_GAP = 0.1;
 
@@ -300,6 +309,20 @@ export function doGrab(ctx: SimContext, slot: number, cand: GrabCandidate): void
   const joint = new GrabJoint(rt.body, tb, cand.anchorLocal.x, cand.anchorLocal.y, Math.max(dist, 0.05), hlx, hly);
   ctx.physics.addJoint(joint);
   rt.joint = joint;
+  // A grab that lands during an empty-handed dash ends the burst: the dash (11 m/s, no drag) kept
+  // running while holding and yanked the load through the full-mass joint (a small safe shot off
+  // at 6.4 m/s, a large one at 3.5 m/s). Speeding up a load is the carry boost's job.
+  if (ch.dashTicks > 0) {
+    ch.dashTicks = 0;
+    const b = rt.body;
+    b.noDrag = false;
+    const sp = Math.hypot(b.vx - b.fvx, b.vy - b.fvy);
+    if (sp > CHARACTER.walkSpeed) {
+      const k = CHARACTER.walkSpeed / sp;
+      b.vx = b.fvx + (b.vx - b.fvx) * k;
+      b.vy = b.fvy + (b.vy - b.fvy) * k;
+    }
+  }
   ch.grab = { targetId: cand.targetId, part: cand.part, anchorLocal: { ...cand.anchorLocal } };
   insertSorted(target.state.grabbedBy, ch.id);
   target.state.lastHolder = ch.id;
@@ -350,7 +373,9 @@ export function sanitizeCommand(raw: Command | undefined | null): Command {
     const tid = raw.ping.targetId;
     ping = { pos: { x: raw.ping.pos.x, y: raw.ping.pos.y }, targetId: typeof tid === 'number' && Number.isInteger(tid) ? tid : null };
   }
-  return { move: { x: mx, y: my }, grab: raw.grab === true, dash: raw.dash === true, aim, ping };
+  const out: Command = { move: { x: mx, y: my }, grab: raw.grab === true, dash: raw.dash === true, aim, ping };
+  if (isEmoteId(raw.emote)) out.emote = raw.emote; // taunt request (emotes.ts), only when valid
+  return out;
 }
 
 function decTimers(ch: CharacterState): void {
@@ -445,6 +470,7 @@ export function processCommands(ctx: SimContext, commands: ReadonlyArray<Command
     const risingDash = raw.dash && !rt.prevDash;
     rt.prevDash = raw.dash;
     ch.moveIntent = { x: cmd.move.x, y: cmd.move.y };
+    stepEmote(ctx, slot, cmd, risingDash); // taunts: expire / cancel / start (cosmetic only)
     if (knocked) {
       ch.straining = false;
       continue;
@@ -527,23 +553,52 @@ export function prepareBodies(ctx: SimContext): void {
       const mx = rt.cmd.move.x;
       const my = rt.cmd.move.y;
       const ml = Math.hypot(mx, my);
+      let pushing = false;
       if (ml >= 0.3 && ch.knockdownTicks === 0 && !dashing) {
         const ax = j.anchorWorldX() - b.x;
         const ay = j.anchorWorldY() - b.y;
         const al = Math.hypot(ax, ay);
         const tgt = j.targetBody;
         const cosErr = al > 1e-6 ? (mx * ax + my * ay) / (ml * al) : -1;
-        if (cosErr > PUSH_COS && tgt.motion === 'dynamic') {
+        if (cosErr > (j.pushing ? PUSH_LEAVE_COS : PUSH_ENTER_COS) && tgt.motion === 'dynamic') {
+          pushing = true;
           j.pushHeading = Math.atan2(my, mx);
-          const mag = Math.hypot(b.fx, b.fy) * (0.5 + 0.5 * cosErr);
-          b.fx = (ax / al) * mag;
-          b.fy = (ay / al) * mag;
+          // drive along the grip's handle line (world), the line the steering assist turns
+          // toward the stick: the instantaneous holder->anchor vector drifts off it whenever the
+          // holder is shoved off its line (a co-hauler's shoulder), which pushed the load sideways
+          // forever while the steering reported "aligned"
+          const cs = Math.cos(tgt.a);
+          const sn = Math.sin(tgt.a);
+          const px = -(j.hlx * cs - j.hly * sn);
+          const py = -(j.hlx * sn + j.hly * cs);
+          const cosH = (mx * px + my * py) / ml;
+          const mag = Math.hypot(b.fx, b.fy) * (0.5 + 0.5 * cosH);
+          b.fx = px * mag;
+          b.fy = py * mag;
         }
       }
+      j.pushing = pushing;
       const step = GRAB_SETTLE_SPEED * DT;
       if (j.rest > CHARACTER.holdDistance) j.rest = Math.max(CHARACTER.holdDistance, j.rest - step);
       else if (j.rest < CHARACTER.holdDistance) j.rest = Math.min(CHARACTER.holdDistance, j.rest + step);
     }
+  }
+  // Yaw grip of a hauled bank: while held and nobody pushes it, the bank resists turning. With the
+  // plain drag a sideways force at a 4 m grip swung the bank (and with it the grip point and the
+  // hauler) ~3x more across than along: a bank pulled at 60 degrees dragged its hauler 80 degrees.
+  for (let i = 0; i < st.loot.length; i++) {
+    const l = st.loot[i]!;
+    if (l.kind !== 'bank') continue;
+    const body = ctx.loot[i]!.body;
+    let extra = 0;
+    if (l.grabbedBy.length > 0 && body.motion === 'dynamic') {
+      extra = BANK_PULL_YAW_DRAG;
+      for (let s = 0; s < ctx.chars.length; s++) {
+        const jj = ctx.chars[s]!.joint;
+        if (jj && jj.targetBody === body && jj.pushHeading !== null) extra = 0;
+      }
+    }
+    body.yawDragExtra = extra;
   }
 }
 
@@ -715,6 +770,7 @@ export function knockDown(
   const victim = ctx.state.characters[slot]!;
   const vrt = ctx.chars[slot]!;
   const vb = vrt.body;
+  cancelEmoteOnKnockdown(ctx, slot, cause, byId); // a taunting victim stops (cause 'hit')
   if (victim.grab) doRelease(ctx, slot, true);
   vrt.grabLatch = true;
   victim.knockdownTicks = ticks;

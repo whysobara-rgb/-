@@ -142,10 +142,9 @@ export class TitleScene extends MenuScene {
       createStaticCircle({ id: 'l1', kind: 'lamp', center: { x: -2.6, y: -6.2 }, radius: 0.2, height: 3.4 }),
       createStaticCircle({ id: 'l2', kind: 'lamp', center: { x: 5.6, y: -1.4 }, radius: 0.2, height: 3.4 }),
       createDecor({ kind: 'flowers', pos: { x: -7.9, y: 2.4 }, angle: 0.3 }),
-      createDecor({ kind: 'flowers', pos: { x: 3.4, y: 7.1 }, angle: -0.6, scale: 0.9 }),
       createDecor({ kind: 'cone', pos: { x: 5.2, y: 5.6 }, angle: 0.4 }),
       createDecor({ kind: 'balloon', pos: { x: 8.0, y: -1.6 }, angle: 0 }),
-      createDecor({ kind: 'sign', pos: { x: 1.4, y: 6.6 }, angle: -0.2 }),
+      // nothing on the front rim under "아무 키나 누르세요" (the prompt has that strip to itself)
     ];
     for (const s of scenery) {
       this.scene.add(s);

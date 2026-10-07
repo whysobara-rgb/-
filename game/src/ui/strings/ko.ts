@@ -79,7 +79,6 @@ export const ko = {
 
   // --- quick match setup ----------------------------------------------------
   'quick.title': '빠른 대전',
-  'quick.subtitle': '고르고, 바로 털러 가요!',
   'quick.mode': '모드',
   'quick.layout': '배치',
   'quick.opponent': '상대 성향',

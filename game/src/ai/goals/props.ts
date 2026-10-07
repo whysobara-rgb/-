@@ -66,7 +66,7 @@ export class PropGoals implements GoalProvider {
     if (!hammer) {
       for (const l of st.loot) {
         if (l.variant !== 'atm' || l.recovered || l.dormant || l.airborne) continue;
-        if ((l.innerValue ?? 0) < PROP_RULES.atm.bonkCoins * COINS.coin || l.grabbedBy.length > 0 && !l.anchored) continue;
+        if ((l.innerValue ?? 0) < PROP_RULES.atm.bonkCoins * COINS.coin || heldBySeen(view, l) && !l.anchored) continue;
         const key = `bonk:${l.id}`;
         if (view.blacklisted(key) || view.claimedByOther(key) || view.claimedByOther(`collect:${l.id}`)) continue;
         if (V.dist(l.pos, me.pos) > 18) continue;
@@ -86,7 +86,7 @@ export class PropGoals implements GoalProvider {
     if (hammer) return; // (a hammer would crack our own ball: carry it instead)
     for (const l of st.loot) {
       if (l.variant !== 'piggy' || l.recovered || l.dormant || l.airborne) continue;
-      if (l.grabbedBy.length > 0) continue;
+      if (heldBySeen(view, l)) continue;
       const d = V.dist(l.pos, me.pos);
       if (d > 14) continue;
       const key = `kick:${l.id}`;
@@ -371,7 +371,7 @@ export class PropGoals implements GoalProvider {
       if (st.tick - g.pressedTick > 12) view.endGoal('kicked');
       return still();
     }
-    if (l.grabbedBy.length > 0 && view.oppHolding(l.id).length === 0 && g.sub === 'kick') {
+    if (mateHolds(view, l) && g.sub === 'kick') {
       view.endGoal('a mate has it');
       return still();
     }
@@ -408,4 +408,17 @@ function still(): Command {
 
 function move(m: Vec2): Command {
   return { move: V.clampLen(m, 1), grab: false, dash: false, aim: null, ping: null };
+}
+
+/**
+ * Holders a bot may know of: its own team's (public to the team, as in bot.ts) and opponents seen
+ * holding it (perception `oppHolding`) — never the raw holder list (perception.ts header).
+ */
+function mateHolds(view: BotView, l: Readonly<LootState>): boolean {
+  const chars = view.sim.state.characters;
+  return l.grabbedBy.some((id) => chars[id - 1]?.team === view.team);
+}
+
+function heldBySeen(view: BotView, l: Readonly<LootState>): boolean {
+  return mateHolds(view, l) || view.oppHolding(l.id).length > 0;
 }

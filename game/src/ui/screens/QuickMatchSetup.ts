@@ -1,16 +1,17 @@
 /**
  * Quick match setup (doc §12: everything open from the start, no unlock gates).
  * Rows: 모드 (1:1 / 2:2) · 배치 (layouts + 무작위) · 상대 성향 (3 rivals + 무작위) · 난이도.
- * A big tilted sticker panel on the right (the gang keeps hanging out on the rooftop to the left),
- * with a 3D snapshot of the chosen layout and the chosen rival's 3D portrait + habit / weak spot.
+ * One calm panel on the right (the gang keeps hanging out on the rooftop to the left), with a 3D
+ * snapshot of the chosen layout and the chosen rival's 3D portrait + habit / weak spot. Same calm
+ * system as the front door: a plain title, neutral cards, one accent (시작), a quiet dusk scrim.
  */
 import type { LayoutDef, LayoutId } from '../../sim/types';
 import { t, tr, type TextRef } from '../i18n';
 import { h } from '../core/dom';
-import { icon, teamEmblem } from '../core/icons';
+import { icon } from '../core/icons';
 import { portrait, layoutPortrait } from '../core/portrait';
 import { UiScreen } from '../core/screen';
-import { button, chip, cyclerRow, promptBar, screenHeader, stagger, type CyclerOption } from '../components/controls';
+import { button, cyclerRow, promptBar, screenHeader, stagger, type CyclerOption } from '../components/controls';
 import { LayoutMap } from '../components/layoutMap';
 import { DIFFICULTIES, MATCH_MODES, RIVAL_ORDER, type Difficulty, type MatchMode, type RivalId } from '../types';
 
@@ -121,17 +122,17 @@ export class QuickMatchSetup extends UiScreen<QuickMatchSetupProps> {
       label: 'quick.start',
       variant: 'primary',
       size: 'lg',
-      glyph: 'confirm',
       className: 'uh-quick__start',
       onActivate: () => this.leave(() => this.props.onStart(this.getValue())),
     });
 
     this.cards = h('div', { class: 'uh-quick__cards' });
     this.el.append(
+      h('div', { class: 'uh-quick__scrim', 'aria-hidden': 'true' }),
       h(
         'div',
         { class: 'uh-frame uh-quick' },
-        screenHeader('quick.title', 'quick.subtitle', 'quick', null, 'sun'),
+        screenHeader('quick.title'),
         h(
           'div',
           { class: 'uh-quick__body' },
@@ -205,14 +206,8 @@ export class QuickMatchSetup extends UiScreen<QuickMatchSetupProps> {
             ),
           );
 
-    const vs = h(
-      'div',
-      { class: 'uh-quick__vsline' },
-      chip(`mode.${v.mode}`, 'gold'),
-      h('span', { class: 'uh-quick__emblems' }, teamEmblem(0), h('b', null, t('common.vs')), teamEmblem(1)),
-      chip(`difficulty.${v.difficulty}`, 'grape'),
-    );
-    box.replaceChildren(layoutCard, rivalCard, vs);
+    // (no summary chips under the cards: the rows on the left already say mode and difficulty)
+    box.replaceChildren(layoutCard, rivalCard);
     if (animate) {
       box.classList.remove('is-pop');
       void box.offsetWidth;

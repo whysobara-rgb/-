@@ -31,8 +31,10 @@
  *   int8 deltas from it (2 B) or absolute (4 B);
  * - side tables for ping (float64 pair + target id) and taunt (string).
  * Bot steering moves a little on most ticks (median change 3e-4), so most changes take 1-2 bytes.
- * Measured on 2:2 police-on matches (three bots, every content system on): ~95-125 KB per
- * 4 minutes (test/unit/replay.test.ts asserts <= 150 KB).
+ * Measured per 4 minutes (police on, classic and v2): 1:1 50-74 KiB; 2:2 with three bots
+ * 104-138 KiB (n = 14; test/unit/replay.test.ts asserts <= 150 KiB on real matches). A human
+ * stick never at rest costs ~2-3 bytes per tick; the adversarial bound (every slot jumping to a
+ * random move and aim each tick) is mask + 10 bytes per slot-tick.
  *
  * Pure TS (no DOM / Node APIs), deterministic, no wall clock.
  */

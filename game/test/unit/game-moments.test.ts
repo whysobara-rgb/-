@@ -173,31 +173,34 @@ describe('MomentTracker: one event log per moment kind', () => {
     expect(kinds(out)).not.toContain('matchPointStopped');
   });
 
-  it('streakTier 1 at four unanswered recoveries, 2 at 31% of totalValue; streakBroken when answered; lapses after 25 s', () => {
+  it('streakTier 1 at 22% of totalValue over 3 recoveries, 2 at 5 recoveries / 34%; streakBroken when answered; lapses after 40 s', () => {
     const tr = tracker();
-    const L = [1, 2, 3, 4, 5, 6].map((i) => loot(10 + i, 'smallSafe', { x: i, y: 0 }));
+    const L = [1, 2, 3, 4, 5, 6, 7].map((i) => loot(10 + i, 'smallSafe', { x: i, y: 0 }));
     const out: Moment[] = [];
     let s0 = 0;
     const score = (tick: number, team: TeamId, lootId: number, v: number, s1 = 0) => {
       if (team === 0) s0 += v;
       out.push(...tr.observe(mkState({ tick, characters: duo(), loot: L, scores: [s0, s1] }), [recovered(tick, lootId, team, v)], []));
     };
-    score(100, 0, 11, 100);
-    score(200, 0, 12, 100);
-    expect(tr.snapshot().run).toMatchObject({ team: 0, recoveries: 2, points: 200, tier: 0 });
-    score(300, 0, 13, 100);
-    expect(out.filter((m) => m.kind === 'streakTier')).toEqual([]);
-    score(350, 0, 17, 100);
-    expect(out.filter((m) => m.kind === 'streakTier')).toMatchObject([{ team: 0, tier: 1, value: 400 }]);
-    score(400, 0, 14, 600); // 1000 >= 0.31 * 3200
-    expect(out.filter((m) => m.kind === 'streakTier').map((m) => m.tier)).toEqual([1, 2]);
-    expect(tr.snapshot().run).toMatchObject({ tier: 2, points: 1000, recoveries: 5 });
+    const tiers = () => out.filter((m) => m.kind === 'streakTier').map((m) => m.tier);
+    score(100, 0, 11, 300);
+    score(200, 0, 12, 300);
+    expect(tr.snapshot().run).toMatchObject({ team: 0, recoveries: 2, points: 600, tier: 0 });
+    expect(tiers()).toEqual([]);
+    score(300, 0, 13, 100); // 700 < 704 (22 % of 3200)
+    expect(tiers()).toEqual([]);
+    score(350, 0, 17, 100); // 800 over 4
+    expect(out.filter((m) => m.kind === 'streakTier')).toMatchObject([{ team: 0, tier: 1, value: 800 }]);
+    score(400, 0, 14, 100); // the 5th unanswered recovery
+    expect(tiers()).toEqual([1, 2]);
+    expect(tr.snapshot().run).toMatchObject({ tier: 2, points: 900, recoveries: 5 });
     // answered by the other team -> broken, the other team's run starts
     out.length = 0;
     out.push(...tr.observe(mkState({ tick: 500, characters: duo(), loot: L, scores: [s0, 100] }), [recovered(500, 15, 1, 100)], []));
-    expect(out.filter((m) => m.kind === 'streakBroken')).toMatchObject([{ team: 0, value: 1000, ids: [15] }]);
+    expect(out.filter((m) => m.kind === 'streakBroken')).toMatchObject([{ team: 0, value: 900, ids: [15] }]);
     expect(tr.snapshot().run).toMatchObject({ team: 1, recoveries: 1, tier: 0 });
-    // a run lapses silently after the 25 s gap
+    expect(MOMENT_RULES.runGapTicks).toBe(40 * 60);
+    // a run lapses silently after the 40 s gap
     tr.observe(mkState({ tick: 500 + MOMENT_RULES.runGapTicks + 1, characters: duo(), loot: L, scores: [s0, 100] }), [], []);
     out.length = 0;
     out.push(...tr.observe(mkState({ tick: 500 + MOMENT_RULES.runGapTicks + 2, characters: duo(), loot: L, scores: [s0 + 100, 100] }), [recovered(500 + MOMENT_RULES.runGapTicks + 2, 16, 0, 100)], []));
@@ -205,16 +208,18 @@ describe('MomentTracker: one event log per moment kind', () => {
     expect(tr.snapshot().run).toMatchObject({ team: 0, recoveries: 1 });
   });
 
-  it('streak tiers scale with totalValue (v2 4000: tier 2 at 1240); one big recovery is not a run; deposits >= 50 count, smaller ones do not answer', () => {
+  it('streak tiers scale with totalValue (v2 4000: tier 2 at 1360); one big recovery is not a run; deposits >= 50 count, smaller ones do not answer', () => {
     const tr = tracker();
     const st = (tick: number, scores: [number, number]) => mkState({ tick, characters: duo(), scores, totalValue: 4000, remainingValue: 4000 - scores[0] - scores[1] });
     const out: Moment[] = [];
-    out.push(...tr.observe(st(10, [1000, 0]), [{ type: 'coinsBanked', tick: 10, charId: 1, team: 0, value: 1000 }], []));
-    expect(tr.snapshot().run).toMatchObject({ team: 0, recoveries: 1, points: 1000, tier: 0 }); // 25 %, but a single recovery
-    out.push(...tr.observe(st(20, [1000, 30]), [{ type: 'coinsBanked', tick: 20, charId: 2, team: 1, value: 30 }], []));
+    out.push(...tr.observe(st(10, [1100, 0]), [{ type: 'coinsBanked', tick: 10, charId: 1, team: 0, value: 1100 }], []));
+    expect(tr.snapshot().run).toMatchObject({ team: 0, recoveries: 1, points: 1100, tier: 0 }); // 27.5 %, but a single recovery
+    out.push(...tr.observe(st(20, [1100, 30]), [{ type: 'coinsBanked', tick: 20, charId: 2, team: 1, value: 30 }], []));
     expect(kinds(out)).not.toContain('streakBroken');
-    out.push(...tr.observe(st(30, [1240, 30]), [{ type: 'coinsBanked', tick: 30, charId: 1, team: 0, value: 240 }], []));
-    expect(out.filter((m) => m.kind === 'streakTier').map((m) => m.tier)).toEqual([2]); // 1240 over two recoveries
+    out.push(...tr.observe(st(30, [1340, 30]), [{ type: 'coinsBanked', tick: 30, charId: 1, team: 0, value: 240 }], []));
+    expect(tr.snapshot().run).toMatchObject({ recoveries: 2, points: 1340, tier: 0 }); // 1340 < 1360, and tier 1 needs 3
+    out.push(...tr.observe(st(40, [1400, 30]), [{ type: 'coinsBanked', tick: 40, charId: 1, team: 0, value: 60 }], []));
+    expect(out.filter((m) => m.kind === 'streakTier').map((m) => m.tier)).toEqual([2]); // 1400 over three: straight to tier 2
   });
 
   it('bigPlay: a dash KO on a bank hauler (v/100 + 3), at most once per 10 s and 4 per match', () => {
@@ -484,6 +489,8 @@ describe('MomentTracker on recorded bot matches', () => {
   it('leadTaken + equalized match the scorecard lead changes / equalizers exactly; leader = score sign; moments are well-formed', () => {
     let matches = 0;
     let anyMoments = 0;
+    // per-tick checks collect problems (a per-tick expect() is slow over 4 full matches)
+    const bad: string[] = [];
     for (const [layout, seed] of [
       ['plaza', 1],
       ['shortcut', 2],
@@ -503,14 +510,12 @@ describe('MomentTracker on recorded bot matches', () => {
           const samples = bots.map((b) => ({ charId: sim.characterBySlot(b.slot).id, intent: b.intent() }));
           const m = tr.observe(sim.state, events, samples);
           for (const x of m) {
-            expect(x.tick).toBe(sim.state.tick);
-            expect(MOMENT_KINDS).toContain(x.kind);
-            expect([0, 1]).toContain(x.team);
+            if (x.tick !== sim.state.tick || !MOMENT_KINDS.includes(x.kind) || (x.team !== 0 && x.team !== 1)) bad.push(`${layout}/${seed}: malformed ${JSON.stringify(x)}`);
           }
           all.push(...m);
           for (const e of events) if (e.type === 'recovered') timeline.push([e.tick, e.team, e.value]);
           const [a, b] = sim.state.scores;
-          expect(tr.snapshot().leader).toBe(a > b ? 0 : b > a ? 1 : null);
+          if (tr.snapshot().leader !== (a > b ? 0 : b > a ? 1 : null)) bad.push(`${layout}/${seed}@${sim.state.tick}: leader ${String(tr.snapshot().leader)} vs ${a}:${b}`);
         },
       });
       // the scorecard's definition (scratchpad fun/metrics/agg.ts), from the recovery timeline
@@ -542,7 +547,8 @@ describe('MomentTracker on recorded bot matches', () => {
       anyMoments += all.length;
       matches++;
     }
+    expect(bad.slice(0, 5)).toEqual([]);
     expect(matches).toBe(4);
     expect(anyMoments).toBeGreaterThan(0);
-  });
+  }, 300_000);
 });

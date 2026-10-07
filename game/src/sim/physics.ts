@@ -177,6 +177,11 @@ export class Body {
   dragScale = 1;
   /** Drive-force multiplier (slick / soap < 1). */
   driveScale = 1;
+  /**
+   * Extra angular ground drag (1/s) for this tick, on top of linDrag ("yaw grip" of a hauled
+   * bank, set each tick by the game). 0 keeps the plain drag path bit-exact.
+   */
+  yawDragExtra = 0;
   /** Kickable (the piggy): a dashing character skips softPushFactor against it. */
   kickable = false;
   /** (C3) Kickable only: restitution of a dashing character's kick (the ball springs off the foot). */
@@ -290,6 +295,15 @@ export class GrabJoint {
   private tx = 0;
   private ty = 1;
   private rtx = 0;
+  /**
+   * Lever of the bearing's reaction on the target: target centre -> holder centre. The reaction
+   * acts on the target's material point under the holder, on the same line as the action on the
+   * holder (applied at the anchor, 0.55 m away across the handle line, the pair was a free couple:
+   * holders never rotate, so a saturated bearing - two holders shoulder to shoulder blocking each
+   * other's grab line - spun a held safe forever with idle sticks).
+   */
+  private rcx = 0;
+  private rcy = 0;
   private emassT = 0;
   private targetT = 0;
   private accT = 0;
@@ -298,6 +312,18 @@ export class GrabJoint {
   private steerW = 0;
   private steerAcc = 0;
   private steerLimit = 0;
+  // push "wheel" scratch (see prepare)
+  private emassW = 0;
+  private rtw = 0;
+  private accW = 0;
+  private limitW = 0;
+  private fvxW = 0;
+  private fvyW = 0;
+  /**
+   * Push / pull mode of the previous tick (hysteresis of the push cone, kept by the game:
+   * entering push needs the stick closer to the push line than staying in push).
+   */
+  pushing = false;
   /**
    * World heading the holder is pushing toward this tick (set by the game when the stick
    * points at the anchor), or null when pulling / idle.
@@ -367,7 +393,9 @@ export class GrabJoint {
     const hy = this.hlx * sn + this.hly * cs;
     this.tx = -hy;
     this.ty = hx;
-    this.rtx = this.rbx * this.ty - this.rby * this.tx;
+    this.rcx = c.x - b.x;
+    this.rcy = c.y - b.y;
+    this.rtx = this.rcx * this.ty - this.rcy * this.tx;
     const kt = c.solverInvMass + b.solverInvMass + b.solverInvI * this.rtx * this.rtx;
     this.emassT = kt > 0 && lateralLimit > 0 ? 1 / kt : 0;
     const lat = (c.x - (b.x + this.rbx)) * this.tx + (c.y - (b.y + this.rby)) * this.ty;
@@ -381,21 +409,51 @@ export class GrabJoint {
     // A force applied behind the drag center is unstable (jackknife); a person pushing a
     // box or cart steers it with their hands. Bounded torque = lateral grip x lever arm.
     this.steerLimit = 0;
+    const lever = Math.max(0.5, Math.hypot(this.alx, this.aly));
+    // "cart" steering for long levers (a bank's grip is ~4 m from its centre; safes and props are
+    // under 1.3 m and keep the plain assist, which already tracks the stick within ~1 degree)
+    const cart = lever >= GrabJoint.CART_MIN_LEVER;
     if (this.pushHeading !== null && b.motion === 'dynamic' && b.solverInvI > 0 && lateralLimit > 0) {
       const pushAng = Math.atan2(-hy, -hx); // holder -> anchor along the handle line
       let err = this.pushHeading - pushAng;
       err = Math.atan2(Math.sin(err), Math.cos(err));
       let w = GrabJoint.STEER_GAIN * err;
-      if (w > GrabJoint.STEER_MAX_W) w = GrabJoint.STEER_MAX_W;
-      else if (w < -GrabJoint.STEER_MAX_W) w = -GrabJoint.STEER_MAX_W;
+      // cart: yaw-rate cap by lever, so the swing of the load about the push point stays slow
+      // (it adds to the load's speed) and the far end of a bank never whips
+      const wMax = cart ? Math.min(GrabJoint.STEER_MAX_W, GrabJoint.CART_MAX_SWING_SPEED / lever) : GrabJoint.STEER_MAX_W;
+      if (w > wMax) w = wMax;
+      else if (w < -wMax) w = -wMax;
       this.steerW = w;
       this.steerAcc = 0;
-      this.steerLimit = lateralLimit * Math.max(0.5, Math.hypot(this.alx, this.aly));
+      this.steerLimit = (cart ? GrabJoint.CART_TORQUE_SCALE : 1) * lateralLimit * lever;
+    }
+    // cart push "wheel": while pushed, the gripped point does not skid along the face (sideways to
+    // the handle line) relative to the ground, so the load turns about the push point like a
+    // cart instead of spinning about its centre - a pure steering torque swung the grip point (and
+    // the pusher) of a bank 1 m/s against the stick for seconds. A bounded, workless velocity
+    // constraint between the target and the ground: it never adds speed along the push.
+    this.emassW = 0;
+    if (cart && this.pushHeading !== null && b.motion === 'dynamic' && b.solverInvMass > 0) {
+      this.rtw = this.rbx * this.ty - this.rby * this.tx;
+      const kw = b.solverInvMass + b.solverInvI * this.rtw * this.rtw;
+      this.emassW = kw > 0 ? 1 / kw : 0;
+      this.accW = 0;
+      this.limitW = (GrabJoint.WHEEL_ACCEL / b.solverInvMass) * h;
+      this.fvxW = b.fvx;
+      this.fvyW = b.fvy;
     }
   }
 
   static readonly STEER_GAIN = 6;
   static readonly STEER_MAX_W = 2.5;
+  /** Grip lever (m, anchor to target centre) from which a pushed load steers like a cart. */
+  static readonly CART_MIN_LEVER = 2;
+  /** Cart: max swing speed (m/s) of the load about the push point from the steering yaw rate. */
+  static readonly CART_MAX_SWING_SPEED = 0.4;
+  /** Cart: steering torque budget, in units of (lateral grip x lever). */
+  static readonly CART_TORQUE_SCALE = 3;
+  /** Cart wheel: max sideways grip of the pushed point (m/s^2 times the target's mass). */
+  static readonly WHEEL_ACCEL = 30;
 
   solve(): void {
     if (this.emass === 0) return;
@@ -438,10 +496,22 @@ export class GrabJoint {
       this.steerAcc = ns;
       b.w += ls * b.solverInvI;
     }
+    if (this.emassW > 0) {
+      const vw = (b.vx - b.w * this.rby - this.fvxW) * this.tx + (b.vy + b.w * this.rbx - this.fvyW) * this.ty;
+      let lw = -this.emassW * vw;
+      let nw = this.accW + lw;
+      if (nw > this.limitW) nw = this.limitW;
+      else if (nw < -this.limitW) nw = -this.limitW;
+      lw = nw - this.accW;
+      this.accW = nw;
+      b.vx += lw * this.tx * b.solverInvMass;
+      b.vy += lw * this.ty * b.solverInvMass;
+      b.w += b.solverInvI * this.rtw * lw;
+    }
     if (this.emassT === 0) return;
     // bearing (bounded)
-    const wax = b.vx - b.w * this.rby;
-    const way = b.vy + b.w * this.rbx;
+    const wax = b.vx - b.w * this.rcy;
+    const way = b.vy + b.w * this.rcx;
     const vt = (c.vx - wax) * this.tx + (c.vy - way) * this.ty;
     let lt = this.emassT * (this.targetT - vt);
     let nt = this.accT + lt;
@@ -456,7 +526,7 @@ export class GrabJoint {
     if (imb > 0) {
       b.vx -= qx * imb;
       b.vy -= qy * imb;
-      b.w -= b.solverInvI * (this.rbx * qy - this.rby * qx);
+      b.w -= b.solverInvI * (this.rcx * qy - this.rcy * qx);
     }
   }
 
@@ -814,7 +884,10 @@ export class PhysicsWorld {
           const k = 1 / (1 + b.linDrag * b.dragScale * h);
           b.vx = fvx + (b.vx - fvx) * k;
           b.vy = fvy + (b.vy - fvy) * k;
-          if (!b.fixedRotation) b.w = fw + (b.w - fw) * k;
+          if (!b.fixedRotation) {
+            const kw = b.yawDragExtra === 0 ? k : 1 / (1 + (b.linDrag * b.dragScale + b.yawDragExtra) * h);
+            b.w = fw + (b.w - fw) * kw;
+          }
         }
         if (b.fixedRotation) b.w = 0;
       }
@@ -1033,6 +1106,16 @@ export class PhysicsWorld {
   // Solver
   // -------------------------------------------------------------------------
 
+  /** True if a grab joint links the two bodies (a holder and the target it holds). */
+  private gripPair(a: Body, b: Body): boolean {
+    const js = this.joints;
+    for (let i = 0; i < js.length; i++) {
+      const j = js[i]!;
+      if ((j.char === a && j.targetBody === b) || (j.char === b && j.targetBody === a)) return true;
+    }
+    return false;
+  }
+
   private prepareContact(c: Contact, h: number, hooks: PhysicsHooks): void {
     const P = this.params;
     const a = c.a;
@@ -1044,7 +1127,14 @@ export class PhysicsWorld {
     // soft push: a character (or officer) shoving loot moves it as if it were much heavier
     // (C3) except a dashing character against a kickable body (the piggy): a full-mass kick
     let kick = 0;
-    if (b) {
+    // ... but never between a holder and the body its own grab joint holds. The joint couples
+    // that pair at full mass, so a soft (non momentum-conserving) contact in the same loop turns
+    // joint tension into free thrust: a holder pressed against the face it holds (two raccoons on
+    // one face, a tug-of-war along a wall, a load spinning into its holder) made the load and
+    // holder run away together toward the holder's side - 10-200 m/s loads, a bank dragged at
+    // 3-10 m/s with idle sticks, the haul ignoring the stick (owner report: sudden speed-ups,
+    // buildings dragged very fast, drag direction veering).
+    if (b && ((a.cat ^ b.cat) & CAT_WALKER) !== 0 && !this.gripPair(a, b)) {
       if ((a.cat & CAT_WALKER) !== 0 && (b.cat & CAT_WALKER) === 0) {
         if (b.kickable && a.cat === CAT_CHARACTER && a.noDrag) kick = b.kickRestitution;
         else {

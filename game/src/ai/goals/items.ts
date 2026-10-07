@@ -26,8 +26,10 @@ import {
   aimWithError,
   arcSummary,
   boxSurfacePoint,
+  hammerGeom,
   holdsHammer,
   itemWorth,
+  LUNGE_BONUS,
   leadPoint,
   lootSurfacePoint,
   reachesBody,
@@ -42,6 +44,8 @@ import type { BotView, Candidate, Goal, GoalProvider } from './types';
 const WALK = 5;
 /** Axis-pad drops are worth this much more (taking one also keeps it from the other team). */
 const AXIS_RACE = 1.6;
+/** Anticipation slack (m) on the reaction-delayed "in reach" check of an opponent. */
+const NOTICE_SLACK = 0.1;
 /** Hammer swing worth on anchored loot (uproot progress per hit, content-plan §5.2). */
 function hammerProgress(l: Readonly<LootState>): number {
   if (l.variant === 'atm') return ITEMS.hammer.progress.largeSafe;
@@ -110,10 +114,9 @@ export class ItemGoals implements GoalProvider {
         out.push(view.mk('fetchItem', key, it.id, (worth / t) * w, worth, t, { pos: { ...it.pos } }));
       }
     }
-    // ---- be at the axis pad when its scheduled drop lands (public schedule: 45 / 100 s, the
-    // golden hammer at the final countdown + 8 s or 35 s before the end) — the races there are
-    // the drops both teams contest ----
-    if (!me.item && !me.grab) this.proposeAxisWait(view, out, skill, wHammer, left);
+    // (no pre-positioning on the axis pad from the drop schedule: players only learn of a drop when
+    // it is announced, `ITEMS.drop.warnTicks` / `goldHammer.announceTicks` = 3 s ahead — from then
+    // the incoming crate is in `st.items` and the fetch above races for it like a person would)
     const held = holdsHammer(me);
     if (!held || me.grab) return;
     const lifeLeft = held.expiresTick >= 0x7fffffff ? 999 : (held.expiresTick - st.tick) / TICK_RATE;
@@ -192,40 +195,7 @@ export class ItemGoals implements GoalProvider {
     }
   }
 
-  /** The next scheduled axis-pad landing within a few seconds (public), as a pre-position goal. */
-  private proposeAxisWait(view: BotView, out: Candidate[], skill: number, wHammer: number, left: number): void {
-    const sim = view.sim;
-    const st = sim.state;
-    const pad = sim.layout.v2?.itemPads.find((p) => p.twin === null);
-    if (!pad || sim.rules.items === 'off') return;
-    if (st.items.some((i) => i.padId === pad.id)) return; // announced already: the fetch covers it
-    const D = ITEMS.drop;
-    let land: number | null = null;
-    let kind: 'hammer' | 'goldHammer' = 'hammer';
-    for (const s of D.center) {
-      const t = Math.round(s * TICK_RATE);
-      if (t > st.tick && (land === null || t < land)) land = t;
-    }
-    const gold = st.finalCountdownTick !== null ? st.finalCountdownTick + D.goldHammer.afterCountdownTicks : st.endTick - D.goldHammer.beforeEndTicks;
-    if (gold > st.tick && (land === null || gold < land) && gold < st.endTick) {
-      land = gold;
-      kind = 'goldHammer';
-    }
-    if (land === null) return;
-    const landIn = (land - st.tick) / TICK_RATE;
-    if (landIn > 9) return;
-    const key = `fetch:axis:${land}`;
-    if (view.blacklisted(key) || view.claimedByOther(key)) return;
-    const walk = view.walkDist(pad.pos);
-    if (!Number.isFinite(walk) || walk > 34) return;
-    const t = Math.max(walk / WALK, landIn) + 0.4;
-    const worth = itemWorth(kind, left - t);
-    if (worth <= 0) return;
-    out.push(view.mk('fetchItem', key, null, (worth / t) * wHammer * (0.45 + 0.55 * skill) * AXIS_RACE * 0.9, worth, t, { pos: { ...pad.pos }, sub: 'axis', until: land + D.warnTicks }));
-  }
-
   execute(view: BotView, g: Goal): Command | null {
-    if (g.kind === 'fetchItem' && g.sub === 'axis') return this.execAxisWait(view, g);
     if (g.kind === 'fetchItem') return this.execFetch(view, g);
     if (g.kind === 'bonk') return this.execBonk(view, g);
     return this.execUse(view, g);
@@ -253,36 +223,6 @@ export class ItemGoals implements GoalProvider {
     g.phase = 'travel';
     if (d < 3 && view.nav.segmentClear(me.pos, it.pos, 'walk', -0.05)) return move(V.norm(V.sub(it.pos, me.pos)));
     const m = view.moveTo(it.pos, 'walk', 0.2);
-    if (m.stuck) view.endGoal('stuck', 5 * TICK_RATE);
-    return move(m.move);
-  }
-
-  private execAxisWait(view: BotView, g: Goal): Command {
-    const st = view.sim.state;
-    const me = view.me();
-    if (me.item) {
-      view.endGoal('pocket full');
-      return still();
-    }
-    if (me.grab) return still(false);
-    // the crate is announced: switch to fetching it
-    const it = g.pos ? st.items.find((i) => V.dist(i.pos, g.pos!) < 0.5) : undefined;
-    if (it) {
-      g.sub = undefined;
-      g.targetId = it.id;
-      return this.execFetch(view, g);
-    }
-    if (!g.pos || (g.until !== undefined && st.tick > g.until)) {
-      view.endGoal('no drop');
-      return still();
-    }
-    const d = V.dist(me.pos, g.pos);
-    if (d < 1.4) {
-      g.phase = 'wait';
-      return still();
-    }
-    g.phase = 'travel';
-    const m = view.moveTo(g.pos, 'walk', 1.0);
     if (m.stuck) view.endGoal('stuck', 5 * TICK_RATE);
     return move(m.move);
   }
@@ -398,11 +338,18 @@ export class ItemGoals implements GoalProvider {
     return swingCommand(view, aim, pick.charId);
   }
 
-  /** A visible opponent (not down / protected) a swing pressed now would reach. */
+  /**
+   * A visible opponent (not down / protected) a swing pressed now would reach. The decision is made
+   * on the reaction-delayed view (the bot noticed them in reach `reactionDelay` ticks ago, like
+   * `dashAt`); the reach / aim check then uses the current sighting of that same opponent.
+   */
   private foeInReach(view: BotView, kind: string): EntityId | null {
-    for (const o of view.opponents(0)) {
+    for (const o of view.opponents()) {
       if (!o.visible || !o.last || o.last.knockedDown || o.last.protectedNow) continue;
-      if (reachesBody(view, leadPoint(o.last.pos, o.last.vel, view.P.leadQuality), CHARACTER.radius, kind as 'hammer')) return o.id;
+      if (!noticedInReach(view, o.last.pos, o.last.vel, kind as 'hammer')) continue;
+      const now = currentSighting(view, o.id);
+      if (!now) continue;
+      if (reachesBody(view, leadPoint(now.pos, now.vel, view.P.leadQuality), CHARACTER.radius, kind as 'hammer')) return o.id;
     }
     return null;
   }
@@ -427,8 +374,9 @@ export class ItemGoals implements GoalProvider {
         if (reachesBody(view, p, OFFICER_R, k)) return { p, what: `officer ${cop.id}`, charId: null };
       }
     }
-    // 2. an opposing carrier / fat bag / the opponent in my bonk goal
-    for (const o of view.opponents(0)) {
+    // 2. an opposing carrier / fat bag / the opponent in my bonk goal — decided on the
+    // reaction-delayed view (what / who / that they are in reach), aimed at the current sighting
+    for (const o of view.opponents()) {
       if (!o.visible || !o.last || o.last.knockedDown || o.last.protectedNow) continue;
       const bag = o.last.bag ?? 0;
       const target = (g !== null && g.kind === 'bonk' && g.targetId === o.id) || st.tick - this.releasedAt < 12;
@@ -436,7 +384,10 @@ export class ItemGoals implements GoalProvider {
       // (an opponent swinging a hammer at me too: get mine in first)
       const armed = o.last.item === 'hammer' || o.last.item === 'goldHammer';
       if (!target && !carrying && bag < 30 && !armed) continue;
-      const p = leadPoint(o.last.pos, o.last.vel, view.P.leadQuality);
+      if (!noticedInReach(view, o.last.pos, o.last.vel, k)) continue;
+      const now = currentSighting(view, o.id);
+      if (!now) continue;
+      const p = leadPoint(now.pos, now.vel, view.P.leadQuality);
       if (!reachesBody(view, p, CHARACTER.radius, k)) continue;
       const held = carrying ? sim.getLoot(o.last.holdingId!) : undefined;
       return { p, what: `opponent ${o.id}${held ? ` (holding ${held.id})` : ''}`, charId: o.id, piggyOk: held?.variant === 'piggy' };
@@ -469,6 +420,23 @@ export class ItemGoals implements GoalProvider {
     }
     return null;
   }
+}
+
+/**
+ * The opponent, as the bot saw it `reactionDelay` ticks ago, was (about) in hammer reach: a person
+ * notices "they're in range" with their reaction time, then swings at where they are now. Distance
+ * only (the current sighting checks line of sight); a small anticipation slack.
+ */
+function noticedInReach(view: BotView, pos: Vec2, vel: Vec2, kind: 'hammer' | 'goldHammer'): boolean {
+  const p = leadPoint(pos, vel, view.P.leadQuality);
+  return V.dist(view.me().pos, p) - CHARACTER.radius <= hammerGeom(kind).reach + LUNGE_BONUS + NOTICE_SLACK;
+}
+
+/** The current sighting of an opponent (aim only), null when out of sight / down / protected now. */
+function currentSighting(view: BotView, id: EntityId): { pos: Vec2; vel: Vec2 } | null {
+  const o = view.opponents(0).find((v) => v.id === id);
+  if (!o || !o.visible || !o.last || o.last.knockedDown || o.last.protectedNow) return null;
+  return o.last;
 }
 
 function inPlayLoot(l: Readonly<LootState>): boolean {

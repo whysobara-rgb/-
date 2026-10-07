@@ -75,7 +75,6 @@ export const en: Record<StringKey, string> = {
 
   // --- quick match setup ----------------------------------------------------
   'quick.title': 'Quick Match',
-  'quick.subtitle': 'Pick, then go heist!',
   'quick.mode': 'Mode',
   'quick.layout': 'Layout',
   'quick.opponent': 'Rival',

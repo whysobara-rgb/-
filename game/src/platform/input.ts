@@ -99,6 +99,11 @@ export interface MatchFrame {
   wheelStick: Vec2;
   /** Wheel aim from the keyboard movement keys (screen space, unit or zero). */
   wheelKeys: Vec2;
+  /**
+   * Left mouse button pressed this poll, at the cursor where it went down (taunt wheel: click a
+   * slot to play it). Reported whatever Mouse0 is bound to; null otherwise.
+   */
+  wheelClick?: PointerPos | null;
 }
 
 /**
@@ -674,6 +679,7 @@ export class InputManager {
       emoteWheelDown: down('emoteWheel'),
       wheelStick: this.readWheelStick(pad),
       wheelKeys: this.readMoveKeys(),
+      wheelClick: st.pressed.has('Mouse0') ? (st.pressPointer.get('Mouse0') ?? this.pointer) : null,
     };
     this.finishPoll(st, pad);
     return frame;
@@ -1085,6 +1091,7 @@ export class InputManager {
       emoteWheelDown: false,
       wheelStick: { ...NEUTRAL_MOVE },
       wheelKeys: { ...NEUTRAL_MOVE },
+      wheelClick: null,
     };
   }
 

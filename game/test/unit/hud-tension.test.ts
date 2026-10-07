@@ -152,8 +152,9 @@ describe('prompt latch (a dropped decisive load keeps its prompt)', () => {
     expect(q.update(null, at(101))).toBeNull();
   });
 
-  it('on a real match a held prompt is always still true: that team scoring the load ends it', () => {
+  it('on a real match the prompt (held, uprooting or carried) is always true: that team scoring the load ends it', () => {
     let held = 0;
+    let uprooting = 0;
     for (const [layout, seed] of [
       ['plaza', 83433],
       ['counter', 5],
@@ -167,12 +168,14 @@ describe('prompt latch (a dropped decisive load keeps its prompt)', () => {
         rules: { police: true },
         onTick: (sim) => {
           const s = sim.state;
-          const raw = matchPointInfo(s);
+          const raw = matchPointInfo(s, { uprooting: true });
           const shown = p.update(raw, s);
-          if (raw || !shown) return;
-          held++;
+          if (!shown) return;
+          if (!raw) held++;
+          if (shown.uprooting) uprooting++;
           const l = s.loot.find((x) => x.id === shown.lootIds[0])!;
           expect(l.recovered).toBe(false);
+          expect(l.estimatedValue).toBe(shown.value);
           const after: [number, number] = [s.scores[0], s.scores[1]];
           after[shown.team] += l.estimatedValue;
           const rem = s.remainingValue - l.estimatedValue;
@@ -183,6 +186,7 @@ describe('prompt latch (a dropped decisive load keeps its prompt)', () => {
       });
     }
     expect(held).toBeGreaterThan(0);
+    expect(uprooting).toBeGreaterThan(0);
   });
 });
 
@@ -252,6 +256,10 @@ describe('moment stamps', () => {
     // the other team's stop is its own window
     expect(sp.next([m('matchPointStopped', 0)], 200)).toHaveLength(1);
     expect(sp.next([m('matchPointStopped', 1)], 100 + cd)).toHaveLength(1);
+    // a golden hammer re-picked by the same team is silent; the other team taking it is news
+    expect(sp.next([m('goldHammer', 0)], 400)).toHaveLength(1);
+    expect(sp.next([m('goldHammer', 0)], 500)).toHaveLength(0);
+    expect(sp.next([m('goldHammer', 1)], 510)).toHaveLength(1);
     // lead changes never cool down
     expect(sp.next([m('leadTaken', 0)], 300)).toHaveLength(1);
     expect(sp.next([m('leadTaken', 1)], 301)).toHaveLength(1);

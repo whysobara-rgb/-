@@ -273,6 +273,7 @@ export function buildContext(setup: MatchSetup): SimContext {
       stallX: pos.x,
       stallY: pos.y,
       cmd: EMPTY_COMMAND,
+      emoteReadyTick: 0,
     });
     characters.push({
       id,
@@ -293,6 +294,7 @@ export function buildContext(setup: MatchSetup): SimContext {
       knockdownTicks: 0,
       protectTicks: 0,
       floorOf: null,
+      emote: null,
     });
   });
 

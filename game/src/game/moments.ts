@@ -20,7 +20,7 @@
  * Moments are EDGES (something happened this tick). Things that are shown WHILE they last
  * (decisive-load glow, steal marker, scoring-run heat, heartbeat, crown) come from `snapshot()`,
  * so no consumer has to work out on its own when such a state ends (a run expiring after a
- * 25 s gap, a steal chance closing, ...).
+ * 40 s gap, a steal chance closing, ...).
  *
  * Rules (fun-plan WP5 + content-plan §4.5; every number is in MOMENT_RULES):
  * - leadTaken: the strict leader after this tick's settlements differs from the last strict
@@ -38,14 +38,15 @@
  *   moment names it (`cause`, `by`). A load let go, swapped or lost to a police tackle ends the
  *   episode silently: "막았다!" is never claimed for something nobody on the other team did.
  * - Scoring runs ("unanswered"): a recovery, or a deposit >= `runDepositMin`, extends the scoring
- *   team's run and answers (ends) the other team's; a run lapses silently `runGapTicks` after its
- *   latest recovery. Tier 1 at `runTier1Recoveries` (4) recoveries, or `runTier1Share` x
- *   totalValue points over >= `runTier1MinRecoveries` (3); tier 2 at `runTier2Share` x totalValue
- *   points over >= `runTier2MinRecoveries` (2) (classic 3200: 800 / 1000; v2 4000: 1000 / 1240).
- *   One loaded bank alone is a big recovery, not a run. Tuned on the P block (n = 180) to the
- *   fun-plan target of tier 1 in 30-40 % / tier 2 in 15-25 % of matches (the plan's "three in a
- *   row or 800 / 1000" measured 69 % / 34 %). `streakTier` on every tier rise, `streakBroken`
- *   when a run with a tier is answered.
+ *   team's run and answers (ends) the other team's; a run lapses silently `runGapTicks` (40 s)
+ *   after its latest recovery. Tier 1 at `runTier1Share` (22 %) x totalValue points over >=
+ *   `runTier1MinRecoveries` (3); tier 2 at `runTier2Share` (34 %) x totalValue points over >=
+ *   `runTier2MinRecoveries` (2), or at `runTier2Recoveries` (5) recoveries (classic 3200:
+ *   704 / 1088; v2 4000: 880 / 1360). One loaded bank alone is a big recovery, not a run. Tuned
+ *   on P blocks of classic AND v2 (n = 180 each, seeds 601-620) to the fun-plan target of tier 1
+ *   in 30-40 % / tier 2 in 15-25 % of matches (measured 33.9 / 19.4 % classic, 33.3 / 17.2 % v2;
+ *   the plan's "three in a row or 800 / 1000" measured 69 % / 34 % on classic). `streakTier` on
+ *   every tier rise, `streakBroken` when a run with a tier is answered.
  * - bigPlay (rating >= `bigPlayMin`, at most `bigPlayMax` per match, `bigPlayCooldownTicks`
  *   apart; the best candidate of the tick wins):
  *     steal from a moving bank            v/100 + 2   (also carried by that safe, see below)
@@ -116,7 +117,7 @@ export interface ScoringRun {
   points: number;
   /** 0 = no tier yet; 1 / 2 as in `streakTier` (drives the van heat rim, WP3). */
   tier: 0 | StreakTier;
-  /** Tick of the run's latest recovery (the run lapses 25 s after it). */
+  /** Tick of the run's latest recovery (the run lapses 40 s after it). */
   lastTick: number;
 }
 
@@ -167,12 +168,12 @@ export const MOMENT_RULES = {
   mpStopTicks: s2t(2),
   /** An opposing action this long before the load stopped being decisive still caused the stop. */
   mpStopCauseTicks: s2t(1),
-  runGapTicks: s2t(25),
-  runTier1Recoveries: 4,
-  runTier1Share: 0.25,
+  runGapTicks: s2t(40),
+  runTier1Share: 0.22,
   runTier1MinRecoveries: 3,
-  runTier2Share: 0.31,
+  runTier2Share: 0.34,
   runTier2MinRecoveries: 2,
+  runTier2Recoveries: 5,
   /** A coin deposit this big counts as a recovery for runs (content-plan §4.5). */
   runDepositMin: 50,
   bigPlayMin: 6,
@@ -594,9 +595,9 @@ export class MomentTracker {
       const answered = [per[0]!.n > 0, per[1]!.n > 0];
       const total = Math.max(1, state.totalValue);
       const tierOf = (r: ScoringRun): 0 | StreakTier =>
-        r.points >= R.runTier2Share * total && r.recoveries >= R.runTier2MinRecoveries
+        (r.points >= R.runTier2Share * total && r.recoveries >= R.runTier2MinRecoveries) || r.recoveries >= R.runTier2Recoveries
           ? 2
-          : r.recoveries >= R.runTier1Recoveries || (r.points >= R.runTier1Share * total && r.recoveries >= R.runTier1MinRecoveries)
+          : r.points >= R.runTier1Share * total && r.recoveries >= R.runTier1MinRecoveries
             ? 1
             : 0;
       const breakRun = (by: Scoring | null): void => {

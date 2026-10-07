@@ -88,7 +88,9 @@ then outdoor safes in layout order). Ids are stable for the match and never reus
 
 ### Per-tick order (doc §8 "같은 시각의 판정 순서")
 
-1. Read commands (edge detection for dash, latch for grab), pings, grab/release, dash.
+1. Read commands (edge detection for dash, latch for grab), pings, grab/release, dash. Taunts
+   (`src/sim/emotes.ts`, cosmetic only) expire / cancel / start here, before grab and dash; a
+   knockdown cancels a taunt inside `knockDown`, and the match ending cancels one after step 6.
 2. Physics: drive forces, grab constraints, drag, integration, collisions, moving-floor carry,
    fence breaking, unanchor progress, anti-pin (unstuck).
 3. Loading update: recompute `floorOf`, `loadedIn`, `loadedSafes`, `estimatedValue`
@@ -235,7 +237,7 @@ packages call it and never recompute match point, swing, moments, runs or record
 | `swingInfo(state, team) => { toTie, toLead, remaining }` (implemented + tested) | `src/sim/queries.ts` | WP4 | WP4 HUD |
 | `Moment` (`kind: MomentKind`, `tick`, `team`, `pos?`, `score?`, `value?`, `tier?: 1 \| 2`, `ids?`, `lootKind?`), `MOMENT_KINDS`, `StreakTier` | `src/shared/moments.ts` (re-exported by `src/game/moments.ts`) | WP5 | WP3, WP4, WP8, feel |
 | `MomentTracker` — `constructor({ localTeam, localCharId, earlyDecision? })`, `observe(state, events, botIntents: BotIntentSample[]) => Moment[]` (edges), `snapshot() => MomentSnapshot` (`matchPoint`, `leader`, `run: ScoringRun`, `stealChance: StealChanceInfo`, `matchPointKind`; continuous state), `reset()` (stub: `[]` / `EMPTY_MOMENT_SNAPSHOT`) | `src/game/moments.ts` | WP5 | match.ts hooks (WP5, WP4) |
-| `emoteCancel.cause?: EmoteCancelCause` (`'move' \| 'grab' \| 'dash' \| 'hit'`), `emoteCancel.hitBy?: EntityId \| null` (dasher for a dash hit, null for a police tackle) | `src/sim/types.ts` | WP2 (also builds the sim emote step: the sim does not process `Command.emote` yet) | WP5 (`tauntPunished`), render/audio |
+| `emoteCancel.cause?: EmoteCancelCause` (`'move' \| 'grab' \| 'dash' \| 'hit'`), `emoteCancel.hitBy?: EntityId \| null` (dasher for a dash hit, null for a police tackle) | `src/sim/types.ts` | WP2 (sim emote step built: `src/sim/emotes.ts` — start / end / cooldown, cancel causes, `nearOpponentId`, match-end cancel; cosmetic only, `test/sim/emotes.test.ts`) | WP5 (`tauntPunished`), render/audio |
 | `BotIntent.phase === 'windup'` (on every wind-up tick), `BotIntent.windupTargetId?`, `BotIntent.bark?: BotBark \| null` (`{ key: BarkKey, tick }`, show once per new tick), `BarkKey`, `BARK_KEYS` | `src/ai/types.ts` | WP2 | WP5 (feeds view, `dodged`), WP3, WP8 |
 | `DifficultyParams.dashWindupTicks?` | `src/ai/params.ts` | WP2 | bots |
 | `BotOptions.params?: Partial<DifficultyParams>` (already applied by `Bot`), `MatchConfig.botParams?` / `MatchConfig.cup?` -> `BotSpec.params` (rival bots only) -> `createBot` in match.ts (wired); `lerpDifficultyParams` is WP7's to add in params.ts | `src/ai/types.ts`, `src/ai/bot.ts`, `src/game/setup.ts` | WP7 | tournament cups, WP6 (`cup`) |

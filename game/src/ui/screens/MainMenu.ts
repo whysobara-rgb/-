@@ -61,6 +61,11 @@ export interface MainMenuProps {
   nextGoal?: NextGoalView | null;
   /** Hide the next-goal line for this session. */
   onDismissGoal?: () => void;
+  /**
+   * Soften the 3D behind the UI with backdrop filters (blur + less saturation). Default true;
+   * game flow turns it off at low graphics quality (only the plain scrim is drawn then).
+   */
+  softBackdrop?: boolean;
 }
 
 type ListId = 'quickMatch' | 'practice' | 'tournament' | 'wardrobe' | 'settings' | 'credits' | 'quit';
@@ -200,6 +205,7 @@ export class MainMenu extends UiScreen<MainMenuProps> {
     this.frontEl = h('div', { class: 'uh-frame uh-front' }, this.zoomEl);
     // Backdrop treatment (under the UI): the left side of the 3D goes soft and the whole scene a
     // touch calmer (less saturation / contrast), then a dusk scrim behind the column.
+    this.el.classList.toggle('is-lite', p.softBackdrop === false);
     this.el.append(h('div', { class: 'uh-front__soften', 'aria-hidden': 'true' }), h('div', { class: 'uh-front__scrim', 'aria-hidden': 'true' }), this.frontEl);
     const onResize = (): void => this.layoutTall();
     window.addEventListener('resize', onResize);

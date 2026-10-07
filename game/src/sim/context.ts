@@ -29,6 +29,8 @@ export interface CharRuntime {
   stallY: number;
   /** Sanitised command of the current tick. */
   cmd: Command;
+  /** First tick a new taunt may start (EMOTE.cooldownTicks after the last one ended; emotes.ts). */
+  emoteReadyTick: number;
 }
 
 export interface LootRuntime {

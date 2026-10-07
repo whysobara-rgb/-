@@ -406,14 +406,16 @@ export class MatchController {
     const f = this.svc.input.pollMatch();
     this.lastFrame = f;
     // Pause after this tick (the command still applies so nothing is dropped).
-    if (f.pausePressed) this.pauseRequested = true;
+    // (taunt wheel open: Esc / Start only closes the wheel, see tauntInput)
+    if (f.pausePressed && !this.wheel.open) this.pauseRequested = true;
     if (this.proxy) return this.proxy.update(sim);
     const auto = this.script?.autopilot?.(sim);
     if (auto) return auto;
     const grab = this.latch.update(f, me.grab !== null);
     let ping = this.pendingPing;
     this.pendingPing = null;
-    if (!ping && f.pingPressed) ping = this.resolvePing(me, f);
+    // a right-click while the taunt wheel is open cancels the wheel instead of pinging
+    if (!ping && f.pingPressed && !(this.wheel.open && f.pingAtPointer)) ping = this.resolvePing(me, f);
     const emote = this.tauntInput(f, me);
     const cmd = buildCommand(f, grab, ping);
     // The raccoon stands still once a slot is picked on the open wheel (not before: a player who
@@ -449,7 +451,10 @@ export class MatchController {
       stick: f.wheelStick,
       keys: f.wheelKeys,
       pointer: p ? { x: p.clientX, y: p.clientY } : null,
-      cancel: f.grabPressed || f.dashPressed || f.pausePressed,
+      // the mouse picks by direction from the wheel as drawn (HUD center), not from the cursor
+      center: f.emoteWheelDown || this.wheel.open ? (this.svc.hud.taunts.geometry?.() ?? null) : null,
+      click: f.wheelClick ? { x: f.wheelClick.clientX, y: f.wheelClick.clientY } : null,
+      cancel: f.grabPressed || f.dashPressed || f.pausePressed || (this.wheel.open && f.pingAtPointer !== null),
     });
     let want: EmoteId | null = null;
     let fromWheel = false;
@@ -731,6 +736,7 @@ export class MatchController {
       myTeam: this.myTeam,
       mode: this.isPractice ? 'practice' : 'match',
       project: (p, h) => view.project(p, h),
+      posOf: (id, kind) => view.renderedPos(id, kind), // labels ride the drawn (interpolated) pose
       isOpponentVisible: this.isOpponentVisible,
       nearRadius: NEAR_LABEL_RADIUS,
     });

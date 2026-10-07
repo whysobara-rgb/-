@@ -65,7 +65,7 @@ export class BootSplash extends UiScreen<BootSplashProps> {
           h('span', { class: 'uh-boot__ring', 'aria-hidden': 'true' }),
           h('div', { class: 'uh-boot__stamp', 'aria-hidden': 'true' }, svgFromMarkup(PAW_SVG)),
         ),
-        h('h1', { class: 'uh-boot__title' }, logoLockup({ compact: true, cls: 'uh-boot__logo' })),
+        h('h1', { class: 'uh-boot__title' }, logoLockup({ cls: 'uh-boot__logo' })),
         h('p', { class: 'uh-boot__note' }, icon('alert'), t('front.boot.note')),
         h('div', { class: 'uh-boot__skip' }, t('front.boot.skip')),
       ),

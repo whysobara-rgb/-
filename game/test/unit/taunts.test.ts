@@ -314,7 +314,7 @@ describe('taunt wheel picking', () => {
     expect(w.update(idle).confirmed).toBe('fanCash');
   });
 
-  it('mouse picks once it moved far enough from where the wheel opened', () => {
+  it('fallback without a HUD center: the mouse measures from where the wheel opened', () => {
     const w = new EmoteWheelController([...BASE_EMOTES, 'nunchiShrug']);
     w.update({ ...idle, held: true, pointer: { x: 500, y: 300 } });
     expect(w.update({ ...idle, held: true, pointer: { x: 510, y: 300 } }).hover).toBeNull();

@@ -35,7 +35,7 @@
  * tagged per character) and 'emoteCancel' cuts it. `tauntFilter` hides other raccoons' taunts
  * (the "show others' taunts" setting); the listener's own taunt always sounds.
  */
-import type { CharacterState, EmoteId, EntityId, LootKind, LootState, PolicePhase, SimEvent, SimState, TeamId, Vec2 } from '../sim/types';
+import type { CharacterState, EmoteId, EntityId, LootKind, LootState, PolicePhase, PropVariant, SimEvent, SimState, TeamId, Vec2 } from '../sim/types';
 import { TICK_RATE } from '../sim/config';
 import type { AudioEngine } from './audio';
 import type { LoopId, SfxId } from './ids';
@@ -203,6 +203,19 @@ export const POLICE_AUDIO = {
 
 /** Strain loop pitch per object (the uproot build-up of a bank is deep, a small safe's is high). */
 export const STRAIN_PITCH: Readonly<Record<LootKind, number>> = { smallSafe: 1.15, largeSafe: 0.88, bank: 0.62 };
+/**
+ * Drag loop pitch per object (size and material of the soft "dugu-dugu" haul): a small safe rolls
+ * lighter and quicker, a gold safe deepest; props (largeSafe kind) get their own by variant.
+ */
+export const DRAG_PITCH: Readonly<Record<Exclude<LootKind, 'bank'> | PropVariant, number>> = {
+  smallSafe: 1.15,
+  largeSafe: 0.92,
+  atm: 0.9,
+  piggy: 1.06,
+  moneyTree: 0.97,
+  goldSafe: 0.8,
+};
+const dragPitch = (l: LootState): number => (l.variant ? DRAG_PITCH[l.variant] : l.kind === 'bank' ? 1 : DRAG_PITCH[l.kind]);
 /** Landing thud pitch / level per safe size. */
 const LAND_PITCH = { smallSafe: 1.15, largeSafe: 0.85 } as const;
 const LAND_VOLUME = { smallSafe: 0.8, largeSafe: 1 } as const;
@@ -358,7 +371,7 @@ export class MatchAudioDirector {
   // -------------------------------------------------------------------------------------------
 
   onEvents(events: readonly SimEvent[], sim: AudioSimView): void {
-    this.tensionCues.beforeEvents(events); // [F8] run size for this tick's coin climb
+    this.tensionCues.beforeEvents(events, sim); // [F8] run size for this tick's coin climb
     for (const e of events) this.onEvent(e, sim);
     this.content?.onEvents(events, sim); // [C9] Content 2.0 sounds (section at the end of the file)
     this.tensionCues.onEvents(events, sim); // [F8] tension cues (section at the end of the file)
@@ -676,7 +689,7 @@ export class MatchAudioDirector {
           if (s > 0.3) bankMoving = true;
         }
       } else if (l.grabbedBy.length > 0 && l.floorOf === null && speed > 0.15) {
-        loop('drag', clamp01(speed / 3.5), l.pos, l.id);
+        loop('drag', clamp01(speed / 3.5), l.pos, l.id, dragPitch(l));
       }
     }
 
@@ -1218,11 +1231,15 @@ export const TENSION_AUDIO = {
   climbMax: COMBO_MAX,
   /**
    * The climb follows the run's size as well as its length: step = (scorings in the run - 1) +
-   * floor(run points / climbPointsPerStep). Tuned on the P block (1v1 proxy vs each rival at
-   * normal, police on, v2, n = 180) to the fun-plan target "step >= 3 in 30-40 % of matches":
-   * length alone gives 7 % (a lone 4-in-a-row is rare in 1v1), + points / 400 gives 36 %.
+   * floor(run points / (climbRunShare x state.totalValue)). A share of totalValue (like
+   * MomentTracker's run tiers, content-plan F5 delta) so it tracks content (classic 3200 vs v2
+   * 4000 / 4400). Tuned on the P block (1v1 proxy vs each rival at normal, police on, v2,
+   * n = 180) to the fun-plan target "step >= 3 in 30-40 % of matches"; length alone gives
+   * ~10-15 % (a lone 4-in-a-row is rare in 1v1). Bot-dependent: re-check with the opt-in band
+   * test (F8_CLIMB_SEEDS=10 npx vitest run test/unit/audio-tension-band.test.ts) whenever bot
+   * behaviour or content changes.
    */
-  climbPointsPerStep: 400,
+  climbRunShare: 0.15,
   runDepositMin: 50,
   /** runClimb chime after the deposit pour (s). */
   runClimbDelay: 0.22,
@@ -1240,6 +1257,9 @@ export const TENSION_AUDIO = {
   getaway: { revFor: 0.42, drawRevs: [0, 0.75, 1.5] as readonly number[], driveOffVolume: 0.85, drawRevVolume: 0.55 },
   accentVolume: { tauntPunish: 1, dodge: 0.9, clash: 0.85 },
 } as const;
+
+/** [F8] Classic total (100/300/500 x layout = 3200) until a tick's sim view shows the real one. */
+const TOTAL_VALUE_FALLBACK = 3200;
 
 type StingPlan = { prio: number; id: SfxId; o: { step?: number; variant?: number; delay?: number; volume?: number } };
 
@@ -1260,6 +1280,8 @@ class TensionCues {
   /** Points of OUR current run (TensionState.run carries no points: summed from the events). */
   private runPts = 0;
   private runRec = 0;
+  /** state.totalValue of the match (seen in beforeEvents); classic 3200 until the first events. */
+  private totalValue = TOTAL_VALUE_FALLBACK;
   private lastStingTick = -Infinity;
   private leadVariant = 0;
   private ended = false;
@@ -1280,6 +1302,7 @@ class TensionCues {
     this.run = undefined;
     this.runPts = 0;
     this.runRec = 0;
+    this.totalValue = TOTAL_VALUE_FALLBACK;
     this.lastStingTick = -Infinity;
     this.ended = false;
     this.beats = 0;
@@ -1291,7 +1314,8 @@ class TensionCues {
     const r = this.run;
     if (!r || r.side !== 'ours') return 0;
     const T = TENSION_AUDIO;
-    return Math.max(0, Math.min(T.climbMax, r.recoveries - 1 + Math.floor(this.runPts / T.climbPointsPerStep)));
+    const perStep = Math.max(1, T.climbRunShare * this.totalValue);
+    return Math.max(0, Math.min(T.climbMax, r.recoveries - 1 + Math.floor(this.runPts / perStep)));
   }
 
   /**
@@ -1299,7 +1323,8 @@ class TensionCues {
    * scorings to the current run's points, the way MomentTracker sums `run.points` (every own
    * recovery / deposit of a tick while the run is ours).
    */
-  beforeEvents(events: readonly SimEvent[]): void {
+  beforeEvents(events: readonly SimEvent[], sim?: AudioSimView): void {
+    if (sim && sim.state.totalValue > 0) this.totalValue = sim.state.totalValue;
     const r = this.run;
     if (!r || r.side !== 'ours') return;
     for (const e of events) {

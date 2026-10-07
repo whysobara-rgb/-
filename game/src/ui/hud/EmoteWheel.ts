@@ -182,6 +182,24 @@ export class EmoteWheel {
     setClass(this.chipEl, 'is-ready', cool <= 0 && !m.blocked);
   }
 
+  /**
+   * Where the wheel is on screen (client px): its center and the radius of the center disc (the
+   * mouse deadzone). The mouse picks by direction from here, so the highlight is always the slot
+   * under the cursor at any resolution / DPR / UI scale. Measured from the drawn center disc
+   * while the wheel shows; before its first frame (hidden: 0x0) from the box it is centered in.
+   */
+  geometry(): { x: number; y: number; dead: number } | null {
+    const center = this.el.querySelector('.uh-ewheel__center');
+    const r = !this.el.hidden && center ? center.getBoundingClientRect() : null;
+    if (r && r.width > 0 && r.height > 0) return { x: r.left + r.width / 2, y: r.top + r.height / 2, dead: Math.min(r.width, r.height) / 2 };
+    const host = this.el.parentElement;
+    if (!host || typeof window === 'undefined') return null;
+    const b = host.getBoundingClientRect();
+    if (!(b.width > 0 && b.height > 0)) return null;
+    const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    return { x: b.left + b.width / 2, y: b.top + b.height / 2, dead: 5.25 * rem };
+  }
+
   /** Released over a locked slot: the gift box shakes. */
   lockedPick(index: number): void {
     const s = this.slots[index];

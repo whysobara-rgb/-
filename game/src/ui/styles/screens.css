@@ -35,6 +35,7 @@
 .uh-logo__word--cream .uh-logo__char:nth-child(2) { color: var(--pop-pink-l); }
 .uh-logo__roots { position: absolute; left: -10%; width: 116%; top: 72%; height: auto; z-index: -1; transform-origin: 50% 0; }
 .uh-logo__sub {
+  /* One sub-line style on every screen: cream, ink outline, wide tracking (only the size scales). */
   font-family: var(--uh-font-display);
   font-size: calc(var(--lfs) * 0.25);
   line-height: 1;
@@ -48,7 +49,8 @@
   paint-order: stroke fill;
 }
 
-/* Compact (front door, boot): one line, no stagger, the sub line under it. */
+/* Compact (front door): one line, no stagger, the sub line under it. Boot and title use the
+   stacked lockup; both share the same sub line. */
 .uh-logo--compact { --lfs: 4.75rem; align-items: flex-start; gap: 0.75rem; }
 .uh-logo--compact .uh-logo__mark { flex-direction: row; align-items: flex-end; gap: 0.32em; font-size: var(--lfs); }
 .uh-logo--compact .uh-logo__line--a,
@@ -56,11 +58,8 @@
 .uh-logo--compact .uh-logo__roots { display: none; } /* too fine to read at this size: it would look like noise */
 .uh-logo--compact .uh-logo__sub {
   font-size: max(1.3125rem, calc(14px / var(--fz, 1)));
-  letter-spacing: 0.5em;
   padding-left: 0.25rem;
   margin-top: 0.5rem;
-  color: rgba(255, 246, 230, 0.82);
-  -webkit-text-stroke: 0;
 }
 
 /* Title entrance: the logo settles in, the letters drop once, the roots grow. No idle bob. */
@@ -98,18 +97,23 @@
   gap: 0.75rem;
   padding: 0.75rem 2rem 0.75rem 1.5rem;
   border-radius: 999px;
-  background: rgba(30, 18, 52, 0.6);
+  /* solid, so nothing in the diorama shows through; only the words breathe */
+  background: rgb(22, 26, 54);
+  box-shadow: 0 0.5rem 1.5rem rgba(22, 26, 54, 0.25);
   color: var(--pop-cream);
+  white-space: nowrap;
   translate: -50% 0;
-  animation: uh-press-in 0.5s 1.3s var(--uh-ease-out) both, uh-press-breathe 2.8s 1.8s ease-in-out infinite;
+  animation: uh-press-in 0.5s 1.3s var(--uh-ease-out) both;
 }
+.uh-title__press > * { animation: uh-press-breathe 2.8s 1.8s ease-in-out infinite; }
 @keyframes uh-press-in { 0% { opacity: 0; transform: translateY(1rem); } 100% { opacity: 1; transform: none; } }
-@keyframes uh-press-breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.62; } }
+@keyframes uh-press-breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
 .uh-title__pressPaw .uh-icon { width: 2rem; height: 2rem; display: block; }
 .uh-title__pressText { font-family: var(--uh-font-display); font-size: 2.125rem; line-height: 1; }
-.uh-title__version { position: absolute; right: 3.5rem; bottom: 2rem; padding: 0.25rem 0.75rem; border-radius: 999px; background: rgba(30, 18, 52, 0.6); font-size: var(--uh-fs-xs); font-weight: 700; color: var(--pop-cream); }
+.uh-title__version { position: absolute; right: 3.5rem; bottom: 2rem; padding: 0.25rem 0.75rem; border-radius: 999px; background: rgba(22, 26, 54, 0.6); font-size: var(--uh-fs-xs); font-weight: 700; color: var(--pop-cream); }
 .uh-screen--title.is-exiting .uh-title__press { animation: uh-squash 0.3s var(--uh-ease-out) 1; }
-html.uh-reduced-motion .uh-title__press { animation: none; }
+html.uh-reduced-motion .uh-title__press,
+html.uh-reduced-motion .uh-title__press > * { animation: none; }
 
 /* ======================================================================================== */
 /* Main menu: signboards                                                                     */
@@ -300,6 +304,33 @@ html.uh-reduced-motion .uh-title__press { animation: none; }
 .uh-quick__note { flex: 1; min-width: 0; }
 .uh-quick__note { margin: 0; font-size: var(--uh-fs-xs); font-weight: 700; color: var(--pop-ink-2); line-height: 1.4; }
 .uh-quick__start { min-width: 16rem; }
+
+/* Calm pass (same system as the front door): a quiet dusk scrim over the rooftop (deeper behind
+   the panel, the gang on the left left bright), a flat panel with no dot texture or tilt, neutral
+   cards and row icons, ink pips; the sun-yellow 시작 is the only accent. */
+.uh-quick__scrim {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(22, 26, 54, 0) 18%, rgba(22, 26, 54, 0.3) 38%, rgba(22, 26, 54, 0.42) 100%),
+    radial-gradient(130% 110% at 20% 45%, rgba(22, 26, 54, 0) 55%, rgba(22, 26, 54, 0.24) 100%);
+}
+.uh-screen--quick .uh-header__title { font-size: var(--uh-fs-2xl); }
+.uh-quick__panel.uh-panel { background-image: none; rotate: none; }
+.uh-screen--quick .uh-row,
+.uh-screen--quick .uh-row:nth-child(odd),
+.uh-screen--quick .uh-row:nth-child(even) { --tilt: 0deg; }
+.uh-screen--quick .uh-row__name .uh-icon { background: transparent; border-color: transparent; padding: 0.2rem 0; color: var(--pop-ink-2); }
+.uh-screen--quick .uh-pip.is-on { background: var(--pop-ink); box-shadow: none; }
+.uh-screen--quick .uh-quick__card,
+.uh-screen--quick .uh-quick__card--layout,
+.uh-screen--quick .uh-quick__card--rival,
+.uh-screen--quick .uh-quick__card--rival.is-mystery { background: #FFFDF8; box-shadow: none; }
+.uh-screen--quick .uh-quick__snap,
+.uh-screen--quick .uh-quick__card--layout .uh-quick__snap { rotate: none; box-shadow: none; }
+.uh-screen--quick .uh-quick__rivalTitle { color: var(--pop-ink-2); }
+.uh-screen--quick .uh-quick__startWrap { border-top: 0.125rem solid rgba(42, 33, 49, 0.12); }
 
 .uh-layoutmap { position: absolute; inset: 0; }
 .uh-layoutmap__canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }

@@ -18,8 +18,10 @@ test('quick match: title -> menu -> setup -> match -> pause -> results -> rematc
   await press(page, 'Enter');
   await waitState(page, 'menu');
   await expect(page.locator('.uh-screen--menu')).toBeVisible();
-  // fresh save: practice is suggested first; move down to 빠른 대전 with the keyboard
-  expect(await focused(page)).toBe('menu:practice');
+  // fresh save: 게임 시작 is focused and starts the practice first (its caption says so); move
+  // down to 빠른 대전 with the keyboard
+  expect(await focused(page)).toBe('menu:play');
+  await expect(page.locator('.uh-front__caption')).toContainText('연습');
   await navTo(page, 'menu:quickMatch');
   await page.waitForTimeout(400);
   await shot(page, '02-menu');

@@ -316,7 +316,8 @@ export function numbers(ms: M[]): GroupNumbers {
   const delta = (p: (c: (typeof charRes)[number]['c']) => boolean): number | null => {
     const a = charRes.filter((x) => p(x.c));
     const b = charRes.filter((x) => !p(x.c));
-    if (a.length < 5 || b.length < 5) return null;
+    // both groups need a real sample (a delta over a handful of characters is noise)
+    if (a.length < 30 || b.length < 30) return null;
     return mean(a.map((x) => x.win)) - mean(b.map((x) => x.win));
   };
   const fd = ms.filter((m) => m.r.firstDropTeam !== null);
@@ -374,7 +375,7 @@ export function numbers(ms: M[]): GroupNumbers {
     mirrorSplitByLayout: mirror,
     heldHammerDelta: delta((c) => c.heldHammer),
     goldHammerDelta: delta((c) => c.gotGoldHammer),
-    firstDropDelta: fd.length >= 5 ? mean(fd.map((m) => (m.r.winner === null ? 0.5 : m.r.winner === m.r.firstDropTeam ? 1 : 0))) - 0.5 : null,
+    firstDropDelta: fd.length >= 30 ? mean(fd.map((m) => (m.r.winner === null ? 0.5 : m.r.winner === m.r.firstDropTeam ? 1 : 0))) - 0.5 : null,
     stepMsMed: q(ms.map((m) => m.r.stepMsMed), 0.5),
     mpWarned: early.length ? share(early, (m) => (m.mpLeadS ?? 0) >= 3) : NaN,
     mpDeniedPerMatch: mean(ms.map((m) => m.mpDenied)),

@@ -6,7 +6,9 @@
  *   written only when they change. Unused entries are hidden and recycled.
  * - Labels never pile up: after positioning, overlapping tags are nudged apart (bank estimate
  *   first, then pings, focused tags, value tags, names), each moving the shorter way up or
- *   down. Sizes are measured only when a label's content changes.
+ *   down — and then staying on that side while it is free (hysteresis), sliding (eased offset)
+ *   rather than jumping when it must move. Anchors are followed exactly at fractional px (no
+ *   lag, no snapping). Sizes are measured only when a label's content changes.
  */
 import type { TeamId } from '../../sim/types';
 import { t, trName, type TextRef } from '../i18n';
@@ -14,14 +16,17 @@ import { h, setClass, setText } from '../core/dom';
 import { lootIcon, teamEmblem } from '../core/icons';
 import { clamp01, fmtScore, finiteOrNull } from '../core/format';
 import type { WorldLabelModel } from './types';
-import { placeLabel, type Box } from '../core/declutter';
+import { layoutTags, newTagMemory, type Box, type Tag } from '../core/declutter';
 
 type Kind = WorldLabelModel['kind'];
 
 const RING_R = 22;
 const RING_C = 2 * Math.PI * RING_R;
 
-interface Entry {
+/** Monotonic age stamp: among equal priorities the older tag keeps its spot. */
+let seqNext = 0;
+
+interface Entry extends Tag {
   kind: Kind;
   el: HTMLElement;
   inner: HTMLElement;
@@ -80,6 +85,8 @@ export class WorldLabels {
   private readonly order: Entry[] = [];
   private readonly placed: Box[] = [];
   private readonly free: Record<Kind, Entry[]> = { value: [], bank: [], recovery: [], ping: [], name: [] };
+  /** Time of the previous layout (ms) for easing nudges; NaN = none yet. */
+  private lastT = NaN;
 
   constructor() {
     this.el = h('div', { class: 'uh-wlabels', 'aria-hidden': 'true' });
@@ -111,8 +118,14 @@ export class WorldLabels {
     this.layout();
   }
 
-  /** De-overlap pass: place labels by priority, nudging later ones up or down. */
+  /**
+   * De-overlap pass: place labels by priority (then age), nudging later ones up or down. A tag
+   * keeps the side it was nudged to (hysteresis) and slides there instead of jumping.
+   */
   private layout(): void {
+    const now = performance.now();
+    const dt = Number.isFinite(this.lastT) ? (now - this.lastT) / 1000 : 0;
+    this.lastT = now;
     const order = this.order;
     order.length = 0;
     for (const e of this.active.values()) {
@@ -126,21 +139,19 @@ export class WorldLabels {
       if (e.prio < 0 || e.w <= 0) this.place(e, e.ax, e.ay);
       else order.push(e);
     }
-    order.sort((a, b) => a.prio - b.prio || a.ay - b.ay);
     const placed = this.placed;
     placed.length = 0;
-    for (const e of order) this.place(e, e.ax, placeLabel(placed, e.ax, e.ay, e.w, e.h, GAP));
+    layoutTags(order, placed, dt, GAP);
+    for (const e of order) this.place(e, e.ax, e.ay + e.off.x);
   }
 
   private place(e: Entry, ax: number, ay: number): void {
-    // Position snapped to 0.5 px: no write when the camera moved less than that.
-    const x = Math.round(ax * 2) / 2;
-    const y = Math.round(ay * 2) / 2;
-    if (x !== e.x || y !== e.y) {
-      e.x = x;
-      e.y = y;
-      e.el.style.transform = `translate3d(${x}px,${y}px,0)`;
-    }
+    // Fractional px (composited layer, no snapping shimmer against the 3D scene); no write
+    // for sub-0.05 px changes.
+    if (Math.abs(ax - e.x) < 0.05 && Math.abs(ay - e.y) < 0.05) return;
+    e.x = ax;
+    e.y = ay;
+    e.el.style.transform = `translate3d(${ax.toFixed(2)}px,${ay.toFixed(2)}px,0)`;
   }
 
   /** Language changed: force text refresh on next update. */
@@ -158,6 +169,8 @@ export class WorldLabels {
     const pooled = this.free[kind].pop();
     if (pooled) {
       pooled.shown = false;
+      Object.assign(pooled, newTagMemory());
+      pooled.seq = seqNext++;
       return pooled;
     }
     const e = this.create(kind);
@@ -175,7 +188,8 @@ export class WorldLabels {
 
   private create(kind: Kind): Entry {
     const inner = h('div', { class: 'uh-wl__in' });
-    const base: Entry = { kind, el: h('div', { class: `uh-wl uh-wl--${kind}` }), inner, x: NaN, y: NaN, ax: 0, ay: 0, w: 0, h: 0, dirty: true, prio: -1, shown: false, seen: false, a: null, b: null, c: null };
+    // Name tags lean up when nudged (off the raccoon's head rather than onto it).
+    const base: Entry = { kind, el: h('div', { class: `uh-wl uh-wl--${kind}` }), inner, x: NaN, y: NaN, ax: 0, ay: 0, w: 0, h: 0, dirty: true, prio: -1, shown: false, seen: false, a: null, b: null, c: null, seq: seqNext++, lean: kind === 'name' ? -1 : 0, ...newTagMemory() };
     base.el.hidden = true;
     base.el.appendChild(inner);
     switch (kind) {

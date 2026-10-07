@@ -319,6 +319,9 @@ export function stampEviction(liveBig: readonly boolean[], incomingBig: boolean,
  */
 export const MOMENT_STAMP_COOLDOWN_TICKS: Partial<Record<MomentStampKind, number>> = {
   mpStopped: 20 * 60,
+  // the golden hammer is dropped and picked up again (knockdowns): the same team re-taking it is
+  // not news (v2 P block: up to 3 "황금 뿅망치" stamps a match); the other team taking it still is
+  goldHammer: 20 * 60,
   coinSplash: 6 * 60,
   hammerBonk: 4 * 60,
   dodged: 6 * 60,

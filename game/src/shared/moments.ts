@@ -57,10 +57,11 @@ export const MOMENT_KINDS: readonly MomentKind[] = [
 ];
 
 /**
- * Scoring-run tier of an unanswered run (MOMENT_RULES in src/game/moments.ts; tuned on the P block
- * to tier 1 in 30-40 % / tier 2 in 15-25 % of matches): tier 1 = 4 recoveries, or 25 % of
- * `state.totalValue` over >= 3 recoveries; tier 2 = 31 % of `state.totalValue` over >= 2
- * recoveries (classic 3200: 800 / ~1000). A coin deposit >= 50 counts as a recovery.
+ * Scoring-run tier of an unanswered run (MOMENT_RULES in src/game/moments.ts; tuned on classic
+ * and v2 P blocks to tier 1 in 30-40 % / tier 2 in 15-25 % of matches): tier 1 = 22 % of
+ * `state.totalValue` over >= 3 recoveries; tier 2 = 34 % of `state.totalValue` over >= 2
+ * recoveries, or 5 recoveries (classic 3200: 704 / 1088; v2 4000: 880 / 1360). A coin deposit
+ * >= 50 counts as a recovery; a run lapses 40 s after its latest recovery.
  */
 export type StreakTier = 1 | 2;
 

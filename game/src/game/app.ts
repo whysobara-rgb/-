@@ -660,6 +660,8 @@ export class App {
       player: { hat: data.cosmetics.equipped, team: 0, rank: `front.player.rank.${beaten.length}` },
       nextGoal: goal,
       onDismissGoal: () => (this.frontGoalHidden = true),
+      // backdrop blur / desaturation cost GPU time: skipped at low quality
+      softBackdrop: (this.d.params.quality ?? data.settings.quality) !== 'low',
     };
   }
 

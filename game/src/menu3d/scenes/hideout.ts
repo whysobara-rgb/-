@@ -1,9 +1,11 @@
 /**
- * Main menu: the gang's cozy rooftop hideout at dusk — party lights, crates, a water tower, a
- * striped awning over a stolen big safe used as the snack table, the city glowing below.
+ * Main menu: the gang's cozy rooftop hideout at dusk — crates, a water tower, a striped awning,
+ * a stolen big safe used as their table with the big red button on it, the city glowing below.
+ * Deliberately sparse (no string lights, antenna, snacks or cushions): the gang and the safe are
+ * the subject, and the deck runs on past the bottom of the frame so no roof edge cuts across.
  *
- * On the front door ('front' framing) the scene stays calm: the gang idles slowly in the right
- * half of the screen and only 게임 시작 gets a reaction (the lead lifts the 뿅망치). Other screens
+ * On the front door ('front' framing) and quick setup ('left') the scene stays calm: the gang
+ * idles slowly and only 게임 시작 gets a reaction (the lead lifts the 뿅망치). Other screens
  * over the hideout re-frame the camera to keep the gang visible beside their panel, and the gang
  * still acts out what they are about:
  *   빠른 대전 → dash pose (running in place)
@@ -17,7 +19,7 @@ import type { HatId } from '../../sim/types';
 import { createSafe, type SafeRig } from '../../render/models';
 import { MenuScene, damp, easeOutBack } from '../scene';
 import { Puppet, type Act } from '../puppet';
-import { POP, PropBuilder, addCrate, addGift, ball, cyl, disposeProp, glowDisc, disposeOwnedMesh, mirrorGlass, rng, roundBox, stringLights, wrench, type StringLights } from '../kit';
+import { POP, PropBuilder, addCrate, addGift, ball, cyl, disposeProp, glowDisc, disposeOwnedMesh, mirrorGlass, rng, roundBox, wrench } from '../kit';
 import { bigRedButton, disposeRope, rope, setRope, squeakyHammer, type BigButton } from '../kit';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
@@ -39,13 +41,16 @@ const TRY_HATS: HatId[] = ['teamCapA', 'tongkeunHat', 'hodadakBand', 'nunchiMask
 
 const FRAMES: Record<HideoutFraming, { pos: [number, number, number]; look: [number, number, number] }> = {
   menu: { pos: [-1.6, 4.7, 12.6], look: [1.0, 1.65, -0.9] },
-  left: { pos: [4.4, 4.4, 12.6], look: [5.6, 1.2, 0] },
+  // quick setup: the gang in the left third, beside the setup panel
+  left: { pos: [7.4, 3.9, 13.6], look: [9.0, 1.4, -0.6] },
   right: { pos: [-1.0, 5.0, 13.0], look: [0.4, 1.6, -0.4] },
   center: { pos: [1.2, 5.6, 15.5], look: [1.6, 1.7, -0.6] },
   front: { pos: [0.4, 3.4, 12.4], look: [1.0, 1.25, -0.6] },
 };
 /** Front door on portrait screens (fov keeps the 16:9 width): the gang above the column. */
 const FRONT_TALL = { pos: [2.8, 4.6, 11.5] as [number, number, number], look: [2.8, -2.6, -0.5] as [number, number, number] };
+/** Standing mirror (x, z): in the lounge, left of the gang. */
+const MIRROR_AT = [-3.2, -0.5] as const;
 /** Idle pace on the front door (the gang breathes slower there than on the busier screens). */
 const FRONT_PACE = 0.7;
 
@@ -64,13 +69,11 @@ export class HideoutScene extends MenuScene {
   private readonly roof: THREE.Group;
   private readonly city: THREE.Group;
   private readonly cityWindows: THREE.Mesh;
-  private readonly lights: StringLights;
   private readonly safe: SafeRig;
   private readonly lead: Puppet;
   private readonly crew: Puppet[] = [];
   private readonly rivals: Puppet[] = [];
   private readonly wrench: THREE.Group;
-  private readonly props: THREE.Object3D[] = [];
   private readonly glows: THREE.Mesh[] = [];
   private readonly mirror: THREE.Mesh;
   private readonly hammer: THREE.Group;
@@ -107,19 +110,21 @@ export class HideoutScene extends MenuScene {
     const r = rng(41);
 
     // --- rooftop: slab, parapet, tar patches, vents, water tower, awning --------------------------
+    // The deck runs on toward the camera (front edge z ≈ 7.7) so the roof edge stays below the
+    // front-door frame instead of drawing heavy dark lines across the bottom of the screen.
     const b = new PropBuilder();
-    b.add(roundBox(15, 0.6, 9.5, 0.08), '#B9967E', [0, -0.3, -0.6]);
-    b.add(roundBox(14.4, 0.06, 8.9, 0.03), '#DDB997', [0, 0.02, -0.6]);
+    b.add(roundBox(15, 0.6, 13.1, 0.08), '#B9967E', [0, -0.3, 1.2]);
+    b.add(roundBox(14.4, 0.06, 12.5, 0.03), '#DDB997', [0, 0.02, 1.2]);
     for (let i = 0; i < 9; i++) b.add(roundBox(1 + r() * 1.2, 0.03, 0.8 + r() * 0.9, 0.02), '#CFA683', [-6 + r() * 12, 0.06, -4 + r() * 6], { rot: [0, r() * 0.6, 0] });
     // parapet (back + sides; the front edge stays open toward the camera)
     b.add(roundBox(15.2, 0.9, 0.4, 0.06), POP.brick, [0, 0.45, -5.3]);
     b.add(roundBox(15.4, 0.14, 0.55, 0.04), '#E3C9B6', [0, 0.95, -5.3]);
     for (const x of [-7.5, 7.5]) {
-      b.add(roundBox(0.4, 0.9, 9.6, 0.06), POP.brick, [x, 0.45, -0.6]);
-      b.add(roundBox(0.55, 0.14, 9.8, 0.04), '#E3C9B6', [x, 0.95, -0.6]);
+      b.add(roundBox(0.4, 0.9, 13.2, 0.06), POP.brick, [x, 0.45, 1.2]);
+      b.add(roundBox(0.55, 0.14, 13.4, 0.04), '#E3C9B6', [x, 0.95, 1.2]);
     }
     // front lip
-    b.add(roundBox(15.2, 0.25, 0.35, 0.05), '#E3C9B6', [0, 0.12, 4.1]);
+    b.add(roundBox(15.2, 0.25, 0.35, 0.05), '#E3C9B6', [0, 0.12, 7.7]);
     // water tower (back-left)
     const wx = 6.1;
     const wz = -3.9;
@@ -128,27 +133,18 @@ export class HideoutScene extends MenuScene {
     for (const y of [2.65, 3.3, 3.95]) b.add(cyl(1.19, 1.19, 0.1, 20), POP.steelDark, [wx, y, wz]);
     b.add(cyl(0.05, 1.3, 0.8, 20), POP.tomato, [wx, 4.6, wz]);
     b.add(ball(0.12, 10), POP.sun, [wx, 5.05, wz]);
-    // AC unit + vent pipes (back-right)
+    // AC unit (back-left)
     b.add(roundBox(1.6, 0.9, 1.0, 0.08), '#C9D3E2', [-5.7, 0.45, -4.3]);
     b.add(cyl(0.38, 0.38, 0.06, 18), '#8A93A6', [-5.7, 0.92, -4.3]);
-    b.add(cyl(0.12, 0.12, 1.4, 10), POP.steel, [3.8, 0.7, -4.6]);
-    b.add(cyl(0.2, 0.12, 0.25, 10), POP.steelDark, [3.8, 1.45, -4.6]);
-    // antenna
-    b.add(cyl(0.04, 0.05, 3.2, 6), POP.steelDark, [6.6, 1.6, -1.6]);
-    b.add(roundBox(1.0, 0.06, 0.06, 0.02), POP.steelDark, [6.6, 2.8, -1.6]);
-    b.add(roundBox(0.7, 0.06, 0.06, 0.02), POP.steelDark, [6.6, 3.15, -1.6]);
-    b.add(ball(0.09, 8), POP.tomato, [6.6, 3.25, -1.6]);
     // crates (hand placed, varied)
     addCrate(b, 0.95, POP.wood, 3, [5.0, 0, -1.7], 0.15);
     addCrate(b, 0.7, '#D99A5E', 6, [6.1, 0, -2.3], -0.4);
     addCrate(b, 0.6, POP.wood, 8, [-6.2, 0, 1.6], 0.5);
     addCrate(b, 0.8, '#B97D4C', 12, [-6.4, 0, 0.5], -0.2);
     addCrate(b, 0.55, POP.wood, 14, [-6.3, 0.8, 0.55], 0.7);
-    // cushions + rug by the snack table
+    // rug by the safe table
     b.add(roundBox(4.2, 0.04, 3.0, 0.02), POP.tomato, [2.8, 0.05, 0.6]);
     for (let i = 0; i < 7; i++) b.add(roundBox(4.2 / 7 - 0.06, 0.045, 3.02, 0.02), i % 2 ? '#FFE3A0' : POP.tomato, [2.8 - 2.1 + (i + 0.5) * 0.6, 0.055, 0.6]);
-    b.add(cyl(0.45, 0.5, 0.28, 16), POP.mint, [1.0, 0.14, 2.6]);
-    b.add(cyl(0.45, 0.5, 0.28, 16), POP.sky, [4.6, 0.14, 2.4]);
     // awning over the lounge corner (left): posts + striped canopy, a bench of cushions under it
     for (const x of [-4.6, -0.8]) b.add(cyl(0.07, 0.07, 2.8, 8), POP.woodDark, [x, 1.4, -2.9]);
     for (let i = 0; i < 8; i++) {
@@ -160,46 +156,35 @@ export class HideoutScene extends MenuScene {
     b.add(roundBox(3.2, 0.6, 0.3, 0.12), POP.mintDark, [-2.7, 0.6, -4.3]);
     for (const [x, c] of [[-3.7, POP.sun], [-1.8, POP.pink]] as const) b.add(roundBox(0.62, 0.5, 0.2, 0.1), c, [x, 0.65, -4.05], { rot: [-0.25, 0, 0.12] });
     // standing mirror (wardrobe corner) + a hat box
-    b.add(roundBox(0.95, 1.6, 0.1, 0.42), POP.sun, [-0.3, 1.2, 0.4], { rot: [0, 0.75, 0] });
+    // (in the lounge, under the front door's shaded column: a bright prop on the shade's edge
+    // would pull the eye away from the gang)
+    const [mx, mz] = MIRROR_AT;
+    b.add(roundBox(0.95, 1.6, 0.1, 0.42), POP.sun, [mx, 1.2, mz], { rot: [0, 0.75, 0] });
     for (let k = 0; k < 7; k++) {
       // little bulbs around the frame (dressing-room mirror)
       const a = (k / 6) * Math.PI;
       const lx = Math.cos(a) * 0.5;
       const ly = 1.2 + 0.35 + Math.sin(a) * 0.48;
-      b.add(ball(0.06, 6), k % 2 ? POP.cream : POP.tomato, [-0.3 + lx * Math.cos(0.75) + 0.07 * Math.sin(0.75), ly, 0.4 - lx * Math.sin(0.75) + 0.07 * Math.cos(0.75)]);
+      b.add(ball(0.06, 6), k % 2 ? POP.cream : POP.tomato, [mx + lx * Math.cos(0.75) + 0.07 * Math.sin(0.75), ly, mz - lx * Math.sin(0.75) + 0.07 * Math.cos(0.75)]);
     }
-    b.add(roundBox(0.3, 0.42, 0.3, 0.05), POP.woodDark, [-0.34, 0.21, 0.36]);
+    b.add(roundBox(0.3, 0.42, 0.3, 0.05), POP.woodDark, [mx - 0.04, 0.21, mz - 0.04]);
     addGift(b, 0.55, POP.pink, POP.sun, [-1.2, 0, 1.4]);
     // toolbox by the safe
     b.add(roundBox(0.7, 0.36, 0.36, 0.05), POP.tomato, [4.3, 0.18, 0.1], { rot: [0, -0.3, 0] });
     b.add(roundBox(0.4, 0.06, 0.08, 0.02), POP.ink, [4.3, 0.42, 0.1], { rot: [0, -0.3, 0] });
-    // potted plants
-    for (const [x, z, s0] of [[-6.4, 3.2, 1], [6.6, 3.0, 0.85]] as const) {
+    // potted plant (front-left corner)
+    for (const [x, z, s0] of [[-6.4, 3.2, 1]] as const) {
       b.add(cyl(0.38 * s0, 0.3 * s0, 0.6 * s0, 14), POP.tomato, [x, 0.3 * s0, z]);
       b.add(ball(0.5 * s0, 12), POP.grass, [x, 0.9 * s0, z]);
       b.add(ball(0.36 * s0, 10), POP.grassDark, [x + 0.25 * s0, 1.15 * s0, z - 0.1]);
     }
-    // party light poles
-    b.add(cyl(0.06, 0.07, 3.0, 8), POP.woodDark, [7.2, 1.5, 3.0]);
     this.roof = b.build('prop:roof');
     this.scene.add(this.roof);
     this.batcher.add(this.roof);
     this.mirror = mirrorGlass(0.74, 1.36);
-    this.mirror.position.set(-0.3 + Math.sin(0.75) * 0.058, 1.2, 0.4 + Math.cos(0.75) * 0.058);
+    this.mirror.position.set(mx + Math.sin(0.75) * 0.058, 1.2, mz + Math.cos(0.75) * 0.058);
     this.mirror.rotation.y = 0.75;
     this.scene.add(this.mirror);
-
-    // snacks on the safe table
-    const snack = new PropBuilder();
-    snack.add(cyl(0.12, 0.1, 0.22, 12), POP.sky, [2.15, 1.44, -0.75]);
-    snack.add(cyl(0.12, 0.1, 0.22, 12), POP.pink, [3.1, 1.44, -0.5]);
-    snack.add(new THREE.TorusGeometry(0.16, 0.07, 8, 16), '#E9A15E', [2.65, 1.38, -0.3], { rot: [Math.PI / 2, 0, 0] });
-    snack.add(new THREE.TorusGeometry(0.16, 0.06, 8, 16), POP.pink, [2.65, 1.41, -0.3], { rot: [Math.PI / 2, 0, 0], scale: [0.98, 0.98, 0.6] });
-    snack.add(roundBox(0.5, 0.12, 0.34, 0.03), POP.sun, [2.5, 1.37, -1.1], { rot: [0, 0.3, 0] });
-    const snacks = snack.build('prop:snacks');
-    this.scene.add(snacks);
-    this.batcher.add(snacks);
-    this.props.push(snacks);
 
     // --- the city below and around (one unlit window mesh) --------------------------------------
     const cb = new PropBuilder();
@@ -261,7 +246,7 @@ export class HideoutScene extends MenuScene {
     // Haze the city a little more so the rooftop reads first (a soft depth-of-field feel).
     this.scene.fog = new THREE.Fog('#F2B79A', 20, 66);
 
-    // --- live props: the safe table, string lights, glows -----------------------------------------
+    // --- live props: the safe table, glows ----------------------------------------------------------
     this.safe = createSafe('largeSafe');
     this.safe.setAnchored(false);
     // Unanchoring plays the "uprooted" hop; the snack table has stood here for ages, so skip it.
@@ -270,13 +255,6 @@ export class HideoutScene extends MenuScene {
     this.safe.root.rotation.y = -0.25;
     this.scene.add(this.safe.root);
     this.batcher.add(this.safe.root);
-    this.lights = stringLights([
-      { a: new THREE.Vector3(-6.9, 2.75, 3.3), b: new THREE.Vector3(-4.6, 2.75, -2.9), count: 9, sag: 0.4 },
-      { a: new THREE.Vector3(-0.8, 2.75, -2.9), b: new THREE.Vector3(6.6, 3.2, -1.6), count: 15, sag: 0.55 },
-      { a: new THREE.Vector3(6.6, 3.2, -1.6), b: new THREE.Vector3(7.2, 3.0, 3.0), count: 9, sag: 0.45 },
-    ]);
-    this.scene.add(this.lights.group);
-    this.batcher.add(this.lights.group);
     for (const [x, z, rad, c, a] of [
       [2.8, 0.8, 5.5, '#FFB26E', 0.26],
       [-2.6, -2.8, 3.0, '#FFD27A', 0.2],
@@ -374,12 +352,17 @@ export class HideoutScene extends MenuScene {
     return this.reducedMotion ? 0.12 : CER.coverAt;
   }
 
+  /** Front door and quick setup: slow idle, one reaction at most. */
+  private get calm(): boolean {
+    return this.framing === 'front' || this.framing === 'left';
+  }
+
   /**
-   * The highlighted main-menu item (null = idle). On the front door only 게임 시작 gets a
-   * reaction (the lead lifts the 뿅망치); every other item leaves the gang idling.
+   * The highlighted main-menu item (null = idle). On the calm framings (front door, quick setup)
+   * only 게임 시작 gets a reaction (the lead lifts the 뿅망치); anything else leaves the gang idling.
    */
   setFocus(f: HideoutFocus): void {
-    if (this.framing === 'front' && f !== 'play') f = null;
+    if (this.calm && f !== 'play') f = null;
     if (f === this.focus) return;
     const prev = this.focus;
     this.focus = f;
@@ -424,7 +407,7 @@ export class HideoutScene extends MenuScene {
     const front = this.framing === 'front';
     const cer = this.cerT;
     // Idle clock: slower on the front door (the play ceremony runs at full speed).
-    const pace = front && cer === null ? FRONT_PACE : 1;
+    const pace = this.calm && cer === null ? FRONT_PACE : 1;
     const idt = dt * pace;
     this.idleT += idt;
     const it = this.idleT;
@@ -508,7 +491,6 @@ export class HideoutScene extends MenuScene {
     }
     this.updateCeremony(dt);
     this.safe.update(dt);
-    this.lights.twinkle(rm ? 0 : it * 0.6);
 
     // camera: framing + a small push toward the rivals
     const fr = this.frameFor(this.framing);
@@ -591,11 +573,6 @@ export class HideoutScene extends MenuScene {
     disposeProp(this.zipPole);
     for (const g of this.glows) disposeOwnedMesh(g);
     disposeOwnedMesh(this.mirror);
-    for (const p of this.props) {
-      (p.userData.dispose as (() => void) | undefined)?.();
-      disposeProp(p);
-    }
-    this.lights.dispose();
     disposeOwnedMesh(this.cityWindows);
     disposeProp(this.city);
     disposeProp(this.roof);

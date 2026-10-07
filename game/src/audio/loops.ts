@@ -1,8 +1,10 @@
 /**
  * Continuous sounds whose character follows an intensity 0..1 every frame:
  *
- *   drag       safe scraping over paving; intensity = drag speed (rate, brightness, level)
- *   bankRumble a whole building grinding along; intensity = bank speed
+ *   drag       a heavy toy hauled over paving: soft rounded "dugu-dugu" bumps over a warm thrum;
+ *              intensity = drag speed (bump rate, warmth, level), pitch = size
+ *   bankRumble a whole building heaving along: rumble, sub, slow soft thunks and a gentle
+ *              musical groan; intensity = bank speed
  *   strain     the uproot build-up while pulling an anchored target; intensity = unanchor progress
  *              (pitch = size: small safe high, bank low). Creak and groan rise in pitch and grit,
  *              taut roots start to quiver and snap past 40 %, the ground shakes past 80 %
@@ -16,7 +18,7 @@
  * A LoopVoice owns long-running looped sources; the engine creates one per (id, key) on demand,
  * feeds it intensity changes and destroys it after it has been silent for a while.
  */
-import { alarmBellBuffer, crackleBuffer, creakBuffer, noiseBuffer, scrapeBuffer, type NoiseColor } from './dsp';
+import { alarmBellBuffer, crackleBuffer, creakBuffer, heaveBuffer, noiseBuffer, rollBuffer, scrapeBuffer, type NoiseColor } from './dsp';
 import type { LoopId } from './ids';
 
 export interface LoopVoice {
@@ -93,6 +95,38 @@ export const LOOP_GAIN: Readonly<Record<LoopId, number>> = {
   policeSiren: 0.5,
   alarmBell: 0.5,
 };
+
+/** Drag level smoothing (s): a gentle start, a slower let-go (no sputter at the speed gate). */
+export const DRAG_ATTACK_TAU = 0.07;
+export const DRAG_RELEASE_TAU = 0.14;
+
+/**
+ * The drag voice's settings at intensity i (speed) and pitch p (size, 1 = large safe-ish):
+ * bump-texture rate (= bump rate and pitch), bump and thrum levels (both 0 at i = 0, no floor),
+ * the thrum's resonant lowpass and the final lowpass, which stays under ~2 kHz.
+ */
+export function dragParams(i: number, p = 1): { rate: number; bumps: number; thrum: number; thrumHz: number; toneHz: number } {
+  const sp = Math.sqrt(p);
+  return {
+    rate: (0.72 + 0.5 * i) * p,
+    bumps: i > 0 ? 0.48 * Math.pow(i, 0.75) : 0,
+    thrum: i > 0 ? 0.18 * Math.pow(i, 0.85) : 0,
+    thrumHz: (200 + 140 * i) * sp,
+    toneHz: (950 + 750 * i) * sp,
+  };
+}
+
+/** The bank rumble's settings at intensity i (bank speed). */
+export function bankParams(i: number): { rumble: number; rumbleHz: number; sub: number; rate: number; heave: number; heaveHz: number } {
+  return {
+    rumble: 0.28 * i,
+    rumbleHz: 110 + 170 * i,
+    sub: 0.2 * i,
+    rate: 0.9 + 0.3 * i,
+    heave: i > 0 ? 0.7 * Math.pow(i, 1.1) : 0,
+    heaveHz: 480 + 420 * i,
+  };
+}
 
 /** Police two-tone: high D6 / low A5 (chord tones of the songs' D minor tonic), "삐-뽀". */
 export const POLICE_SIREN_HI_HZ = 1174.66;
@@ -176,6 +210,8 @@ export function prewarmSteps(ctx: BaseAudioContext): (() => void)[] {
   return [
     ...colors.map((c) => (): void => void noiseBuffer(ctx, c)),
     (): void => void scrapeBuffer(ctx),
+    (): void => void rollBuffer(ctx),
+    (): void => void heaveBuffer(ctx),
     (): void => void creakBuffer(ctx),
     (): void => void crackleBuffer(ctx),
     (): void => void sirenWaves(ctx),
@@ -240,26 +276,48 @@ export function createLoop(ctx: BaseAudioContext, id: LoopId, t: number, rnd: ()
 
   switch (id) {
     case 'drag': {
-      const scrape = loopSource(g, scrapeBuffer(ctx), t, rnd);
-      const bp = filter(ctx, 'bandpass', 600, 0.9);
-      const lvl = gainNode(ctx);
-      chain(scrape, bp, lvl, g.out);
+      // A heavy toy hauled over paving: rounded wooden "dugu-dugu" bumps whose rate follows the
+      // speed (./dsp.ts rollBuffer) over a warm resonant thrum, all under a 12 dB/oct lowpass that
+      // only opens a little with speed. Nothing hisses; `pitch` is the object's size (small safe
+      // lighter and quicker, gold safe deeper).
+      let pitch = 1;
+      let last = 0;
+      const roll = loopSource(g, rollBuffer(ctx), t, rnd);
+      const rollLvl = gainNode(ctx);
       const body = noiseLoop(g, 'brown', t, rnd);
-      const lp = filter(ctx, 'lowpass', 170);
+      const thrum = filter(ctx, 'lowpass', 220, 1.5);
       const bodyLvl = gainNode(ctx);
-      chain(body, lp, bodyLvl, g.out);
+      const tone = filter(ctx, 'lowpass', 1200, 0.5);
+      chain(roll, rollLvl, tone);
+      chain(body, thrum, bodyLvl, tone);
+      tone.connect(g.out);
+      const apply = (i: number, at: number, tau: number): void => {
+        const d = dragParams(i, pitch);
+        to(roll.playbackRate, d.rate, at, tau);
+        to(rollLvl.gain, d.bumps, at, tau);
+        to(thrum.frequency, d.thrumHz, at, tau);
+        to(bodyLvl.gain, d.thrum, at, tau);
+        to(tone.frequency, d.toneHz, at, tau);
+      };
       set = (i, at) => {
-        const tau = 0.06;
-        to(scrape.playbackRate, 0.55 + 0.9 * i, at, tau);
-        to(bp.frequency, 450 + 1400 * i, at, tau);
-        to(lvl.gain, i > 0 ? 0.25 + 0.45 * Math.pow(i, 0.8) : 0, at, tau);
-        to(bodyLvl.gain, 0.5 * i, at, tau);
+        // Gentle on, slower off: stop-and-go and hovering at the director's speed gate breathe
+        // instead of sputtering.
+        const tau = i >= last ? DRAG_ATTACK_TAU : DRAG_RELEASE_TAU;
+        last = i;
+        apply(i, at, tau);
+      };
+      setPitch = (p, at) => {
+        pitch = p;
+        apply(last, at, 0.1);
       };
       break;
     }
     case 'bankRumble': {
+      // A whole building heaving along: a warm resonant rumble, the foundation's sub, and slow
+      // soft "thunk... thunk"s with now and then a gentle musical groan (./dsp.ts heaveBuffer).
+      let last = 0;
       const rumble = noiseLoop(g, 'brown', t, rnd);
-      const lp = filter(ctx, 'lowpass', 120, 0.9);
+      const lp = filter(ctx, 'lowpass', 120, 1.3);
       const rumbleLvl = gainNode(ctx);
       chain(rumble, lp, rumbleLvl, g.out);
       // Sub tone with a slow wobble (the foundation dragging).
@@ -275,26 +333,21 @@ export function createLoop(ctx: BaseAudioContext, id: LoopId, t: number, rnd: ()
       subOsc.start(t);
       wob.start(t);
       g.sources.push(subOsc, wob);
-      // Mid-range grinding so the movement is audible on laptop speakers.
-      const grind = loopSource(g, scrapeBuffer(ctx), t, rnd);
-      const bp = filter(ctx, 'bandpass', 350, 1);
-      const grindLvl = gainNode(ctx);
-      chain(grind, bp, grindLvl, g.out);
-      // Occasional groaning of the structure.
-      const groan = loopSource(g, creakBuffer(ctx), t, rnd);
-      groan.playbackRate.value = 0.33;
-      const groanBp = filter(ctx, 'bandpass', 420, 3);
-      const groanLvl = gainNode(ctx);
-      chain(groan, groanBp, groanLvl, g.out);
+      // The heave: what carries the movement on laptop speakers.
+      const heave = loopSource(g, heaveBuffer(ctx), t, rnd);
+      const heaveLp = filter(ctx, 'lowpass', 700, 0.5);
+      const heaveLvl = gainNode(ctx);
+      chain(heave, heaveLp, heaveLvl, g.out);
       set = (i, at) => {
-        const tau = 0.15;
-        to(lp.frequency, 90 + 130 * i, at, tau);
-        to(rumbleLvl.gain, 0.75 * i, at, tau);
-        to(subLvl.gain, 0.3 * i, at, tau);
-        to(grind.playbackRate, 0.28 + 0.4 * i, at, tau);
-        to(bp.frequency, 280 + 300 * i, at, tau);
-        to(grindLvl.gain, 0.4 * i, at, tau);
-        to(groanLvl.gain, 0.16 * i, at, tau);
+        const tau = i >= last ? 0.15 : 0.25;
+        last = i;
+        const b = bankParams(i);
+        to(lp.frequency, b.rumbleHz, at, tau);
+        to(rumbleLvl.gain, b.rumble, at, tau);
+        to(subLvl.gain, b.sub, at, tau);
+        to(heave.playbackRate, b.rate, at, tau);
+        to(heaveLp.frequency, b.heaveHz, at, tau);
+        to(heaveLvl.gain, b.heave, at, tau);
       };
       break;
     }
