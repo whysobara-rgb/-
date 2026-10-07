@@ -40,13 +40,20 @@ dependencies:
 
   # Networking & local storage (for real backend API integration)
   http: 1.5.0
-  shared_preferences: 2.5.3
+  shared_preferences: 2.5.4
 
   # Real product photo rendering (network image caching, web-compatible)
   cached_network_image: 3.4.1
   audioplayers: 6.8.1
   share_plus: 13.3.1
   url_launcher: 6.3.3
+
+  # 소셜 로그인 SDK. 앱은 SDK가 준 토큰만 서버(/auth/social-login)로 보낸다.
+  # 키 설정은 docs/SOCIAL_LOGIN_SETUP.md.
+  kakao_flutter_sdk_user: 2.0.1
+  flutter_naver_login: 2.1.1
+  google_sign_in: 7.2.0
+  sign_in_with_apple: 8.2.0
 
 dev_dependencies:
   flutter_test:

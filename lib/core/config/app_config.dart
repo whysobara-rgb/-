@@ -65,4 +65,10 @@ class AppConfig {
   /// 되고, 이 값으로 감싼 코드는 컴파일 단계에서 빠진다.
   static const bool paymentSandbox =
       !kReleaseMode && bool.fromEnvironment('PAYMENT_SANDBOX');
+
+  /// 테스트 소셜 로그인. `--dart-define=SOCIAL_SANDBOX=true`로 켜면 제공자
+  /// SDK 대신 가짜 토큰을 보내는 버튼이 나온다(동의 시트·오류 화면 확인용).
+  /// [paymentSandbox]처럼 release 빌드에서는 상수 false다.
+  static const bool socialSandbox =
+      !kReleaseMode && bool.fromEnvironment('SOCIAL_SANDBOX');
 }

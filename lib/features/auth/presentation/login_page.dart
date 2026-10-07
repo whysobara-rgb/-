@@ -7,12 +7,24 @@ import '../../../shared/widgets/ui.dart';
 import '../../../shared/widgets/vault_art.dart';
 import '../../../shared/providers/auth_provider.dart';
 import '../domain/agreements.dart';
+import '../domain/social_login_result.dart';
+import '../social/social_auth_client.dart';
+import '../social/social_auth_clients.dart';
 import 'signup_page.dart';
 import 'terms_page.dart';
+import 'welcome_gp_page.dart';
+import 'widgets/social_button.dart';
+import 'widgets/social_consent_sheet.dart';
 
-/// 로그인. 위는 금고 일러스트, 아래는 이메일 로그인.
+/// 로그인. 위는 금고 일러스트, 아래는 소셜 로그인(있으면)과 이메일 로그인.
+///
+/// 소셜 버튼은 서버 `GET /auth/providers`가 돌려주고 이 빌드에 키가 있는
+/// 제공자만 나온다. 하나도 없으면 이메일 로그인만 보인다.
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
+  /// 테스트용. 기본은 [defaultSocialClients].
+  final List<SocialAuthClient>? socialClients;
+
+  const LoginPage({super.key, this.socialClients});
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -22,6 +34,63 @@ class _LoginPageState extends State<LoginPage> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
+  List<SocialAuthClient> _social = const [];
+  SocialProvider? _socialBusy;
+  _Notice? _notice;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProviders();
+  }
+
+  Future<void> _loadProviders() async {
+    final codes = await context.read<AuthProvider>().fetchSocialProviders();
+    if (!mounted) return;
+    setState(() {
+      _social = visibleSocialClients(
+        widget.socialClients ?? defaultSocialClients(),
+        codes,
+      );
+    });
+  }
+
+  Future<void> _handleSocial(SocialAuthClient client) async {
+    if (_socialBusy != null) return;
+    setState(() {
+      _socialBusy = client.provider;
+      _notice = null;
+    });
+    final auth = context.read<AuthProvider>();
+    // 로그인되면 이 화면은 메인 탭으로 바뀌므로 내비게이터를 먼저 잡아 둔다.
+    final navigator = Navigator.of(context);
+    var result = await auth.socialLogin(client, context);
+    if (result is SocialLoginNeedsConsent && mounted) {
+      final consent = await showSocialConsentSheet(
+        context,
+        provider: result.provider,
+        suggestedNickname: result.suggestedNickname,
+      );
+      if (consent == null) {
+        auth.cancelSocialSignup();
+        result = const SocialLoginCancelled();
+      } else {
+        result = await auth.completeSocialSignup(
+          consent.agreements,
+          nickname: consent.nickname,
+        );
+      }
+    }
+    if (result is SocialLoginSuccess) {
+      final welcomeGp = auth.takeWelcomeGp();
+      if (welcomeGp != null) navigator.push(WelcomeGpPage.route(welcomeGp));
+    }
+    if (!mounted) return;
+    setState(() {
+      _socialBusy = null;
+      _notice = _Notice.from(result);
+    });
+  }
 
   @override
   void dispose() {
@@ -93,6 +162,38 @@ class _LoginPageState extends State<LoginPage> {
         const SizedBox(height: Space.x3),
         const _Promises(),
         const SizedBox(height: Space.x8),
+        if (_notice != null) ...[
+          _NoticeCard(
+            notice: _notice!,
+            onClose: () => setState(() => _notice = null),
+          ),
+          const SizedBox(height: Space.x4),
+        ],
+        if (_social.isNotEmpty) ...[
+          for (final client in _social) ...[
+            SocialButton(
+              provider: client.provider,
+              // SDK 화면·동의 시트가 떠 있는 동안은 돌리지 않고, 서버를 기다릴 때만.
+              loading: _socialBusy == client.provider && isLoading,
+              onPressed: _socialBusy == null && !isLoading
+                  ? () => _handleSocial(client)
+                  : null,
+            ),
+            const SizedBox(height: Space.x2),
+          ],
+          const SizedBox(height: Space.x4),
+          Row(
+            children: [
+              const Expanded(child: Hairline()),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: Space.x3),
+                child: Text('또는 이메일로', style: AppText.caption),
+              ),
+              const Expanded(child: Hairline()),
+            ],
+          ),
+          const SizedBox(height: Space.x4),
+        ],
         TextField(
           controller: _emailController,
           keyboardType: TextInputType.emailAddress,
@@ -140,8 +241,8 @@ class _LoginPageState extends State<LoginPage> {
         const SizedBox(height: Space.x4),
         PrimaryButton(
           label: '로그인',
-          loading: isLoading,
-          onPressed: _handleEmailLogin,
+          loading: isLoading && _socialBusy == null,
+          onPressed: _socialBusy == null ? _handleEmailLogin : null,
         ),
         const SizedBox(height: Space.x2),
         Center(
@@ -307,6 +408,84 @@ class _LegalFooter extends StatelessWidget {
             link(TermsDocument.privacyPolicy),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// 소셜 로그인 결과 중 사용자에게 알려야 하는 것.
+class _Notice {
+  final String title;
+  final String message;
+  const _Notice(this.title, this.message);
+
+  static _Notice? from(SocialLoginResult result) => switch (result) {
+    SocialLoginSuccess() || SocialLoginCancelled() => null,
+    SocialLoginNeedsConsent() => null,
+    SocialLoginEmailTaken(:final existingProvider, :final existingLabel) =>
+      _Notice(
+        '이미 $existingLabel로 가입된 이메일이에요',
+        existingProvider == null || existingProvider.toUpperCase() == 'EMAIL'
+            ? '아래에서 이메일과 비밀번호로 로그인해 주세요.'
+            : '처음 가입한 $existingLabel 로그인으로 들어와 주세요.',
+      ),
+    SocialLoginUnavailable(:final provider) => _Notice(
+      '지금은 ${provider.label} 로그인을 쓸 수 없어요',
+      '잠시 후 다시 시도하거나 다른 방법으로 로그인해 주세요.',
+    ),
+    SocialLoginInvalidToken(:final provider) => _Notice(
+      '${provider.label} 로그인 정보를 확인하지 못했어요',
+      '다시 시도해 주세요. 계속되면 다른 방법으로 로그인해 주세요.',
+    ),
+    SocialLoginFailed(:final message) => _Notice('로그인하지 못했어요', message),
+  };
+}
+
+class _NoticeCard extends StatelessWidget {
+  final _Notice notice;
+  final VoidCallback onClose;
+  const _NoticeCard({required this.notice, required this.onClose});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(
+        Space.x4,
+        Space.x3,
+        Space.x1,
+        Space.x3,
+      ),
+      decoration: BoxDecoration(
+        color: cs.error.withValues(alpha: 0.08),
+        borderRadius: Radii.card,
+        border: Border.all(color: cs.error.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 1),
+            child: Icon(Icons.error_outline, size: 20, color: cs.error),
+          ),
+          const SizedBox(width: Space.x3),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(notice.title, style: AppText.bodyStrong),
+                const SizedBox(height: 2),
+                Text(notice.message, style: AppText.caption),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: '닫기',
+            visualDensity: VisualDensity.compact,
+            onPressed: onClose,
+            icon: Icon(Icons.close, size: 18, color: cs.onSurfaceVariant),
+          ),
+        ],
       ),
     );
   }

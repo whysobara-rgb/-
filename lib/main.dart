@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -5,6 +6,7 @@ import 'core/feedback/sfx.dart';
 import 'core/theme/app_colors.dart';
 import 'core/theme/app_theme.dart';
 import 'features/auth/presentation/login_page.dart';
+import 'features/auth/social/social_auth_clients.dart';
 import 'navigation/main_navigation.dart';
 import 'navigation/tab_navigator.dart';
 import 'shared/providers/auth_provider.dart';
@@ -22,6 +24,8 @@ void main() {
       systemNavigationBarIconBrightness: Brightness.light,
     ),
   );
+  // 키가 있는 소셜 SDK만 초기화한다. 실패해도 이메일 로그인은 된다.
+  unawaited(initSocialSdks().catchError((Object _) {}));
   runApp(const GachaVaultApp());
 }
 

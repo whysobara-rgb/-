@@ -1,8 +1,12 @@
-import 'package:flutter/foundation.dart';
+import 'dart:async';
+import 'package:flutter/widgets.dart';
 import '../../core/network/api_client.dart';
 import '../../core/network/token_storage.dart';
 import '../../features/auth/data/auth_repository.dart';
 import '../../features/auth/domain/agreements.dart';
+import '../../features/auth/domain/social_login_result.dart';
+import '../../features/auth/social/social_auth_client.dart';
+import '../../features/auth/social/social_auth_clients.dart';
 import '../models/app_user.dart';
 
 /// 로그인/회원가입/자동로그인 상태를 관리하는 Provider.
@@ -14,19 +18,25 @@ class AuthProvider extends ChangeNotifier {
   final ApiClient _apiClient;
   final TokenStorage _tokenStorage;
   final AuthRepository _auth;
+  final List<SocialAuthClient> Function() _socialClients;
 
   AuthProvider({
     ApiClient apiClient = const ApiClient(),
     TokenStorage tokenStorage = const TokenStorage(),
+    List<SocialAuthClient> Function() socialClients = defaultSocialClients,
   }) : _apiClient = apiClient,
        _tokenStorage = tokenStorage,
-       _auth = AuthRepository(apiClient: apiClient);
+       _auth = AuthRepository(apiClient: apiClient),
+       _socialClients = socialClients;
 
   AppUser? _currentUser;
   bool _isLoading = false;
   bool _isInitializing = true;
   String? _errorMessage;
   int? _pendingWelcomeGp;
+
+  /// 약관 동의를 기다리는 소셜 로그인(10010). 동의하면 같은 토큰으로 다시 보낸다.
+  (SocialProvider, SocialCredential)? _pendingSocial;
 
   AppUser? get currentUser => _currentUser;
   bool get isLoggedIn => _currentUser != null;
@@ -128,6 +138,106 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  /// 서버가 검증할 수 있는 소셜 제공자 코드. 실패하면 빈 목록(이메일만).
+  Future<List<String>> fetchSocialProviders() async {
+    try {
+      return await _auth.providers();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// 소셜 로그인 1단계: 제공자 SDK로 토큰을 받아 서버에 보낸다.
+  ///
+  /// 처음 온 사용자면 [SocialLoginNeedsConsent]를 돌려주고 토큰을 보관한다.
+  /// 화면은 동의를 받은 뒤 [completeSocialSignup]을 부른다.
+  Future<SocialLoginResult> socialLogin(
+    SocialAuthClient client,
+    BuildContext context,
+  ) async {
+    _pendingSocial = null;
+    _errorMessage = null;
+    final SocialCredential credential;
+    try {
+      credential = await client.signIn(context);
+    } on SocialSignInCancelled {
+      return const SocialLoginCancelled();
+    } on SocialSignInFailed catch (e) {
+      return SocialLoginFailed(e.message);
+    } catch (_) {
+      return SocialLoginFailed('${client.provider.label} 로그인을 열지 못했어요');
+    }
+    return _submitSocial(client.provider, credential);
+  }
+
+  /// 소셜 로그인 2단계(신규 가입): 같은 토큰에 약관 동의를 붙여 다시 보낸다.
+  Future<SocialLoginResult> completeSocialSignup(
+    Agreements agreements, {
+    String? nickname,
+  }) async {
+    final pending = _pendingSocial;
+    if (pending == null) {
+      return const SocialLoginFailed('로그인을 처음부터 다시 시도해 주세요');
+    }
+    return _submitSocial(
+      pending.$1,
+      pending.$2,
+      agreements: agreements,
+      nickname: nickname,
+    );
+  }
+
+  /// 동의 시트를 닫았을 때. 보관한 토큰을 버린다.
+  void cancelSocialSignup() => _pendingSocial = null;
+
+  Future<SocialLoginResult> _submitSocial(
+    SocialProvider provider,
+    SocialCredential credential, {
+    Agreements? agreements,
+    String? nickname,
+  }) async {
+    _setLoading(true);
+    try {
+      final session = await _auth.socialLogin(
+        provider: provider.code,
+        token: credential.token,
+        nickname: nickname,
+        agreements: agreements,
+      );
+      _pendingSocial = null;
+      final welcome = session.welcomeGp ?? 0;
+      _pendingWelcomeGp = session.isNewUser && welcome > 0 ? welcome : null;
+      await _startSession(session);
+      return SocialLoginSuccess(isNewUser: session.isNewUser);
+    } on ApiException catch (e) {
+      switch (e.statusCode) {
+        case ApiCode.termsRequired:
+          _pendingSocial = (provider, credential);
+          return SocialLoginNeedsConsent(
+            provider,
+            suggestedNickname: credential.nickname,
+          );
+        case ApiCode.emailAlreadyRegistered:
+          _pendingSocial = null;
+          return SocialLoginEmailTaken(
+            provider,
+            existingProvider: e.errorValue('provider'),
+          );
+        case ApiCode.socialProviderUnavailable:
+          return SocialLoginUnavailable(provider);
+        case ApiCode.unauthorized:
+          _pendingSocial = null;
+          return SocialLoginInvalidToken(provider);
+        default:
+          return SocialLoginFailed(e.displayMessage);
+      }
+    } catch (_) {
+      return SocialLoginFailed('${provider.label} 로그인에 실패했어요');
+    } finally {
+      _setLoading(false);
+    }
+  }
+
   /// 뽑기/충전/배송 등 잔액이 바뀌는 동작 이후 최신 프로필(잔액 포함)을
   /// 서버에서 다시 가져와 [currentUser]를 갱신한다.
   Future<void> refreshProfile() async {
@@ -167,9 +277,17 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    // 소셜 가입자는 제공자 SDK 세션도 끊어, 다음 로그인 때 계정을 고를 수 있게 한다.
+    final provider = SocialProvider.fromCode(_currentUser?.provider);
+    if (provider != null) {
+      for (final c in _socialClients()) {
+        if (c.provider == provider) unawaited(c.signOut());
+      }
+    }
     await _tokenStorage.clearToken();
     _currentUser = null;
     _pendingWelcomeGp = null;
+    _pendingSocial = null;
     notifyListeners();
   }
 

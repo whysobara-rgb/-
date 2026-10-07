@@ -70,4 +70,34 @@ class AuthRepository {
     );
     return asIntOrNull(asMap(data)['welcomeGp']);
   }
+
+  /// 서버가 토큰을 검증할 수 있는 소셜 제공자 코드 목록.
+  Future<List<String>> providers() async {
+    final data = asMap(await _api.get('/auth/providers', withAuth: false));
+    final raw = data['providers'];
+    return raw is List
+        ? raw.map((e) => e.toString().toUpperCase()).toList()
+        : const [];
+  }
+
+  /// 소셜 로그인. 처음 오는 사용자는 [agreements]가 있어야 가입된다(없으면 10010).
+  Future<AuthSession> socialLogin({
+    required String provider,
+    required String token,
+    String? nickname,
+    Agreements? agreements,
+  }) async {
+    final data = await _api.post(
+      '/auth/social-login',
+      body: {
+        'provider': provider,
+        'token': token,
+        if (nickname != null && nickname.trim().isNotEmpty)
+          'nickname': nickname.trim(),
+        ...?agreements?.toJson(),
+      },
+      withAuth: false,
+    );
+    return AuthSession.fromJson(asMap(data));
+  }
 }
