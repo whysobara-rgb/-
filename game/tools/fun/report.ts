@@ -783,6 +783,7 @@ function gateCell(g: Gate, c: Ctx, content: string): string {
   if (ci) s += ` [${g.fmt(ci[0])}–${g.fmt(ci[1])}]`;
   if (note) s += ` (${note})`;
   if (st === 'na') return `${s} (n/a)`;
+  if (g.gateText === '–' && g.targetText === '–') return s; // pure info row: no verdict
   s += ` ${st === 'target' ? '✔✔' : st === 'gate' ? '✔' : '✘'}`;
   // an interval that reaches across the gate bound: the verdict is not resolved at this n
   if (ci && g.gate(ci[0]) !== g.gate(ci[1])) s += ' (CI spans gate)';
