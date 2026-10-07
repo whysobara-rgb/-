@@ -24,6 +24,15 @@
 
 오너 승인 완료(2026-10-07). 이유: 파티 물리 장르는 "친구랑 하는 맛"으로 팔리는데 지금은 1인 대 봇만 가능 → 매출 기대치를 가장 크게 올리는 작업.
 
+**로컬 멀티플레이 구현 완료(2026-10-07)** — 메인 메뉴 `같이 하기`(빠른 대전 화면에도 버튼).
+- 입력: `src/platform/localInput.ts`(키보드 A = 설정의 키 − 오른손 키, 키보드 B = 방향키 + `.`/`/`, 패드 = 인덱스별, 장치 1개 = 1명). 참가 화면은 누른 순서대로 처리.
+- 로비 규칙·색: `src/game/local.ts`, `src/shared/players.ts`(P1 노랑·P2 민트·P3 분홍·P4 보라, 팀 색과 겹치지 않게). 화면: `src/ui/screens/LocalJoinScreen.ts` + `src/ui/styles/together.css`, 흐름은 `App.toTogether()`.
+- 매치: `buildLocalMatch`(setup.ts), `MatchController.seats`(슬롯별 잡기 래치·도발 휠·쿨다운), 어느 장치든 일시 정지, 재대결은 같은 사람.
+- 공유 카메라: `src/render/sharedCamera.ts`(21 m ~ 44 m, 다 못 담으면 가운데 + 플레이어 색 화면 밖 화살표). 싱글은 기존 카메라 그대로.
+- HUD: 바닥 링·머리 위 P태그·모서리 칩(`src/ui/hud/PlayerChips.ts`, `hud-local.css`), 결과 화면 '오늘의 활약'(`src/game/localStats.ts`, 이벤트 기록 기반).
+- 테스트: `test/unit/local-multiplayer.test.ts`, `test/e2e/local-multiplayer.spec.ts`. 문서: STEAM_RELEASE(Remote Play Together 설정), STORE_PAGE, PLAYER_README.
+- 남은 일: 키보드 B 키 재배치 UI(지금은 기본값 고정, A는 설정의 키를 따름), 다른 플레이어 뒤 건물 페이드(지금은 P1 기준), Steam Input이 패드를 둘로 보일 때 중복 참가(대시로 빠짐) 실기 확인.
+
 - 한 화면 2~4인: 키보드 2인 분할(WASD/방향키) + 게임패드 최대 4개, 참가 화면(버튼 눌러 참가, 팀 선택), 빈 슬롯은 봇.
 - `src/game/setup.ts`의 `humanSlot: 0`을 여러 사람 슬롯으로, `src/platform/input.ts`에서 장치별 입력 분리, `src/game/match.ts`에서 슬롯별 명령 생성.
 - 공유 카메라(모든 사람 플레이어가 화면에 들어오게 줌/이동), HUD는 팀 단위 + 플레이어별 작은 표시(색·번호), 도발 휠은 장치별.

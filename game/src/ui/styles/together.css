@@ -269,3 +269,7 @@
 .uh-res__hlRow { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 0.7rem; font-weight: 800; font-size: var(--uh-fs-sm); color: var(--pop-ink); }
 .uh-res__hlWho { display: inline-flex; gap: 0.3rem; }
 .uh-res__hlNum { font-family: var(--uh-font-display); font-size: 1.3rem; color: var(--pop-ink-2); min-width: 4.5rem; text-align: right; }
+/* Local results: the biggest event and "오늘의 활약" side by side (keeps the raccoons below clear). */
+.uh-res__mid:has(> .uh-res__hl) { flex-direction: row; align-items: stretch; justify-content: center; }
+.uh-res__mid:has(> .uh-res__hl) .uh-res__event { width: min(38rem, 55%); }
+.uh-res__hl { padding: 0.875rem 1.5rem 1rem; animation: uh-sticker-in 0.5s 0.65s var(--uh-ease-bounce) both; }
