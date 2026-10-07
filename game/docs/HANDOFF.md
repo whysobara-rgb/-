@@ -28,7 +28,10 @@
 - 입력: `src/platform/localInput.ts`(키보드 A = 설정의 키 − 오른손 키, 키보드 B = 방향키 + `.`/`/`, 패드 = 인덱스별, 장치 1개 = 1명). 참가 화면은 누른 순서대로 처리.
 - 로비 규칙·색: `src/game/local.ts`, `src/shared/players.ts`(P1 노랑·P2 민트·P3 분홍·P4 보라, 팀 색과 겹치지 않게). 화면: `src/ui/screens/LocalJoinScreen.ts` + `src/ui/styles/together.css`, 흐름은 `App.toTogether()`.
 - 매치: `buildLocalMatch`(setup.ts), `MatchController.seats`(슬롯별 잡기 래치·도발 휠·쿨다운), 어느 장치든 일시 정지, 재대결은 같은 사람.
-- 공유 카메라: `src/render/sharedCamera.ts`(21 m ~ 44 m, 다 못 담으면 가운데 + 플레이어 색 화면 밖 화살표). 싱글은 기존 카메라 그대로.
+- 공유 카메라: `src/render/sharedCamera.ts`(21 m ~ 44 m). 다 못 담으면(대결 시작 때 양쪽 차 ~69 m) 화면에 온전히 들어오는 사람 수가 가장 많은 무리를 잡고 나머지 쪽으로 붙여서 보여 줌(동점이면 직전 화면 유지, 처음엔 P1 쪽) + 나머지는 플레이어 색 화면 밖 화살표. 싱글은 기존 카메라 그대로.
+- 한 화면 공유: 로컬 대결에서는 미니맵·핑·핑 강조가 사람이 있는 모든 팀 기준(안개 없음), 점수판 얼굴은 팀별 첫 사람, 소리 위치는 공유 카메라 중심, 경찰 회피 도장은 모든 사람.
+- 도발 휠: 플레이어마다 따로(동시에 여러 개면 화면 가운데에 나란히·작게), 휠 위 P태그와 그 사람의 직접 키(B는 7·8·9·0).
+- Enter: 참가 화면에서 키보드 B가 들어오기 전엔 A의 확인, 들어온 뒤엔 B의 확인. 일시 정지 메뉴에서 B의 `.`/`/`도 선택/뒤로.
 - HUD: 바닥 링·머리 위 P태그·모서리 칩(`src/ui/hud/PlayerChips.ts`, `hud-local.css`), 결과 화면 '오늘의 활약'(`src/game/localStats.ts`, 이벤트 기록 기반).
 - 테스트: `test/unit/local-multiplayer.test.ts`, `test/e2e/local-multiplayer.spec.ts`. 문서: STEAM_RELEASE(Remote Play Together 설정), STORE_PAGE, PLAYER_README.
 - 남은 일: 키보드 B 키 재배치 UI(지금은 기본값 고정, A는 설정의 키를 따름), 다른 플레이어 뒤 건물 페이드(지금은 P1 기준), Steam Input이 패드를 둘로 보일 때 중복 참가(대시로 빠짐) 실기 확인.
