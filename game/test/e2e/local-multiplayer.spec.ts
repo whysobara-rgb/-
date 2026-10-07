@@ -129,9 +129,19 @@ test('two keyboards (+ a pad) join, start a 2:2 versus match and move independen
   await shot(page, 'local-03-versus-match');
   await page.keyboard.up('ArrowLeft');
   // Only P1 still holds a key: P2 stops (pure keyboard B input), P1 keeps going right.
-  await page.waitForTimeout(600);
+  // Measured in sim ticks, not wall-clock time (software GL frames can take seconds under load).
+  const tick = () => uproot<number>(page, 'u.sim.state.tick');
+  const waitTicks = async (n: number) => {
+    const t0 = await tick();
+    await expect.poll(tick, { timeout: 180_000, intervals: [250] }).toBeGreaterThanOrEqual(t0 + n);
+  };
+  await waitTicks(36); // P2's slide after letting go settles
   const mid = await seatPos();
-  await page.waitForTimeout(1500);
+  // P1 keeps going right while P2 stays put
+  await expect
+    .poll(async () => (await seatPos())[0]!.x - mid[0]!.x, { timeout: 180_000, intervals: [250] })
+    .toBeGreaterThan(0.5);
+  await waitTicks(30);
   const later = await seatPos();
   await page.keyboard.up('KeyD');
   expect(later[0]!.x).toBeGreaterThan(mid[0]!.x);

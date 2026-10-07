@@ -47,6 +47,7 @@ import { CommandLog, canonicalizeCommands, replayCommandLog } from './replay';
 import { t as tr5 } from '../ui';
 // [WP4/F4] tension HUD: moment stamps
 import { MomentStamper } from '../ui/hud/tension';
+import type { HudFace } from '../ui/hud/types';
 import { fmtScore as fmtScore4 } from '../ui/core/format';
 
 export const MAX_STEPS_PER_FRAME = 5;
@@ -292,8 +293,14 @@ export class MatchController {
     const rivalBot = this.sim.state.characters.find((c) => c.team === 1 && c.look.rival);
     hud.setTeamLabels(this.sim.state.characters.length === 2 && rivalBot ? [null, `rival.${rivalBot.look.rival}.name`] : null);
     // Scoreboard faces: the player's raccoon with its hat, the rival's own look.
-    const me = this.sim.getCharacter(this.meId);
-    hud.setTeamFaces(this.isPractice ? null : [{ hat: me?.look.hat ?? 'none' }, rivalBot ? { rival: rivalBot.look.rival ?? null } : null]);
+    // Local multiplayer: each team shows its first human's raccoon (co-op on the moon side too).
+    const face = (team: TeamId): HudFace | null => {
+      const seat = this.seats.find((s) => s.team === team);
+      if (seat) return { hat: this.sim.getCharacter(seat.charId)?.look.hat ?? 'none' };
+      const rb = this.sim.state.characters.find((c) => c.team === team && c.look.rival);
+      return rb ? { rival: rb.look.rival ?? null } : null;
+    };
+    hud.setTeamFaces(this.isPractice ? null : [face(0), face(1)]);
     hud.setCaptionsEnabled(this.svc.settings().subtitles);
     // The HUD shows the "뽑았다!" stamp itself (from the view's callouts): no in-world duplicate.
     this.applyViewSettings(this.svc.settings());
@@ -386,7 +393,9 @@ export class MatchController {
       this.skipView = 0;
       this.skipReal = 0;
     }
-    this.director.update(this.sim, viewDt, this.sim.getCharacter(this.meId)?.pos);
+    // Local multiplayer: sounds pan around the shared camera's centre, not around P1.
+    const shared = this.seats.length > 1 ? this.svc.view.sharedFrameInfo?.(this.sim) : null;
+    this.director.update(this.sim, viewDt, shared ? { x: shared.x, y: shared.y } : this.sim.getCharacter(this.meId)?.pos);
   }
 
   private countdownFrame(realDt: number): void {
@@ -779,16 +788,18 @@ export class MatchController {
     for (const c of callouts) {
       switch (c.type) {
         case 'uproot': {
-          const ours = c.byTeam === this.myTeam;
+          const ours = c.byTeam !== null && this.humanTeams.includes(c.byTeam);
           if (!ours && !c.screen.onScreen) break;
           const at = c.screen.onScreen ? { x: c.screen.x, y: c.screen.y } : {};
           hud.stamp(c.kind === 'bank' ? 'bankWhole' : 'uproot', { team: c.byTeam, ...at });
           break;
         }
         case 'tackle': {
-          if (c.hit || c.victimId !== this.meId) break;
+          // a dodged police lunge on any human player (local multiplayer: their own team colour)
+          const dodger = this.seats.find((s) => s.charId === c.victimId);
+          if (c.hit || !dodger) break;
           const p = this.svc.view.project(c.pos, 2.2);
-          hud.stamp('dodge', { team: this.myTeam, x: p.onScreen ? p.x : undefined, y: p.onScreen ? p.y : undefined });
+          hud.stamp('dodge', { team: dodger.team, x: p.onScreen ? p.x : undefined, y: p.onScreen ? p.y : undefined });
           break;
         }
         case 'policeArrived': {
