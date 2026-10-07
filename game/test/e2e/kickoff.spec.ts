@@ -12,6 +12,12 @@ interface CueInfo {
   pulse: boolean;
   arrowEligible: boolean;
   arrows: number;
+  onScreen: boolean;
+}
+
+/** Visible HUD off-screen arrows of a kind (the kickoff arrow: 'safe' classic, 'ping' v2). */
+async function hudArrows(page: Page, kind: string): Promise<number> {
+  return page.evaluate((k) => document.querySelectorAll(`.uh-arrow[data-kind="${k}"]:not([hidden])`).length, kind);
 }
 
 /** Start a quick match on plaza with `matches` finished matches on the (in-memory) save. */
@@ -39,6 +45,10 @@ async function leaveMatch(page: Page): Promise<void> {
 
 test('kickoff cue: arrow only on matches 1-9 of a fresh save; pulse / cue gone after 5 s', async ({ page }) => {
   const problems = watchConsole(page);
+  const missing: string[] = [];
+  page.on('response', (r) => {
+    if (r.status() >= 400) missing.push(`${r.status()} ${r.url()}`);
+  });
   // speed 1: the 5 s window is checked in sim ticks; autotest drives the human slot
   await boot(page, 'fresh=1&autotest=1&quality=low&render=12&lang=ko&skipIntro=1&seed=4');
   await waitState(page, 'menu');
@@ -55,6 +65,12 @@ test('kickoff cue: arrow only on matches 1-9 of a fresh save; pulse / cue gone a
     expect(c!.arrowEligible).toBe(true);
     expect(c!.arrows).toBe(1);
     expect(c!.pulse).toBe(c!.target.kind !== 'crate');
+    // the HUD draws it while the target is off screen
+    await page.waitForTimeout(1500);
+    const now = await cue(page);
+    const arrowKind = c!.target.kind === 'smallSafe' ? 'safe' : 'ping';
+    if (now && !now.onScreen) expect(await hudArrows(page, arrowKind)).toBe(1);
+    console.log(`kickoff n=${n} content=${content} target=${c!.target.kind}:${String(c!.target.id)} onScreen=${String(now?.onScreen)} hudArrows=${await hudArrows(page, arrowKind)}`);
     if (n === 0) await shot(page, 'kickoff-01-fresh');
     await leaveMatch(page);
   }
@@ -68,6 +84,8 @@ test('kickoff cue: arrow only on matches 1-9 of a fresh save; pulse / cue gone a
   expect(veteran).not.toBeNull();
   expect(veteran!.arrowEligible).toBe(false);
   expect(veteran!.arrows).toBe(0);
+  await page.waitForTimeout(1500);
+  expect(await hudArrows(page, veteran!.target.kind === 'smallSafe' ? 'safe' : 'ping')).toBe(0);
   await shot(page, 'kickoff-02-veteran');
 
   // after 5 s of match time the cue is gone
@@ -78,5 +96,6 @@ test('kickoff cue: arrow only on matches 1-9 of a fresh save; pulse / cue gone a
   expect(await cue(page)).toBeNull();
   expect(await appState(page)).toBe('match');
   await leaveMatch(page);
+  expect(missing, missing.join('\n')).toEqual([]);
   expectNoErrors(problems);
 });

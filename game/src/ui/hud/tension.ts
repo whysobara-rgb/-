@@ -3,10 +3,14 @@
  *
  * - `hudMatchPoint(info, state, myTeam)`: the decisive-load prompt model ("이게 들어가면 끝!" /
  *   "막아야 해!", 'tie' loads say "무승부", never a win) from `matchPointInfo` (incl. coin bags).
+ * - `PromptLatch`: keeps that prompt up while the announced load lies dropped (knockdown, re-grip)
+ *   and nothing changed the arithmetic — presentation only, `matchPointInfo` is unchanged.
  * - `hudSwing(state, myTeam)`: the "역전까지 N · 남은 M" readout from `swingInfo` (counts coins),
  *   shown only after the first bank recovery or once M <= 31.25 % of the total (1000 of 3200).
  * - `momentStamps(moments, ctx)`: which moments become HUD stamps, with which text / tone, merged
- *   ("역전!" + "은행째!" sub-line), at most 2 per tick, priority-ordered.
+ *   ("역전!" + "은행째!" sub-line), at most 2 per tick, priority-ordered. `MomentStamper` adds
+ *   cooldowns and stamps "막았다!" only for a match point the prompt actually showed.
+ * - `stampEviction`: the 2-stamp column policy (a small callout never pushes out a big stamp).
  * - `BannerQueue`: centre-plate scheduling. Priority final > climax > event > police > other;
  *   never two centre plates at once; the climax plate is compact and turns into a badge after
  *   0.8 s (so it stops being a centre plate); lower priorities wait (and go stale) instead of

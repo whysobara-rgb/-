@@ -905,10 +905,11 @@ export class MatchController {
    * [WP5/F5] Kickoff cue as of now (tests / e2e): the target, whether the view pulses it and
    * whether this save gets the arrow (shown by the HUD while the target is off screen).
    */
-  kickoffCueInfo(): { target: KickoffTarget; pulse: boolean; arrowEligible: boolean; arrows: number } | null {
+  kickoffCueInfo(): { target: KickoffTarget; pulse: boolean; arrowEligible: boolean; arrows: number; onScreen: boolean } | null {
     const k = this.kickoffCue();
     if (!k) return null;
-    return { target: k, pulse: this.funFocusTargets().length > 0, arrowEligible: this.kickoffArrowEligible(), arrows: this.funArrows().length };
+    const onScreen = this.svc.view.project(k.pos, 1).onScreen;
+    return { target: k, pulse: this.funFocusTargets().length > 0, arrowEligible: this.kickoffArrowEligible(), arrows: this.funArrows().length, onScreen };
   }
 
   /** [WP5/F5] Current MomentTracker snapshot (WP4 funHud reads it; neutral before the first tick). */
