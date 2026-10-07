@@ -5,6 +5,8 @@ import 'package:provider/provider.dart';
 import 'core/feedback/sfx.dart';
 import 'core/theme/app_colors.dart';
 import 'core/theme/app_theme.dart';
+import 'demo/demo_config.dart';
+import 'demo/ui/demo_frame.dart';
 import 'features/auth/presentation/login_page.dart';
 import 'features/auth/social/social_auth_clients.dart';
 import 'navigation/main_navigation.dart';
@@ -50,7 +52,7 @@ class GachaVaultApp extends StatelessWidget {
       child: Selector<AuthProvider, bool>(
         selector: (_, auth) => auth.isLoggedIn || auth.isInitializing,
         builder: (context, vault, _) => MaterialApp(
-          title: '가치가차',
+          title: DemoConfig.enabled ? DemoConfig.appTitle : '가치가차',
           debugShowCheckedModeBanner: false,
           theme: vault ? AppTheme.vault : AppTheme.paper,
           // 넓은 화면(웹)에서도 모바일 폭으로 가운데 정렬한다.
@@ -62,7 +64,8 @@ class GachaVaultApp extends StatelessWidget {
               child: Center(
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 480),
-                  child: child,
+                  // 체험판: "체험판" 배지와 처음 열 때 안내.
+                  child: DemoConfig.enabled ? DemoFrame(child: child!) : child,
                 ),
               ),
             ),

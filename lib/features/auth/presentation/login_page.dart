@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 import '../../../core/domain/product_category.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../demo/demo_config.dart';
+import '../../../demo/ui/demo_widgets.dart';
 import '../../../shared/widgets/ui.dart';
 import '../../../shared/widgets/vault_art.dart';
 import '../../../shared/providers/auth_provider.dart';
@@ -32,8 +34,13 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
+  // 체험판은 체험 계정을 미리 채워 둔다.
+  final _emailController = TextEditingController(
+    text: DemoConfig.enabled ? DemoConfig.defaultEmail : null,
+  );
+  final _passwordController = TextEditingController(
+    text: DemoConfig.enabled ? DemoConfig.defaultPassword : null,
+  );
   bool _obscurePassword = true;
   List<SocialAuthClient> _social = const [];
   SocialProvider? _socialBusy;
@@ -170,6 +177,7 @@ class _LoginPageState extends State<LoginPage> {
           ),
           const SizedBox(height: Space.x4),
         ],
+        if (DemoConfig.enabled) const DemoLoginHint(),
         if (_social.isNotEmpty) ...[
           for (final client in _social) ...[
             SocialButton(
