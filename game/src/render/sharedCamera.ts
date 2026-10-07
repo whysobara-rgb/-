@@ -4,9 +4,9 @@
  * One screen, every human player (and what they carry) in frame: the camera keeps the fixed
  * match yaw / pitch (doc §4: screen-up is always sim -y) and only moves its target and distance.
  * It zooms between the single-player walking distance and SHARED_MAX_DIST (raccoons still read
- * at that size). When the group is spread wider than that, the target is chosen so that as much
- * of the group as possible stays visible (balanced between the extremes rather than centred on
- * P1); whoever is still outside gets an off-screen arrow in their colour (HUD).
+ * at that size). When the group is spread wider than that, the frame keeps as many players on
+ * screen as it can (rather than centring on an empty middle) and leans toward the rest; whoever
+ * is still outside gets an off-screen arrow in their colour (HUD).
  */
 import type { Vec2 } from '../sim';
 import { MATCH_DIST, MATCH_FOV, MATCH_PITCH } from './camera';
@@ -26,6 +26,8 @@ export interface FramePoint {
   y: number;
   /** Radius around the point that must stay visible (m). */
   r: number;
+  /** Whose point this is (a player and what they carry move in and out of frame together). */
+  owner?: number;
 }
 
 export interface SharedFrame {
@@ -54,46 +56,87 @@ export function visibleExtents(dist: number, aspect: number, pitchDeg = MATCH_PI
 
 /**
  * Smallest distance in [minDist, SHARED_MAX_DIST] that frames every point, and the look-at
- * point. Past the max distance the target sits in the middle of what can be shown.
+ * point. When the whole group cannot fit even at the max distance, the frame keeps as many
+ * players fully visible as possible (points with the same `owner` stay together: a player and
+ * what they carry), slid as far toward the rest of the group as it can go so the others sit
+ * just past the edge (their arrows point a short way). Ties between equally large groups keep
+ * the one nearest `prev` (the last frame: no flip-flopping), else the one with the lowest owner.
  */
-export function sharedFraming(points: readonly FramePoint[], aspect: number, minDist: number = MATCH_DIST.walk, maxDist: number = SHARED_MAX_DIST): SharedFrame {
+export function sharedFraming(
+  points: readonly FramePoint[],
+  aspect: number,
+  minDist: number = MATCH_DIST.walk,
+  maxDist: number = SHARED_MAX_DIST,
+  prev: { x: number; y: number } | null = null,
+): SharedFrame {
   if (!points.length) return { x: 0, y: 0, dist: minDist, fits: true };
-  let minX = Infinity;
-  let maxX = -Infinity;
-  let minY = Infinity;
-  let maxY = -Infinity;
-  for (const q of points) {
-    minX = Math.min(minX, q.x - q.r);
-    maxX = Math.max(maxX, q.x + q.r);
-    minY = Math.min(minY, q.y - q.r);
-    maxY = Math.max(maxY, q.y + q.r);
-  }
-  const w = maxX - minX;
-  const d = maxY - minY;
-  const fitsAt = (dist: number): boolean => {
+  const all = bounds(points);
+  const fitsAt = (b: Bounds, dist: number): boolean => {
     const e = visibleExtents(dist, aspect);
-    return w <= 2 * e.half * INNER && d <= (e.north + e.south) * INNER;
+    return b.maxX - b.minX <= 2 * e.half * INNER && b.maxY - b.minY <= (e.north + e.south) * INNER;
   };
-  let dist = maxDist;
-  let fits = false;
   for (let s = minDist; s <= maxDist + 1e-6; s += 0.5) {
-    if (fitsAt(s)) {
-      dist = s;
-      fits = true;
-      break;
+    if (fitsAt(all, s)) {
+      const p = place(all, all, visibleExtents(s, aspect));
+      return { x: p.x, y: p.y, dist: s, fits: true };
     }
   }
-  const e = visibleExtents(dist, aspect);
-  // The look-at point is the screen centre: aim at the group's centre, nudged only as far as needed
-  // to keep both ends inside (north shows more ground than south). Past the max distance, the
-  // middle of what can be shown.
+  // Too spread out: the largest set of players that fits at the max distance.
+  const e = visibleExtents(maxDist, aspect);
+  const owners = [...new Set(points.map((q, i) => q.owner ?? i))].sort((a, b) => a - b);
+  const ownerOf = (q: FramePoint, i: number): number => q.owner ?? i;
+  let best: { n: number; d: number; low: number; x: number; y: number } | null = null;
+  const subsets = 1 << Math.min(owners.length, 8);
+  for (let m = 1; m < subsets; m++) {
+    const set = owners.filter((_, k) => m & (1 << k));
+    const sub = bounds(points.filter((q, i) => set.includes(ownerOf(q, i))));
+    if (!fitsAt(sub, maxDist)) continue;
+    const p = place(sub, all, e);
+    const ref = prev ?? { x: (all.minX + all.maxX) / 2, y: (all.minY + all.maxY) / 2 };
+    const d = Math.hypot(p.x - ref.x, p.y - ref.y);
+    const low = set[0];
+    const better =
+      !best ||
+      set.length > best.n ||
+      (set.length === best.n && (d < best.d - 0.5 || (Math.abs(d - best.d) <= 0.5 && low < best.low)));
+    if (better) best = { n: set.length, d, low, x: p.x, y: p.y };
+  }
+  if (best) return { x: best.x, y: best.y, dist: maxDist, fits: false };
+  // Not even one player fits (huge loot): the middle of everything.
+  const p = place(all, all, e);
+  return { x: p.x, y: p.y, dist: maxDist, fits: false };
+}
+
+interface Bounds {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+}
+
+function bounds(points: readonly FramePoint[]): Bounds {
+  const b: Bounds = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity };
+  for (const q of points) {
+    b.minX = Math.min(b.minX, q.x - q.r);
+    b.maxX = Math.max(b.maxX, q.x + q.r);
+    b.minY = Math.min(b.minY, q.y - q.r);
+    b.maxY = Math.max(b.maxY, q.y + q.r);
+  }
+  return b;
+}
+
+/**
+ * Look-at point (the screen centre) that keeps `keep` inside the inner frame, as close to the
+ * centre of `aim` as that allows (north shows more ground than south).
+ */
+function place(keep: Bounds, aim: Bounds, e: { half: number; north: number; south: number }): { x: number; y: number } {
+  const hw = e.half * INNER;
   const n = e.north * INNER;
   const so = e.south * INNER;
-  // feasible ty: maxY - ty <= so and ty - minY <= n  ->  ty in [maxY - so, minY + n]
-  const lo = maxY - so;
-  const hi = minY + n;
-  const cy = (minY + maxY) / 2;
-  const y = lo <= hi ? Math.min(hi, Math.max(lo, cy)) : (lo + hi) / 2;
-  const x = (minX + maxX) / 2;
-  return { x, y, dist, fits };
+  const clampTo = (v: number, lo: number, hi: number): number => (lo <= hi ? Math.min(hi, Math.max(lo, v)) : (lo + hi) / 2);
+  // feasible tx: keep.maxX - tx <= hw and tx - keep.minX <= hw
+  const x = clampTo((aim.minX + aim.maxX) / 2, keep.maxX - hw, keep.minX + hw);
+  // feasible ty: keep.maxY - ty <= so and ty - keep.minY <= n
+  const y = clampTo((aim.minY + aim.maxY) / 2, keep.maxY - so, keep.minY + n);
+  return { x, y };
 }

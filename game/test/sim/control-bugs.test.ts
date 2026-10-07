@@ -408,9 +408,9 @@ describe('control bug 8: a pushed bank goes where the stick points, the pusher w
     expect(mean(b.load)).toBeLessThan(5);
   });
 
-  // before: zigzag 26.1 / 52 (x1), 24.7 / 49 (x2); off-centre push at 150 deg 17.3 / 31 (it is still
-  // the weakest case, ~13 deg: the grip starts 0.4 m from the end of its wall, so the bank turns
-  // slowly and swings the pusher a little)
+  // before: zigzag 26.1 / 52 (x1), 24.7 / 49 (x2); off-centre push at 150 deg 17.3 / 31 (still the
+  // weakest case, ~10 deg: the grip starts 0.4 m from the end of its wall, so once it runs out of
+  // slide room the pusher and the bank's travel share the swing, ~10 and ~4 deg)
   it('zigzagging a push stays on the stick and never runs faster than the carry targets', () => {
     for (const holders of [1, 2] as const) {
       const { sim, id } = eastGrip('bank', holders);

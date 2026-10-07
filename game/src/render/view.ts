@@ -460,6 +460,8 @@ export class GameView {
   private lookAhead = { x: 0, y: 0 };
   /** (local multiplayer) Humans the shared camera frames (null = single-player follow). */
   private focusGroup: EntityId[] | null = null;
+  /** (local multiplayer) Last shared-camera target: equally good framings keep to it (no flip-flop). */
+  private sharedPrev: { x: number; y: number } | null = null;
   private titleCheer = new Map<EntityId, number>();
   private fontsRequested = false;
   private readonly botTelegraph = new Map<EntityId, boolean>();
@@ -843,6 +845,7 @@ export class GameView {
     // --- camera -------------------------------------------------------------------------
     const focusChar = focus ? sim.getCharacter(focus.charId) ?? null : null;
     this.focusGroup = focus?.group && focus.group.length > 1 ? focus.group : null;
+    if (!this.focusGroup) this.sharedPrev = null;
     if (focusChar && focusChar.id !== this.lastFocusId) {
       this.cam.snap();
       this.lastFocusId = focusChar.id;
@@ -2973,19 +2976,19 @@ export class GameView {
   /** (local multiplayer) Shared framing of every human (drawn poses) and the loot they hold. */
   private sharedFrame(sim: Simulation, aspect: number): SharedFrame {
     const pts: FramePoint[] = [];
-    for (const id of this.focusGroup ?? []) {
+    for (const [owner, id] of (this.focusGroup ?? []).entries()) {
       const c = sim.getCharacter(id);
       if (!c) continue;
       const cv = this.chars.get(id);
-      pts.push({ x: cv ? cv.pose.x : c.pos.x, y: cv ? cv.pose.y : c.pos.y, r: 2.2 });
+      pts.push({ x: cv ? cv.pose.x : c.pos.x, y: cv ? cv.pose.y : c.pos.y, r: 2.2, owner });
       const held = c.grab ? sim.getLoot(c.grab.targetId) : undefined;
       if (held && !held.recovered) {
         const pose = held.kind === 'bank' ? this.banks.get(held.id)?.pose : this.safes.get(held.id)?.pose;
         const q = pose ?? held.pos;
-        pts.push({ x: q.x, y: q.y, r: held.kind === 'bank' ? 4.5 : held.kind === 'largeSafe' ? 1.8 : 1.2 });
+        pts.push({ x: q.x, y: q.y, r: held.kind === 'bank' ? 4.5 : held.kind === 'largeSafe' ? 1.8 : 1.2, owner });
       }
     }
-    return sharedFraming(pts, aspect);
+    return sharedFraming(pts, aspect, undefined, undefined, this.sharedPrev);
   }
 
   /** (local multiplayer) The shared camera's framing right now (tests / HUD), null in single-player. */
@@ -3134,6 +3137,7 @@ export class GameView {
     // (local multiplayer) One shared camera: frame every human and what they carry.
     if (this.focusGroup) {
       const sf = this.sharedFrame(sim, aspect);
+      this.sharedPrev = { x: sf.x, y: sf.y };
       tx = sf.x;
       ty = sf.y;
       dist = sf.dist;

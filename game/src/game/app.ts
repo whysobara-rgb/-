@@ -1460,11 +1460,11 @@ export class App {
       if (this.stateValue === 'preview' && this.match === ctl) this.beginMatch();
     };
     const police = sim.rules.police === true;
-    const pscene = this.scene3d(PreviewScene, () => new PreviewScene({ layout: sim.layout, police, policeEntries: police ? policeEntriesFor(sim.layout) : [], myTeam: 0 }), false);
+    const pscene = this.scene3d(PreviewScene, () => new PreviewScene({ layout: sim.layout, police, policeEntries: police ? policeEntriesFor(sim.layout) : [], myTeam: ctl.myTeam }), false);
     const preview = new LayoutPreview({
       layout: sim.layout,
       context: opts.context ?? null,
-      myTeam: 0,
+      myTeam: ctl.myTeam,
       teams: [team(0), team(1)],
       holdMs: 0,
       autoStartMs: this.d.params.skipIntro ? 300 : PREVIEW_HOLD_MS,
@@ -1649,7 +1649,8 @@ export class App {
     const cfg = summary.config;
     const props: ResultsScreenProps = {
       outcome: summary.outcome,
-      myTeam: 0,
+      // P1's real team (co-op on the moon side, or versus with P1 moved right).
+      myTeam: m.myTeam,
       scores: summary.result.scores,
       teamLabels: cfg.mode === '1v1' && !cfg.local ? [null, RIVALS[cfg.rival].nameKey] : undefined,
       reason: summary.result.reason,

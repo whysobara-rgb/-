@@ -18,7 +18,7 @@
  * A LoopVoice owns long-running looped sources; the engine creates one per (id, key) on demand,
  * feeds it intensity changes and destroys it after it has been silent for a while.
  */
-import { alarmBellBuffer, crackleBuffer, creakBuffer, groanBuffer, heaveBuffer, noiseBuffer, rollBuffer, scrapeBuffer, type NoiseColor } from './dsp';
+import { alarmBellBuffer, creakBuffer, groanSwellBuffer, heaveKnockBuffer, noiseBuffer, rollBuffer, ropeCreakBuffer, rootPopBuffer, scrapeBuffer, type NoiseColor } from './dsp';
 import type { LoopId } from './ids';
 
 export interface LoopVoice {
@@ -48,10 +48,14 @@ function shaperCurve(fn: (x: number) => number, n = 1025): Float32Array<ArrayBuf
   return c;
 }
 
-/** Bar grid of the music playing when a loop starts: time (s) of bar 0 and bar length (s). */
+/**
+ * Bar grid of the music playing when a loop starts: time (s) of bar 0 and bar length (s), and
+ * (optionally) the root pitch class (0..11) of the chord sounding at a given time (null = unknown).
+ */
 export interface BarGrid {
-  origin: number;
-  bar: number;
+  readonly origin: number;
+  readonly bar: number;
+  rootAt?(t: number): number | null;
 }
 
 /** Siren wail range: A4 -> A5 (the A is a chord tone or a 9th over every 'final' chord). */
@@ -90,7 +94,7 @@ export const sirenGapFill = (i: number): number => 0.5 * smoothstep(0.8, 1, i);
 export const LOOP_GAIN: Readonly<Record<LoopId, number>> = {
   drag: 0.58,
   bankRumble: 0.52,
-  strain: 0.55,
+  strain: 0.46,
   sirenLoop: 0.5,
   policeSiren: 0.5,
   alarmBell: 0.5,
@@ -147,8 +151,8 @@ export function bankParams(i: number): { rumble: number; rumbleHz: number; sub: 
     sub: 0.26 * i,
     rate: 0.9 + 0.3 * i,
     // A slow bank's thunks are softer than a fast one's (they would stick out of the quiet body).
-    heave: i > 0 ? 0.38 * Math.pow(i, 1.35) : 0,
-    heaveHz: 480 + 420 * i,
+    heave: i > 0 ? 0.44 * Math.pow(i, 1.35) : 0,
+    heaveHz: 700 + 500 * i,
     // The groan plays at rate 1 (in key at every speed); only its level follows the speed.
     groan: i > 0 ? 0.3 * Math.pow(i, 0.9) : 0,
   };
@@ -226,7 +230,7 @@ function sirenWaves(ctx: BaseAudioContext): { freq: PeriodicWave; amp: PeriodicW
 
 /**
  * The synthesized material the loops (and many one-shots) build lazily on first use, as separate
- * steps: noise colors, the scrape / creak / root-crackle textures, the police siren's wave tables
+ * steps: noise colors, the scrape / creak / haul / uproot textures, the police siren's wave tables
  * and the alarm bell (the heaviest, ~25 ms). The engine runs one step per idle slot after unlock,
  * so the first police car or bank alarm (which lands right on the bank-uproot slam) never stalls a
  * frame building them. Every step is cached per context: running it again is free.
@@ -237,18 +241,14 @@ export function prewarmSteps(ctx: BaseAudioContext): (() => void)[] {
     ...colors.map((c) => (): void => void noiseBuffer(ctx, c)),
     (): void => void scrapeBuffer(ctx),
     (): void => void rollBuffer(ctx),
-    (): void => void heaveBuffer(ctx),
-    (): void => void groanBuffer(ctx),
+    (): void => void heaveKnockBuffer(ctx),
+    (): void => void groanSwellBuffer(ctx),
     (): void => void creakBuffer(ctx),
-    (): void => void crackleBuffer(ctx),
+    (): void => void ropeCreakBuffer(ctx),
+    (): void => void rootPopBuffer(ctx),
     (): void => void sirenWaves(ctx),
     (): void => void alarmBellBuffer(ctx),
   ];
-}
-
-/** tanh saturation curve with makeup so a driven signal keeps roughly the same peak. */
-function gritCurve(): Float32Array<ArrayBuffer> {
-  return shaperCurve((x) => Math.tanh(2.5 * x) / Math.tanh(2.5));
 }
 
 interface Graph {
@@ -291,6 +291,91 @@ const to = (p: AudioParam, v: number, t: number, tau: number): void => {
 function noiseLoop(g: Graph, color: NoiseColor, t: number, rnd: () => number): AudioBufferSourceNode {
   return loopSource(g, noiseBuffer(g.ctx, color), t, rnd);
 }
+
+/**
+ * The strain voice's settings at intensity i (the director sends 0.15 + 0.85 * unanchor progress)
+ * and pitch p (size: small safe 1.15, bank 0.62). The creak's grains, the hum (an octave over the
+ * build-up) and the final lowpass all rise with progress; the roots' toks come in past ~40 %, the
+ * ground shake past 80 %.
+ */
+export function strainParams(i: number, p = 1): { creakRate: number; creak: number; humHz: number; humLpHz: number; hum: number; quiverHz: number; quiverCents: number; popRate: number; pops: number; shake: number; toneHz: number } {
+  const stretch = smoothstep(0.45, 1, i);
+  const sp = Math.sqrt(p);
+  return {
+    creakRate: (0.75 + 0.5 * i) * p,
+    creak: 0.24 + 0.22 * i,
+    humHz: (72 + 70 * Math.pow(i, 1.2)) * p,
+    humLpHz: (260 + 600 * i) * sp,
+    hum: 0.06 + 0.15 * i,
+    quiverHz: 4.5 + 6 * i,
+    quiverCents: 5 + 25 * stretch,
+    popRate: (0.65 + 0.45 * i) * sp,
+    pops: 0.5 * smoothstep(0.4, 0.95, i),
+    shake: smoothstep(0.8, 0.98, i),
+    toneHz: (1150 + 500 * i) * sp,
+  };
+}
+
+/** The bank groan's pitch without music: D2 (the songs' tonic). */
+export const GROAN_ROOT_HZ = 73.42;
+/** Bars of chord roots the bank groan schedules ahead. */
+const GROAN_PLAN_BARS = 48;
+/** Partials [harmonic, amplitude] of the bank groan: root, octaves and fifths only. */
+export const GROAN_PARTIALS: readonly (readonly [number, number])[] = [
+  [1, 0.55],
+  [2, 0.8],
+  [3, 0.6],
+  [4, 0.4],
+  [6, 0.14],
+];
+
+/**
+ * Frequency of pitch class pc in the groan's register (~62-131 Hz), the octave nearest `near` (a
+ * new root is reached by the smallest glide).
+ */
+export function groanRootHz(pc: number, near: number): number {
+  let best = GROAN_ROOT_HZ;
+  let dist = Infinity;
+  for (let k = 1; k <= 3; k++) {
+    const f = 440 * Math.pow(2, (pc - 9) / 12 - k);
+    if (f < 61 || f > 131) continue;
+    const d = Math.abs(Math.log2(f / near));
+    if (d < dist) {
+      dist = d;
+      best = f;
+    }
+  }
+  return best;
+}
+
+const toneWaves = new WeakMap<BaseAudioContext, Map<string, PeriodicWave>>();
+
+function partialWave(ctx: BaseAudioContext, key: string, parts: readonly (readonly [number, number])[]): PeriodicWave {
+  let m = toneWaves.get(ctx);
+  if (!m) toneWaves.set(ctx, (m = new Map()));
+  let w = m.get(key);
+  if (!w) {
+    const n = Math.max(...parts.map(([h]) => h)) + 1;
+    const real = new Float32Array(n);
+    const imag = new Float32Array(n);
+    for (const [h, a] of parts) imag[h] = a;
+    w = ctx.createPeriodicWave(real, imag);
+    m.set(key, w);
+  }
+  return w;
+}
+
+const groanWave = (ctx: BaseAudioContext): PeriodicWave => partialWave(ctx, 'groan', GROAN_PARTIALS);
+/** The strain's tension hum: a hollow, softly falling harmonic series (no buzz). */
+const strainWave = (ctx: BaseAudioContext): PeriodicWave =>
+  partialWave(ctx, 'strain', [
+    [1, 1],
+    [2, 0.6],
+    [3, 0.4],
+    [4, 0.25],
+    [5, 0.15],
+    [6, 0.1],
+  ]);
 
 /**
  * Build a loop voice starting at time t. `grid` is the bar grid of the music playing now; loops
@@ -350,8 +435,9 @@ export function createLoop(ctx: BaseAudioContext, id: LoopId, t: number, rnd: ()
     }
     case 'bankRumble': {
       // A whole building heaving along: a warm resonant rumble, the foundation's sub, slow soft
-      // "thunk... thunk"s (./dsp.ts heaveBuffer, rate follows speed) and now and then a gentle
-      // musical groan (./dsp.ts groanBuffer, fixed rate so it stays on the songs' chord tones).
+      // "thunk... thunk"s answered by the wooden frame's warm knock (./dsp.ts heaveKnockBuffer,
+      // rate follows speed: the 300-900 Hz presence small speakers play under the music) and a
+      // gentle groan on the root of the chord the music is playing.
       let last = 0;
       const rumble = noiseLoop(g, 'brown', t, rnd);
       const lp = filter(ctx, 'lowpass', 120, 1.3);
@@ -367,17 +453,66 @@ export function createLoop(ctx: BaseAudioContext, id: LoopId, t: number, rnd: ()
       wobDepth.connect(subOsc.frequency);
       const subLvl = gainNode(ctx);
       chain(subOsc, subLvl, g.out);
-      subOsc.start(t);
-      wob.start(t);
-      g.sources.push(subOsc, wob);
-      // The heave: what carries the movement on laptop speakers.
-      const heave = loopSource(g, heaveBuffer(ctx), t, rnd);
-      const heaveLp = filter(ctx, 'lowpass', 700, 0.5);
+      // The heave and the frame's knock.
+      const heave = loopSource(g, heaveKnockBuffer(ctx), t, rnd);
+      const heaveLp = filter(ctx, 'lowpass', 900, 0.5);
       const heaveLvl = gainNode(ctx);
       chain(heave, heaveLp, heaveLvl, g.out);
-      const groan = loopSource(g, groanBuffer(ctx), t, rnd);
+      // Groan: a soft hollow tone (root / octave / fifth partials only, so no partial ever sits a
+      // semitone off a chord tone) on the current chord's root, gliding into each new root on the
+      // music's bar grid (D without music), swelling and breathing (./dsp.ts groanSwellBuffer drives
+      // its gain), with a slow vibrato.
+      const groan = ctx.createOscillator();
+      groan.setPeriodicWave(groanWave(ctx));
+      groan.frequency.value = GROAN_ROOT_HZ;
+      const vib = ctx.createOscillator();
+      vib.frequency.value = 4.6;
+      const vibDepth = gainNode(ctx, 9);
+      chain(vib, vibDepth);
+      vibDepth.connect(groan.detune);
+      const groanAmp = gainNode(ctx, 0);
+      chain(groan, groanAmp, g.out);
+      const swell = loopSource(g, groanSwellBuffer(ctx), t, rnd);
       const groanLvl = gainNode(ctx);
-      chain(groan, groanLvl, g.out);
+      chain(swell, groanLvl);
+      groanLvl.connect(groanAmp.gain);
+      for (const o of [subOsc, wob, groan, vib]) {
+        o.start(t);
+        g.sources.push(o);
+      }
+      let hz = GROAN_ROOT_HZ;
+      let plan = '';
+      let planEnd = -Infinity;
+      // Schedule the groan's root for the next GROAN_PLAN_BARS bars (half-bar resolution), again
+      // when the plan runs low or the grid changes (a new track): steady hauls send no updates.
+      const follow = (at: number): void => {
+        const gr = grid;
+        if (!gr?.rootAt) return;
+        const { origin, bar } = gr;
+        if (!Number.isFinite(origin) || !(bar > 0.5 && bar < 8)) return;
+        const sig = `${origin}/${bar}`;
+        if (sig === plan && at < planEnd - 10) return;
+        plan = sig;
+        const f = groan.frequency;
+        f.cancelScheduledValues(at);
+        let root = gr.rootAt(at);
+        if (root !== null) {
+          hz = groanRootHz(root, hz);
+          to(f, hz, at, 0.06);
+        }
+        const k0 = Math.max(0, Math.ceil(((at - origin) / bar) * 2 - 1e-6));
+        const k1 = k0 + 2 * GROAN_PLAN_BARS;
+        for (let k = k0; k < k1; k++) {
+          const tb = origin + (k * bar) / 2;
+          const r = gr.rootAt(tb + 0.01);
+          if (r === null || r === root) continue;
+          root = r;
+          hz = groanRootHz(r, hz);
+          to(f, hz, Math.max(at, tb - 0.03), 0.05);
+        }
+        planEnd = origin + (k1 * bar) / 2;
+      };
+      follow(t);
       set = (i, at) => {
         const tau = i >= last ? 0.15 : 0.25;
         last = i;
@@ -389,86 +524,72 @@ export function createLoop(ctx: BaseAudioContext, id: LoopId, t: number, rnd: ()
         to(heaveLp.frequency, b.heaveHz, at, tau);
         to(heaveLvl.gain, b.heave, at, tau);
         to(groanLvl.gain, b.groan, at, tau);
+        follow(at);
       };
       break;
     }
     case 'strain': {
-      // The uproot build-up (src/render/uproot.ts): 0-40 % creak + groan, 40-80 % the roots
-      // stretch (a quivering taut whine, first fibre snaps), 80-100 % violent shake (dense snaps,
-      // a trembling low rumble). Pitch and grit rise with progress; `pitch` is the object's size.
+      // The uproot tug (src/render/uproot.ts stages), warm and rounded like the haul that follows:
+      // a creaky rope / root under tension (soft wooden grains in rising "eeerk"s, ./dsp.ts
+      // ropeCreakBuffer) over a hollow tension hum that climbs an octave with progress and quivers
+      // faster and wider; past ~40 % the roots give way in soft wooden toks (./dsp.ts
+      // rootPopBuffer), past 80 % the ground shakes. Everything but the shake runs through one
+      // 24 dB/oct lowpass (~1-2 kHz): nothing bright or gritty left. `pitch` is the object's size.
       let pitch = 1;
       let last = 0;
-      const creak = loopSource(g, creakBuffer(ctx), t, rnd);
-      const bp = filter(ctx, 'bandpass', 600, 1.6);
-      const lvl = gainNode(ctx);
-      chain(creak, bp, lvl, g.out);
-      // Groan: a saw driven into a tanh shaper harder and harder (grit) through a lowpass.
-      const saw = ctx.createOscillator();
-      saw.type = 'sawtooth';
-      saw.frequency.value = 64;
-      const drive = gainNode(ctx, 1);
-      const grit = ctx.createWaveShaper();
-      grit.curve = gritCurve();
-      const lp = filter(ctx, 'lowpass', 420, 2);
-      const sawLvl = gainNode(ctx);
-      chain(saw, drive, grit, lp, sawLvl, g.out);
-      // Taut roots: a thin whine whose quiver gets faster and wider.
-      const whine = ctx.createOscillator();
-      whine.type = 'triangle';
-      whine.frequency.value = 200;
+      const tone = filter(ctx, 'lowpass', 1600, 0.6);
+      const tone2 = filter(ctx, 'lowpass', 1600, 0.6);
+      chain(tone, tone2, g.out);
+      const creak = loopSource(g, ropeCreakBuffer(ctx), t, rnd);
+      const creakLvl = gainNode(ctx);
+      chain(creak, creakLvl, tone);
+      const hum = ctx.createOscillator();
+      hum.setPeriodicWave(strainWave(ctx));
+      hum.frequency.value = 80;
       const quiver = ctx.createOscillator();
-      quiver.frequency.value = 7;
+      quiver.frequency.value = 5;
       const quiverDepth = gainNode(ctx, 0);
       chain(quiver, quiverDepth);
-      quiverDepth.connect(whine.detune);
-      const whineBp = filter(ctx, 'bandpass', 400, 2.5);
-      const whineLvl = gainNode(ctx);
-      chain(whine, whineBp, whineLvl, g.out);
-      // Fibres snapping.
-      const snaps = loopSource(g, crackleBuffer(ctx), t, rnd);
-      const snapBp = filter(ctx, 'bandpass', 1900, 0.7);
-      const snapLvl = gainNode(ctx);
-      chain(snaps, snapBp, snapLvl, g.out);
+      quiverDepth.connect(hum.detune);
+      const humLp = filter(ctx, 'lowpass', 400, 0.7);
+      const humLvl = gainNode(ctx);
+      chain(hum, humLp, humLvl, tone);
+      const pops = loopSource(g, rootPopBuffer(ctx), t, rnd);
+      const popLvl = gainNode(ctx);
+      chain(pops, popLvl, tone);
       // Ground shaking: low rumble with a fast tremolo.
       const rumble = noiseLoop(g, 'brown', t, rnd);
       const rumbleLp = filter(ctx, 'lowpass', 150, 0.8);
       const trem = gainNode(ctx, 0.6);
       const tremOsc = ctx.createOscillator();
-      tremOsc.type = 'triangle';
       tremOsc.frequency.value = 11;
       const tremDepth = gainNode(ctx, 0.4);
       chain(tremOsc, tremDepth);
       tremDepth.connect(trem.gain);
       const rumbleLvl = gainNode(ctx);
       chain(rumble, rumbleLp, trem, rumbleLvl, g.out);
-      for (const o of [saw, whine, quiver, tremOsc]) {
+      for (const o of [hum, quiver, tremOsc]) {
         o.start(t);
         g.sources.push(o);
       }
       const apply = (i: number, at: number): void => {
         const tau = 0.1;
         const on = i > 0.001;
-        const p = pitch;
-        const stretch = smoothstep(0.45, 1, i);
-        const shake = smoothstep(0.8, 0.98, i);
-        to(creak.playbackRate, (0.5 + 1.35 * i) * p, at, tau);
-        to(bp.frequency, (520 + 1250 * i) * p, at, tau);
-        to(lvl.gain, on ? 0.42 + 0.33 * i : 0, at, tau);
-        to(saw.frequency, (56 + 50 * Math.pow(i, 1.3)) * p, at, tau);
-        to(drive.gain, 0.6 + 5 * i * i, at, tau);
-        to(lp.frequency, (300 + 900 * i) * Math.sqrt(p), at, tau);
-        to(sawLvl.gain, on ? 0.03 + 0.04 * i : 0, at, tau);
-        to(whine.frequency, (190 + 300 * stretch) * p, at, tau);
-        to(whineBp.frequency, (380 + 600 * stretch) * p, at, tau);
-        to(quiver.frequency, 6 + 9 * i, at, tau);
-        to(quiverDepth.gain, 6 + 45 * stretch, at, tau);
-        to(whineLvl.gain, on ? 0.07 * stretch : 0, at, tau);
-        to(snaps.playbackRate, (0.6 + 1.0 * i) * Math.sqrt(p), at, tau);
-        to(snapBp.frequency, 1900 * p, at, tau);
-        to(snapLvl.gain, on ? 0.75 * smoothstep(0.4, 0.95, i) : 0, at, tau);
-        to(rumbleLp.frequency, 150 * Math.sqrt(p), at, tau);
-        to(tremOsc.frequency, 9 + 4 * shake, at, tau);
-        to(rumbleLvl.gain, on ? 0.9 * shake * (1.4 - 0.4 * p) : 0, at, tau);
+        const s = strainParams(i, pitch);
+        to(tone.frequency, s.toneHz, at, tau);
+        to(tone2.frequency, s.toneHz, at, tau);
+        to(creak.playbackRate, s.creakRate, at, tau);
+        to(creakLvl.gain, on ? s.creak : 0, at, tau);
+        to(hum.frequency, s.humHz, at, tau);
+        to(humLp.frequency, s.humLpHz, at, tau);
+        to(quiver.frequency, s.quiverHz, at, tau);
+        to(quiverDepth.gain, s.quiverCents, at, tau);
+        to(humLvl.gain, on ? s.hum : 0, at, tau);
+        to(pops.playbackRate, s.popRate, at, tau);
+        to(popLvl.gain, on ? s.pops : 0, at, tau);
+        to(rumbleLp.frequency, 150 * Math.sqrt(pitch), at, tau);
+        to(tremOsc.frequency, 9 + 4 * s.shake, at, tau);
+        to(rumbleLvl.gain, on ? 0.9 * s.shake * (1.4 - 0.4 * pitch) : 0, at, tau);
       };
       set = (i, at) => {
         last = i;

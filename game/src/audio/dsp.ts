@@ -1049,3 +1049,175 @@ export function groanBuffer(ctx: BaseAudioContext): AudioBuffer {
     return monoBuffer(ctx, out);
   });
 }
+
+// ---------------------------------------------------------------------------------------------
+// Soft uproot / bank textures (the strain and bankRumble loops), same family as the haul textures
+// above: rounded wooden partials and darkened noise-rung knocks only, nothing above ~2 kHz.
+// ---------------------------------------------------------------------------------------------
+
+/** Body resonance of ropeCreakBuffer's grains at playback rate 1 (Hz). */
+export const ROPE_CREAK_HZ = 400;
+
+/**
+ * Creaky rope / root under tension (the strain loop): loose "eeerk"s, each a train of soft wooden
+ * grains (a rounded ~ROPE_CREAK_HZ body with a short inharmonic overtone and a soft sub-octave,
+ * 1.4 ms raised-cosine attack, a few ms of ring) whose rate glides, mostly upward, between ~34 and
+ * ~65 grains per second inside a swell, with short breaths between creaks. Every grain has its own
+ * pitch (+-12 %), so the creak is woody rather than a buzzy saw. Played faster with progress: the
+ * creaks get denser and higher. 5.3 s, seamless, nothing above ~2 kHz.
+ */
+export function ropeCreakBuffer(ctx: BaseAudioContext): AudioBuffer {
+  return cachedBuffer(ctx, 'tex:ropeCreak', () => {
+    const sr = ctx.sampleRate;
+    const fade = Math.floor(sr * 0.06);
+    const seconds = 5.3;
+    const len = Math.floor(sr * seconds) + fade;
+    const rnd = makeRng(8181);
+    const d = new Float32Array(len);
+    const grains: Float32Array[] = [];
+    for (let k = 0; k < 9; k++) {
+      const f0 = ROPE_CREAK_HZ * (1 + 0.12 * (k / 4 - 1));
+      const parts: [number, number, number][] = [
+        [1, 1, 0.0045],
+        [2.3 * (1 + 0.05 * (2 * rnd() - 1)), 0.28, 0.0022],
+        [0.5, 0.3, 0.006],
+      ];
+      grains.push(softBump(sr, f0, parts, { attack: 0.0014, glide: 0, glideTau: 0.01, length: 0.022 }));
+    }
+    let t = 0.03;
+    while (t < seconds - 0.05) {
+      const dur = 0.16 + rnd() * 0.4;
+      const r0 = 34 + rnd() * 16;
+      const r1 = r0 * (rnd() < 0.75 ? 1.2 + rnd() * 0.35 : 0.82 + rnd() * 0.1);
+      const amp = 0.6 + 0.4 * rnd();
+      for (let tp = t; tp < t + dur; ) {
+        const u = (tp - t) / dur;
+        const env = Math.pow(Math.sin(Math.PI * u), 0.6);
+        addScaled(d, Math.floor(tp * sr), grains[Math.floor(rnd() * grains.length)], amp * env * (0.75 + 0.25 * rnd()));
+        tp += (0.92 + 0.16 * rnd()) / (r0 + (r1 - r0) * u);
+      }
+      t += dur + 0.05 + rnd() * 0.22;
+    }
+    tamePeaks(d, sr, 8);
+    const out = makeLoopable(d, fade);
+    normalizePeak(out, 0.9);
+    return monoBuffer(ctx, out);
+  });
+}
+
+/**
+ * Root fibres giving way (the strain loop past ~40 %): sparse soft wooden "tok"s (rounded partials
+ * around 340-700 Hz with a quick downward settle and a little noise-rung knock, 2.5 ms attack), now
+ * and then a bigger one. Replaces the old bright crackle: the same "it's about to give" cue without
+ * the ticks. 2.3 s, seamless, nothing above ~2 kHz.
+ */
+export function rootPopBuffer(ctx: BaseAudioContext): AudioBuffer {
+  return cachedBuffer(ctx, 'tex:rootPop', () => {
+    const sr = ctx.sampleRate;
+    const fade = Math.floor(sr * 0.04);
+    const seconds = 2.3;
+    const len = Math.floor(sr * seconds) + fade;
+    const rnd = makeRng(9393);
+    const d = new Float32Array(len);
+    const pops: Float32Array[] = [];
+    for (let k = 0; k < 8; k++) {
+      const f0 = 460 * (1 + 0.3 * ((2 * k) / 7 - 1));
+      const parts: [number, number, number][] = [
+        [1, 1, 0.012],
+        [2.2 * (1 + 0.06 * (2 * rnd() - 1)), 0.2, 0.005],
+        [0.5, 0.3, 0.015],
+      ];
+      const b = softBump(sr, f0, parts, { attack: 0.0025, glide: 0.06, glideTau: 0.006, length: 0.06 });
+      const kn = woodKnock(sr, f0, 1.5, 1.5, { attack: 0.003, decay: 0.02, length: 0.06 }, rnd);
+      for (let i = 0; i < b.length; i++) b[i] += 0.15 * kn[i];
+      pops.push(b);
+    }
+    for (let t = 0.02; ; ) {
+      t += -Math.log(1 - rnd() * 0.999) / 16;
+      if (t >= seconds) break;
+      const amp = rnd() < 0.15 ? 0.7 + 0.15 * rnd() : 0.25 + 0.35 * rnd();
+      addScaled(d, Math.floor(t * sr), pops[Math.floor(rnd() * pops.length)], amp);
+    }
+    tamePeaks(d, sr, 8);
+    const out = makeLoopable(d, fade);
+    normalizePeak(out, 0.9);
+    return monoBuffer(ctx, out);
+  });
+}
+
+/** Level of heaveKnockBuffer's frame knock relative to its thunk. */
+export const HEAVE_KNOCK_LEVEL = 0.8;
+
+/**
+ * Slow heave of a whole building hauled along, with its wooden frame (the 'bankRumble' loop): the
+ * soft foundation "thunk"s of heaveBuffer, each answered by a warm noise-rung knock of the frame
+ * (soft resonances near 390 Hz and 690 Hz, slow attack, ~0.1 s ring): the 300-900 Hz presence a
+ * small speaker still plays under the music, with no single pitch and nothing above ~1.5 kHz.
+ * 6.4 s, seamless; the loop plays it at a rate that follows the bank's speed.
+ */
+export function heaveKnockBuffer(ctx: BaseAudioContext): AudioBuffer {
+  return cachedBuffer(ctx, 'tex:heaveKnock', () => {
+    const sr = ctx.sampleRate;
+    const fade = Math.floor(sr * 0.12);
+    const seconds = 6.4;
+    const len = Math.floor(sr * seconds) + fade;
+    const rnd = makeRng(6464);
+    const d = new Float32Array(len);
+    const parts = [
+      [1, 1, 0.4],
+      [2.02, 0.7, 0.16],
+      [3.05, 0.4, 0.06],
+    ] as const;
+    const thunks = bumpBank(sr, 104 * 1.03, 0.08, 4, parts, { attack: 0.06, glide: 0.08, glideTau: 0.03, length: 0.9 });
+    const knocks: Float32Array[] = [];
+    for (let k = 0; k < 6; k++) {
+      const f = 270 * (1 + 0.1 * ((2 * k) / 5 - 1));
+      const a = woodKnock(sr, f, 1.65, 1.3, { attack: 0.018, decay: 0.11, length: 0.5 }, rnd);
+      const b = woodKnock(sr, f * 1.4, 2.1, 1.6, { attack: 0.012, decay: 0.06, length: 0.5 }, rnd);
+      for (let i = 0; i < a.length; i++) a[i] += 0.5 * b[i];
+      knocks.push(a);
+    }
+    const hit = (t: number, lo: number, amp: number): void => {
+      const at = Math.floor(t * sr);
+      addScaled(d, at, thunks[Math.min(3, lo + Math.floor(rnd() * 3))], amp);
+      addScaled(d, at + Math.floor(sr * 0.008), knocks[Math.floor(rnd() * knocks.length)], amp * HEAVE_KNOCK_LEVEL * (0.8 + 0.4 * rnd()));
+    };
+    let t = 0.08;
+    while (t < len / sr - 0.02) {
+      hit(t, 0, 0.88 + 0.12 * rnd());
+      if (rnd() < 0.18) hit(t + 0.15 + rnd() * 0.04, 1, 0.55);
+      t += 0.5 + rnd() * 0.35;
+    }
+    tamePeaks(d, sr, 4);
+    const out = makeLoopable(d, fade);
+    normalizePeak(out, 0.9);
+    return monoBuffer(ctx, out);
+  });
+}
+
+/**
+ * Swell envelope (0..1) of the bank's groan: broad swells of 1.4-2.2 s (soft rise, long plateau,
+ * soft fall, finite slope at both ends) with breaths of 0.35-0.95 s between them, sounding ~70 % of
+ * the time. Not audio: it drives the groan tone's gain (the tone itself follows the music's chord
+ * root, see the bankRumble loop). 13 s, starts and ends at 0 (seamless).
+ */
+export function groanSwellBuffer(ctx: BaseAudioContext): AudioBuffer {
+  return cachedBuffer(ctx, 'tex:groanSwell', () => {
+    const sr = ctx.sampleRate;
+    const seconds = 13;
+    const len = Math.floor(sr * seconds);
+    const rnd = makeRng(6363);
+    const d = new Float32Array(len);
+    let g = 0.6;
+    for (let dur = 1.4 + rnd() * 0.8; g + dur < seconds - 0.3; dur = 1.4 + rnd() * 0.8) {
+      const s0 = Math.floor(g * sr);
+      const n = Math.floor(dur * sr);
+      for (let i = 0; i < n; i++) {
+        const swell = Math.sin((Math.PI * i) / n);
+        d[s0 + i] = swell * (2 - swell);
+      }
+      g += dur + 0.35 + rnd() * 0.6;
+    }
+    return monoBuffer(ctx, d);
+  });
+}

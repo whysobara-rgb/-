@@ -14,8 +14,8 @@ import type { MusicId, TrackId } from './ids';
 import { INSTRUMENTS, type InstId } from './instruments';
 import type { BarGrid } from './loops';
 import { makeRng, type Rng } from './rng';
-import { INTENSITY_LAYERS, LAYERS, SONGS, barSeconds, type IntensityLayerId, type LayerId, type NoteEvent, type SongDef } from './songs';
-import { SFX_KEY_ROOT } from './theory';
+import { INTENSITY_LAYERS, LAYERS, SONGS, SONG_CHORDS, barSeconds, type IntensityLayerId, type LayerId, type NoteEvent, type SongDef } from './songs';
+import { SFX_KEY_ROOT, chord } from './theory';
 
 export interface MusicHost {
   ctx: BaseAudioContext;
@@ -163,6 +163,18 @@ export class TrackPlayer {
     l.wet.gain.setTargetAtTime(x * TENSION_LAYER_GAIN, at, 0.7);
   }
 
+  /**
+   * Root pitch class (0..11) of the chord sounding at time t (two-chord bars split in halves), or
+   * null before the track starts.
+   */
+  chordRootAt(t: number): number | null {
+    const chords = SONG_CHORDS[this.def.id];
+    const x = (t - this.startTime) / barSeconds(this.def);
+    if (!chords?.length || !(x >= 0)) return null;
+    const spans = chords[Math.floor(x) % chords.length].split(' ');
+    return chord(spans[Math.min(spans.length - 1, Math.floor((x % 1) * spans.length))]).root;
+  }
+
   /** Time of the next beat at or after t (for musically aligned transitions). */
   nextBeat(t: number): number {
     const beat = 60 / this.def.bpm;
@@ -295,10 +307,24 @@ export class MusicPlayer {
     return this.current ? this.current.id : 'none';
   }
 
-  /** Bar grid of the current track (time of its bar 0, bar length), or null when silent. */
+  /**
+   * Bar grid of the current track (time of its bar 0, bar length, chord root), or null when silent.
+   * A live view: a loop that outlives a track change (a bank still hauled when the final countdown
+   * starts) reads the new track's grid and chords; after the music stops it reads no grid.
+   */
   barGrid(): BarGrid | null {
-    const tr = this.current;
-    return tr ? { origin: tr.startTime, bar: barSeconds(tr.def) } : null;
+    if (!this.current) return null;
+    const cur = (): TrackPlayer | null => this.current;
+    return {
+      get origin(): number {
+        return cur()?.startTime ?? NaN;
+      },
+      get bar(): number {
+        const tr = cur();
+        return tr ? barSeconds(tr.def) : 0;
+      },
+      rootAt: (t: number): number | null => cur()?.chordRootAt(t) ?? null,
+    };
   }
 
   /** Tonic for tonal SFX (all tracks share F major / D minor). */

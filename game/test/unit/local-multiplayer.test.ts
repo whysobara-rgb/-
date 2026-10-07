@@ -290,8 +290,12 @@ describe('shared camera framing', () => {
     const wide = sharedFraming([{ x: 0, y: 0, r: 2 }, { x: 120, y: 60, r: 2 }], aspect);
     expect(wide.dist).toBe(SHARED_MAX_DIST);
     expect(wide.fits).toBe(false);
-    // the target sits between the players, not on one of them
-    expect(wide.x).toBeCloseTo(60, 5);
+    // too far apart: one player stays fully on screen (not an empty middle), leaning toward the other
+    const we = visibleExtents(wide.dist, aspect);
+    const onScreen = (q: { x: number; y: number }, f: { x: number; y: number }) =>
+      Math.abs(q.x - f.x) + 2 <= we.half && q.y - 2 >= f.y - we.north && q.y + 2 <= f.y + we.south;
+    expect(onScreen({ x: 0, y: 0 }, wide)).toBe(true);
+    expect(wide.x).toBeGreaterThan(2);
     // everything that fits is inside the visible extents around the target
     const mid = sharedFraming([{ x: 0, y: 0, r: 2 }, { x: 18, y: 9, r: 2 }], aspect);
     const e = visibleExtents(mid.dist, aspect);
@@ -299,6 +303,35 @@ describe('shared camera framing', () => {
     expect(Math.abs(18 - mid.x) + 2).toBeLessThanOrEqual(e.half);
     expect(mid.y - (0 - 2)).toBeLessThanOrEqual(e.north);
     expect(9 + 2 - mid.y).toBeLessThanOrEqual(e.south);
+  });
+
+  it('versus kickoff (spawns ~69 m apart): keeps a whole pair on screen and sticks to it', async () => {
+    const { sharedFraming, visibleExtents, SHARED_MAX_DIST } = await import('../../src/render/sharedCamera');
+    const aspect = 16 / 9;
+    // P1, P3 at the star van (owners 0, 2); P2, P4 at the moon van (owners 1, 3)
+    const pts = [
+      { x: 5.5, y: 30, r: 2.2, owner: 0 },
+      { x: 74.5, y: 30, r: 2.2, owner: 1 },
+      { x: 5.5, y: 33, r: 2.2, owner: 2 },
+      { x: 74.5, y: 33, r: 2.2, owner: 3 },
+    ];
+    const e = visibleExtents(SHARED_MAX_DIST, aspect);
+    const shown = (f: { x: number; y: number }, list = pts) => list.filter((q) => Math.abs(q.x - f.x) + q.r <= e.half && q.y - q.r >= f.y - e.north && q.y + q.r <= f.y + e.south).map((q) => q.owner);
+    const first = sharedFraming(pts, aspect);
+    expect(first.fits).toBe(false);
+    // the old midpoint framing showed nobody; now P1's pair (lowest owner on a tie)
+    expect(shown(first)).toEqual([0, 2]);
+    // with the moon pair framed last time, an equal tie keeps the moon pair (no flip-flop)
+    const moon = sharedFraming(pts, aspect, undefined, undefined, { x: 60, y: 31 });
+    expect(shown(moon)).toEqual([1, 3]);
+    // a third player crossing toward the middle wins the larger group
+    const moved = pts.map((q) => (q.owner === 1 ? { ...q, x: 30 } : q));
+    const f3 = sharedFraming(moved, aspect, undefined, undefined, { x: 60, y: 31 });
+    expect(shown(f3, moved).sort()).toEqual([0, 1, 2]);
+    // a player's loot (same owner) moves in and out of frame with them
+    const withBank = [...pts, { x: 9, y: 31, r: 4.5, owner: 0 }];
+    const fb = sharedFraming(withBank, aspect);
+    expect(Math.abs(9 - fb.x) + 4.5).toBeLessThanOrEqual(e.half);
   });
 });
 
