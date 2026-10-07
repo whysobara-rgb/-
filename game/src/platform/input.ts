@@ -55,6 +55,7 @@ import {
 } from './bindings';
 import {
   actionGlyph,
+  displayBindingIndex,
   bindingGlyph,
   detectPadFamily,
   isLayoutDependentCode,
@@ -64,6 +65,7 @@ import {
   type KeyLabelMap,
   type PadFamily,
 } from './glyphs';
+import { isDesktopBuild } from './native';
 import type { GrabMode } from './settings';
 
 export type InputDevice = 'keyboard' | 'mouse' | 'gamepad';
@@ -273,6 +275,12 @@ export interface InputManagerOptions {
   now?: () => number;
   bindings?: Bindings;
   vibration?: boolean;
+  /**
+   * Ctrl+digit chords reach the game (the desktop build). When false (plain browsers, where
+   * Chrome keeps Ctrl+1..8 for tab switching) prompts and settings rows show the plain key bound
+   * next to a chord instead. Default: whether this is the desktop build.
+   */
+  chordKeys?: boolean;
   /** Menu auto-repeat: delay before the first repeat and the interval after it (ms). */
   menuRepeatDelayMs?: number;
   menuRepeatIntervalMs?: number;
@@ -445,6 +453,8 @@ export class InputManager {
   private lastDeviceValue: InputDevice = 'keyboard';
   private padFamilyValue: PadFamily = 'xbox';
   private rebind: RebindState | null = null;
+  /** See InputManagerOptions.chordKeys. */
+  private readonly chordKeys: boolean;
   private suppressClickUntil = 0;
   private lastRebindValue: RebindResult | null = null;
 
@@ -456,6 +466,7 @@ export class InputManager {
   constructor(opts: InputManagerOptions = {}) {
     this.bindings = cloneBindings(opts.bindings ?? defaultBindings());
     this.vibrationEnabled = opts.vibration ?? true;
+    this.chordKeys = opts.chordKeys ?? isDesktopBuild();
     this.target = opts.target !== undefined ? opts.target : typeof window !== 'undefined' ? window : null;
     this.doc = opts.doc !== undefined ? opts.doc : typeof document !== 'undefined' ? document : null;
     this.getGamepads = opts.getGamepads ?? defaultGetGamepads;
@@ -533,9 +544,14 @@ export class InputManager {
   bindingRows(): Array<{ action: MatchAction; keyboard: string | null; gamepad: string | null }> {
     return MATCH_ACTIONS.map((action) => ({
       action,
-      keyboard: this.bindings.keyboard[action][0] ?? null,
+      keyboard: this.bindings.keyboard[action][this.displayIndex('keyboard', action)] ?? null,
       gamepad: this.bindings.gamepad[action][0] ?? null,
     }));
+  }
+
+  /** Index of the binding prompts and settings rows show for an action (see chordKeys). */
+  private displayIndex(device: BindingDevice, action: MatchAction): number {
+    return displayBindingIndex(device, this.bindings[device][action], !this.chordKeys);
   }
 
   // ------------------------------------------------------------------ device info
@@ -565,7 +581,7 @@ export class InputManager {
 
   /** Prompt glyph for an action on the device used last. */
   promptGlyph(action: GlyphAction): Glyph {
-    return actionGlyph(action, this.glyphDevice, this.bindings, this.padFamilyValue, this.keyLabels);
+    return actionGlyph(action, this.glyphDevice, this.bindings, this.padFamilyValue, this.keyLabels, !this.chordKeys);
   }
 
   /**
@@ -751,7 +767,8 @@ export class InputManager {
       const state: RebindState = {
         action,
         device,
-        slot: Math.max(0, Math.floor(opts.slot ?? 0)),
+        // Default: the binding the settings row shows (the plain digit in browser builds).
+        slot: Math.max(0, Math.floor(opts.slot ?? this.displayIndex(device, action))),
         startedAt: this.now(),
         // Wait for every pad input to be released first (the A that opened the capture).
         padNeutral: false,

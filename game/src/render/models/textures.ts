@@ -707,17 +707,21 @@ function drawFace(ctx: CanvasRenderingContext2D, w: number, h: number, kind: Fac
     case 'bleh': {
       // Akanbe: the +z-side eye (texture left = the raccoon's right paw side) is pulled down by
       // the paw, showing the pink under-lid; the other eye squeezes into a happy arc.
-      drawEyeOpen(ctx, -ex, ey + 0.035, 1.05, 0.03);
+      // The pulled-down lid: a big pink half-moon hanging under the eye (drawn first so the
+      // stretched-open eye overlaps its top), with a darker inner rim.
       ctx.fillStyle = '#FF8FA8';
       ctx.beginPath();
-      ctx.ellipse(-ex, ey + 0.26, 0.15, 0.075, 0, 0, Math.PI * 2);
+      ctx.ellipse(-ex, ey + 0.2, 0.18, 0.17, 0, 0, Math.PI);
+      ctx.closePath();
       ctx.fill();
-      strokeStyle(ctx, INK, 0.022);
+      strokeStyle(ctx, INK, 0.024);
       ctx.stroke();
       ctx.fillStyle = '#E8607C';
       ctx.beginPath();
-      ctx.ellipse(-ex, ey + 0.27, 0.1, 0.035, 0, 0, Math.PI * 2);
+      ctx.ellipse(-ex, ey + 0.24, 0.12, 0.08, 0, 0, Math.PI);
+      ctx.closePath();
       ctx.fill();
+      drawEyeOpen(ctx, -ex, ey + 0.02, 1.08, 0.0);
       strokeStyle(ctx, LINE_LIGHT, 0.05);
       ctx.beginPath();
       ctx.moveTo(ex - 0.13, ey + 0.06);

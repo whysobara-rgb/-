@@ -18,7 +18,7 @@ import {
   listDuplicateBindings,
   sanitizeBindings,
 } from '../../src/platform/bindings';
-import { bindingGlyph } from '../../src/platform/glyphs';
+import { bindingGlyph, displayBindingIndex } from '../../src/platform/glyphs';
 import { InputManager } from '../../src/platform/input';
 import { EMOTE_IDS, EmoteWheelController, RIVAL_EMOTES, unlockedEmotes, wheelSlotAt, wheelSlotAngle, type WheelInput } from '../../src/platform/emotes';
 import { createDefaultSaveData, sanitizeSaveData } from '../../src/platform/save';
@@ -108,6 +108,23 @@ describe('taunt bindings', () => {
     expect(listDuplicateBindings(clash)).toEqual([]);
   });
 
+  it('browser builds show the plain digit next to a chord (Chrome keeps Ctrl+1..4); the desktop build shows Ctrl+1', () => {
+    const t = new EventTarget();
+    const web = new InputManager({ target: t, doc: null, getGamepads: () => [], keyboard: null, chordKeys: false });
+    const desk = new InputManager({ target: t, doc: null, getGamepads: () => [], keyboard: null, chordKeys: true });
+    expect(web.promptGlyph('emote1').label).toBe('1');
+    expect(desk.promptGlyph('emote1').label).toBe('Ctrl+1');
+    expect(web.bindingRows().find((r) => r.action === 'emote3')?.keyboard).toBe('Digit3');
+    expect(desk.bindingRows().find((r) => r.action === 'emote3')?.keyboard).toBe('Ctrl+Digit3');
+    // Other actions are unaffected; a chord-only binding still shows the chord.
+    expect(web.promptGlyph('grab').label).toBe(desk.promptGlyph('grab').label);
+    expect(displayBindingIndex('keyboard', ['Ctrl+KeyG'], true)).toBe(0);
+    expect(displayBindingIndex('keyboard', ['Ctrl+Digit1', 'Digit1'], true)).toBe(1);
+    expect(displayBindingIndex('gamepad', ['button:4'], true)).toBe(0);
+    web.dispose();
+    desk.dispose();
+  });
+
   it('chord labels read "Ctrl+1"', () => {
     expect(bindingGlyph('keyboard', 'Ctrl+Digit1').label).toBe('Ctrl+1');
     expect(bindingGlyph('keyboard', 'Ctrl+KeyG').label).toBe('Ctrl+G');
@@ -125,7 +142,7 @@ function keyEvent(type: 'keydown' | 'keyup', code: string, mods: { ctrl?: boolea
 function setup() {
   let t = 1000;
   const target = new EventTarget();
-  const input = new InputManager({ target, doc: null, now: () => t, getGamepads: () => [], keyboard: null });
+  const input = new InputManager({ target, doc: null, now: () => t, getGamepads: () => [], keyboard: null, chordKeys: true });
   const send = (type: 'keydown' | 'keyup', code: string, ctrl = false): boolean => target.dispatchEvent(keyEvent(type, code, { ctrl }));
   return { input, target, send, advance: (ms: number) => (t += ms) };
 }
@@ -197,6 +214,17 @@ describe('InputManager taunts', () => {
     expect(await r).toBe('KeyH');
     expect(listDuplicateBindings(s.input.getBindings())).toEqual([]);
   });
+
+  it('browser build: rebinding a taunt replaces the plain key the settings row shows, keeping the chord', async () => {
+    const target = new EventTarget();
+    const input = new InputManager({ target, doc: null, getGamepads: () => [], keyboard: null, chordKeys: false });
+    const p = input.startRebind('emote2', 'keyboard', { timeoutMs: 0 });
+    target.dispatchEvent(keyEvent('keydown', 'KeyZ'));
+    expect(await p).toBe('KeyZ');
+    expect(input.getBindings().keyboard.emote2).toEqual(['Ctrl+Digit2', 'KeyZ']);
+    expect(input.bindingRows().find((r) => r.action === 'emote2')?.keyboard).toBe('KeyZ');
+    input.dispose();
+  });
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -204,18 +232,26 @@ describe('InputManager taunts', () => {
 // ---------------------------------------------------------------------------------------------
 
 describe('taunt wheel picking', () => {
-  it('slot 0 is straight up, then clockwise; inside the deadzone picks nothing', () => {
+  it('eight 45° sectors: base taunts on up/right/down/left, rival taunts on three diagonals, up-left empty', () => {
     expect(wheelSlotAt({ x: 0, y: -1 }, 7)).toBe(0);
-    expect(wheelSlotAt({ x: 1, y: 0 }, 7)).toBe(2); // 90° / (360/7) ≈ 1.75 -> 2
-    expect(wheelSlotAt({ x: 0, y: 1 }, 7)).toBe(4); // 180° -> 3.5 rounds to 4 (half-open sectors)
-    expect(wheelSlotAt({ x: -1, y: 0 }, 7)).toBe(5);
+    expect(wheelSlotAt({ x: 1, y: 0 }, 7)).toBe(1);
+    expect(wheelSlotAt({ x: 0, y: 1 }, 7)).toBe(2);
+    expect(wheelSlotAt({ x: -1, y: 0 }, 7)).toBe(3);
+    expect(wheelSlotAt({ x: 0.7, y: -0.7 }, 7)).toBe(4);
+    expect(wheelSlotAt({ x: 0.7, y: 0.7 }, 7)).toBe(5);
+    expect(wheelSlotAt({ x: -0.7, y: 0.7 }, 7)).toBe(6);
+    expect(wheelSlotAt({ x: -0.7, y: -0.7 }, 7)).toBeNull();
+    // A natural "down" flick lands in the middle of a base slot, whatever the stick noise.
+    for (const x of [-0.15, -0.05, 0, 0.05, 0.15]) expect(wheelSlotAt({ x, y: 1 }, 7)).toBe(2);
     expect(wheelSlotAt({ x: -0.05, y: -1 }, 7)).toBe(0);
     expect(wheelSlotAt({ x: 0.1, y: 0.1 }, 7)).toBeNull();
-    expect(wheelSlotAt({ x: Number.NaN, y: 1 }, 7)).toBe(4);
+    expect(wheelSlotAt({ x: Number.NaN, y: 1 }, 7)).toBe(2);
     for (let i = 0; i < 7; i++) {
       const a = wheelSlotAngle(i, 7);
       expect(wheelSlotAt({ x: Math.sin(a), y: -Math.cos(a) }, 7)).toBe(i);
     }
+    // Other slot counts stay evenly spaced.
+    expect(wheelSlotAt({ x: 1, y: 0 }, 4)).toBe(1);
   });
 
   const idle: WheelInput = { held: false, stick: { x: 0, y: 0 }, keys: { x: 0, y: 0 }, pointer: null, cancel: false };
@@ -223,10 +259,10 @@ describe('taunt wheel picking', () => {
   it('open, flick the stick, let it spring back, release: confirms the last pick', () => {
     const w = new EmoteWheelController(BASE_EMOTES);
     expect(w.update({ ...idle, held: true }).justOpened).toBe(true);
-    expect(w.update({ ...idle, held: true, stick: { x: 1, y: 0 } }).hover).toBe(2);
-    expect(w.update({ ...idle, held: true }).hover).toBe(2); // sticky
+    expect(w.update({ ...idle, held: true, stick: { x: 1, y: 0 } }).hover).toBe(1);
+    expect(w.update({ ...idle, held: true }).hover).toBe(1); // sticky
     const out = w.update(idle);
-    expect(out.confirmed).toBe(EMOTE_IDS[2]);
+    expect(out.confirmed).toBe(EMOTE_IDS[1]);
     expect(out.justClosed).toBe(true);
     expect(w.open).toBe(false);
   });
@@ -234,7 +270,7 @@ describe('taunt wheel picking', () => {
   it('locked slots never fire; cancel closes without a taunt; no pick = nothing', () => {
     const w = new EmoteWheelController(BASE_EMOTES);
     w.update({ ...idle, held: true });
-    w.update({ ...idle, held: true, keys: { x: -1, y: 0 } }); // index 5 = tongkeunFlex (locked)
+    w.update({ ...idle, held: true, keys: { x: 1, y: 1 } }); // down-right = tongkeunFlex (locked)
     const out = w.update(idle);
     expect(out.confirmed).toBeNull();
     expect(out.lockedPick).toBe('tongkeunFlex');
@@ -250,11 +286,39 @@ describe('taunt wheel picking', () => {
     expect(w.update(idle).confirmed).toBeNull();
   });
 
+  it('a direction already held when the wheel opens (running) is ignored until it goes neutral or changes', () => {
+    const w = new EmoteWheelController(BASE_EMOTES);
+    // Running right, tap the wheel button: nothing fires.
+    w.update({ ...idle, keys: { x: 1, y: 0 } });
+    expect(w.update({ ...idle, held: true, keys: { x: 1, y: 0 } }).hover).toBeNull();
+    expect(w.update({ ...idle, held: true, keys: { x: 1, y: 0 } }).hover).toBeNull();
+    let out = w.update({ ...idle, keys: { x: 1, y: 0 } });
+    expect(out.confirmed).toBeNull();
+    expect(out.lockedPick).toBeNull();
+    // Pad running up, tap LB: nothing; let the stick go and push up again: wiggle.
+    w.update({ ...idle, held: true, stick: { x: 0, y: -1 } });
+    expect(w.update({ ...idle, held: true, stick: { x: 0, y: -1 } }).hover).toBeNull();
+    w.update({ ...idle, held: true });
+    expect(w.update({ ...idle, held: true, stick: { x: 0, y: -1 } }).hover).toBe(0);
+    expect(w.update(idle).confirmed).toBe('wiggle');
+    // Turning the held stick to another slot picks that slot at once.
+    w.update({ ...idle, held: true, stick: { x: 0, y: -1 } });
+    expect(w.update({ ...idle, held: true, stick: { x: 1, y: 0 } }).hover).toBe(1);
+    expect(w.update(idle).confirmed).toBe('bleh');
+  });
+
+  it('down on a fresh save picks the cash fan (a base taunt), not a locked gift box', () => {
+    const w = new EmoteWheelController(BASE_EMOTES);
+    w.update({ ...idle, held: true });
+    w.update({ ...idle, held: true, stick: { x: 0.04, y: 1 } });
+    expect(w.update(idle).confirmed).toBe('fanCash');
+  });
+
   it('mouse picks once it moved far enough from where the wheel opened', () => {
     const w = new EmoteWheelController([...BASE_EMOTES, 'nunchiShrug']);
     w.update({ ...idle, held: true, pointer: { x: 500, y: 300 } });
     expect(w.update({ ...idle, held: true, pointer: { x: 510, y: 300 } }).hover).toBeNull();
-    expect(w.update({ ...idle, held: true, pointer: { x: 470, y: 270 } }).hover).toBe(6);
+    expect(w.update({ ...idle, held: true, pointer: { x: 470, y: 330 } }).hover).toBe(6);
     expect(w.update(idle).confirmed).toBe('nunchiShrug');
   });
 
@@ -412,6 +476,41 @@ describe('taunt poses', () => {
     expect(tauntPose('hodadakZoom', 0.4).speed).toBeGreaterThan(0.9);
     expect(Math.max(...[0.64, 0.66, 0.68, 0.7].map((t) => tauntPose('tongkeunFlex', t).glint))).toBeGreaterThan(0.5);
     expect(tauntPose('wiggle', 0.8).fan + tauntPose('wiggle', 0.8).tongue + tauntPose('wiggle', 0.8).glint).toBe(0);
+    // The eyelid finger, the flex forearms and the squat landing ring belong to their taunt only.
+    expect(tauntPose('bleh', 0.6).finger).toBeGreaterThan(0.9);
+    expect(tauntPose('tongkeunFlex', 0.9).forearm).toBeGreaterThan(0.85);
+    expect(Math.max(...[0.2, 0.25, 0.3, 0.35, 0.4].map((t) => tauntPose('squatBounce', t).ring))).toBeGreaterThan(0.5);
+    for (const id of ids) {
+      for (let t = 0; t <= TAUNT_SECONDS[id]; t += 0.05) {
+        const p = tauntPose(id, t);
+        if (id !== 'bleh') expect(p.finger, id).toBe(0);
+        if (id !== 'tongkeunFlex') expect(p.forearm, id).toBe(0);
+        if (id !== 'squatBounce') expect(p.ring, id).toBe(0);
+      }
+    }
+  });
+
+  it('readable from the high camera: sideways / ground-plane motion, not just vertical', () => {
+    const span = (id: EmoteId, f: (p: ReturnType<typeof tauntPose>) => number): number => {
+      let lo = Infinity;
+      let hi = -Infinity;
+      for (let t = 0.3; t < TAUNT_SECONDS[id] - 0.3; t += 1 / 60) {
+        const v = f(tauntPose(id, t));
+        lo = Math.min(lo, v);
+        hi = Math.max(hi, v);
+      }
+      return hi - lo;
+    };
+    // Wiggle: the hips swing sideways and the body swivels while the head stays put.
+    expect(span('wiggle', (p) => p.bodyZ)).toBeGreaterThan(0.2);
+    expect(span('wiggle', (p) => p.twist)).toBeGreaterThan(0.5);
+    expect(span('wiggle', (p) => p.bodyZ + 0.62 * p.roll)).toBeLessThan(0.03);
+    // Squat: wide squash and a hop clear of the ground.
+    expect(span('squatBounce', (p) => p.sx)).toBeGreaterThan(0.3);
+    expect(span('squatBounce', (p) => p.pivotY)).toBeGreaterThan(0.3);
+    // Shrug: arms spread wide past the head, the head swivels.
+    expect(Math.max(tauntPose('nunchiShrug', 0.8).armL.out, tauntPose('nunchiShrug', 0.8).armR.out)).toBeGreaterThan(1.5);
+    expect(span('nunchiShrug', (p) => p.headYaw)).toBeGreaterThan(0.5);
   });
 });
 

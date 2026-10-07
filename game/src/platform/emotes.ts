@@ -3,15 +3,19 @@
  * wheel's slot picking, and the per-tick wheel state machine that turns held input into one
  * `Command.emote`. Pure logic (no DOM): game flow feeds it MatchFrames, the HUD draws its state.
  *
- * Wheel layout: the seven taunts in EMOTE_IDS order, slot 0 straight up, then clockwise. The
- * four base taunts are always unlocked; the rival taunts (slots 5–7) only when the save lists
- * them in `cosmetics.unlockedEmotes` (a save without the field owns none). Locked slots can be
- * hovered (the HUD shows a gift box and how to earn it) but never fire.
+ * Wheel layout: eight 45° sectors so every stick direction lands in the middle of one. The four
+ * base taunts (always unlocked) sit on the cardinal directions — up, right, down, left, matching
+ * keys 1..4 clockwise — and the three rival taunts on the diagonals up-right, down-right and
+ * down-left; up-left stays empty. Rival taunts are unlocked only when the save lists them in
+ * `cosmetics.unlockedEmotes` (a save without the field owns none). Locked slots can be hovered
+ * (the HUD shows a gift box and how to earn it) but never fire.
  *
  * Picking: the pad's stronger stick, the movement keys, or the mouse moved away from where it was
- * when the wheel opened. The last pick sticks when the stick springs back to the middle, so
- * "flick, then let go of LB" works. Releasing the wheel button confirms; grab / dash / pause
- * close the wheel without a taunt.
+ * when the wheel opened. A stick / key direction that was already held when the wheel opened
+ * (the player was running) is ignored until it goes back to neutral or turns to another slot, so
+ * tapping the wheel button while running never fires a taunt by itself. The last pick sticks when
+ * the stick springs back to the middle, so "flick, then let go of LB" works. Releasing the wheel
+ * button confirms; grab / dash / pause close the wheel without a taunt.
  */
 import { BASE_EMOTES, type EmoteId } from '../sim/types';
 import type { Vec2 } from '../sim/types';
@@ -40,9 +44,24 @@ export function unlockedEmotes(cosmetics: { readonly unlockedEmotes?: readonly s
   return EMOTE_IDS.filter((id) => BASE_EMOTES.includes(id) || extra.has(id));
 }
 
+/** Center angles (degrees, clockwise from up) of the seven taunt slots, in EMOTE_IDS order. */
+const SEVEN_SLOT_DEG: readonly number[] = [0, 90, 180, 270, 45, 135, 225];
+
+/** Center angles (radians, clockwise from up) of a wheel with `slots` slots. */
+export function wheelSlotAngles(slots: number): number[] {
+  const n = Math.max(1, Math.floor(slots));
+  if (n === SEVEN_SLOT_DEG.length) return SEVEN_SLOT_DEG.map((d) => (d * Math.PI) / 180);
+  return Array.from({ length: n }, (_, i) => (i / n) * Math.PI * 2);
+}
+
+/** Half the angular width of one slot's sector (radians). */
+function halfSector(n: number): number {
+  return n === SEVEN_SLOT_DEG.length ? Math.PI / 8 : Math.PI / n;
+}
+
 /**
- * Slot under a direction (screen space, +y down): slot 0 centered straight up, then clockwise.
- * Null when the direction is shorter than `deadzone` (or not finite).
+ * Slot under a direction (screen space, +y down), see the layout in the header. Null when the
+ * direction is shorter than `deadzone` (or not finite), or points into the empty sector.
  */
 export function wheelSlotAt(dir: Vec2, slots: number, deadzone = WHEEL_PICK_DEADZONE): number | null {
   const n = Math.max(1, Math.floor(slots));
@@ -52,13 +71,20 @@ export function wheelSlotAt(dir: Vec2, slots: number, deadzone = WHEEL_PICK_DEAD
   // Clockwise angle from "up" in [0, 2π).
   let a = Math.atan2(x, -y);
   if (a < 0) a += Math.PI * 2;
-  const step = (Math.PI * 2) / n;
-  return Math.floor((a + step / 2) / step) % n;
+  const angles = wheelSlotAngles(n);
+  const half = halfSector(n);
+  for (let i = 0; i < n; i++) {
+    // Signed distance in [-π, π); half-open sectors so a boundary belongs to exactly one slot.
+    let d = a - angles[i]!;
+    d = ((d + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+    if (d >= -half && d < half) return i;
+  }
+  return null;
 }
 
 /** Center angle of a slot (radians, clockwise from up) — the HUD lays the wheel out with it. */
 export function wheelSlotAngle(slot: number, slots: number): number {
-  return (slot / Math.max(1, slots)) * Math.PI * 2;
+  return wheelSlotAngles(slots)[Math.max(0, Math.floor(slot))] ?? 0;
 }
 
 export interface WheelInput {
@@ -91,6 +117,9 @@ export class EmoteWheelController {
   private hoverValue: number | null = null;
   private wasHeld = false;
   private origin: { x: number; y: number } | null = null;
+  /** Slot the stick / keys already pointed at when the wheel opened (ignored until it changes). */
+  private staleStick: number | null = null;
+  private staleKeys: number | null = null;
   private unlocked: ReadonlySet<EmoteId>;
 
   constructor(unlocked: readonly EmoteId[] = BASE_EMOTES) {
@@ -118,6 +147,16 @@ export class EmoteWheelController {
     this.openValue = false;
     this.hoverValue = null;
     this.origin = null;
+    this.staleStick = this.staleKeys = null;
+  }
+
+  /** A direction held since the wheel opened counts only once it went neutral or changed slot. */
+  private fresh(slot: number | null, which: 'staleStick' | 'staleKeys'): number | null {
+    const stale = this[which];
+    if (stale === null) return slot;
+    if (slot === stale) return null;
+    this[which] = null;
+    return slot;
   }
 
   update(inp: WheelInput): WheelStep {
@@ -129,6 +168,8 @@ export class EmoteWheelController {
       this.openValue = true;
       this.hoverValue = null;
       this.origin = inp.pointer ? { ...inp.pointer } : null;
+      this.staleStick = wheelSlotAt(inp.stick, n);
+      this.staleKeys = wheelSlotAt(inp.keys, n);
       out.justOpened = true;
     }
     if (!this.openValue) return out;
@@ -138,8 +179,9 @@ export class EmoteWheelController {
       return out;
     }
     // Pick: stick, then keys, then the mouse (each only when deliberately pushed).
-    let pick = wheelSlotAt(inp.stick, n);
-    if (pick === null) pick = wheelSlotAt(inp.keys, n);
+    let pick = this.fresh(wheelSlotAt(inp.stick, n), 'staleStick');
+    const keyPick = this.fresh(wheelSlotAt(inp.keys, n), 'staleKeys');
+    if (pick === null) pick = keyPick;
     if (pick === null && inp.pointer) {
       if (!this.origin) this.origin = { ...inp.pointer };
       pick = wheelSlotAt({ x: inp.pointer.x - this.origin.x, y: inp.pointer.y - this.origin.y }, n, WHEEL_POINTER_PX);

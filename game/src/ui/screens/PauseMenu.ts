@@ -88,9 +88,11 @@ export class PauseMenu extends UiScreen<PauseMenuProps> {
             hint('grab', 'hint.grab'),
             hint('dash', 'hint.dash'),
             hint('ping', 'hint.ping'),
+            hint('emote1', 'hint.emote'),
             hint('emoteWheel', 'hint.emoteWheel'),
           ),
           h('p', { class: 'uh-pause__grabNote' }, t(p.grabMode === 'toggle' ? 'hint.grabToggle' : 'hint.grabHold')),
+          h('p', { class: 'uh-pause__grabNote uh-pause__tauntNote' }, t('hint.tauntNote')),
         ),
         promptBar([
           { action: 'confirm', label: 'prompt.select' },

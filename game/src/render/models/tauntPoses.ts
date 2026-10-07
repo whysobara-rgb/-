@@ -84,6 +84,13 @@ export interface TauntPose {
   sparkleBurst: number;
   /** Speed lines behind the body (후다닥 포즈). */
   speed: number;
+  /** Fingertip pressing the lower eyelid down (메롱), 0..1. */
+  finger: number;
+  /** Forearms folded up from the elbow (근육 자랑: the rig has no elbow, so a forearm prop folds up from the paw end of each arm), 0..1. */
+  forearm: number;
+  /** Landing ring on the ground (쭈그려 뛰기): 0 = hidden, else its strength; phase 0..1 as it spreads. */
+  ring: number;
+  ringPhase: number;
 }
 
 /** Nominal length of every taunt in seconds (the sim's EMOTE.durationTicks). */
@@ -160,6 +167,10 @@ export function neutralTauntPose(): TauntPose {
     sparklePhase: 0,
     sparkleBurst: 0,
     speed: 0,
+    finger: 0,
+    forearm: 0,
+    ring: 0,
+    ringPhase: 0,
   };
 }
 
@@ -206,48 +217,55 @@ export function tauntPose(id: EmoteId, t: number, dur?: number, out?: TauntPose)
 }
 
 /**
- * 엉덩이 흔들기: back to the rival (the view turns the body away), a little crouch, then a deep
- * bow with the bottom swaying side to side at 4 Hz, the big tail sweeping in counter-phase and a
- * cheeky wink over the shoulder.
+ * 엉덩이 흔들기: back to the rival (the view turns the body away), a little crouch, then a bow
+ * with the hips swinging side to side under a steady head (the upper body counter-tilts), the
+ * whole bottom swivelling around the hips so the pear silhouette visibly twists from the high
+ * camera, the big tail sweeping wide in counter-phase and a cheeky wink over the shoulder.
  */
 function wiggle(o: TauntPose, T: number): void {
   const ant = bump(0, 0.24, T);
   const e = envelope(T, 0.1, 0.34, 1.32, 1.6);
-  const ph = (T - 0.2) * TAU * 4;
+  const ph = (T - 0.22) * TAU * 3.2;
   const sw = Math.sin(ph);
-  o.pivotY = -0.06 * ant + e * 0.025 * Math.abs(sw);
-  o.lean = -0.4 * e + 0.05 * ant;
-  o.roll = e * sw * 0.4;
-  o.twist = e * (0.42 + sw * 0.1);
-  o.bodyZ = e * sw * 0.05;
+  // Hips out to the side, upper body tilting back over them so the head barely moves.
+  const hip = e * sw * 0.17;
+  o.bodyZ = hip;
+  o.roll = -hip / 0.62;
+  o.pivotY = -0.06 * ant + e * 0.03 * Math.abs(Math.cos(ph));
+  o.lean = -0.34 * e + 0.05 * ant;
+  // Swivel: the bottom turns with each swing (reads from above).
+  o.twist = e * (0.18 + sw * 0.32);
   o.sy = 1 - 0.08 * ant + e * 0.03 * Math.cos(ph * 2);
-  o.sx = o.sz = 1 + 0.05 * ant;
-  // Feet stay planted under the bowing body.
-  o.legL = { fwd: 0.4 * e + Math.max(0, sw) * 0.12 * e, out: 0.18 * e, lift: Math.max(0, -sw) * 0.02 * e };
-  o.legR = { fwd: 0.4 * e + Math.max(0, -sw) * 0.12 * e, out: 0.18 * e, lift: Math.max(0, sw) * 0.02 * e };
-  // Paws on the hips.
+  o.sx = o.sz = 1 + 0.05 * ant + 0.04 * e;
+  // Feet planted wide under the bowing body.
+  o.legL = { fwd: 0.34 * e + Math.max(0, sw) * 0.1 * e, out: 0.24 * e, lift: Math.max(0, -sw) * 0.02 * e };
+  o.legR = { fwd: 0.34 * e + Math.max(0, -sw) * 0.1 * e, out: 0.24 * e, lift: Math.max(0, sw) * 0.02 * e };
+  // Paws on the knees, elbows out.
   for (const a of [o.armL, o.armR]) {
-    a.fwd = -0.5 * e;
-    a.out = NEUTRAL_ARM_OUT + 0.6 * e;
+    a.fwd = 0.35 * e;
+    a.out = NEUTRAL_ARM_OUT + 0.55 * e;
     a.inward = -0.2 * e;
   }
-  o.headYaw = 1.45 * e;
-  o.headPitch = 0.32 * e + 0.04 * Math.sin(ph * 2) * e;
-  o.headRoll = e * (0.2 + 0.08 * sw);
+  // Look back over the shoulder at the rival, holding the gaze while the body swivels.
+  o.headYaw = e * (1.5 - sw * 0.32);
+  o.headPitch = 0.3 * e + 0.04 * Math.sin(ph * 2) * e;
+  o.headRoll = e * 0.2 + hip * 1.2;
+  // Tail: raised high and sweeping across the whole body width, lagging the hips.
   o.tail = [
-    mix(0.35, Math.sin(ph + 0.7) * 0.95, e),
-    -0.42 - 0.42 * e,
-    Math.sin(ph - 0.2) * 0.75 * e,
-    -0.45 - 0.12 * e,
-    Math.sin(ph - 0.9) * 0.6 * e,
+    mix(0.35, Math.sin(ph - 0.5) * 1.15, e),
+    -0.42 - 0.55 * e,
+    Math.sin(ph - 1.1) * 0.8 * e,
+    -0.45 - 0.2 * e,
+    Math.sin(ph - 1.7) * 0.65 * e,
     -0.55,
   ];
   o.face = 'cheeky';
 }
 
 /**
- * 메롱: lean back (anticipation), then snap forward with the head tipped toward the right paw,
- * which tugs the lower eyelid down; the tongue pops out and the head wobbles "nyah-nyah".
+ * 메롱: lean back (anticipation), then snap forward with the head tipped toward the right paw;
+ * the paw comes up under the right eye and a fingertip drags the lower eyelid down (the face
+ * shows the pink under-lid), the tongue pops out and the head wobbles "nyah-nyah".
  */
 function bleh(o: TauntPose, T: number): void {
   const ant = bump(0, 0.2, T);
@@ -257,11 +275,13 @@ function bleh(o: TauntPose, T: number): void {
   o.roll = 0.2 * e;
   o.pivotY = -0.035 * ant;
   o.sy = 1 - 0.06 * ant + 0.03 * e;
-  o.headRoll = e * (0.45 + nyah * 0.09);
+  o.headRoll = e * (0.45 + nyah * 0.07);
   o.headPitch = 0.22 * ant - 0.04 * e;
-  o.headYaw = e * (nyah * 0.13 - 0.12);
-  // Right paw up to the eye (stretched a little: toy arms are short).
-  o.armR = { fwd: 2.05 * e, out: mix(NEUTRAL_ARM_OUT, -0.05, e), inward: 0.15 * e, lift: 0.06 * e, stretch: 1 + 0.75 * e, bulge: 1 };
+  o.headYaw = e * (nyah * 0.1 - 0.12);
+  // Right paw up under the right eye (fitted to the rig: the paw sits on the cheek below the
+  // pulled lid, clear of the eye; toy arms are short, so it stretches a little).
+  o.armR = { fwd: 1.7 * e, out: mix(NEUTRAL_ARM_OUT, -0.4, e), inward: 0, lift: 0.06 * e, stretch: 1 + 0.65 * e, bulge: 1 };
+  o.finger = sstep(0.22, 0.34, T) * (1 - sstep(0.94, 1.08, T));
   // Left paw on the hip.
   o.armL.fwd = -0.35 * e;
   o.armL.out = NEUTRAL_ARM_OUT + 0.55 * e;
@@ -275,39 +295,49 @@ function bleh(o: TauntPose, T: number): void {
 }
 
 /**
- * 돈다발 부채질: the right paw reaches behind, whips out a fan of banknotes with a pop, then fans
- * the face smugly (leaning back, chin up, other paw on the hip) while notes flutter down.
+ * 돈다발 부채질: the right paw reaches behind, whips out a fan of banknotes with a pop, then
+ * fans its own face smugly: the paw raised beside the cheek, the fan flapping toward the face,
+ * the body leaning back with the hips swaying to the fanning beat, chin up, other paw on the
+ * hip, while notes flutter down.
  */
 function fanCash(o: TauntPose, T: number): void {
   const reach = sstep(0, 0.24, T) * (1 - sstep(0.26, 0.4, T));
   const held = sstep(0.26, 0.4, T) * (1 - sstep(1.5, 1.72, T));
   const e = envelope(T, 0.18, 0.42, 1.52, 1.8);
-  const f = Math.sin((T - 0.4) * TAU * 3) * sstep(0.38, 0.5, T);
-  // Fan raised beside the head (arm up and out), flapping toward the face.
+  const beat = (T - 0.4) * TAU * 2.6;
+  const f = Math.sin(beat) * sstep(0.38, 0.5, T);
+  // Paw up beside the right cheek, the fan rising past the side of the head and turned to face
+  // it (tilted up so the high camera sees its face too); the wrist flaps it toward the face.
+  // Fitted to the rig offline.
   o.armR = {
-    fwd: -0.95 * reach + held * (0.45 + 0.12 * f),
-    out: mix(NEUTRAL_ARM_OUT, 2.0, held),
-    inward: held * (0.3 + 0.35 * f),
-    lift: 0.03 * held,
-    stretch: 1 + 0.12 * held,
+    fwd: -0.95 * reach + held * (2.0 + 0.16 * f),
+    out: mix(NEUTRAL_ARM_OUT, 0.7, held),
+    inward: -0.8 * held,
+    lift: 0.05 * held,
+    stretch: 1 + 0.08 * held,
     bulge: 1,
   };
   o.fan = Math.max(0, pop(0.27, 0.44, T, 2.4)) * (1 - sstep(1.48, 1.66, T));
-  o.fanWave = f * 0.65;
+  o.fanWave = -2.39 * held + f * 0.3;
   o.bills = sstep(0.45, 0.6, T) * (1 - sstep(1.45, 1.7, T));
   o.armL.fwd = -0.3 * e;
-  o.armL.out = NEUTRAL_ARM_OUT + 0.6 * e;
-  o.lean = 0.2 * e - 0.08 * reach;
-  o.twist = 0.12 * reach - 0.08 * e;
+  o.armL.out = NEUTRAL_ARM_OUT + 0.7 * e;
+  // Lean back, hips swaying with the beat (half time), a little bob on each flap.
+  const sway = Math.sin(beat * 0.5) * e;
+  o.lean = 0.26 * e - 0.08 * reach;
+  o.roll = -0.1 * sway;
+  o.bodyZ = 0.05 * sway;
+  o.twist = 0.12 * reach - 0.22 * e;
+  o.pivotY = -0.02 * Math.abs(f) * e;
   o.sx = o.sz = 1 + 0.045 * e;
   o.sy = 1 + 0.02 * e;
-  o.headPitch = 0.27 * e;
-  o.headYaw = -0.22 * e;
-  o.headRoll = -0.1 * e + f * 0.035;
+  o.headPitch = 0.3 * e;
+  o.headYaw = -0.32 * e;
+  o.headRoll = -0.14 * e + f * 0.05 + 0.06 * sway;
   // Casual crossed stance.
-  o.legR = { fwd: 0.18 * e, out: -0.12 * e, lift: 0 };
-  o.legL = { fwd: -0.05 * e, out: 0.05 * e, lift: 0 };
-  o.tail[0] = 0.35 + Math.sin(T * 3.5) * 0.25 * e;
+  o.legR = { fwd: 0.2 * e, out: -0.14 * e, lift: 0 };
+  o.legL = { fwd: -0.05 * e, out: 0.08 * e, lift: 0 };
+  o.tail[0] = 0.35 + Math.sin(beat * 0.5) * 0.45 * e;
   o.face = 'smug';
 }
 
@@ -323,9 +353,10 @@ function squatCurve(u: number): number {
 export const SQUAT_BOUNCE = { start: 0.1, period: 0.34, count: 4 } as const;
 
 /**
- * 쭈그려 뛰기: four quick crouch-and-spring bounces, squashing wide at the bottom and stretching
- * tall on the way up ("boing"), arms out for balance, head tipping left/right on alternate
- * bounces, little star sparkles popping at each bottom.
+ * 쭈그려 뛰기: four quick crouch-and-hop bounces. Each squat squashes wide and low (a ring
+ * puffs out on the ground and star sparkles pop), then the raccoon springs up into a little hop
+ * clear of the ground with both arms flung up and out ("boing") — big sideways and up/down
+ * changes that read from the high camera, head tipping left / right on alternate bounces.
  */
 function squatBounce(o: TauntPose, T: number): void {
   const { start, period, count } = SQUAT_BOUNCE;
@@ -336,25 +367,33 @@ function squatBounce(o: TauntPose, T: number): void {
   const s = x < 0 ? 0 : squatCurve(u);
   const dn = Math.max(0, s);
   const upS = Math.max(0, -s);
-  o.pivotY = e * (-0.19 * dn + 0.09 * upS);
-  o.sy = 1 + e * (-0.27 * dn + 0.13 * upS);
-  o.sx = o.sz = 1 + e * (0.2 * dn - 0.06 * upS);
-  o.lean = -0.14 * dn * e;
-  o.legL = { fwd: 0.55 * dn * e, out: 0.5 * dn * e, lift: 0 };
-  o.legR = { fwd: 0.55 * dn * e, out: 0.5 * dn * e, lift: 0 };
+  // Airborne hop between squats (feet leave the ground; the shadow stays).
+  const hop = x >= 0 && x < count ? bump(0.5, 0.98, u) : 0;
+  o.pivotY = e * (-0.2 * dn + 0.05 * upS + 0.2 * hop);
+  o.sy = 1 + e * (-0.3 * dn + 0.15 * upS);
+  o.sx = o.sz = 1 + e * (0.3 * dn - 0.07 * upS);
+  o.lean = -0.12 * dn * e;
+  o.legL = { fwd: 0.55 * dn * e - 0.25 * hop * e, out: 0.55 * dn * e + 0.1 * hop * e, lift: 0 };
+  o.legR = { fwd: 0.55 * dn * e - 0.25 * hop * e, out: 0.55 * dn * e + 0.1 * hop * e, lift: 0 };
+  // Arms: forward for balance in the squat, flung up and out on the hop.
+  const fling = Math.max(upS, hop);
   for (const a of [o.armL, o.armR]) {
-    a.fwd = e * (0.75 + 0.5 * dn);
-    a.out = NEUTRAL_ARM_OUT + e * (0.55 - 0.25 * dn);
+    a.fwd = e * (0.7 + 0.45 * dn + 0.5 * fling);
+    a.out = NEUTRAL_ARM_OUT + e * (0.35 - 0.15 * dn + 1.05 * fling);
   }
   const side = k % 2 ? 1 : -1;
-  o.headRoll = e * 0.24 * side * sstep(0, 0.3, u);
-  o.headPitch = e * (0.14 - 0.18 * upS);
-  o.tail = [0.35 + Math.sin(T * 14) * 0.45 * e, -0.42 - 0.35 * upS * e, Math.sin(T * 14 - 0.7) * 0.35 * e, -0.45, 0, -0.55];
-  // Sparkles burst from each bottom.
+  o.headRoll = e * 0.3 * side * sstep(0, 0.3, u);
+  o.headPitch = e * (0.14 - 0.12 * upS + 0.1 * hop);
+  o.tail = [0.35 + Math.sin(T * 14) * 0.55 * e, -0.42 - 0.45 * fling * e, Math.sin(T * 14 - 0.7) * 0.4 * e, -0.45, 0, -0.55];
+  // Each landing: sparkles burst and a ring puffs out on the ground.
   const sp = u >= 0.3 ? (u - 0.3) / 0.6 : -1;
-  o.sparkle = x >= 0 && x < count && sp >= 0 && sp <= 1 ? e : 0;
+  const live = x >= 0 && x < count;
+  o.sparkle = live && sp >= 0 && sp <= 1 ? e : 0;
   o.sparklePhase = clamp01(sp);
   o.sparkleBurst = k;
+  const rp = u >= 0.22 ? (u - 0.22) / 0.5 : -1;
+  o.ring = live && rp >= 0 && rp <= 1 ? e : 0;
+  o.ringPhase = clamp01(rp);
   o.face = dn > 0.35 ? 'happy' : 'cheeky';
 }
 
@@ -385,9 +424,9 @@ function zoom(o: TauntPose, T: number): void {
 }
 
 /**
- * 근육 자랑: arms tuck in and the body crouches (anticipation), then both arms snap up and out
- * into a double-arm flex, chest puffed, chin up; three pumps bulge the arms and flash a gold
- * glint.
+ * 근육 자랑: arms tuck in and the body crouches (anticipation), then the upper arms snap out level
+ * with the shoulders and the forearms fold up into a double-bicep flex (fists beside the head),
+ * chest puffed wide, chin up; three pumps squeeze the biceps up and flash a gold glint.
  */
 function flex(o: TauntPose, T: number): void {
   const ant = bump(0, 0.3, T);
@@ -395,22 +434,23 @@ function flex(o: TauntPose, T: number): void {
   const pumpT = (T - 0.46) / 0.36;
   const p = T > 0.46 && T < 1.54 ? Math.pow(Math.max(0, Math.sin(Math.PI * (pumpT - Math.floor(pumpT)))), 2) : 0;
   for (const a of [o.armL, o.armR]) {
-    a.out = NEUTRAL_ARM_OUT - 0.25 * ant + e * (1.95 - 0.18 * p);
-    a.fwd = 0.35 * ant - 0.12 * e;
-    a.inward = -0.25 * e;
-    a.bulge = 1 + e * (0.25 + 0.22 * p);
-    a.stretch = 1 - 0.06 * e * p;
-    a.lift = 0.03 * e;
+    a.out = NEUTRAL_ARM_OUT - 0.25 * ant + e * (1.42 + 0.08 * p);
+    a.fwd = 0.35 * ant - 0.08 * e;
+    a.inward = 0;
+    a.bulge = 1 + e * (0.22 + 0.2 * p);
+    a.stretch = 1 - 0.05 * e * p;
+    a.lift = 0.05 * e + 0.015 * p * e;
   }
-  o.lean = 0.15 * e - 0.07 * ant;
-  o.sx = 1 + 0.12 * e + 0.035 * p * e;
-  o.sz = 1 + 0.1 * e;
-  o.sy = 1 + 0.04 * e - 0.07 * ant;
-  o.pivotY = -0.05 * ant + 0.02 * p * e;
+  o.forearm = clamp01(e) * (0.92 + 0.08 * p);
+  o.lean = 0.16 * e - 0.07 * ant;
+  o.sx = 1 + 0.16 * e + 0.04 * p * e;
+  o.sz = 1 + 0.18 * e + 0.04 * p * e;
+  o.sy = 1 + 0.05 * e - 0.07 * ant;
+  o.pivotY = -0.05 * ant + 0.025 * p * e;
   o.headPitch = 0.3 * e;
   o.headYaw = Math.sin(T * 2.4) * 0.2 * e;
-  o.legL = { fwd: 0, out: 0.24 * e, lift: 0 };
-  o.legR = { fwd: 0, out: 0.24 * e, lift: 0 };
+  o.legL = { fwd: 0, out: 0.28 * e, lift: 0 };
+  o.legR = { fwd: 0, out: 0.28 * e, lift: 0 };
   o.glint = p * e;
   o.glintSpin = T * 5;
   o.tail[1] = -0.42 - 0.2 * e;
@@ -418,27 +458,37 @@ function flex(o: TauntPose, T: number): void {
 }
 
 /**
- * 어깨 으쓱: a slow, unbothered shrug: shoulders rise, paws open palms-up, head tilts with a
- * half-lidded smirk, a tiny double bob at the top, then a lazy drop.
+ * 어깨 으쓱: a slow, unbothered shrug: the shoulders hike up while the head pops up then sinks
+ * between them, both paws swing wide open palms-up, the head tilts with a half-lidded smirk and
+ * the body sways the other way, a double bob at the top, then a lazy drop.
  */
 function shrug(o: TauntPose, T: number): void {
-  const up = sstep(0.12, 0.55, T);
+  const up = sstep(0.12, 0.5, T);
   const down = sstep(1.05, 1.38, T);
   const e = up * (1 - down);
-  const bob = T > 0.55 && T < 1.05 ? Math.sin(((T - 0.55) / 0.25) * TAU) * 0.5 : 0;
+  const pop1 = bump(0.1, 0.42, T);
+  const bob = T > 0.5 && T < 1.05 ? Math.sin(((T - 0.5) / 0.275) * TAU) : 0;
+  // A lazy "meh" head waggle at the top (the hat swivels: reads from above).
+  const meh = T > 0.5 && T < 1.05 ? Math.sin(((T - 0.5) / 0.55) * TAU * 1.5) * sstep(0.5, 0.6, T) * (1 - sstep(0.95, 1.05, T)) : 0;
   for (const a of [o.armL, o.armR]) {
-    a.fwd = 0.8 * e;
-    a.out = NEUTRAL_ARM_OUT + 0.95 * e;
-    a.inward = -0.3 * e;
-    a.lift = e * (0.05 + 0.014 * bob);
+    // Wide open, a little above level: the paws stick out past the big head from any camera.
+    a.fwd = 0.45 * e;
+    a.out = NEUTRAL_ARM_OUT + 1.45 * e;
+    a.inward = -0.6 * e;
+    a.lift = e * (0.09 + 0.025 * bob);
+    a.stretch = 1 + 0.12 * e;
   }
-  o.neckY = -0.03 * e;
-  o.headRoll = 0.3 * e;
-  o.headPitch = -0.06 * e + 0.02 * bob * e;
-  o.headYaw = 0.22 * e;
-  o.twist = 0.12 * e;
-  o.lean = 0.05 * e;
-  o.sy = 1 - 0.02 * e + 0.01 * bob * e;
-  o.tail[0] = 0.35 + Math.sin(T * 3) * 0.32 * e;
+  o.neckY = 0.05 * pop1 - 0.05 * e - 0.012 * bob * e;
+  o.headRoll = 0.42 * e;
+  o.headPitch = 0.1 * pop1 - 0.04 * e + 0.03 * bob * e;
+  o.headYaw = 0.22 * e + 0.32 * meh;
+  o.roll = -0.16 * e;
+  o.bodyZ = -0.05 * e;
+  o.twist = 0.14 * e;
+  o.lean = 0.07 * e;
+  o.sx = o.sz = 1 + 0.04 * e;
+  o.sy = 1 - 0.02 * e + 0.015 * bob * e;
+  o.pivotY = 0.02 * pop1;
+  o.tail[0] = 0.35 + Math.sin(T * 3) * 0.4 * e;
   o.face = 'smug';
 }

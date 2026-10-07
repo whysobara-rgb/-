@@ -146,6 +146,15 @@
         phase: D.match.state,
         chars: s.characters.map((c) => ({ slot: c.slot, x: +c.pos.x.toFixed(2), y: +c.pos.y.toFixed(2), grab: c.grab ? c.grab.targetId : null, strain: c.straining, kd: c.knockdownTicks })),
         banks: D.banks().map((b) => ({ id: b.id, x: +b.pos.x.toFixed(2), y: +b.pos.y.toFixed(2), anchored: b.anchored, p: +b.unanchorProgress.toFixed(2), est: b.estimatedValue, rec: b.recovered })),
+        view: (() => {
+          try {
+            const v = D.app.d.view;
+            const u = v.post && v.post.grade ? v.post.grade.uniforms : null;
+            return { cam: v.camera.position.toArray().map((x) => +x.toFixed(1)), flash: u ? +u.uFlash.value.toFixed(3) : null, flashRaw: v.post ? +(v.post.flash || 0).toFixed(3) : null, flashColor: u ? u.uFlashColor.value.getHexString() : null, impact: u ? u.uImpact.value : null, chroma: u ? +u.uChroma.value.toFixed(3) : null };
+          } catch (e) {
+            return String(e);
+          }
+        })(),
         police: (s.police || []).map((o) => ({ id: o.id, phase: o.phase, x: +o.pos.x.toFixed(1), y: +o.pos.y.toFixed(1), t: o.targetCharId })),
       };
     },

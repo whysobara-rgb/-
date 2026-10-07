@@ -89,16 +89,37 @@ export async function pumpUntil(page, pred, limit = 3600, dtMs = 1000 / 60) {
   return n;
 }
 
-/** Draw the next two pumped frames with every renderer on (the second is what gets captured). */
+/**
+ * Draw the next pumped frame with every renderer on. Before it, the current state is drawn once
+ * in place (frameDt 0, no time passes) as a warm-up: after a long draw-less stretch the first
+ * software-GL draw uploads / compiles everything that appeared meanwhile and may not be the
+ * frame the compositor presents.
+ */
+export async function warmUp(page) {
+  await page.evaluate(`(() => {
+    __cap.setDraw(true);
+    const a = window.__uproot.app;
+    const m = a.currentMatch;
+    try {
+      if (a.stage && a.stage.active) a.stage.redraw();
+      else if (m) a.d.view.render(m.sim, 1, 0, m.focus());
+      else if (a.titleSim) a.d.view.render(a.titleSim, 1, 0, null);
+    } catch (e) { console.warn('[cap] warm-up draw failed', e); }
+    const fin = (r) => { try { r.getContext().finish(); } catch {} };
+    fin(a.d.view.webgl); if (a.stage) fin(a.stage.gl);
+  })()`);
+  await page.evaluate(`__cap.realFrames(2)`);
+}
+
 export async function drawFrame(page, dtMs = 1000 / 60) {
   await registerRenderers(page);
-  await page.evaluate(`__cap.setDraw(true)`);
   const t0 = Date.now();
-  // Two drawn frames: the first one after a long draw-less stretch may still be compiling
-  // programs / allocating targets on software GL; the second is the one that is presented.
-  await pump(page, 2, dtMs);
+  // Twice: on a long draw-less stretch the first draw can come out empty (programs for the
+  // objects that appeared meanwhile are still being prepared); the second one is complete.
+  for (let i = 0; i < 2; i++) await warmUp(page);
+  await pump(page, 1, dtMs);
   // Make sure the GPU finished before the compositor grabs the frame.
-  await page.evaluate(`(() => { const a = window.__uproot.app; try { const gl = a.d.view.webgl.getContext(); gl.finish(); } catch {} try { if (a.stage) a.stage.gl.getContext().finish(); } catch {} })()`);
+  await page.evaluate(`(() => { const a = window.__uproot.app; try { a.d.view.webgl.getContext().finish(); } catch {} try { if (a.stage) a.stage.gl.getContext().finish(); } catch {} })()`);
   await page.evaluate(`__cap.setDraw(false)`);
   // Let the compositor present the new frame before anyone grabs it (software GL is slow).
   await page.evaluate(`__cap.realFrames(3)`);

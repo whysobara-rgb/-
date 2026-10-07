@@ -35,6 +35,25 @@ const paw = (x: number, y: number, s: number, rot: number): string =>
     <circle cx="1.8" cy="-6.8" r="1.7" fill="#E79AA8"/><circle cx="5" cy="-4.4" r="1.7" fill="#E79AA8"/>
   </g>`;
 
+
+/**
+ * One of our raccoon heads (round ears, grey fur, the bandit mask band, cream muzzle, nose), so
+ * the face taunts read as this game's raccoons rather than generic smileys. `eyes` is drawn on
+ * top of the mask; (cx, cy) is the head center, `s` its scale (1 = 44 px wide).
+ */
+const raccoonHead = (cx: number, cy: number, s: number, eyes: string): string =>
+  `<g transform="translate(${cx} ${cy}) scale(${s})">
+    <circle cx="-15" cy="-15" r="7" fill="${FUR}" stroke="${INK}" stroke-width="2.6"/><circle cx="-15" cy="-15" r="3.4" fill="${FUR_D}"/>
+    <circle cx="15" cy="-15" r="7" fill="${FUR}" stroke="${INK}" stroke-width="2.6"/><circle cx="15" cy="-15" r="3.4" fill="${FUR_D}"/>
+    <ellipse cx="0" cy="0" rx="22" ry="19" fill="${FUR}" stroke="${INK}" stroke-width="3"/>
+    <ellipse cx="0" cy="8.5" rx="13.5" ry="9" fill="${CREAM}"/>
+    <ellipse cx="-9.5" cy="-3" rx="9.5" ry="6.6" fill="${FUR_D}" transform="rotate(-12 -9.5 -3)"/>
+    <ellipse cx="9.5" cy="-3" rx="9.5" ry="6.6" fill="${FUR_D}" transform="rotate(12 9.5 -3)"/>
+    <ellipse cx="-11" cy="-11.5" rx="5" ry="2" fill="${CREAM}" transform="rotate(-10 -11 -11.5)"/><ellipse cx="11" cy="-11.5" rx="5" ry="2" fill="${CREAM}" transform="rotate(10 11 -11.5)"/>
+    ${eyes}
+    <ellipse cx="0" cy="3.6" rx="3.2" ry="2.3" fill="${INK}"/>
+  </g>`;
+
 const MARKUP: Readonly<Record<EmoteId, string>> = {
   wiggle: `<path d="M9 30a24 24 0 0 1 4-12M55 30a24 24 0 0 0-4-12M7 40a26 26 0 0 0 4 9M57 40a26 26 0 0 1-4 9" fill="none" stroke="${PINK}" stroke-width="3.2" stroke-linecap="round"/>
     <g class="uh-ti__a uh-ti__a--swish">
@@ -47,14 +66,17 @@ const MARKUP: Readonly<Record<EmoteId, string>> = {
       </g>
       <path d="M28 56C14 46 18 18 34 12c12-4 18 6 12 13-5 6-6 17-6 31z" fill="none" stroke="${INK}" stroke-width="3" stroke-linejoin="round"/>
     </g>`,
-  bleh: `<ellipse cx="32" cy="31" rx="21" ry="19" fill="${CREAM}" stroke="${INK}" stroke-width="3"/>
-    <ellipse cx="22.5" cy="27" rx="8" ry="6" fill="${FUR_D}" transform="rotate(-14 22.5 27)"/>
-    <ellipse cx="41.5" cy="27" rx="8" ry="6" fill="${FUR_D}" transform="rotate(14 41.5 27)"/>
-    <path d="M18.5 28.5q4-5 8 0" fill="none" stroke="#FFF6E6" stroke-width="2.6" stroke-linecap="round"/>
-    <circle cx="41.5" cy="26" r="3.2" fill="#fff"/>
-    <ellipse cx="41.5" cy="32.5" rx="4.4" ry="2.1" fill="#FF8FA8"/>
-    <path d="M25.5 38.5q6.5 3 13 0q-6.5 5-13 0z" fill="#7A2E45"/>
-    <g class="uh-ti__a uh-ti__a--wag"><path d="M27 39.5h10q1.5 12-5 12.5q-6.5-.5-5-12.5z" fill="${PINK}" stroke="${INK}" stroke-width="2.4" stroke-linejoin="round"/><path d="M32 42v6" stroke="#D9536F" stroke-width="1.6" stroke-linecap="round"/></g>`,
+  bleh: `${raccoonHead(
+    31,
+    29,
+    1,
+    `<path d="M-14 -1.5q4.5-5.5 9 0" fill="none" stroke="#FFF6E6" stroke-width="2.6" stroke-linecap="round"/>
+      <path d="M4.5 0a5 4.6 0 0 0 10 0z" fill="#FF8FA8" stroke="${INK}" stroke-width="1.6"/>
+      <circle cx="9.5" cy="-3.5" r="3.6" fill="#fff"/><circle cx="10" cy="-3" r="1.7" fill="${INK}"/>`,
+  )}
+    <path d="M25 37.5q6 3 12 0q-6 5-12 0z" fill="#7A2E45"/>
+    ${paw(47, 36, 0.55, -25)}
+    <g class="uh-ti__a uh-ti__a--wag"><path d="M26.5 38.5h9q1.5 12-4.5 12.5q-6-.5-4.5-12.5z" fill="${PINK}" stroke="${INK}" stroke-width="2.4" stroke-linejoin="round"/><path d="M31 41v6" stroke="#D9536F" stroke-width="1.6" stroke-linecap="round"/></g>`,
   fanCash: `<g class="uh-ti__a uh-ti__a--flap">
       ${[-30, 0, 30]
         .map(
@@ -85,12 +107,17 @@ const MARKUP: Readonly<Record<EmoteId, string>> = {
       ${paw(42, 18, 0.9, 22)}
     </g>
     <g class="uh-ti__a uh-ti__a--twinkle">${twinkle(14, 17, 7.5)}${twinkle(54, 44, 4.6, '#FFFFFF')}</g>`,
-  nunchiShrug: `<ellipse cx="32" cy="36" rx="14" ry="13" fill="${CREAM}" stroke="${INK}" stroke-width="3"/>
-    <ellipse cx="26.5" cy="33.5" rx="5" ry="3.8" fill="${FUR_D}"/><ellipse cx="37.5" cy="33.5" rx="5" ry="3.8" fill="${FUR_D}"/>
-    <path d="M22.5 34h8M33.5 34h8" stroke="#FFF6E6" stroke-width="1.9" stroke-linecap="round"/>
-    <path d="M28.5 42.5q5 1.5 8.5-2.5" fill="none" stroke="${INK}" stroke-width="2.2" stroke-linecap="round"/>
-    <g class="uh-ti__a uh-ti__a--shrug">${paw(11, 28, 0.78, -28)}${paw(53, 28, 0.78, 28)}
-      <path d="M15 15l2-4M49 15l-2-4" stroke="${INK}" stroke-width="2.6" stroke-linecap="round"/></g>`,
+  nunchiShrug: `${raccoonHead(
+    32,
+    37,
+    0.72,
+    `<ellipse cx="-9.5" cy="-2.5" rx="4.8" ry="3.4" fill="#fff"/><ellipse cx="9.5" cy="-2.5" rx="4.8" ry="3.4" fill="#fff"/>
+      <circle cx="-8" cy="-1.4" r="2" fill="${INK}"/><circle cx="11" cy="-1.4" r="2" fill="${INK}"/>
+      <path d="M-15 -4h11M4 -4h11" stroke="${FUR_D}" stroke-width="3.4" stroke-linecap="round"/>`,
+  )}
+    <path d="M28.5 45q5 1.5 8.5-2.5" fill="none" stroke="${INK}" stroke-width="2.2" stroke-linecap="round"/>
+    <g class="uh-ti__a uh-ti__a--shrug">${paw(10, 30, 0.74, -28)}${paw(54, 30, 0.74, 28)}
+      <path d="M14 17l2-4M50 17l-2-4" stroke="${INK}" stroke-width="2.6" stroke-linecap="round"/></g>`,
 };
 
 /** The taunt's icon as an SVG element (64x64 artboard). */

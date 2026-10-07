@@ -194,7 +194,7 @@ function lookKey(p: LookParams): string {
 // Geometry per part (cached per look)
 // ---------------------------------------------------------------------------
 
-type PartName = 'body' | 'head' | 'armL' | 'armR' | 'legL' | 'legR' | 'tail1' | 'tail2' | 'tail3' | 'scarfTail';
+type PartName = 'body' | 'head' | 'armL' | 'armR' | 'legL' | 'legR' | 'tail1' | 'tail2' | 'tail3' | 'scarfTail' | 'forearm' | 'finger';
 type GeoSet = Record<PartName, THREE.BufferGeometry>;
 
 const geoSetCache = new Map<string, GeoSet>();
@@ -416,9 +416,24 @@ function buildGeoSet(p: LookParams): GeoSet {
     b.add(G.rbox(0.055, 0.03, 0.075, 0.012), { color: p.rival === 'nunchi' ? '#7B4FC9' : '#FFFFFF', pos: [-0.02 * long, -0.125 * long, 0.06], rot: [-0.3, 0, -0.2] });
   });
 
+  // Taunt props in the look's fur: a forearm that folds up from the paw end of an arm for the
+  // double-bicep flex (근육 자랑; +y = along the forearm, origin at the elbow, a fur cap hides
+  // the arm's paw there), and the fingertip that tugs the eyelid down (메롱; +y from its base).
+  const forearm = merge((b) => {
+    b.add(G.sphere(12, 9), { color: fur, pos: [0, 0, 0], scale: 0.076 });
+    b.add(G.capsule(0.056, 0.09, 4, 10), { color: fur, pos: [0, 0.085, 0] });
+    b.add(G.sphere(10, 8), { color: PAL.paw, pos: [0, 0.178, 0], scale: [0.072, 0.068, 0.072] });
+    if (p.rival === 'hodadak') b.add(G.cyl(1, 1, 14), { color: '#E8505B', pos: [0, 0.13, 0], scale: [0.066, 0.035, 0.066] });
+  });
+  const finger = merge((b) => {
+    b.add(G.capsule(0.02, 0.06, 3, 8), { color: PAL.paw, pos: [0, 0.05, 0] });
+  });
+
   const set: GeoSet = {
     body,
     head,
+    forearm,
+    finger,
     armL: arm(-1),
     armR: arm(1),
     legL: leg(-1),
@@ -683,6 +698,18 @@ function tongueGeometry(): THREE.BufferGeometry {
 
 const FAN_NOTES = 5;
 let fanGeo: THREE.BufferGeometry | null = null;
+
+/**
+ * A banknote readable from both sides: two single-sided planes back to back, the back one turned
+ * half a revolution so its "100" reads the right way round too (a double-sided material would
+ * show the back mirrored).
+ */
+function twoSidedNote(w: number, h: number): THREE.BufferGeometry[] {
+  const front = new THREE.PlaneGeometry(w, h);
+  const back = new THREE.PlaneGeometry(w, h).rotateY(Math.PI);
+  return [front, back];
+}
+
 /**
  * Fan of banknotes held at the origin (the paw): notes radiate along -y, spread in the y-z plane
  * (faces toward ±x), each a hair apart in x so they never z-fight.
@@ -693,13 +720,14 @@ function fanGeometry(): THREE.BufferGeometry {
   for (let i = 0; i < FAN_NOTES; i++) {
     const k = i / (FAN_NOTES - 1) - 0.5;
     // Toy-sized: big enough to read from the match camera.
-    const g = new THREE.PlaneGeometry(0.46, 0.23);
-    g.rotateZ(-Math.PI / 2); // long side along y
-    g.translate(0, -0.23 - 0.02, 0); // grip end at the origin
-    g.rotateY(Math.PI / 2); // into the y-z plane
-    g.rotateX(k * 1.5);
-    g.translate((i - (FAN_NOTES - 1) / 2) * 0.006, 0, 0);
-    parts.push(g);
+    for (const g of twoSidedNote(0.46, 0.23)) {
+      g.rotateZ(-Math.PI / 2); // long side along y
+      g.translate(0, -0.23 - 0.02, 0); // grip end at the origin
+      g.rotateY(Math.PI / 2); // into the y-z plane
+      g.rotateX(k * 1.5);
+      g.translate((i - (FAN_NOTES - 1) / 2) * 0.006, 0, 0);
+      parts.push(g);
+    }
   }
   fanGeo = mergeGeometries(parts, false)!;
   for (const p of parts) p.dispose();
@@ -708,8 +736,19 @@ function fanGeometry(): THREE.BufferGeometry {
 
 let billGeo: THREE.BufferGeometry | null = null;
 function billGeometry(): THREE.BufferGeometry {
-  if (!billGeo) billGeo = new THREE.PlaneGeometry(0.2, 0.1);
+  if (!billGeo) {
+    const parts = twoSidedNote(0.2, 0.1);
+    billGeo = mergeGeometries(parts, false)!;
+    for (const p of parts) p.dispose();
+  }
   return billGeo;
+}
+
+let ringGeo: THREE.BufferGeometry | null = null;
+/** Flat ring on the ground, outer radius 1 (scaled per frame). */
+function landingRingGeometry(): THREE.BufferGeometry {
+  if (!ringGeo) ringGeo = new THREE.RingGeometry(0.66, 1, 40).rotateX(-Math.PI / 2);
+  return ringGeo;
 }
 
 let glintGeo: THREE.BufferGeometry | null = null;
@@ -888,25 +927,68 @@ export function createRaccoon(opts: { team: TeamId | null; look: CharacterLook }
   };
   const tongue = prop(new THREE.Mesh(tongueGeometry(), matVC()), head, 'tongue');
   tongue.position.set(HEAD_C[0] + 0.3, HEAD_C[1] - 0.15, 0);
-  const noteMat = matTextured(banknoteTexture(), { side: THREE.DoubleSide, rim: 0.3 });
+  const noteMat = matTextured(banknoteTexture(), { rim: 0.3 });
   const fanPivot = new THREE.Group();
   fanPivot.name = 'raccoon:fanPivot';
   fanPivot.position.set(0.01, -0.21, 0);
   armR.add(fanPivot);
   const fan = prop(new THREE.Mesh(fanGeometry(), noteMat), fanPivot, 'fan', true);
   const bills = [0, 1, 2].map((i) => prop(new THREE.Mesh(billGeometry(), noteMat), pivot, `bill${i}`));
-  const glints = [armL, armR].map((a, i) => {
-    const g = prop(new THREE.Mesh(glintGeometry(), matVC()), a, `glint${i}`);
-    g.position.set(0.02, -0.25, 0);
+  // Forearms that fold up from the paw end of each arm (근육 자랑), ink-outlined like the rig.
+  const forearmPivots = [armL, armR].map((a, i) => {
+    const g = new THREE.Group();
+    g.name = `raccoon:elbow${i}`;
+    g.position.set(0.01, -0.2, 0);
+    g.visible = false;
+    a.add(g);
     return g;
   });
-  const sparkles = [0, 1, 2, 3, 4].map((i) => prop(new THREE.Mesh(sparkleGeometry(), matVC()), root, `sparkle${i}`));
-  // Muscle bumps that swell on the upper arms (근육 자랑), fur-colored.
-  const biceps = [armL, armR].map((a, i) => {
-    const m = prop(new THREE.Mesh(G.sphere(12, 9), matColor(`#${params.fur.getHexString()}`, 0.6)), a, `bicep${i}`, true);
-    m.position.set(0.03, -0.085, (i ? 1 : -1) * 0.03);
+  const forearms = forearmPivots.map((g, i) => {
+    const m = new THREE.Mesh(geos.forearm, matVC());
+    m.name = `raccoon:forearm${i}`;
+    m.castShadow = true;
+    g.add(m);
     return m;
   });
+  // Gold glints at the fists.
+  const glints = forearmPivots.map((g, i) => {
+    const m = prop(new THREE.Mesh(glintGeometry(), matVC()), g, `glint${i}`);
+    m.position.set(0, 0.2, 0);
+    return m;
+  });
+  const sparkles = [0, 1, 2, 3, 4].map((i) => prop(new THREE.Mesh(sparkleGeometry(), matVC()), root, `sparkle${i}`));
+  // Landing ring puffing out on the ground (쭈그려 뛰기); its own material so it can fade.
+  const ringMat = new THREE.MeshBasicMaterial({ color: '#FFFFFF', transparent: true, opacity: 0, depthWrite: false, toneMapped: false });
+  const ring = prop(new THREE.Mesh(landingRingGeometry(), ringMat), root, 'landingRing');
+  ring.position.y = 0.025;
+  ring.renderOrder = -1;
+  // Muscle bumps that swell on top of the upper arms (근육 자랑), fur-colored and ink-outlined.
+  const biceps = [armL, armR].map((a, i) => {
+    const m = new THREE.Mesh(G.sphere(12, 9), matColor(`#${params.fur.getHexString()}`, 0.6));
+    m.name = `raccoon:bicep${i}`;
+    m.castShadow = true;
+    m.visible = false;
+    // Local ±z of an arm raised sideways points up: the bump sits on top of the upper arm.
+    m.position.set(0.0, -0.1, (i ? 1 : -1) * 0.045);
+    a.add(m);
+    return m;
+  });
+  // Fingertip tugging the right lower eyelid (메롱): fixed on the head, from the cheek up to the lid.
+  const finger = prop(new THREE.Mesh(geos.finger, matVC()), head, 'finger');
+  {
+    const onHead = (phi: number, th: number, k: number): THREE.Vector3 =>
+      new THREE.Vector3(
+        HEAD_C[0] - HEAD_R * k * HEAD_SCALE[0] * Math.cos(phi) * Math.sin(th),
+        HEAD_C[1] + HEAD_R * k * HEAD_SCALE[1] * Math.cos(th),
+        HEAD_C[2] + HEAD_R * k * HEAD_SCALE[2] * Math.sin(phi) * Math.sin(th),
+      );
+    // The pulled eye is the +z one (face texture: x = -FACE.eyeX), its lid just under it.
+    const lid = onHead(Math.PI - 0.37, FACE_DECAL.thetaStart + 0.72, 1.04);
+    const base = onHead(Math.PI - 0.47, FACE_DECAL.thetaStart + 0.92, 1.16);
+    finger.position.copy(base);
+    finger.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), lid.clone().sub(base).normalize());
+    finger.userData.len = lid.distanceTo(base);
+  }
 
   const highlighter = new Highlighter(root);
   // Bold toon ink line so raccoons read at the high game camera (hidden while a colored
@@ -927,6 +1009,8 @@ export function createRaccoon(opts: { team: TeamId | null; look: CharacterLook }
     tail2.geometry = geos.tail2;
     tail3.geometry = geos.tail3;
     scarfTail.geometry = geos.scarfTail;
+    for (const m of forearms) m.geometry = geos.forearm;
+    finger.geometry = geos.finger;
     const g = params.girth;
     armL.position.z = -SHOULDER_Z * g;
     armR.position.z = SHOULDER_Z * g;
@@ -984,6 +1068,8 @@ export function createRaccoon(opts: { team: TeamId | null; look: CharacterLook }
       for (const m of glints) m.visible = false;
       for (const m of sparkles) m.visible = false;
       for (const m of biceps) m.visible = false;
+      for (const g of forearmPivots) g.visible = false;
+      finger.visible = ring.visible = false;
       return;
     }
     pivot.position.y = lerp(pivot.position.y, tp.pivotY, k);
@@ -1040,10 +1126,29 @@ export function createRaccoon(opts: { team: TeamId | null; look: CharacterLook }
       m.scale.setScalar(bl * (1 - 0.3 * ph));
     });
     for (const [i, a] of [tp.armL, tp.armR].entries()) {
-      const s = Math.min(1, Math.max(0, (a.bulge - 1) / 0.47)) * k;
+      const s = Math.min(1, Math.max(0, (a.bulge - 1) / 0.42)) * k;
       const m = biceps[i]!;
       m.visible = s > 0.05;
-      if (m.visible) m.scale.set(0.058 * s, 0.07 * s, 0.058 * s);
+      if (m.visible) m.scale.set(0.07 * s, 0.085 * s, 0.07 * s);
+    }
+    // Forearms fold from straight down the arm (hidden) up to a flex beside the head.
+    const fa = tp.forearm * k;
+    forearmPivots.forEach((g, i) => {
+      g.visible = fa > 0.04;
+      if (!g.visible) return;
+      const side = i ? 1 : -1;
+      g.rotation.set(side * (Math.PI - fa * (Math.PI - 1.22)), 0, 0);
+      g.scale.setScalar(0.6 + 0.4 * Math.min(1, fa * 1.4));
+    });
+    const fg = tp.finger * k;
+    finger.visible = fg > 0.04;
+    if (finger.visible) finger.scale.set(1, (finger.userData.len as number) / 0.1 * fg, 1);
+    const rg = tp.ring * k;
+    ring.visible = rg > 0.03;
+    if (ring.visible) {
+      const ph = tp.ringPhase;
+      ring.scale.setScalar(0.4 + 0.7 * ph);
+      ringMat.opacity = 0.95 * rg * (1 - ph * ph * ph);
     }
     const gl = tp.glint * k;
     glints.forEach((m, i) => {
@@ -1296,7 +1401,8 @@ export function createRaccoon(opts: { team: TeamId | null; look: CharacterLook }
       highlighter.dispose();
       ink.dispose();
       root.removeFromParent();
-      // Geometries/materials are shared caches; nothing per-instance to free.
+      // Geometries/materials are shared caches; only the landing ring's fading material is ours.
+      ringMat.dispose();
     },
   };
 }
@@ -1316,8 +1422,9 @@ export function disposeRaccoonCache(): void {
   fanGeo?.dispose();
   billGeo?.dispose();
   glintGeo?.dispose();
+  ringGeo?.dispose();
   sparkleGeo?.dispose();
   faceGeo = maskGeo = starsGeo = sweatGeo = speedGeo = blobGeo = null;
-  tongueGeo = fanGeo = billGeo = glintGeo = sparkleGeo = null;
+  tongueGeo = fanGeo = billGeo = glintGeo = sparkleGeo = ringGeo = null;
   blobMat = null;
 }

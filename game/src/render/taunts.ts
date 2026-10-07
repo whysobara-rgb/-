@@ -106,6 +106,12 @@ export class TauntTracker {
     return e && e.live ? e.id : null;
   }
 
+  /** The live taunt of a character with its end tick, or null. */
+  playing(charId: EntityId): { id: EmoteId; endTick: number } | null {
+    const e = this.entries.get(charId);
+    return e && e.live ? { id: e.id, endTick: e.endTick } : null;
+  }
+
   /**
    * Advance one character and return what it should show. `tickF` is the presentation tick
    * (sim tick + interpolation fraction).

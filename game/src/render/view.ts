@@ -50,7 +50,7 @@ import type {
   TeamId,
   Vec2,
 } from '../sim';
-import { BANK_MODEL, EMOTE, PING, SAFE_SPECS } from '../sim';
+import { BANK_MODEL, EMOTE, PING, SAFE_SPECS, TICK_RATE } from '../sim';
 import { LAYOUT_STRINGS } from '../sim/layouts/strings';
 import { TEAM_STYLES } from '../shared/teams';
 import {
@@ -828,7 +828,7 @@ export class GameView {
         continue;
       }
       if (!this.tauntShown(ch.charId) || (this.viewMode !== 'match' && this.viewMode !== 'preview')) continue;
-      const dur = EMOTE.durationTicks[ch.id] / 60;
+      const dur = EMOTE.durationTicks[ch.id] / TICK_RATE;
       this.emotes.show(ch.charId, kind, { duration: dur + 0.15, priority: 3, scale: 1.22 });
       const cv = this.chars.get(ch.charId);
       if (!cv) continue;
@@ -1004,6 +1004,16 @@ export class GameView {
         if (id === this.lastFocusId) continue;
         const cur = this.taunts.current(id);
         if (cur) this.emotes.hide(id, TAUNT_BUBBLE[cur]);
+      }
+    } else if (prev.showOthersTaunts === false && this.settings.showOthersTaunts !== false && (this.viewMode === 'match' || this.viewMode === 'preview')) {
+      // Back on mid-taunt: the poses resume on the next frame; bring their bubbles back too,
+      // for the time the taunt has left.
+      const tick = this.sim?.state.tick ?? 0;
+      for (const id of this.chars.keys()) {
+        if (id === this.lastFocusId) continue;
+        const cur = this.taunts.playing(id);
+        if (!cur || cur.endTick <= tick) continue;
+        this.emotes.show(id, TAUNT_BUBBLE[cur.id], { duration: (cur.endTick - tick) / TICK_RATE + 0.15, priority: 3, scale: 1.22 });
       }
     }
     const next = qualityPreset(s.quality);

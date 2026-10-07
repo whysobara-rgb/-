@@ -271,6 +271,7 @@ job('police', {
     })()`);
     const near = (d) => `(() => { const me = __dir.sim.state.characters[0]; return __dir.sim.state.police.some(o => o.phase === 'chase' && Math.hypot(o.pos.x - me.pos.x, o.pos.y - me.pos.y) < ${d}); })()`;
     await S.pumpUntil(p, near(3.4), 1800);
+    await S.pump(p, 3);
     await c.save('plate_police', false);
     await c.save('shot_04b_police_chase', true);
     await S.pumpUntil(p, `__dir.sim.state.police.some(o => o.phase === 'tackle')`, 1800);
@@ -475,6 +476,7 @@ async function runJob(browser, base, j, lang) {
   await S.takeControl(page);
   const c = {
     page,
+    primed: false,
     lang,
     rawDir,
     record(name, info) {
@@ -483,6 +485,15 @@ async function runJob(browser, base, j, lang) {
     async save(name, ui) {
       if (FRAMES && !FRAMES.some((o) => name.startsWith(o))) return;
       await S.setUiHidden(page, !ui);
+      if (!c.primed) {
+        // The very first frame drawn in a page after a long draw-less stretch can come out
+        // without the world (seen on the police wave): draw in place and grab one throwaway
+        // frame first. No game time passes.
+        c.primed = true;
+        await S.warmUp(page);
+        await S.warmUp(page);
+        await page.screenshot({ timeout: 15 * 60 * 1000 });
+      }
       const unzoomed = ui ? await S.undoBogusFit(page) : 0;
       if (unzoomed) S.log(`  (undid a bogus shrink-to-fit zoom on ${unzoomed} screen frame)`);
       const ms = await S.drawFrame(page);

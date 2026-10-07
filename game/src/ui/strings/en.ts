@@ -613,6 +613,8 @@ export const en: Record<StringKey, string> = {
   'taunt.wheel.release': 'Let go to taunt',
   'taunt.wheel.locked': 'Locked taunt',
   'taunt.wheel.blocked': 'Paws must be free',
+  'taunt.nope.moving': 'Stop first, then tease!',
+  'taunt.nope.cooling': 'Catching my breath…',
   'settings.showOthersTaunts': "Show other raccoons' taunts",
   'settings.showOthersTaunts.desc': "Off hides everyone else's taunt moves, bubbles and sounds. Yours still play.",
 };

@@ -232,6 +232,17 @@ export function bindingGlyph(
 const MOVE_ACTIONS: readonly MatchAction[] = ['moveUp', 'moveLeft', 'moveDown', 'moveRight'];
 
 /**
+ * The binding a prompt / settings row shows for an action: the first one, except that with
+ * `preferPlain` (plain browser builds, where Chrome keeps Ctrl+1..8 for tab switching and never
+ * delivers them) a keyboard Ctrl chord gives way to the first plain key bound next to it.
+ */
+export function displayBindingIndex(device: BindingDevice, codes: readonly string[], preferPlain = false): number {
+  if (device !== 'keyboard' || !preferPlain || !codes[0] || chordBase(codes[0]) === null) return 0;
+  const i = codes.findIndex((c) => chordBase(c) === null);
+  return i < 0 ? 0 : i;
+}
+
+/**
  * Glyph for an action on a device, using the player's bindings for match actions and the
  * fixed menu bindings for navigation.
  */
@@ -241,8 +252,12 @@ export function actionGlyph(
   bindings: Readonly<Bindings>,
   family: PadFamily = 'xbox',
   layout: KeyLabelMap | null = null,
+  preferPlain = false,
 ): Glyph {
-  if (isMatchAction(action)) return bindingGlyph(device, bindings[device][action][0], family, layout);
+  if (isMatchAction(action)) {
+    const codes = bindings[device][action];
+    return bindingGlyph(device, codes[displayBindingIndex(device, codes, preferPlain)], family, layout);
+  }
   switch (action) {
     case 'move':
       return moveGlyph(device, bindings, family, layout);

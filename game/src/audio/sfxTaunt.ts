@@ -14,8 +14,9 @@
  *
  * All positional (a rival's taunt comes from where it stands), low priority (scoring sounds win
  * the voice budget) and short enough to never mask gameplay. Gains are loudness-matched offline
- * (dev/audio-gallery audioQA renders): about -21 dB peak short-term RMS, just under a small-safe
- * recovery, so a taunt never out-shouts a score.
+ * (renderSfx through the production mixer): every taunt at least 1 dB under the small-safe
+ * recovery's peak 50 ms RMS (-20.3 dB) and no hotter in sample peak (-12 dBFS), so a taunt never
+ * out-shouts a score.
  */
 import { noise, perc, ahr, tone } from './dsp';
 import { block, clap, clarinet, glock, hat, marimba, pizz, brass, shaker, timpani, vibes } from './instruments';
@@ -73,7 +74,7 @@ function swish(v: SfxVoice, at: number, f0: number, f1: number, dur: number, amp
 
 export const TAUNT_RECIPES: Record<TauntSfxId, SfxRecipe> = {
   tauntWiggle: {
-    bus: 'sfx', variants: 2, gain: 2.2, maxVoices: 3, minInterval: 0.25, priority: 3, length: 1.6, reverb: 0.15,
+    bus: 'sfx', variants: 2, gain: 1.59, maxVoices: 3, minInterval: 0.25, priority: 3, length: 1.6, reverb: 0.15,
     play(v) {
       // Four sway beats (4 Hz) from 0.2 s, like the bottom swinging: boop-be-doo-boop.
       const tune = v.variant === 0 ? [4, 5, 4, 7] : [2, 4, 2, 5];
@@ -90,7 +91,7 @@ export const TAUNT_RECIPES: Record<TauntSfxId, SfxRecipe> = {
     },
   },
   tauntBleh: {
-    bus: 'sfx', variants: 2, gain: 0.64, maxVoices: 3, minInterval: 0.25, priority: 3, length: 1.3, reverb: 0.12,
+    bus: 'sfx', variants: 2, gain: 0.44, maxVoices: 3, minInterval: 0.25, priority: 3, length: 1.3, reverb: 0.12,
     play(v) {
       // The tongue pops out at ~0.15 s: a fluttering reed "brrrp" bending down a fourth.
       const top = deg(v, v.variant === 0 ? 7 : 5);
@@ -112,7 +113,7 @@ export const TAUNT_RECIPES: Record<TauntSfxId, SfxRecipe> = {
     },
   },
   tauntCash: {
-    bus: 'sfx', variants: 2, gain: 1.2, maxVoices: 3, minInterval: 0.25, priority: 3, length: 1.9, reverb: 0.18,
+    bus: 'sfx', variants: 2, gain: 1.03, maxVoices: 3, minInterval: 0.25, priority: 3, length: 1.9, reverb: 0.18,
     play(v) {
       // Whip-out (0.3 s): a quick paper riffle.
       for (let i = 0; i < 9; i++) {
@@ -138,7 +139,7 @@ export const TAUNT_RECIPES: Record<TauntSfxId, SfxRecipe> = {
     },
   },
   tauntSquat: {
-    bus: 'sfx', variants: 2, gain: 1.0, maxVoices: 3, minInterval: 0.25, priority: 3, length: 1.7, reverb: 0.12,
+    bus: 'sfx', variants: 2, gain: 0.94, maxVoices: 3, minInterval: 0.25, priority: 3, length: 1.7, reverb: 0.12,
     play(v) {
       // Bounces at 0.1 + k * 0.34 s (SQUAT_BOUNCE): squish at the bottom, boing on the spring up.
       const climb = v.variant === 0 ? [0, 1, 2, 4] : [0, 2, 1, 4];
@@ -152,7 +153,7 @@ export const TAUNT_RECIPES: Record<TauntSfxId, SfxRecipe> = {
     },
   },
   tauntZoom: {
-    bus: 'sfx', variants: 2, gain: 0.72, maxVoices: 3, minInterval: 0.25, priority: 3, length: 1.5, reverb: 0.15,
+    bus: 'sfx', variants: 2, gain: 0.42, maxVoices: 3, minInterval: 0.25, priority: 3, length: 1.5, reverb: 0.15,
     play(v) {
       // Tiny feet pattering faster and faster for the in-place sprint (0.05-0.65 s).
       let at = 0.05;
@@ -177,7 +178,7 @@ export const TAUNT_RECIPES: Record<TauntSfxId, SfxRecipe> = {
     },
   },
   tauntFlex: {
-    bus: 'sfx', variants: 2, gain: 0.55, maxVoices: 3, minInterval: 0.25, priority: 3, length: 1.9, reverb: 0.22,
+    bus: 'sfx', variants: 2, gain: 0.46, maxVoices: 3, minInterval: 0.25, priority: 3, length: 1.9, reverb: 0.22,
     play(v) {
       // Inhale (the anticipation), the flex hit at ~0.3 s, glints on the three pumps.
       noise(v, { color: 'pink', filters: [{ type: 'bandpass', freq: [[0, 700], [0.28, 1600]], q: 1.2 }], amp: [[0, 0], [0.24, 0.05], [0.3, 0]] });

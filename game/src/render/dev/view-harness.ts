@@ -344,25 +344,31 @@ function setupScenario(name: string): void {
   if (name === 'taunt') {
     // Two pairs face off on open ground: focus (slot 0) vs the rival (slot 2), the teammate and
     // the other rival watch. Everyone stands still (taunts only play standing).
+    // Find open ground near the middle: a clear patch (3.4 m) with every stand spot well clear of
+    // props (1.2 m) and both pairs in line of sight (plaza: off the fountain and the bank).
     const mid = { x: L.size.x / 2, y: L.size.y / 2 };
+    const standAt = (c: Vec2): { x: number; y: number; a: number }[] => [
+      { x: c.x - 1.6, y: c.y + 0.4, a: 0 },
+      { x: c.x - 2.6, y: c.y + 2.2, a: -0.3 },
+      { x: c.x + 1.6, y: c.y - 0.2, a: Math.PI },
+      { x: c.x + 2.8, y: c.y + 1.8, a: Math.PI + 0.3 },
+    ];
+    const open = (c: Vec2): boolean => {
+      const pts = standAt(c);
+      return sim.isFree(c, 3.4) && pts.every((q) => sim.isFree(q, 1.2)) && sim.lineOfSight(pts[0]!, pts[2]!) && sim.lineOfSight(pts[1]!, pts[3]!);
+    };
     let spot = mid;
-    for (let r = 0; r < 24; r += 1) {
-      let found = false;
-      for (let k = 0; k < 12 && !found; k++) {
-        const p = { x: mid.x + Math.cos((k / 12) * Math.PI * 2) * r, y: mid.y + Math.sin((k / 12) * Math.PI * 2) * r };
-        if (sim.isFree(p, 6.5)) {
+    search: for (let r = 0; r < 30; r += 0.75) {
+      const n = Math.max(1, Math.round(r * 4));
+      for (let k = 0; k < n; k++) {
+        const p = { x: mid.x + Math.cos((k / n) * Math.PI * 2) * r, y: mid.y + Math.sin((k / n) * Math.PI * 2) * r };
+        if (open(p)) {
           spot = p;
-          found = true;
+          break search;
         }
       }
-      if (found) break;
     }
-    const at = [
-      { x: spot.x - 1.6, y: spot.y + 0.4, a: 0 },
-      { x: spot.x - 2.6, y: spot.y + 2.2, a: -0.3 },
-      { x: spot.x + 1.6, y: spot.y - 0.2, a: Math.PI },
-      { x: spot.x + 2.8, y: spot.y + 1.8, a: Math.PI + 0.3 },
-    ];
+    const at = standAt(spot);
     sim.state.characters.forEach((c, i) => {
       const p = at[i % at.length]!;
       d.teleport(c.id, p, p.a);

@@ -14,16 +14,18 @@
  * - Hit-stop / slow-mo only change wall-clock pacing (deterministic ticks).
  * - Taunts (owner addition): the direct taunt keys and the hold-to-open taunt wheel become a
  *   one-shot Command.emote, for unlocked taunts only (the four base ones; rival taunts once the
- *   save lists them in cosmetics.unlockedEmotes). While the wheel is open the stick / movement keys
- *   aim it and the raccoon stands still; after a pick, movement waits until the stick is let go
- *   (moving would cancel the taunt at once). The HUD wheel shows a small cooldown ring.
+ *   save lists them in cosmetics.unlockedEmotes). A taunt that cannot start (paws busy, cooling
+ *   down, a direct key while running) is not sent and the taunt chip says why. While the wheel is
+ *   open the stick / movement keys aim it (a direction already held when it opened is ignored
+ *   until it changes) and, once a slot is picked, the raccoon stands still; after a pick, movement
+ *   waits until the stick is let go (moving would cancel the taunt at once). The HUD wheel shows a small cooldown ring.
  */
 import { Bot, RivalObserver, createBot, type BotController, type ObservationSummary } from '../ai';
 import { MatchAudioDirector, type AudioEngine } from '../audio';
 import { DT, EMOTE, TICK_RATE, VISION, Simulation, type CharacterState, type Command, type EmoteId, type EmoteState, type EntityId, type MatchResult, type SimEvent, type TeamId, type Vec2 } from '../sim';
 import type { GameView, ViewCallout, ViewFocus } from '../render';
 import { GrabLatch, buildCommand, type InputManager, type MatchFrame } from '../platform/input';
-import { EMOTE_IDS, EmoteWheelController, unlockedEmotes } from '../platform/emotes';
+import { EMOTE_IDS, EmoteWheelController, unlockedEmotes, wheelSlotAngle } from '../platform/emotes';
 import { getSaveManager } from '../platform/save';
 import type { Settings } from '../platform/settings';
 import { unlockAchievement } from '../platform/steam';
@@ -387,18 +389,35 @@ export class MatchController {
     let ping = this.pendingPing;
     this.pendingPing = null;
     if (!ping && f.pingPressed) ping = this.resolvePing(me, f);
-    const emote = this.tauntInput(f);
+    const emote = this.tauntInput(f, me);
     const cmd = buildCommand(f, grab, ping);
-    if (this.wheel.open || this.holdStill) cmd.move = { x: 0, y: 0 };
+    // The raccoon stands still once a slot is picked on the open wheel (not before: a player who
+    // tapped the wheel button mid-run keeps running; not while a taunt could not start anyway:
+    // a carrier keeps running) and, after a pick, until the stick / keys go back to neutral.
+    if ((this.wheel.open && this.wheel.hover !== null && !this.tauntBlocked(me)) || this.holdStill) cmd.move = { x: 0, y: 0 };
     cmd.emote = emote;
     return cmd;
   }
 
+  /** A taunt cannot start now: holding something, dashing, boosting or knocked down. */
+  private tauntBlocked(me: CharacterState): boolean {
+    return me.grab !== null || me.dashTicks > 0 || me.knockdownTicks > 0 || me.boostTicks > 0;
+  }
+
+  /** Still in the gap after the last taunt ended (a taunt playing right now does not count). */
+  private tauntCooling(me: CharacterState): boolean {
+    const tick = this.sim.state.tick;
+    if (me.emote && tick < me.emote.endTick) return false;
+    return tick < this.emoteEndedTick + EMOTE.cooldownTicks;
+  }
+
   /**
    * Taunt input of this tick: a direct taunt key (base slots 1..4) or a wheel pick, unlocked taunts
-   * only. Drives the wheel state and the "stand still" latch.
+   * only. Drives the wheel state and the "stand still" latch. A taunt that cannot start (paws
+   * busy, still cooling down, or — for the direct keys — running) is not sent; the taunt chip says
+   * why instead.
    */
-  private tauntInput(f: MatchFrame): EmoteId | null {
+  private tauntInput(f: MatchFrame, me: CharacterState): EmoteId | null {
     const p = this.svc.input.pointer;
     const step = this.wheel.update({
       held: f.emoteWheelDown,
@@ -407,16 +426,29 @@ export class MatchController {
       pointer: p ? { x: p.clientX, y: p.clientY } : null,
       cancel: f.grabPressed || f.dashPressed || f.pausePressed,
     });
-    let emote: EmoteId | null = null;
+    let want: EmoteId | null = null;
+    let fromWheel = false;
     if (f.emotePressed !== null) {
       const id = EMOTE_IDS[f.emotePressed];
-      if (id && this.unlocked.has(id)) emote = id;
+      if (id && this.unlocked.has(id)) want = id;
     }
     if (step.confirmed && this.unlocked.has(step.confirmed)) {
-      emote = step.confirmed;
-      this.holdStill = true;
+      want = step.confirmed;
+      fromWheel = true;
     }
     if (step.lockedPick) this.svc.hud.taunts.lockedPick(EMOTE_IDS.indexOf(step.lockedPick));
+    let emote: EmoteId | null = null;
+    if (want) {
+      const moving = Math.hypot(f.move.x, f.move.y) > EMOTE.cancelMove;
+      if (this.tauntBlocked(me)) this.svc.hud.taunts.nope('taunt.wheel.blocked');
+      else if (this.tauntCooling(me)) this.svc.hud.taunts.nope('taunt.nope.cooling');
+      else if (!fromWheel && moving) this.svc.hud.taunts.nope('taunt.nope.moving');
+      else {
+        emote = want;
+        // A wheel pick: hold still until the stick / keys that picked it are back to neutral.
+        if (fromWheel) this.holdStill = true;
+      }
+    }
     if (this.holdStill && !this.wheel.open && Math.hypot(f.move.x, f.move.y) <= EMOTE.cancelMove) this.holdStill = false;
     return emote;
   }
@@ -439,11 +471,11 @@ export class MatchController {
     const tick = this.sim.state.tick;
     const playing = !!me?.emote && tick < me.emote.endTick;
     const cool = playing ? 1 : Math.max(0, Math.min(1, (this.emoteEndedTick + EMOTE.cooldownTicks - tick) / EMOTE.cooldownTicks));
-    const blocked = !me || me.grab !== null || me.dashTicks > 0 || me.knockdownTicks > 0 || me.boostTicks > 0;
+    const blocked = !me || this.tauntBlocked(me);
     return {
       open: this.wheel.open && !this.paused,
       hover: this.wheel.hover,
-      slots: EMOTE_IDS.map((id) => ({ id, unlocked: this.unlocked.has(id) })),
+      slots: EMOTE_IDS.map((id, i) => ({ id, unlocked: this.unlocked.has(id), angle: (wheelSlotAngle(i, EMOTE_IDS.length) * 180) / Math.PI })),
       cooldown: cool,
       blocked,
       showKeys: this.svc.input.glyphDevice === 'keyboard',

@@ -827,6 +827,47 @@ function twinkle(ctx: CanvasRenderingContext2D, x: number, y: number, r: number,
   ctx.stroke();
 }
 
+/**
+ * One of our raccoon heads (round ears, grey fur, bandit mask band, cream muzzle, nose) centered
+ * at (x, y), scale `s` (1 = 70 px wide), so face taunts read as this game's raccoons; `eyes`
+ * draws the eyes on top of the mask in head-local units.
+ */
+function raccoonHeadIcon(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, eyes: (c: CanvasRenderingContext2D) => void): void {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(s, s);
+  for (const e of [-1, 1]) {
+    blob(ctx, e * 24, -24, 11, 11, '#B9AEB5', 4.5);
+    ctx.fillStyle = '#4A3F4D';
+    ctx.beginPath();
+    ctx.arc(e * 24, -24, 5.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  blob(ctx, 0, 0, 35, 30, '#B9AEB5', 5);
+  ctx.fillStyle = '#F7E2C8';
+  ctx.beginPath();
+  ctx.ellipse(0, 13, 21, 14, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#4A3F4D';
+  for (const e of [-1, 1]) {
+    ctx.beginPath();
+    ctx.ellipse(e * 15, -5, 15, 10.5, e * 0.21, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = '#F7E2C8';
+  for (const e of [-1, 1]) {
+    ctx.beginPath();
+    ctx.ellipse(e * 17, -18.5, 8, 3.2, e * 0.17, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  eyes(ctx);
+  ctx.fillStyle = INK;
+  ctx.beginPath();
+  ctx.ellipse(0, 6, 5, 3.6, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
 /** Taunt bubble icons (one per taunt emote), drawn inside the taunt bubble around (cx, by). */
 function drawTauntIcon(ctx: CanvasRenderingContext2D, kind: EmoteKind, cx: number, by: number): void {
   ctx.lineCap = 'round';
@@ -873,44 +914,50 @@ function drawTauntIcon(ctx: CanvasRenderingContext2D, kind: EmoteKind, cx: numbe
       break;
     }
     case 'tauntBleh': {
-      // "Nyah!" face: one eye squeezed, one with the lid pulled down, tongue out.
-      blob(ctx, cx, by + 2, 34, 31, '#F7E2C8', 5);
-      ctx.fillStyle = '#4A3F4D';
-      for (const s of [-1, 1]) {
-        ctx.beginPath();
-        ctx.ellipse(cx + s * 14, by - 4, 13, 10, s * 0.25, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.strokeStyle = '#FFF6E6';
-      ctx.lineWidth = 4.5;
-      ctx.beginPath();
-      ctx.moveTo(cx - 21, by - 2);
-      ctx.quadraticCurveTo(cx - 14, by - 11, cx - 7, by - 2);
-      ctx.stroke();
-      ctx.fillStyle = '#FFFFFF';
-      ctx.beginPath();
-      ctx.arc(cx + 14, by - 6, 5.5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#FF8FA8';
-      ctx.beginPath();
-      ctx.ellipse(cx + 14, by + 4, 7, 3.5, 0, 0, Math.PI * 2);
-      ctx.fill();
+      // "Nyah!" raccoon: one eye squeezed shut, the other with its lid pulled down by a paw,
+      // tongue out.
+      raccoonHeadIcon(ctx, cx - 2, by - 3, 0.86, (c) => {
+        c.strokeStyle = '#FFF6E6';
+        c.lineWidth = 4.5;
+        c.lineCap = 'round';
+        c.beginPath();
+        c.moveTo(-22, -2);
+        c.quadraticCurveTo(-15, -11, -8, -2);
+        c.stroke();
+        c.fillStyle = '#FF8FA8';
+        c.beginPath();
+        c.ellipse(15, 0, 8.5, 8, 0, 0, Math.PI);
+        c.closePath();
+        c.fill();
+        c.lineWidth = 2.5;
+        c.strokeStyle = INK;
+        c.stroke();
+        c.fillStyle = '#FFFFFF';
+        c.beginPath();
+        c.arc(15, -5, 6, 0, Math.PI * 2);
+        c.fill();
+        c.fillStyle = INK;
+        c.beginPath();
+        c.arc(16, -4.5, 2.8, 0, Math.PI * 2);
+        c.fill();
+      });
       ctx.fillStyle = '#7A2E45';
       ctx.beginPath();
-      ctx.moveTo(cx - 10, by + 12);
-      ctx.quadraticCurveTo(cx, by + 15, cx + 10, by + 12);
-      ctx.quadraticCurveTo(cx, by + 20, cx - 10, by + 12);
+      ctx.moveTo(cx - 11, by + 12);
+      ctx.quadraticCurveTo(cx - 2, by + 15, cx + 7, by + 12);
+      ctx.quadraticCurveTo(cx - 2, by + 20, cx - 11, by + 12);
       ctx.fill();
       ctx.beginPath();
-      ctx.moveTo(cx - 8, by + 14);
-      ctx.lineTo(cx + 8, by + 14);
-      ctx.quadraticCurveTo(cx + 10, by + 34, cx, by + 35);
-      ctx.quadraticCurveTo(cx - 10, by + 34, cx - 8, by + 14);
+      ctx.moveTo(cx - 9, by + 14);
+      ctx.lineTo(cx + 5, by + 14);
+      ctx.quadraticCurveTo(cx + 7, by + 33, cx - 2, by + 34);
+      ctx.quadraticCurveTo(cx - 11, by + 33, cx - 9, by + 14);
       ctx.fillStyle = '#FF7F9C';
       ctx.fill();
       ctx.lineWidth = 4;
       ctx.strokeStyle = INK;
       ctx.stroke();
+      pawIcon(ctx, cx + 30, by + 10, 0.62, -0.45);
       break;
     }
     case 'tauntCash': {
@@ -1044,36 +1091,40 @@ function drawTauntIcon(ctx: CanvasRenderingContext2D, kind: EmoteKind, cx: numbe
       break;
     }
     case 'tauntShrug': {
-      // Half-lidded smirk face between two paws turned up.
-      blob(ctx, cx, by + 6, 23, 21, '#F7E2C8', 5);
-      ctx.fillStyle = '#4A3F4D';
-      for (const s of [-1, 1]) {
-        ctx.beginPath();
-        ctx.ellipse(cx + s * 9, by + 2, 8, 6, 0, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.strokeStyle = '#FFF6E6';
-      ctx.lineWidth = 3;
-      for (const s of [-1, 1]) {
-        ctx.beginPath();
-        ctx.moveTo(cx + s * 9 - 6, by + 3);
-        ctx.lineTo(cx + s * 9 + 6, by + 3);
-        ctx.stroke();
-      }
+      // Half-lidded, smirking raccoon between two paws turned up.
+      raccoonHeadIcon(ctx, cx, by + 6, 0.66, (c) => {
+        for (const e of [-1, 1]) {
+          c.fillStyle = '#FFFFFF';
+          c.beginPath();
+          c.ellipse(e * 15, -3, 7.5, 5.5, 0, 0, Math.PI * 2);
+          c.fill();
+          c.fillStyle = INK;
+          c.beginPath();
+          c.arc(e * 15 + 2.5, -1.5, 3, 0, Math.PI * 2);
+          c.fill();
+          c.strokeStyle = '#4A3F4D';
+          c.lineWidth = 6;
+          c.lineCap = 'round';
+          c.beginPath();
+          c.moveTo(e * 15 - 9, -6.5);
+          c.lineTo(e * 15 + 9, -6.5);
+          c.stroke();
+        }
+      });
       ctx.strokeStyle = INK;
       ctx.lineWidth = 3.5;
       ctx.beginPath();
-      ctx.moveTo(cx - 5, by + 16);
-      ctx.quadraticCurveTo(cx + 3, by + 18, cx + 9, by + 12);
+      ctx.moveTo(cx - 5, by + 20);
+      ctx.quadraticCurveTo(cx + 3, by + 22, cx + 9, by + 16);
       ctx.stroke();
-      pawIcon(ctx, cx - 34, by - 6, 0.75, -0.5);
-      pawIcon(ctx, cx + 34, by - 6, 0.75, 0.5);
+      pawIcon(ctx, cx - 36, by - 4, 0.75, -0.5);
+      pawIcon(ctx, cx + 36, by - 4, 0.75, 0.5);
       ctx.lineWidth = 4;
       ctx.strokeStyle = INK;
       for (const s of [-1, 1]) {
         ctx.beginPath();
-        ctx.moveTo(cx + s * 26, by - 26);
-        ctx.lineTo(cx + s * 30, by - 33);
+        ctx.moveTo(cx + s * 28, by - 28);
+        ctx.lineTo(cx + s * 32, by - 35);
         ctx.stroke();
       }
       break;

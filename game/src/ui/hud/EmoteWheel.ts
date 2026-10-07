@@ -1,8 +1,8 @@
 /**
  * Taunt wheel (owner addition): a radial sticker wheel the player holds open (pad LB / keyboard T)
  * to pick a taunt with a stick, the movement keys or the mouse; letting go plays it. Seven slots
- * clockwise from the top: the four base taunts, then the three rival taunts — shown as gift boxes
- * until that rival is beaten. The center names the hovered taunt (or how to unlock it) and wears
+ * at the angles the model gives (the base taunts on the cardinal directions, the rival taunts on
+ * three diagonals) — rival taunts show as gift boxes until that rival is beaten. The center names the hovered taunt (or how to unlock it) and wears
  * a cooldown ring; a "can't now" note appears while the raccoon holds something, dashes or is
  * knocked down.
  *
@@ -23,6 +23,8 @@ import { tauntIcon } from '../core/tauntIcons';
 export interface EmoteWheelSlot {
   id: EmoteId;
   unlocked: boolean;
+  /** Where the slot sits (degrees clockwise from up). Default: evenly spaced. */
+  angle?: number;
 }
 
 export interface EmoteWheelModel {
@@ -88,6 +90,10 @@ export class EmoteWheel {
   private cCool = -1;
   private cBlocked: boolean | null = null;
   private model: EmoteWheelModel | null = null;
+  private readonly chipNote: HTMLElement;
+  private noteTimer: ReturnType<typeof setTimeout> | null = null;
+  private nopeKey = '';
+  private nopeAt = -Infinity;
 
   constructor() {
     const r = ring(RING_R, 'uh-ewheel__ring', 100);
@@ -104,9 +110,11 @@ export class EmoteWheel {
     this.el.hidden = true;
     const c = ring(CHIP_R, 'uh-tchip__ring', 48);
     this.chipFg = c.fg;
+    this.chipNote = h('div', { class: 'uh-tchip__note', role: 'status', 'aria-live': 'polite' });
     this.chipEl = h(
       'div',
-      { class: 'uh-tchip is-ready' },
+      { class: 'uh-tchip is-ready', title: t('hint.tauntNote') },
+      this.chipNote,
       h('div', { class: 'uh-tchip__btn' }, c.svg, h('span', { class: 'uh-tchip__icon' }, tauntIcon('bleh', 'uh-tauntIcon uh-tchip__svg'))),
       glyphChip('emoteWheel'),
     );
@@ -115,12 +123,13 @@ export class EmoteWheel {
   /** Re-label after a language change. */
   relabel(): void {
     this.cHover = -1;
+    this.chipEl.title = t('hint.tauntNote');
     if (this.model) this.update(this.model);
   }
 
   update(m: EmoteWheelModel): void {
     this.model = m;
-    const key = m.slots.map((s) => `${s.id}:${s.unlocked ? 1 : 0}`).join('|');
+    const key = m.slots.map((s) => `${s.id}:${s.unlocked ? 1 : 0}:${s.angle ?? ''}`).join('|');
     if (key !== this.cKey) {
       this.cKey = key;
       this.build(m.slots);
@@ -181,6 +190,29 @@ export class EmoteWheel {
     animateEl(this.chipEl, nope, { duration: 300, easing: 'ease-out' });
   }
 
+  /**
+   * A taunt key was pressed but the taunt cannot start: the chip shakes and a small note above it
+   * says why (`key`: a string key such as 'taunt.wheel.blocked'). Repeats of the same reason
+   * within 0.35 s only keep the note up.
+   */
+  nope(key: string): void {
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const repeat = key === this.nopeKey && now - this.nopeAt < 350;
+    this.nopeKey = key;
+    this.nopeAt = now;
+    setText(this.chipNote, t(key));
+    setClass(this.chipNote, 'is-on', true);
+    if (this.noteTimer) clearTimeout(this.noteTimer);
+    this.noteTimer = setTimeout(() => {
+      setClass(this.chipNote, 'is-on', false);
+      this.noteTimer = null;
+    }, 1600);
+    if (repeat) return;
+    animateEl(this.chipNote, [{ scale: '0.6', opacity: 0 }, { scale: '1.08', opacity: 1, offset: 0.6 }, { scale: '1', opacity: 1 }], { duration: 220, easing: 'ease-out' });
+    const btn = this.chipEl.querySelector('.uh-tchip__btn') ?? this.chipEl;
+    animateEl(btn, [{ rotate: '0deg' }, { rotate: '-12deg' }, { rotate: '10deg' }, { rotate: '-6deg' }, { rotate: '0deg' }], { duration: 320, easing: 'ease-out' });
+  }
+
   /** A taunt was sent: the chip pops. */
   fired(): void {
     animateEl(this.chipEl, [{ scale: '1' }, { scale: '1.25', offset: 0.35 }, { scale: '0.95', offset: 0.7 }, { scale: '1' }], { duration: 320, easing: 'ease-out' });
@@ -189,7 +221,7 @@ export class EmoteWheel {
   private build(slots: readonly EmoteWheelSlot[]): void {
     const n = Math.max(1, slots.length);
     this.slots = slots.map((s, i) => {
-      const a = (i / n) * 360;
+      const a = s.angle ?? (i / n) * 360;
       const face = s.unlocked ? h('div', { class: 'uh-ewheel__art' }, tauntIcon(s.id)) : h('div', { class: 'uh-ewheel__art uh-ewheel__art--gift' }, objectPortrait('gift'));
       const root = h(
         'div',
