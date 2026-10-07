@@ -11,7 +11,10 @@ import { UprootBanners, drawBanner } from '../../src/render/banner';
 import { StampPool, STAMP_TEXT, drawStamp, type StampKey } from '../../src/render/effects';
 import { EmoteSystem } from '../../src/render/emotes';
 import { EMOTE_ATLAS, EMOTE_BUBBLED, EMOTE_CELLS, type EmoteKind } from '../../src/render/models/art';
-import { emoteSlotRotation, slamDrop, slamSquash, TEXT_ROTATION } from '../../src/render/upright';
+import { cameraSideOf, emoteSlotRotation, lootTwinPlacements, mirrorTwinYaw, mirrorTwinYawById, slamDrop, slamSquash, TEXT_ROTATION } from '../../src/render/upright';
+import { createBank, placeOnSim } from '../../src/render/models';
+import { createBreakableRig } from '../../src/render/models/props';
+import { LAYOUTS } from '../../src/sim/layouts';
 import { SLAM_KEYFRAMES } from '../../src/ui/core/juice';
 
 /** Minimal 2D context that records every call (enough for the stamp / banner painters). */
@@ -211,5 +214,101 @@ describe('HUD / screen text never tilts', () => {
     for (const f of ['hud/Effects.ts', 'screens/ResultsScreen.ts', 'screens/TournamentScreen.ts', 'screens/SeriesIntermission.ts']) {
       for (const m of src(f).matchAll(/slamIn\(([^)]*)\)/g)) expect(m[1]!.split(',').length, `${f}: ${m[0]}`).toBeLessThanOrEqual(2);
     }
+  });
+
+  it('the logotype stands upright and no rule reads a --tilt rotation', () => {
+    const s = css('screens.css');
+    for (const sel of ['.uh-logo__line--a', '.uh-logo__line--b', '.uh-logo__char', '.uh-logo--compact .uh-logo__line--b']) expect(rule(s, sel), sel).not.toMatch(/(^|[;\s])rotate\s*:/);
+    const title = fs.readFileSync(path.resolve(__dirname, '../../src/ui/screens/TitleScreen.ts'), 'utf8');
+    expect(title).not.toMatch(/--tilt/);
+    // Every former reader of the per-element tilt is gone, so a stray --tilt value can never
+    // bring a resting text tilt back.
+    const dir = path.resolve(__dirname, '../../src/ui/styles');
+    for (const f of fs.readdirSync(dir).filter((n) => n.endsWith('.css'))) expect(css(f), f).not.toMatch(/var\(--tilt/);
+  });
+});
+
+describe('in-world lettering faces the camera the right way round', () => {
+  // Rendered front of a +z-front model placed with placeOnSim at sim angle a: (-sin a, cos a).
+  const front = (a: number): { x: number; z: number } => ({ x: -Math.sin(a), z: Math.cos(a) });
+
+  it('east mirror twins turn their door / screen / sign to mirror their west original', () => {
+    let pairs = 0;
+    for (const L of Object.values(LAYOUTS)) {
+      const axis = L.size.x / 2;
+      const spots = lootTwinPlacements(L);
+      const loot = [...L.safes.map((s) => ({ ...s.pos, key: s.kind, a: s.angle })), ...(L.v2?.safes ?? []).map((s) => ({ ...s.pos, key: s.kind, a: s.angle })), ...(L.v2?.props ?? []).map((p) => ({ ...p.pos, key: p.variant, a: p.angle }))];
+      for (const e of loot) {
+        const fix = mirrorTwinYaw(spots, e, axis);
+        const w = loot.find((o) => o.key === e.key && Math.abs(o.y - e.y) < 1e-3 && Math.abs(o.x - (2 * axis - e.x)) < 1e-3 && o.x < axis);
+        if (e.x <= axis + 1e-3 || !w) {
+          expect(fix, `${L.id} ${e.key}@${e.x},${e.y}`).toBe(0);
+          continue;
+        }
+        pairs++;
+        const fe = front(e.a + fix);
+        const fw = front(w.a + mirrorTwinYaw(spots, w, axis));
+        expect(fe.x, `${L.id} ${e.key}@${e.x},${e.y}`).toBeCloseTo(-fw.x, 6);
+        expect(fe.z, `${L.id} ${e.key}@${e.x},${e.y}`).toBeCloseTo(fw.z, 6);
+      }
+      const bs = L.v2?.breakables ?? [];
+      const has = (id: string): boolean => bs.some((b) => b.id === id);
+      for (const b of bs) {
+        if (!b.id.endsWith('.e')) {
+          expect(mirrorTwinYawById(b.id, has)).toBe(0);
+          continue;
+        }
+        const w = bs.find((o) => o.id === `${b.id.slice(0, -2)}.w`)!;
+        pairs++;
+        const fe = front(b.angle + mirrorTwinYawById(b.id, has));
+        const fw = front(w.angle);
+        expect(fe.x, b.id).toBeCloseTo(-fw.x, 6);
+        expect(fe.z, b.id).toBeCloseTo(fw.z, 6);
+      }
+    }
+    expect(pairs).toBeGreaterThan(10);
+    // A lone east entry (tutorial: no mirror) keeps its authored yaw.
+    expect(mirrorTwinYaw([{ x: 30, y: 5, key: 'smallSafe' }], { x: 30, y: 5, key: 'smallSafe' }, 20)).toBe(0);
+  });
+
+  it('a vending machine facing east / west wears its brand sign on the camera-side header face', () => {
+    expect(cameraSideOf(0)).toBe(0);
+    expect(cameraSideOf(Math.PI)).toBe(0);
+    for (const a of [Math.PI / 2, -Math.PI / 2, 0, Math.PI]) {
+      const rig = createBreakableRig('vending', 'ko', a);
+      const root = new THREE.Group();
+      root.add(rig.root);
+      placeOnSim(rig.root, { x: 0, y: 0 }, a);
+      root.updateMatrixWorld(true);
+      const sign = rig.root.children[0]!.children.find((m) => m instanceof THREE.Mesh && (m as THREE.Mesh).geometry instanceof THREE.PlaneGeometry && (m as THREE.Mesh).geometry.parameters.height === 0.22)!;
+      expect(sign, `angle ${a}`).toBeTruthy();
+      const n = new THREE.Vector3(0, 0, 1).transformDirection(sign.matrixWorld);
+      const r = new THREE.Vector3(1, 0, 0).transformDirection(sign.matrixWorld);
+      if (cameraSideOf(a) !== 0) {
+        expect(n.z, `angle ${a}`).toBeCloseTo(1, 6); // faces the north-looking camera
+        expect(r.x, `angle ${a}`).toBeCloseTo(1, 6); // reads left to right, not mirrored
+      } else expect(Math.abs(n.z), `angle ${a}`).toBeCloseTo(1, 6); // front sign as authored
+    }
+  });
+
+  it('the bank sign hops on the uproot pop instead of spinning, and never rolls with the body', () => {
+    const rig = createBank();
+    const root = new THREE.Group();
+    root.add(rig.root);
+    const board = rig.root.getObjectByName('bank:signBoard')!;
+    expect(board).toBeTruthy();
+    const wobble = board.parent!.parent!;
+    rig.update(1 / 60);
+    rig.setUprooted(true);
+    let hopped = false;
+    for (let i = 0; i < 150; i++) {
+      rig.update(1 / 60);
+      root.updateMatrixWorld(true);
+      expect(wobble.rotation.y).toBe(0);
+      const r = new THREE.Vector3(1, 0, 0).transformDirection(board.matrixWorld);
+      expect(Math.abs(r.y), `frame ${i}`).toBeLessThan(0.01); // baseline stays level
+      if (wobble.position.y > 0.1) hopped = true;
+    }
+    expect(hopped).toBe(true);
   });
 });

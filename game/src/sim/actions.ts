@@ -37,6 +37,12 @@ const GRAB_SETTLE_SPEED = 3;
  */
 export const PUSH_ENTER_COS = Math.cos((50 * Math.PI) / 180);
 export const PUSH_LEAVE_COS = Math.cos((70 * Math.PI) / 180);
+/**
+ * A cart push (a bank) stays a push until the stick leaves this wider cone: the pushed face swings
+ * toward the stick, so reversing a slalom put the stick 70+ degrees off the face and the push
+ * flipped into a sideways drag (the pusher shot off along the wall at ~1.9 m/s).
+ */
+export const PUSH_LEAVE_CART_COS = Math.cos((85 * Math.PI) / 180);
 /** Extra angular drag (1/s) of a hauled bank while nobody pushes it ("yaw grip"). */
 export const BANK_PULL_YAW_DRAG = 10;
 /**
@@ -48,14 +54,27 @@ export const BANK_STEER_MAX_W = 0.3;
 export const BANK_TURN_PER_M = 0.4;
 /**
  * A bank pusher's grip slides along the pushed wall (at most PUSH_SLIDE_SPEED m/s, PUSH_SLIDE_MARGIN
- * m short of the wall's end) so the pusher keeps running where the stick points while the bank
- * turns under its hands. Over the last PUSH_SLIDE_RAMP m of slide room the steering slows down to
- * PUSH_SLIDE_SLOW of its rate (then the bank turns slowly and swings the pusher a little).
+ * m short of the wall's end; a grip taken nearer the end stays where it is) so the pusher keeps
+ * running where the stick points while the bank turns under its hands.
  */
 const PUSH_SLIDE_SPEED = 3;
 const PUSH_SLIDE_MARGIN = 0.5;
-const PUSH_SLIDE_RAMP = 0.75;
-const PUSH_SLIDE_SLOW = 0.2;
+/**
+ * Turn-rate cap of a pushed bank, from what the turning wall does to its pushers (see pushTurnCap):
+ * it may carry a pusher's hands across the stick by at most PUSH_SWAY x the pusher's speed (about
+ * 8.5 degrees) and change the pusher's speed by at most PUSH_SPEED_SWAY. Once a grip has run out of
+ * slide room the wall carries the hands along with it; then the bank's travel wheel moves
+ * PUSH_SHARE of the way toward a lone pusher, so the pusher (within PUSH_SWAY_OUT, about 11
+ * degrees) and the bank's travel (within PUSH_SWAY_BANK, about 6 degrees) share the swing - bots
+ * pushing round an 85 degree corner need that much turn rate - and the turn slows down over the last
+ * PUSH_SLIDE_TIME s of slide room.
+ */
+const PUSH_SWAY = 0.15;
+const PUSH_SWAY_OUT = 0.2;
+const PUSH_SWAY_BANK = 0.1;
+const PUSH_SHARE = PUSH_SWAY_BANK / (PUSH_SWAY_BANK + PUSH_SWAY_OUT);
+const PUSH_SPEED_SWAY = 0.35;
+const PUSH_SLIDE_TIME = 0.5;
 /** Characters closer than this (center distance minus 2r) count as touched by a dash. */
 const DASH_HIT_GAP = 0.1;
 
@@ -567,6 +586,9 @@ export function prepareBodies(ctx: SimContext): void {
       // push line (holder -> anchor) and the bounded steering assist turns the target toward
       // the stick. (A sideways shove at the far end would torque it the wrong way.)
       j.pushHeading = null;
+      j.slideLo = NaN;
+      j.slideHi = NaN;
+      j.wheelArm = 0;
       const mx = rt.cmd.move.x;
       const my = rt.cmd.move.y;
       const ml = Math.hypot(mx, my);
@@ -577,7 +599,8 @@ export function prepareBodies(ctx: SimContext): void {
         const al = Math.hypot(ax, ay);
         const tgt = j.targetBody;
         const cosErr = al > 1e-6 ? (mx * ax + my * ay) / (ml * al) : -1;
-        if (cosErr > (j.pushing ? PUSH_LEAVE_COS : PUSH_ENTER_COS) && tgt.motion === 'dynamic') {
+        const cart = Math.hypot(j.alx, j.aly) >= GrabJoint.CART_MIN_LEVER;
+        if (cosErr > (j.pushing ? (cart ? PUSH_LEAVE_CART_COS : PUSH_LEAVE_COS) : PUSH_ENTER_COS) && tgt.motion === 'dynamic') {
           pushing = true;
           j.pushHeading = Math.atan2(my, mx);
           // drive along the grip's handle line (world), the line the steering assist turns
@@ -590,7 +613,7 @@ export function prepareBodies(ctx: SimContext): void {
           const py = -(j.hlx * sn + j.hly * cs);
           const cosH = (mx * px + my * py) / ml;
           const mag = Math.hypot(b.fx, b.fy) * (0.5 + 0.5 * cosH);
-          if (Math.hypot(j.alx, j.aly) >= GrabJoint.CART_MIN_LEVER) {
+          if (cart) {
             // cart push (a bank): drive along the stick, the bank travels that way and turns its
             // face toward it while the grip slides along the wall (see GrabJoint)
             b.fx = (mx / ml) * mag;
@@ -626,14 +649,19 @@ export function prepareBodies(ctx: SimContext): void {
       }
     }
     body.yawDragExtra = extra;
-    // cart push steering of this bank's pushers: yaw-rate cap from its speed and the slide room
-    // left on every pusher's wall; pressed against a static, the steering lets go
-    let maxW = Math.min(BANK_STEER_MAX_W, BANK_TURN_PER_M * Math.hypot(body.vx, body.vy));
+    // cart push steering of this bank's pushers: yaw-rate cap from its speed and from what the
+    // turning wall does to every pusher (pushTurnCap); pressed against a static, the steering lets go
+    const v = Math.hypot(body.vx, body.vy);
+    let maxW = Math.min(BANK_STEER_MAX_W, BANK_TURN_PER_M * v);
+    let pushers = 0;
     for (let s = 0; s < ctx.chars.length; s++) {
       const jj = ctx.chars[s]!.joint;
-      if (!jj || jj.targetBody !== body || jj.pushHeading === null) continue;
-      const room = pushSlideRoom(jj, ctx.chars[s]!.body);
-      maxW *= PUSH_SLIDE_SLOW + (1 - PUSH_SLIDE_SLOW) * Math.min(1, room / PUSH_SLIDE_RAMP);
+      if (jj && jj.targetBody === body && jj.pushHeading !== null && !Number.isNaN(jj.slideLo)) pushers++;
+    }
+    for (let s = 0; s < ctx.chars.length; s++) {
+      const jj = ctx.chars[s]!.joint;
+      if (!jj || jj.targetBody !== body || jj.pushHeading === null || Number.isNaN(jj.slideLo)) continue;
+      maxW = Math.min(maxW, pushTurnCap(jj, ctx.chars[s]!.body, v, pushers === 1));
     }
     for (let s = 0; s < ctx.chars.length; s++) {
       const jj = ctx.chars[s]!.joint;
@@ -664,7 +692,8 @@ function pushSlideRange(wall: 'side' | 'front', alx: number): [number, number] {
 
 /**
  * Re-seat a bank pusher's grip: the anchor follows the holder's foot point on the pushed wall (at
- * most PUSH_SLIDE_SPEED, within the wall), and the handle line becomes the wall's normal.
+ * most PUSH_SLIDE_SPEED, within the slide range, or where it was when gripped nearer the wall's
+ * end), the handle line becomes the wall's normal, and the joint gets this tick's slide range.
  */
 function slidePushGrip(j: GrabJoint, anchorLocal: Vec2, cb: Body, tb: Body): void {
   const wall = pushWall(j.alx, j.aly);
@@ -673,8 +702,13 @@ function slidePushGrip(j: GrabJoint, anchorLocal: Vec2, cb: Body, tb: Body): voi
   const sn = Math.sin(tb.a);
   const dx = cb.x - tb.x;
   const dy = cb.y - tb.y;
-  const [lo, hi] = pushSlideRange(wall, j.alx);
   const cur = wall === 'side' ? j.aly : j.alx;
+  // never pulled in from a grip nearer the end (a corner grip sidestepped 0.5 m at 2-3 m/s)
+  const [lo0, hi0] = pushSlideRange(wall, j.alx);
+  const lo = Math.min(lo0, cur);
+  const hi = Math.max(hi0, cur);
+  j.slideLo = lo;
+  j.slideHi = hi;
   const want = wall === 'side' ? -dx * sn + dy * cs : dx * cs + dy * sn;
   const step = PUSH_SLIDE_SPEED * DT;
   const next = Math.max(cur - step, Math.min(cur + step, Math.max(lo, Math.min(hi, want))));
@@ -697,7 +731,7 @@ function slidePushGrip(j: GrabJoint, anchorLocal: Vec2, cb: Body, tb: Body): voi
  */
 function pushSlideRoom(j: GrabJoint, cb: Body): number {
   const wall = pushWall(j.alx, j.aly);
-  if (!wall || j.pushHeading === null) return Infinity;
+  if (!wall || j.pushHeading === null || Number.isNaN(j.slideLo)) return Infinity;
   const tb = j.targetBody;
   const cs = Math.cos(tb.a);
   const sn = Math.sin(tb.a);
@@ -707,9 +741,50 @@ function pushSlideRoom(j: GrabJoint, cb: Body): number {
   const dy = cb.y - tb.y;
   // local velocity of a world-fixed point when the bank turns at w: (w * ry, -w * rx)
   const v = wall === 'side' ? -err * (dx * cs + dy * sn) : err * (-dx * sn + dy * cs);
-  const [lo, hi] = pushSlideRange(wall, j.alx);
   const cur = wall === 'side' ? j.aly : j.alx;
-  return v > 0 ? hi - cur : v < 0 ? cur - lo : Infinity;
+  return v > 0 ? j.slideHi - cur : v < 0 ? cur - j.slideLo : Infinity;
+}
+
+/**
+ * Turn-rate cap (rad/s) that one bank pusher allows, for a bank moving at `v` m/s; also sets the
+ * joint's travel-wheel shift (`shift`: the only pusher of its bank). Per unit turn rate the turning
+ * wall moves the pusher's hands by `across` (the grip's offset from the bank's centre line: the
+ * face runs into or away from the pusher) and, once the grip is at the end of its slide range, by
+ * `along` with the wall (the pusher's distance from the centre). Split into the part across the
+ * stick (veering) and along it (speed), each is held within PUSH_SWAY / PUSH_SPEED_SWAY of the
+ * speed. (The old cap - 0.3 rad/s about the centre - moved an off-centre door-wall grip's face by up
+ * to 0.9 m/s, so the raccoon outran the bank 25-55 degrees off the stick or stood still.)
+ */
+function pushTurnCap(j: GrabJoint, cb: Body, v: number, shift: boolean): number {
+  const tb = j.targetBody;
+  const cs = Math.cos(tb.a);
+  const sn = Math.sin(tb.a);
+  let err = j.pushHeading! - Math.atan2(-(j.hlx * sn + j.hly * cs), -(j.hlx * cs - j.hly * sn));
+  err = Math.atan2(Math.sin(err), Math.cos(err));
+  const se = Math.sin(err);
+  const ce = Math.cos(err);
+  const across = j.alx * j.hly - j.aly * j.hlx;
+  const along = Math.abs(j.alx * j.hlx + j.aly * j.hly) + j.rest;
+  const share = shift ? PUSH_SHARE : 0;
+  // out of slide room: the hands go with the wall, the travel wheel takes `share` of the swing
+  const q = Math.abs(across * se - along * ce);
+  const ql = Math.abs(across * ce + along * se);
+  const wEx = Math.min(
+    (PUSH_SWAY_OUT * v) / Math.max(1e-6, (1 - share) * q + PUSH_SWAY_OUT * ql),
+    (PUSH_SWAY_BANK * v) / Math.max(1e-6, share * q),
+    (PUSH_SPEED_SWAY * v) / Math.max(1e-6, ql),
+  );
+  const room = pushSlideRoom(j, cb);
+  if (room <= 1e-4) {
+    j.wheelArm = share;
+    return wEx;
+  }
+  // sliding: only the across-wall motion reaches the hands; slow down into the end of the range
+  const ws = Math.min(
+    (PUSH_SWAY * v) / Math.max(1e-6, Math.abs(across * se) + PUSH_SWAY * Math.abs(across * ce)),
+    (PUSH_SPEED_SWAY * v) / Math.max(1e-6, Math.abs(across * ce)),
+  );
+  return Math.min(ws, Math.max(wEx, room / (along * PUSH_SLIDE_TIME)));
 }
 
 // ---------------------------------------------------------------------------

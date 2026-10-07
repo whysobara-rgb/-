@@ -546,8 +546,8 @@ export const ko = {
   'caption.grab': '[덥석]',
   'caption.release': '[툭]',
   'caption.dash': '[휙]',
-  'caption.bankRumble': '[은행이 끌리는 소리]',
-  'caption.drag': '[드르륵 끌리는 소리]',
+  'caption.bankRumble': '[은행이 쿠웅 끌려가는 소리]',
+  'caption.drag': '[두구두구 끌려가는 소리]',
   'caption.sirenLoop': '[사이렌 계속]',
 
   // --- game flow (integration) -------------------------------------------------------------------

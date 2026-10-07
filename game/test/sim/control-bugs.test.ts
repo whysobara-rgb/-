@@ -452,3 +452,151 @@ describe('control bug 8: a pushed bank goes where the stick points, the pusher w
     }
   });
 });
+
+/** One raccoon gripping a free bank at (100, 100) at bank-local wall point (lx, ly), facing it. */
+function wallGrip(lx: number, ly: number): { sim: Simulation; id: number; push: number } {
+  const sim = makeSim(openLayout({ size: { x: 200, y: 200 }, banks: [{ pos: { x: 100, y: 100 }, angle: 0 }] }), [0]);
+  const id = sim.state.loot[0]!.id;
+  sim.debug.setAnchored(id, false);
+  for (const l of sim.state.loot) if (l.kind !== 'bank') sim.debug.teleport(l.id, { x: 10 + l.id * 2, y: 190 });
+  const side = Math.abs(Math.abs(lx) - HALF.bank.x) < 1e-9;
+  const nx = side ? Math.sign(lx) : 0;
+  const ny = side ? 0 : Math.sign(ly);
+  sim.debug.teleport(1, { x: 100 + lx + nx * 0.55, y: 100 + ly + ny * 0.55 }, Math.atan2(-ny, -nx));
+  sim.step([cmd(0, 0, true, false, { x: -nx, y: -ny })]);
+  expect(sim.getLoot(id)!.grabbedBy.length).toBe(1);
+  return { sim, id, push: Math.atan2(-ny, -nx) };
+}
+
+/**
+ * Push with the stick at `mag` tilt, `rel` degrees off the grip's push direction, for `secs`, per
+ * step of `seq`. Per 0.5 s window (skipping the first after each change): the stick-to-travel angle
+ * of the pusher and of the bank, the largest pusher / bank travel ratio; per tick: stalled ticks
+ * (the bank moving > 0.35 m/s, the pusher < 0.15 m/s), the largest change of the pusher's velocity
+ * and of its grip point, and the bank's top speed after the first window.
+ */
+function gripTrack(sim: Simulation, id: number, push: number, mag: number, seq: [number, number][]): { char: number[]; load: number[]; ratio: number; stall: number; dv: number; slip: number; vmax: number } {
+  const char: number[] = [];
+  const load: number[] = [];
+  let ratio = 0;
+  let stall = 0;
+  let dv = 0;
+  let slip = 0;
+  let vmax = 0;
+  let pv = { ...sim.state.characters[0]!.vel };
+  let pa = { ...sim.state.characters[0]!.grab!.anchorLocal };
+  for (const [rel, secs] of seq) {
+    const th = push + rel / D;
+    const c = cmd(Math.round(mag * Math.cos(th) * 1e6) / 1e6, Math.round(mag * Math.sin(th) * 1e6) / 1e6, true);
+    let pc = { ...sim.state.characters[0]!.pos };
+    let pl = { ...sim.getLoot(id)!.pos };
+    for (let t = 1; t <= secs * 60; t++) {
+      sim.step([c]);
+      const ch = sim.state.characters[0]!;
+      const l = sim.getLoot(id)!;
+      expect(ch.grab).not.toBeNull();
+      if (Math.hypot(l.vel.x, l.vel.y) > 0.35 && Math.hypot(ch.vel.x, ch.vel.y) < 0.15) stall++;
+      if (t > 30) vmax = Math.max(vmax, Math.hypot(l.vel.x, l.vel.y));
+      dv = Math.max(dv, Math.hypot(ch.vel.x - pv.x, ch.vel.y - pv.y));
+      slip = Math.max(slip, Math.hypot(ch.grab!.anchorLocal.x - pa.x, ch.grab!.anchorLocal.y - pa.y));
+      pv = { ...ch.vel };
+      pa = { ...ch.grab!.anchorLocal };
+      if (t % 30 === 0) {
+        if (t > 30) {
+          char.push(Math.abs(wrap(Math.atan2(ch.pos.y - pc.y, ch.pos.x - pc.x) - th)) * D);
+          load.push(Math.abs(wrap(Math.atan2(l.pos.y - pl.y, l.pos.x - pl.x) - th)) * D);
+          ratio = Math.max(ratio, Math.hypot(ch.pos.x - pc.x, ch.pos.y - pc.y) / Math.hypot(l.pos.x - pl.x, l.pos.y - pl.y));
+        }
+        pc = { ...ch.pos };
+        pl = { ...l.pos };
+      }
+    }
+  }
+  return { char, load, ratio, stall, dv, slip, vmax };
+}
+
+describe('control bug 9: pushing a bank from anywhere on its walls, the pusher keeps to the stick', () => {
+  // before: the bank turned about its centre at up to 0.3 rad/s whatever the grip, so a grip 2-3 m
+  // off the centre line (the door walls) had its face run away from the pusher or into it at up to
+  // 0.9 m/s: door grip at x = -3.2, half stick, turn 45: per-window errors up to 159 deg (mean
+  // 28.5), the pusher standing still for 108 ticks while the bank moved on, or running 2x the
+  // bank's distance; three-quarter stick at x = -2.3: max 76 deg
+  it('off-centre door-wall grips at half, three-quarter and full stick follow a turned stick', () => {
+    for (const [lx, ly] of [
+      [-3.2, -3],
+      [3.2, -3],
+      [-2.3, -3],
+    ] as const) {
+      for (const mag of [0.5, 0.75, 1]) {
+        for (const rel of [-45, 45]) {
+          const { sim, id, push } = wallGrip(lx, ly);
+          const r = gripTrack(sim, id, push, mag, [
+            [0, 2],
+            [rel, 3],
+            [0, 3],
+          ]);
+          expect(mean(r.char)).toBeLessThan(5);
+          expect(Math.max(...r.char)).toBeLessThan(12);
+          expect(mean(r.load)).toBeLessThan(3);
+          expect(r.stall).toBe(0);
+          expect(r.ratio).toBeLessThan(1.45);
+          expect(r.vmax).toBeLessThan(1.03 * 1.15);
+        }
+      }
+    }
+  });
+
+  // before: a grip mid door segment (x = 2.3) turning 45 / 60: max 49 / 62 deg; at the door jamb
+  // (x = 1.1), whose grip cannot slide toward the door: 10.8 mean, max 15
+  it('door-segment and door-jamb grips: pusher and bank on the stick, the nose still swings round', () => {
+    for (const [lx, ly, rel] of [
+      [2.3, 3, 45],
+      [2.3, 3, 60],
+      [1.1, 3, -45],
+      [1.1, 3, 45],
+    ] as const) {
+      const { sim, id, push } = wallGrip(lx, ly);
+      const r = gripTrack(sim, id, push, 1, [
+        [0, 1.5],
+        [rel, 4],
+      ]);
+      expect(mean(r.char)).toBeLessThan(10);
+      expect(Math.max(...r.char)).toBeLessThan(12);
+      expect(mean(r.load)).toBeLessThan(6);
+      expect(Math.max(...r.load)).toBeLessThan(10);
+      // the heavy bank turns its face toward the stick (more slowly from an off-centre grip)
+      expect(wrap(sim.getLoot(id)!.angle) * D * Math.sign(rel)).toBeGreaterThan(10);
+      expect(r.vmax).toBeLessThan(1.03 * 1.15);
+    }
+  });
+
+  // before: a grip 0.1 m from the end of a side wall was pulled in to the slide range at push start:
+  // the raccoon stepped 0.4 m sideways at up to 2.8 m/s (a 1.14 m/s jump in one tick)
+  it('a grip near the corner of the wall stays put when the push starts (no sidestep)', () => {
+    for (const ly of [2.9, -2.9]) {
+      const { sim, id, push } = wallGrip(4, ly);
+      const r = gripTrack(sim, id, push, 1, [[0, 2]]);
+      expect(r.dv).toBeLessThan(0.2);
+      expect(r.slip).toBeLessThan(0.01);
+      expect(sim.state.characters[0]!.grab!.anchorLocal.y).toBeCloseTo(ly, 6);
+      expect(Math.max(...r.char)).toBeLessThan(1);
+    }
+  });
+
+  // before: the bank had swung 31 deg toward +40, so the reversed stick (-40) was 71 deg off the face,
+  // out of the push cone: the push flipped into a sideways drag, the raccoon jumped 1.57 m/s in a
+  // tick and dragged the bank 18 deg off the stick
+  it('a slalom never flips the push into a sideways drag', () => {
+    const { sim, id, push } = wallGrip(4, 0);
+    const r = gripTrack(sim, id, push, 1, [
+      [0, 1.5],
+      [40, 2],
+      [-40, 2],
+      [40, 2],
+      [-40, 2],
+    ]);
+    expect(r.dv).toBeLessThan(0.3);
+    expect(Math.max(...r.char)).toBeLessThan(12);
+    expect(Math.max(...r.load)).toBeLessThan(5);
+  });
+});

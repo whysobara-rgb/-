@@ -511,8 +511,8 @@ export const en: Record<StringKey, string> = {
   'caption.grab': '[Grab]',
   'caption.release': '[Let go]',
   'caption.dash': '[Whoosh]',
-  'caption.bankRumble': '[Bank scraping along]',
-  'caption.drag': '[Scraping]',
+  'caption.bankRumble': '[Bank heaving along]',
+  'caption.drag': '[Bumping along]',
   'caption.sirenLoop': '[Siren continues]',
 
   // --- game flow (integration) -------------------------------------------------------------------

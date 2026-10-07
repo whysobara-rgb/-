@@ -315,6 +315,8 @@ export class GrabJoint {
   private steerAcc = 0;
   private steerLimit = 0;
   // cart push travel "wheel" scratch (see prepare)
+  private wqx = 0;
+  private wqy = 0;
   private emassW = 0;
   private wtx = 0;
   private wty = 1;
@@ -342,6 +344,20 @@ export class GrabJoint {
    */
   steerMaxW = 0;
   pushSnag = false;
+  /**
+   * Cart push with a sliding grip (set by the game each tick, NaN otherwise): the range of the
+   * bank-local coordinate along the pushed wall the grip may slide over. Inside it the bearing does
+   * not pull the holder toward the anchor's material point (the game re-seats the anchor under the
+   * holder every tick; pulling toward the turning wall dragged the pusher ~10 degrees off the
+   * stick); off it the holder is eased back at most CART_SEAT_SPEED.
+   */
+  slideLo = NaN;
+  slideHi = NaN;
+  /**
+   * Cart push: the travel wheel sits this fraction of the way from the load's centre toward the
+   * holder (set by the game: a lone pusher whose grip ran out of slide room shares the swing).
+   */
+  wheelArm = 0;
 
   /**
    * @param hlx,hly unit direction from the anchor to the holder, in the target's local frame,
@@ -449,6 +465,17 @@ export class GrabJoint {
         // old cart - a wheel at the push point, the face pivoting about it at ~6 deg/s - kept bank
         // and pusher running along the face's old normal, 40-50 degrees off a turned stick.)
         this.slide = true;
+        if (!Number.isNaN(this.slideLo)) {
+          const side = Math.abs(this.hlx) > Math.abs(this.hly);
+          const ex = side ? -sn : cs; // the wall's sliding axis (world)
+          const ey = side ? cs : sn;
+          const sh = this.rcx * ex + this.rcy * ey; // the holder's coordinate along it
+          const sc = sh < this.slideLo ? this.slideLo : sh > this.slideHi ? this.slideHi : sh;
+          const sa = side ? this.aly : this.alx;
+          ct = (-beta * (lat - (sc - sa) * (ex * this.tx + ey * this.ty))) / h;
+          const cap = GrabJoint.CART_SEAT_SPEED;
+          this.targetT = ct > cap ? cap : ct < -cap ? -cap : ct;
+        }
         this.emassT = 1 / (c.solverInvMass + b.solverInvMass);
         this.limitT = GrabJoint.CART_GRIP_SCALE * lateralLimit;
         if (!this.pushSnag && b.solverInvMass > 0) {
@@ -467,6 +494,8 @@ export class GrabJoint {
           this.limitW = (GrabJoint.CART_TRAVEL_ACCEL / b.solverInvMass) * h;
           this.fvxW = b.fvx;
           this.fvyW = b.fvy;
+          this.wqx = this.wheelArm * this.rcx;
+          this.wqy = this.wheelArm * this.rcy;
         }
       }
     }
@@ -484,6 +513,8 @@ export class GrabJoint {
   static readonly CART_TRAVEL_ACCEL = 2;
   /** Cart push: budget of the pusher's sliding grip bearing, in units of the lateral grip. */
   static readonly CART_GRIP_SCALE = 3;
+  /** Cart push: top speed (m/s) at which a holder off its slide range is eased back onto it. */
+  static readonly CART_SEAT_SPEED = 0.6;
 
   solve(): void {
     if (this.emass === 0) return;
@@ -527,7 +558,8 @@ export class GrabJoint {
       b.w += ls * b.solverInvI;
     }
     if (this.emassW > 0) {
-      const vw = (b.vx - this.fvxW) * this.wtx + (b.vy - this.fvyW) * this.wty;
+      // sideways speed of the wheel point (wheelArm of the way to the holder)
+      const vw = (b.vx - b.w * this.wqy - this.fvxW) * this.wtx + (b.vy + b.w * this.wqx - this.fvyW) * this.wty;
       let lw = -this.emassW * vw;
       let nw = this.accW + lw;
       if (nw > this.limitW) nw = this.limitW;

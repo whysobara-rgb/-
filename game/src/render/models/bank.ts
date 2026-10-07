@@ -1083,6 +1083,7 @@ export function createBank(): BankRig {
   const signBack = new THREE.Group();
   signYaw.add(signBack);
   const signWobble = new THREE.Group();
+  signWobble.rotation.order = 'ZXY'; // the roll cancel (z) acts outside the spring pitch (x)
   signBack.add(signWobble);
   const signTilt = new THREE.Group();
   signTilt.rotation.x = SIGN_TILT;

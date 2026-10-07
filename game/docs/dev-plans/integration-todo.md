@@ -26,3 +26,7 @@
 - Piggy jackpot almost never happens (1.9%): bots skip kick/smash while holding a hammer; intact haul pays same 300 → make smash pay more or bots go for opponent-carried piggy (C6/C3).
 - Race-the-siren tuning set: land police-dispatch half alone, re-measure (it changes classic fixture).
 - Human proxy opening noise changed → classic proxy baseline shifted.
+## From soft-drag audio (shipped; review #3 'ship')
+- Bank rumble still mostly masked under match music on small-speaker models (400–500 Hz HP): consider a soft 400–900 Hz "heave" layer or a music duck while a bank moves.
+- Captions updated to the soft sound (done).
+- Owner by-ear check of the new drag/bank sound still pending (all judgement from offline renders).
