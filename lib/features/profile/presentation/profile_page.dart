@@ -10,13 +10,18 @@ import '../../../shared/providers/auth_provider.dart';
 import '../../../shared/providers/gp_provider.dart';
 import '../../../shared/widgets/gp_badge.dart';
 import '../../../shared/widgets/ui.dart';
+import '../../auth/domain/agreements.dart';
+import '../../auth/presentation/terms_page.dart';
+import '../../auth/social/social_auth_client.dart';
 import '../../gacha/presentation/odds_index_page.dart';
 import '../../inventory/data/inventory_repository.dart';
 import '../../inventory/domain/inventory_item.dart';
 import '../../wallet/data/wallet_repository.dart';
 import '../../wallet/domain/topup_limit.dart';
+import '../../wallet/presentation/payment_history_page.dart';
 import '../../wallet/presentation/point_history_page.dart';
 import '../../wallet/presentation/widgets/limit_sheet.dart';
+import 'delete_account_page.dart';
 
 /// MY 탭.
 class ProfilePage extends StatefulWidget {
@@ -36,6 +41,7 @@ class _ProfilePageState extends State<ProfilePage> {
   int? _deliveredCount;
   TopupLimit? _limit;
   int _seenRevision = -1;
+  bool _savingMarketing = false;
 
   @override
   void initState() {
@@ -122,6 +128,43 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
+  Future<void> _editNickname(String current) async {
+    final saved = await showAppSheet<bool>(
+      context: context,
+      title: '닉네임 변경',
+      builder: (_) => _NicknameSheet(initial: current),
+    );
+    if (saved == true && mounted) showToast(context, '닉네임을 바꿨어요');
+  }
+
+  Future<void> _setMarketing(bool value) async {
+    if (_savingMarketing) return;
+    setState(() => _savingMarketing = true);
+    try {
+      await context.read<AuthProvider>().updateProfile(agreeMarketing: value);
+      if (!mounted) return;
+      // 수신 동의·거부 결과는 날짜와 함께 알린다.
+      final now = DateTime.now();
+      final date =
+          '${now.year}.${now.month.toString().padLeft(2, '0')}.'
+          '${now.day.toString().padLeft(2, '0')}';
+      showToast(
+        context,
+        value ? '$date 마케팅 정보 수신에 동의했어요' : '$date 마케팅 정보 수신을 거부했어요',
+      );
+    } on ApiException catch (e) {
+      if (mounted) showToast(context, e.displayMessage);
+    } finally {
+      if (mounted) setState(() => _savingMarketing = false);
+    }
+  }
+
+  void _openDeleteAccount() {
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const DeleteAccountPage()));
+  }
+
   String get _limitLabel {
     final l = _limit;
     if (l == null) return '';
@@ -163,12 +206,12 @@ class _ProfilePageState extends State<ProfilePage> {
                     width: 58,
                     height: 58,
                     padding: const EdgeInsets.all(2),
-                    decoration: const BoxDecoration(
+                    decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       gradient: SweepGradient(
                         colors: [
                           AppColors.brand,
-                          Color(0xFF7FF5C9),
+                          Color.lerp(AppColors.brand, AppColors.text, 0.4)!,
                           AppColors.brandPressed,
                           AppColors.brand,
                         ],
@@ -196,9 +239,38 @@ class _ProfilePageState extends State<ProfilePage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(user?.nickname ?? '', style: AppText.title2),
-                        const SizedBox(height: 2),
-                        Text(user?.maskedEmail ?? '', style: AppText.caption),
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                user?.nickname ?? '',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppText.title2,
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: '닉네임 변경',
+                              visualDensity: VisualDensity.compact,
+                              onPressed: user == null
+                                  ? null
+                                  : () => _editNickname(user.nickname),
+                              icon: const Icon(
+                                Icons.edit_outlined,
+                                size: 18,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
+                        Text(
+                          [
+                            '${signInMethodLabel(user?.provider)} 로그인',
+                            if ((user?.maskedEmail ?? '').isNotEmpty)
+                              user!.maskedEmail,
+                          ].join(' · '),
+                          style: AppText.caption,
+                        ),
                       ],
                     ),
                   ),
@@ -299,6 +371,15 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
             ),
             MenuRow(
+              icon: Icons.credit_card_outlined,
+              label: '결제 내역',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const PaymentHistoryPage(),
+                ),
+              ),
+            ),
+            MenuRow(
               icon: Icons.inventory_2_outlined,
               label: '보관함',
               onTap: () => tabs.select(AppTab.inventory),
@@ -321,12 +402,43 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
             const SectionBand(),
 
+            const _GroupTitle('알림·약관'),
+            _SwitchRow(
+              icon: Icons.campaign_outlined,
+              label: '마케팅 정보 수신',
+              subtitle: '이벤트·혜택 소식을 받아요',
+              value: user?.marketingAgreed ?? false,
+              busy: _savingMarketing,
+              onChanged: user == null ? null : _setMarketing,
+            ),
+            MenuRow(
+              icon: Icons.description_outlined,
+              label: '이용약관',
+              onTap: () => Navigator.of(
+                context,
+              ).push(TermsPage.route(TermsDocument.terms)),
+            ),
+            MenuRow(
+              icon: Icons.privacy_tip_outlined,
+              label: '개인정보처리방침',
+              onTap: () => Navigator.of(
+                context,
+              ).push(TermsPage.route(TermsDocument.privacyPolicy)),
+            ),
+            const SectionBand(),
+
             MenuRow(
               icon: Icons.logout,
               label: '로그아웃',
               labelColor: AppColors.textSecondary,
               showChevron: false,
               onTap: _logout,
+            ),
+            MenuRow(
+              icon: Icons.person_remove_outlined,
+              label: '회원 탈퇴',
+              labelColor: AppColors.textTertiary,
+              onTap: _openDeleteAccount,
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(
@@ -399,6 +511,147 @@ class _Stat extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// 스위치 한 줄(설정).
+class _SwitchRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String subtitle;
+  final bool value;
+  final bool busy;
+  final ValueChanged<bool>? onChanged;
+
+  const _SwitchRow({
+    required this.icon,
+    required this.label,
+    required this.subtitle,
+    required this.value,
+    required this.busy,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      toggled: value,
+      label: label,
+      button: true,
+      excludeSemantics: true,
+      child: InkWell(
+        onTap: busy || onChanged == null ? null : () => onChanged!(!value),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(Space.gutter, 10, Space.x3, 10),
+          child: Row(
+            children: [
+              Icon(
+                icon,
+                size: 21,
+                color: AppColors.text.withValues(alpha: 0.85),
+              ),
+              const SizedBox(width: Space.x3),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(label, style: AppText.body),
+                    Text(subtitle, style: AppText.caption),
+                  ],
+                ),
+              ),
+              Switch(
+                value: value,
+                onChanged: busy ? null : onChanged,
+                activeTrackColor: AppColors.brand,
+                activeThumbColor: AppColors.onBrand,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 닉네임 변경 시트. 저장하면 true로 닫힌다.
+class _NicknameSheet extends StatefulWidget {
+  final String initial;
+  const _NicknameSheet({required this.initial});
+
+  @override
+  State<_NicknameSheet> createState() => _NicknameSheetState();
+}
+
+class _NicknameSheetState extends State<_NicknameSheet> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.initial,
+  );
+  String? _error;
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final value = _controller.text.trim();
+    if (value.length < 2 || value.length > 20) {
+      setState(() => _error = '닉네임은 2~20자로 정해 주세요');
+      return;
+    }
+    if (value == widget.initial) {
+      Navigator.of(context).pop(false);
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      await context.read<AuthProvider>().updateProfile(nickname: value);
+      if (mounted) Navigator.of(context).pop(true);
+    } on ApiException catch (e) {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+          _error = e.displayMessage;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        Space.gutter,
+        0,
+        Space.gutter,
+        Space.x4,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextField(
+            controller: _controller,
+            autofocus: true,
+            maxLength: 20,
+            style: AppText.body,
+            onSubmitted: (_) => _save(),
+            onChanged: (_) {
+              if (_error != null) setState(() => _error = null);
+            },
+            decoration: InputDecoration(hintText: '2~20자', errorText: _error),
+          ),
+          const SizedBox(height: Space.x3),
+          PrimaryButton(label: '저장', loading: _saving, onPressed: _save),
+        ],
       ),
     );
   }

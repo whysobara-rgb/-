@@ -238,6 +238,36 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  /// 닉네임·마케팅 수신 동의 변경(`PATCH /users/me`). 서버가 돌려준 프로필로
+  /// [currentUser]를 바꾼다. 실패하면 [ApiException].
+  Future<void> updateProfile({String? nickname, bool? agreeMarketing}) async {
+    final data = await _apiClient.patch(
+      '/users/me',
+      body: {
+        if (nickname != null) 'nickname': nickname.trim(),
+        if (agreeMarketing != null) 'agreeMarketing': agreeMarketing,
+      },
+    );
+    final updated = AppUser.fromJson(data as Map<String, dynamic>);
+    // 응답에 잔액이 빠져 있으면 지금 값을 유지한다.
+    _currentUser = data.containsKey('coinBalance')
+        ? updated
+        : updated.copyWith(coinBalance: _currentUser?.coinBalance);
+    notifyListeners();
+  }
+
+  /// 회원 탈퇴(`DELETE /users/me`). 소멸한 GP를 돌려준다.
+  ///
+  /// 서버가 토큰을 바로 무효화하지만, 완료 화면을 보여줄 수 있도록 여기서는
+  /// 로그아웃하지 않는다. 화면이 [logout]을 부른다. 배송이 진행 중이면 10013
+  /// [ApiException](errors에 activeShipments:N).
+  Future<int> deleteAccount() async {
+    final data = await _apiClient.delete('/users/me');
+    final map = data is Map<String, dynamic> ? data : const <String, dynamic>{};
+    final forfeited = map['forfeitedGp'];
+    return forfeited is num ? forfeited.toInt() : 0;
+  }
+
   /// 뽑기/충전/배송 등 잔액이 바뀌는 동작 이후 최신 프로필(잔액 포함)을
   /// 서버에서 다시 가져와 [currentUser]를 갱신한다.
   Future<void> refreshProfile() async {
