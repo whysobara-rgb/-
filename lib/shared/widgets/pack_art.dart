@@ -1175,6 +1175,7 @@ class PackPainter extends CustomPainter {
       weight: FontWeight.w800,
       spacing: w * 0.012,
       bottom: true,
+      maxWidth: maxW,
     );
   }
 
@@ -1295,21 +1296,28 @@ class PackPainter extends CustomPainter {
     bool alignCenterX = false,
     bool alignRight = false,
     bool bottom = false,
+    double? maxWidth,
   }) {
-    final tp = TextPainter(
+    TextPainter make(double fontSize, double letterSpacing) => TextPainter(
       text: TextSpan(
         text: text,
         style: TextStyle(
           fontFamily: AppText.family,
-          fontSize: size,
+          fontSize: fontSize,
           fontWeight: weight,
           height: 1,
-          letterSpacing: spacing,
+          letterSpacing: letterSpacing,
           color: color,
         ),
       ),
       textDirection: TextDirection.ltr,
     )..layout();
+    var tp = make(size, spacing);
+    // 좁은 면(작은 썸네일)에서는 면 밖으로 넘치지 않게 줄인다.
+    if (maxWidth != null && tp.width > maxWidth && tp.width > 0) {
+      final k = maxWidth / tp.width;
+      tp = make(size * k, spacing * k);
+    }
     var dx = at.dx;
     var dy = at.dy;
     if (alignCenterX) dx -= tp.width / 2;
