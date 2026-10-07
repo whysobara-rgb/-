@@ -65,8 +65,19 @@
 - **라이벌 대회** — 호다닥, 통큰이, 눈치왕과 차례로 3판 2선승. 판과 판 사이에 라이벌이 내 작전에
   어떻게 대응할지 미리 말해 줘요. 이기면 그 라이벌의 모자나 가면을 얻어요.
 - **옷장** — 얻은 모자를 써 봐요. 장식은 능력치를 바꾸지 않아요.
+- **같이 하기** — 한 화면에서 1~4명이 함께해요. 각자 자기 잡기 버튼을 누르면 참가하고(P1~P4 색이
+  정해져요), ◀ ▶로 별 팀 / 달 팀을 고른 뒤 잡기로 준비! 모두 준비하면 배치·인원(1:1 / 2:2)·봇 난이도를
+  고르고 출발해요. 사람이 양 팀에 있으면 **대결**, 한 팀에 모이면 봇 팀을 상대로 **협동**이에요. 빈자리는
+  봇이 채워요. 화면은 하나를 같이 쓰고, 카메라가 모두가 보이게 넓어져요. 화면 밖으로 나간 친구는 가장자리
+  화살표(그 친구의 색)로 보여요.
+  - 키보드 왼쪽: WASD 이동 · Space 잡기 · 왼쪽 Shift 돌진 · E 핑 · T 도발 휠 · Esc 일시 정지 (마우스도 이 사람 것)
+  - 키보드 오른쪽: 방향키 이동 · `.` 잡기 · `/` 돌진 · `;` 핑 · `,` 도발 휠 · P 일시 정지
+  - 패드: 평소와 같아요(A 잡기, X 돌진…). 참가 화면에서 B는 준비 취소 → 한 번 더 누르면 나가기.
+  - **Steam Remote Play Together**: 친구 목록에서 친구를 초대하면, 친구의 입력이 패드로 들어와요.
+    참가 화면에서 A를 누르면 끝!
+  - 저장·업적·통계는 P1(이 컴퓨터의 플레이어) 기준이에요. 라이벌 대회는 혼자 하는 모드예요.
 
-현재 버전은 오프라인 싱글 플레이 전용이에요(컴퓨터 상대 1:1, 동료 봇과 2:2).
+온라인 대전은 아직 없어요(Remote Play Together로 온라인 친구와 함께할 수는 있어요).
 
 ## 4. 경찰
 
@@ -197,8 +208,21 @@ or your pad type). In the desktop build, **F11** or **Alt+Enter** toggles fullsc
 - **Rival Tournament** — best-of-three series against Hodadak, Tongkeun and Nunchi in turn. Between
   games the rival tells you how it will answer your last plan. Beat a rival to win their hat or mask.
 - **Wardrobe** — wear the hats you earned. Cosmetics never change stats.
+- **Play Together** — 1 to 4 players on one screen. Everyone presses their own grab button to join
+  (you get a P1–P4 colour), picks the star or moon team with ◀ ▶, then presses grab again to get
+  ready. Once everyone is ready, pick the layout, size (1v1 / 2v2) and bot level. Humans on both
+  teams = **Versus**; all on one team = **Co-op** against a bot crew. Bots fill open seats. One
+  shared screen: the camera widens to keep everyone in view, and anyone off screen gets an edge
+  arrow in their colour.
+  - Keyboard left: WASD move · Space grab · Left Shift dash · E ping · T taunt wheel · Esc pause (the mouse is theirs too)
+  - Keyboard right: arrow keys move · `.` grab · `/` dash · `;` ping · `,` taunt wheel · P pause
+  - Gamepads: as usual (A grab, X dash…). On the join screen B un-readies, a second B leaves.
+  - **Steam Remote Play Together**: invite a friend from your friends list; their input arrives as
+    a gamepad. They press A on the join screen and they're in!
+  - Saves, achievements and stats belong to P1 (this computer's player). The rival tournament is
+    single-player.
 
-This version is offline single-player only (1v1 against the computer, 2v2 with a bot teammate).
+There is no online matchmaking yet (you can still play with online friends via Remote Play Together).
 
 ## 4. Police
 

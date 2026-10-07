@@ -10,7 +10,9 @@
  * Only the match actions are rebindable. Menu navigation uses fixed bindings
  * (MENU_BINDINGS) so a bad rebind can never lock the player out of the settings screen.
  * A few inputs are hard-wired and cannot be captured for other actions:
- *  - Escape always pauses a match / backs out of a menu (and cancels a rebind capture).
+ *  - Escape always pauses a match / backs out of a menu (and cancels a rebind capture). One
+ *    exception: while the taunt wheel is open, Escape / Start only close the wheel (game flow,
+ *    src/game/match.ts); the next press pauses.
  *  - Gamepad Start (button 9) always pauses; Guide/Home (button 16) belongs to the OS/Steam.
  *  - F11 toggles fullscreen in the desktop build.
  * The hard-wired pause inputs (HARDWIRED_PAUSE) work even after the pause action's slots are

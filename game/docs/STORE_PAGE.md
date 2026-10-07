@@ -9,7 +9,8 @@
 | 제목 (ko) | 뿌리째 털어라 |
 | Title (en) | Uproot Heist |
 | 장르 | 캐주얼, 액션, 파티, 물리 |
-| 플레이 | 싱글 플레이어(VS 컴퓨터 1:1, 2:2 동료 봇) — 온라인은 추후 업데이트 목표 |
+| 플레이 | 싱글 플레이어(VS 컴퓨터 1:1, 2:2 동료 봇) · **한 화면 1~4인 대결/협동(같이 하기)** · **Steam Remote Play Together** — 온라인 대전은 추후 업데이트 목표 |
+| Steam 기능 | Single-player, Shared/Split Screen PvP, Shared/Split Screen Co-op, Remote Play Together, Full Controller Support, Steam Achievements, Steam Cloud |
 | 컨트롤러 | 게임패드 완전 지원 (Xbox/PlayStation 표준 배치), 키보드·마우스 |
 | 언어 | 한국어(인터페이스·자막), English (interface, subtitles) |
 | 접근성 | 키 재배치, 잡기 토글/누르기 선택, 자막, 효과음별 볼륨, 화면 흔들림·진동 조절, 색만으로 구분하지 않는 팀/전리품 표시 |
@@ -33,6 +34,7 @@ While you grabbed a little safe, your rival brought back the whole bank! Play as
 - **나를 읽는 라이벌.** 호다닥, 통큰이, 눈치왕과 3판 2선승. 다음 판이 시작되기 전에 라이벌이 내 작전에 어떻게 대응할지 미리 알려줘요. 상대를 보고 방법을 바꾸세요.
 - **2:2 팀전.** 동료 너구리는 지시가 없어도 은행을 함께 잡거나 문을 지켜요. 핑 하나로 "같이 잡자", "이쪽으로"를 전할 수 있어요.
 - **모자를 모아요.** 라이벌을 이기면 그 너구리의 모자나 가면을 얻어요. 장식은 능력치를 바꾸지 않아요.
+- **같이 하기 — 한 화면 최대 4인.** 키보드 하나에 둘, 패드는 넷까지. 친구끼리 별 팀 대 달 팀으로 붙거나, 다 같이 한 팀이 되어 봇 팀을 털어요. 빈자리는 봇이 채워요. Steam Remote Play Together로 온라인 친구도 불러올 수 있어요.
 
 ## Long description (en)
 
@@ -45,6 +47,7 @@ While you grabbed a little safe, your rival brought back the whole bank! Play as
 - **Rivals that read you.** Best-of-three series against Hodadak, Tongkeun and Nunchi. Before each new game the rival tells you how it will answer your last plan — so change it.
 - **2v2 team matches.** Your raccoon teammate helps without orders: joining your bank haul or guarding the door. One ping says "grab this together" or "over here".
 - **Collect hats.** Beat a rival to earn their hat or mask. Cosmetics never change stats.
+- **Play Together — up to 4 on one screen.** Two on one keyboard, plus up to four pads. Go star team vs moon team, or team up against a bot crew; bots fill any open seat. Invite online friends with Steam Remote Play Together.
 
 ## 시스템 요구 사항 (초안 — 실제 기기 측정 후 확정)
 
@@ -58,7 +61,7 @@ While you grabbed a little safe, your rival brought back the whole bank! Play as
 
 ## 태그 후보
 
-Casual, Physics, Party Game, Cute, Heist, Local-free Singleplayer, PvE, Controller, Funny, Colorful, Short matches, Arcade
+Casual, Physics, Party Game, Local Multiplayer, Local Co-Op, Couch Co-Op, Remote Play Together, Cute, Heist, PvP, PvE, Controller, Funny, Colorful, Short matches, Arcade
 
 ## 캡슐·스크린샷 촬영 목록 (기획서 §14의 실제 장면)
 

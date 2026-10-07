@@ -66,6 +66,14 @@ npm run dist:steam -- --appid=<ID> --depot-windows=<ID> --depot-linux=<ID> --sel
   - PlayStation, Switch Pro: **Steam Input 옵트아웃**(게임이 직접 지원). 켜 두면 가상 Xbox 패드로 보여 ✕○□△ 대신 ABXY가 표시된다.
   - Steam Deck 내장 컨트롤과 Steam Controller: Steam Input 사용, 기본 템플릿 "Gamepad". Deck은 Xbox 배치(ABXY)로 보여 표시가 일치한다.
   - 상점 컨트롤러 설문(Edit Store Page → Basic Info → Controller support): **Full Controller Support**. 근거: 모든 메뉴·설정·키 재배치·경기가 패드만으로 가능하고(`pollMenu`), 화면 안내가 마지막에 쓴 장치의 버튼으로 바뀌며, 글자 입력이 필요한 화면이 없다.
+- [ ] **로컬 멀티플레이 · Remote Play Together** (같이 하기, 1~4인)
+  - 게임 안 기능: 메인 메뉴 **같이 하기** → 참가 화면. 키보드 둘(왼쪽 WASD + Space/Shift, 오른쪽 방향키 + `.`/`/`)과 패드 최대 4개, 한 장치 = 한 사람.
+    한 화면 공유 카메라(모두가 보이게 줌), 대결(사람이 양 팀에) / 협동(사람끼리 한 팀 대 봇 팀), 빈자리는 봇. 화면 분할은 없다(Shared screen).
+  - Steamworks API 호출은 필요 없다. Remote Play Together는 Steam이 화면을 스트리밍하고 손님의 입력을 **가상 패드**로 넘겨 주므로, 게임에는 보통 게임패드로 보인다(`navigator.getGamepads()`).
+  - [ ] App Admin → **Remote Play** 설정에서 **Remote Play Together** 켜기(Remote Play on Phone/Tablet/TV는 선택).
+  - [ ] 상점 기능 설문(Edit Store Page → Basic Info → Features / Player support): **Shared/Split Screen PvP**, **Shared/Split Screen Co-op**, **Remote Play Together**, 최대 인원 **4**, 컨트롤러 **Full Controller Support**.
+  - [ ] 실기 확인: 손님 1~3명이 Remote Play Together로 들어와 참가 화면에서 A로 참가 → 대결 2:2 한 판 → 일시 정지(어느 장치든) → 재대결이 같은 사람으로 이어지는지.
+  - Steam Input이 실제 패드와 가상 패드를 같이 내보내는 환경에서는 한 사람이 두 번 참가될 수 있다 → 참가 화면에서 그 장치로 대시(B) 한 번이면 빠진다. 지원 문서에 한 줄 안내.
 - [ ] **업적** (App Admin → Stats & Achievements → Achievements) — 4절 참고.
 - [ ] Steamworks 변경 후 **Publish** 탭에서 변경 사항 게시(게시하지 않으면 업적·클라우드·실행 옵션이 적용되지 않는다).
 

@@ -538,15 +538,19 @@ export class MatchController {
     return best ?? this.seats[0]!;
   }
 
-  /** A taunt cannot start now: holding something, dashing, boosting or knocked down. */
+  /** A taunt cannot start now: holding something, dashing, boosting, knocked down or dizzy (same as the sim, emotes.ts). */
   private tauntBlocked(me: CharacterState): boolean {
-    return me.grab !== null || me.dashTicks > 0 || me.knockdownTicks > 0 || me.boostTicks > 0;
+    return me.grab !== null || me.dashTicks > 0 || me.knockdownTicks > 0 || me.boostTicks > 0 || (me.dizzyTicks ?? 0) > 0;
   }
 
-  /** Still in the gap after the last taunt ended (a taunt playing right now does not count). */
+  /**
+   * A new taunt cannot start yet: one is still playing (the sim never replaces a live taunt), or
+   * it is still the gap after the last one ended. Either way the chip says "cooling down" (the
+   * cooldown ring reads full while one plays) instead of the press vanishing.
+   */
   private tauntCooling(me: CharacterState, seat: Seat): boolean {
     const tick = this.sim.state.tick;
-    if (me.emote && tick < me.emote.endTick) return false;
+    if (me.emote && tick < me.emote.endTick) return true;
     return tick < seat.emoteEndedTick + EMOTE.cooldownTicks;
   }
 

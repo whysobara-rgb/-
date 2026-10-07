@@ -301,3 +301,40 @@ describe('shared camera framing', () => {
     expect(9 + 2 - mid.y).toBeLessThanOrEqual(e.south);
   });
 });
+
+describe('local results highlights', () => {
+  it('credits uproots, steals and recoveries from the event log; ties are shared', async () => {
+    const { LocalStatsTracker, pickHighlights } = await import('../../src/game/localStats');
+    const tr = new LocalStatsTracker([
+      { charId: 1, index: 0, team: 0 },
+      { charId: 3, index: 1, team: 1 },
+    ]);
+    const grabbed = new Map<number, number[]>([[10, [1]], [11, [3, 1]]]);
+    const sim = { getLoot: (id: number) => ({ grabbedBy: grabbed.get(id) ?? [] }), getCharacter: (id: number) => ({ team: (id === 1 ? 0 : 1) as 0 | 1 }) };
+    tr.observe(
+      [
+        { type: 'unanchored', tick: 1, lootId: 10, kind: 'smallSafe', byTeam: 0 },
+        { type: 'unanchored', tick: 2, lootId: 11, kind: 'largeSafe', byTeam: null },
+        { type: 'safeUnloaded', tick: 3, safeId: 12, bankId: 20, bankValue: 500, byCharId: 3, bankCarrierTeam: 0 },
+        { type: 'safeUnloaded', tick: 4, safeId: 13, bankId: 20, bankValue: 500, byCharId: 1, bankCarrierTeam: 0 }, // own team: not a steal
+        { type: 'recovered', tick: 5, lootId: 10, kind: 'smallSafe', team: 0, value: 300, safeIds: [], safesValue: 0, holders: [1] },
+      ] as never,
+      sim,
+    );
+    const lines = tr.snapshot();
+    expect(lines.map((l) => [l.index, l.uproots, l.steals, l.recovered])).toEqual([
+      [0, 2, 0, 300],
+      [1, 1, 1, 0],
+    ]);
+    expect(pickHighlights(lines)).toEqual([
+      { kind: 'uproots', players: [0], value: 2 },
+      { kind: 'steals', players: [1], value: 1 },
+      { kind: 'recovered', players: [0], value: 300 },
+    ]);
+    const tie = pickHighlights([
+      { charId: 1, index: 0, team: 0, uproots: 1, steals: 0, recovered: 0 },
+      { charId: 2, index: 1, team: 1, uproots: 1, steals: 0, recovered: 0 },
+    ]);
+    expect(tie).toEqual([{ kind: 'uproots', players: [0, 1], value: 1 }]);
+  });
+});
