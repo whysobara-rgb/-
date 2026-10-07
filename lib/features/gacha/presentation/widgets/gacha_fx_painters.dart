@@ -17,6 +17,20 @@ Color stageLight(Rarity r) => switch (r) {
   Rarity.ssr => const Color(0xFFF7CB5C),
 };
 
+/// 승급 한 단계의 빛 색: 이전 등급 → (흰 섬광) → 새 등급.
+/// 보라→금처럼 색상환 반대편으로 갈 때 탁한 중간색이 보이지 않게
+/// 흰색을 거쳐 바꾼다.
+Color stageStep(Rarity from, Rarity to, double t) {
+  if (from == to || t >= 1) return stageLight(to);
+  if (t <= 0) return stageLight(from);
+  final a = stageLight(from);
+  final b = stageLight(to);
+  final mid = Color.lerp(Color.lerp(a, b, 0.5), Colors.white, 0.7)!;
+  return t < 0.4
+      ? Color.lerp(a, mid, t / 0.4)!
+      : Color.lerp(mid, b, (t - 0.4) / 0.6)!;
+}
+
 /// 블러 없이 그리는 부드러운 타원 그림자(원형 그라데이션을 세로로 눌러 그린다).
 void softShadow(
   Canvas canvas,

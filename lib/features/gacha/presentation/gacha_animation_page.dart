@@ -477,11 +477,7 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
         final r = tl?.highest ?? Rarity.n;
         final light = moment == null
             ? stageLight(Rarity.n)
-            : Color.lerp(
-                stageLight(moment.from),
-                stageLight(moment.to),
-                moment.colorT,
-              )!;
+            : stageStep(moment.from, moment.to, moment.colorT);
 
         final phase = moment?.phase;
         final climaxSeg = tl?.segment(RevealPhase.climax);

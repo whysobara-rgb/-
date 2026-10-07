@@ -3,6 +3,8 @@ import 'package:gacha_vault/core/domain/rarity.dart';
 import 'package:gacha_vault/core/feedback/haptics.dart';
 import 'package:gacha_vault/features/gacha/domain/draw_result.dart';
 import 'package:gacha_vault/features/gacha/domain/reveal_timeline.dart';
+import 'package:gacha_vault/features/gacha/presentation/widgets/gacha_fx_painters.dart';
+import 'package:flutter/painting.dart';
 
 DrawResult _r(int id, Rarity rarity, {int value = 1000}) => DrawResult(
   drawId: id,
@@ -172,5 +174,14 @@ void main() {
       HapticPattern.climax(Rarity.ssr).durationMs,
       greaterThan(HapticPattern.climax(Rarity.sr).durationMs),
     );
+  });
+
+  test('승급 빛 색은 양 끝에서 정확히 이전/새 등급 색이고, 중간은 흰 섬광을 거친다', () {
+    expect(stageStep(Rarity.sr, Rarity.ssr, 0), stageLight(Rarity.sr));
+    expect(stageStep(Rarity.sr, Rarity.ssr, 1), stageLight(Rarity.ssr));
+    final mid = stageStep(Rarity.sr, Rarity.ssr, 0.4);
+    double lum(Color c) => c.computeLuminance();
+    expect(lum(mid), greaterThan(lum(stageLight(Rarity.sr))));
+    expect(lum(mid), greaterThan(lum(stageLight(Rarity.ssr))));
   });
 }
