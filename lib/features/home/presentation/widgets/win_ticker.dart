@@ -5,7 +5,9 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/utils/format.dart';
+import '../../../../core/theme/rarity_style.dart';
 import '../../../../shared/widgets/rarity_tag.dart';
+import '../../../../shared/widgets/ui.dart';
 import '../../../ranking/domain/ranking_models.dart';
 
 /// 최근 SR/SSR 당첨 한 줄 티커(`GET /rankings/wins`).
@@ -65,31 +67,23 @@ class _WinTickerState extends State<WinTicker> {
     final w = widget.wins[_index % widget.wins.length];
     return Padding(
       padding: Space.page,
-      child: InkWell(
+      child: AppCard(
+        padding: EdgeInsets.zero,
+        borderRadius: Radii.pill,
+        shadow: Shadows.small,
         onTap: widget.onTap,
-        borderRadius: Radii.button,
-        child: Container(
-          height: 44,
-          padding: const EdgeInsets.only(left: 12, right: 12),
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: Radii.button,
-            border: Border.all(color: w.rarity.color.withValues(alpha: 0.28)),
-            gradient: LinearGradient(
-              colors: [
-                w.rarity.color.withValues(alpha: 0.12),
-                AppColors.surface,
-              ],
-              stops: const [0, 0.45],
-            ),
-          ),
+        child: SizedBox(
+          height: 42,
           child: Row(
             children: [
+              const SizedBox(width: 12),
+              const _LiveDot(),
+              const SizedBox(width: 6),
               Text(
-                '최근 당첨',
+                '실시간 당첨',
                 style: AppText.micro.copyWith(
-                  color: AppColors.text,
-                  fontWeight: FontWeight.w800,
+                  color: AppColors.brand,
+                  fontWeight: FontWeight.w900,
                 ),
               ),
               Container(
@@ -118,8 +112,35 @@ class _WinTickerState extends State<WinTicker> {
                   ),
                 ),
               ),
+              const SizedBox(width: 12),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 빨간 '라이브' 점(정지 상태 — 계속 깜빡이지 않는다).
+class _LiveDot extends StatelessWidget {
+  const _LiveDot();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 14,
+      height: 14,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: AppColors.brand.withValues(alpha: 0.16),
+      ),
+      child: Container(
+        width: 6,
+        height: 6,
+        decoration: const BoxDecoration(
+          shape: BoxShape.circle,
+          color: AppColors.brand,
         ),
       ),
     );
@@ -150,7 +171,10 @@ class _Line extends StatelessWidget {
                 ),
                 TextSpan(
                   text: ' ${formatWonShort(win.estimatedValue)}',
-                  style: TextStyle(color: win.rarity.light),
+                  style: TextStyle(
+                    color: win.rarity.ink,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ],
             ),
@@ -162,7 +186,7 @@ class _Line extends StatelessWidget {
         const SizedBox(width: 8),
         Text(
           win.relativeTimeLabel,
-          style: AppText.micro.copyWith(color: AppColors.textTertiary),
+          style: AppText.micro.copyWith(color: AppColors.textSecondary),
         ),
       ],
     );

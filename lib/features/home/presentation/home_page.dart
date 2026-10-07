@@ -220,6 +220,7 @@ class _HomePageState extends State<HomePage> {
     );
     final ending = _endingSoon;
     final popular = _popularBoxes;
+    final sorted = _sorted;
 
     return Scaffold(
       body: RefreshIndicator(
@@ -228,11 +229,10 @@ class _HomePageState extends State<HomePage> {
         onRefresh: _load,
         child: CustomScrollView(
           slivers: [
-            SliverAppBar(
+            const SliverAppBar(
               pinned: true,
-              backgroundColor: AppColors.canvas,
-              title: const _Wordmark(),
-              actions: const [GpBadge()],
+              title: _Wordmark(),
+              actions: [GpBadge()],
             ),
             if (_loading)
               const SliverToBoxAdapter(child: LoadingView(height: 480))
@@ -243,19 +243,16 @@ class _HomePageState extends State<HomePage> {
             else ...[
               if (_bannerList.isNotEmpty)
                 SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.only(top: Space.x1),
-                    child: HeroCarousel(
-                      banners: _bannerList,
-                      onTap: _onBanner,
-                      categoryOf: (id) => _boxById(id)?.category,
-                    ),
+                  child: HeroCarousel(
+                    banners: _bannerList,
+                    onTap: _onBanner,
+                    categoryOf: (id) => _boxById(id)?.category,
                   ),
                 ),
               if (_wins.isNotEmpty)
                 SliverToBoxAdapter(
                   child: Padding(
-                    padding: const EdgeInsets.only(top: Space.x4),
+                    padding: const EdgeInsets.only(bottom: Space.x2),
                     child: WinTicker(
                       wins: _wins,
                       onTap: () =>
@@ -263,63 +260,94 @@ class _HomePageState extends State<HomePage> {
                     ),
                   ),
                 ),
+              // 박스 바로가기: 판매 중인 모든 박스의 패키지 레일.
+              SliverToBoxAdapter(
+                child: SizedBox(
+                  height: 100,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.fromLTRB(
+                      Space.gutter - 2,
+                      Space.x2,
+                      Space.gutter - 2,
+                      0,
+                    ),
+                    itemCount: _boxes.length,
+                    separatorBuilder: (_, _) => const SizedBox(width: 6),
+                    itemBuilder: (context, i) => BoxShortcut(
+                      box: _boxes[i],
+                      onTap: () => _open(_boxes[i]),
+                    ),
+                  ),
+                ),
+              ),
               SliverToBoxAdapter(
                 child: Padding(
                   key: _attendanceKey,
                   padding: const EdgeInsets.fromLTRB(
                     Space.gutter,
-                    Space.x4,
+                    Space.x3,
                     Space.gutter,
-                    0,
+                    Space.x2,
                   ),
                   child: AttendanceCard(
                     refreshToken: _refreshToken + homeRevision,
                   ),
                 ),
               ),
-              if (ending.isNotEmpty) ...[
-                const SliverToBoxAdapter(
-                  child: SectionHeader(
-                    eyebrow: 'ENDING SOON',
-                    title: '마감 임박',
-                    subtitle: '실재고 70% 이상 판매된 박스',
-                    padding: EdgeInsets.fromLTRB(
-                      Space.gutter,
-                      Space.section,
-                      Space.gutter,
-                      Space.x3,
-                    ),
-                  ),
-                ),
+              if (ending.isNotEmpty)
                 SliverToBoxAdapter(
-                  child: SizedBox(
-                    height: 96,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      padding: Space.page,
-                      itemCount: ending.length,
-                      separatorBuilder: (_, _) =>
-                          const SizedBox(width: Space.x3),
-                      itemBuilder: (context, i) => SizedBox(
-                        width: ending.length == 1 ? 350 : 280,
-                        child: EndingSoonCard(
-                          box: ending[i],
-                          onTap: () => _open(ending[i]),
+                  child: Container(
+                    margin: const EdgeInsets.only(top: Space.x5),
+                    padding: const EdgeInsets.only(bottom: Space.x5),
+                    color: AppColors.brandSoft,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const SectionHeader(
+                          eyebrow: 'ENDING SOON',
+                          title: '마감 임박',
+                          subtitle: '실재고 70% 이상 판매된 박스',
+                          padding: EdgeInsets.fromLTRB(
+                            Space.gutter,
+                            Space.x5,
+                            Space.gutter,
+                            Space.x3,
+                          ),
                         ),
-                      ),
+                        SizedBox(
+                          height: 112,
+                          child: ListView.separated(
+                            scrollDirection: Axis.horizontal,
+                            padding: Space.page,
+                            clipBehavior: Clip.none,
+                            itemCount: ending.length,
+                            separatorBuilder: (_, _) =>
+                                const SizedBox(width: Space.x3),
+                            itemBuilder: (context, i) => SizedBox(
+                              width: ending.length == 1 ? 350 : 296,
+                              child: EndingSoonCard(
+                                box: ending[i],
+                                onTap: () => _open(ending[i]),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-              ],
               if (popular.isNotEmpty) ...[
-                const SliverToBoxAdapter(
+                SliverToBoxAdapter(
                   child: SectionHeader(
-                    eyebrow: 'MOST OPENED',
                     title: '인기 박스',
                     subtitle: '누적 오픈 수 기준',
-                    padding: EdgeInsets.fromLTRB(
+                    actionLabel: '랭킹',
+                    onAction: () =>
+                        context.read<TabNavigator>().select(AppTab.ranking),
+                    padding: const EdgeInsets.fromLTRB(
                       Space.gutter,
-                      Space.section,
+                      Space.x6,
                       Space.gutter,
                       Space.x3,
                     ),
@@ -327,13 +355,14 @@ class _HomePageState extends State<HomePage> {
                 ),
                 SliverToBoxAdapter(
                   child: SizedBox(
-                    height: 216,
+                    height: 224,
                     child: ListView.separated(
                       scrollDirection: Axis.horizontal,
                       padding: Space.page,
+                      clipBehavior: Clip.none,
                       itemCount: popular.length.clamp(0, 10),
                       separatorBuilder: (_, _) =>
-                          const SizedBox(width: Space.x2),
+                          const SizedBox(width: Space.x3),
                       itemBuilder: (context, i) {
                         final (item, box) = popular[i];
                         return PopularRankCard(
@@ -347,46 +376,60 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ),
               ],
-              SliverToBoxAdapter(
-                child: SectionHeader(
-                  eyebrow: 'ALL BOXES',
-                  title: '전체 박스',
-                  subtitle: '${_boxes.length}개 · 모든 확률 공개',
-                  padding: const EdgeInsets.fromLTRB(
-                    Space.gutter,
-                    Space.section,
-                    Space.gutter,
-                    Space.x3,
-                  ),
+              // 전체 박스: 옅은 회색 띠 위에 흰 카드.
+              DecoratedSliver(
+                decoration: const BoxDecoration(color: AppColors.section),
+                sliver: SliverMainAxisGroup(
+                  slivers: [
+                    SliverToBoxAdapter(
+                      child: SectionHeader(
+                        title: '전체 박스',
+                        subtitle: '${_boxes.length}개 · 모든 확률 공개',
+                        actionLabel: '확률 보기',
+                        onAction: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const OddsIndexPage(),
+                          ),
+                        ),
+                        padding: const EdgeInsets.fromLTRB(
+                          Space.gutter,
+                          Space.x6,
+                          Space.gutter,
+                          Space.x3,
+                        ),
+                      ),
+                    ),
+                    SliverToBoxAdapter(
+                      child: _SortBar(
+                        value: _sort,
+                        onChanged: (s) => setState(() => _sort = s),
+                      ),
+                    ),
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(
+                        Space.gutter,
+                        Space.x4,
+                        Space.gutter,
+                        Space.x8,
+                      ),
+                      sliver: SliverGrid(
+                        gridDelegate:
+                            const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 2,
+                              crossAxisSpacing: Space.x3,
+                              mainAxisSpacing: Space.x3,
+                              mainAxisExtent: 300,
+                            ),
+                        delegate: SliverChildBuilderDelegate((context, i) {
+                          final box = sorted[i];
+                          return BoxCard(box: box, onTap: () => _open(box));
+                        }, childCount: sorted.length),
+                      ),
+                    ),
+                    const SliverToBoxAdapter(child: _TrustFooter()),
+                  ],
                 ),
               ),
-              SliverToBoxAdapter(
-                child: _SortBar(
-                  value: _sort,
-                  onChanged: (s) => setState(() => _sort = s),
-                ),
-              ),
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(
-                  Space.gutter,
-                  Space.x4,
-                  Space.gutter,
-                  Space.x8,
-                ),
-                sliver: SliverGrid(
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    crossAxisSpacing: Space.x3,
-                    mainAxisSpacing: Space.x3,
-                    mainAxisExtent: 282,
-                  ),
-                  delegate: SliverChildBuilderDelegate((context, i) {
-                    final box = _sorted[i];
-                    return BoxCard(box: box, onTap: () => _open(box));
-                  }, childCount: _boxes.length),
-                ),
-              ),
-              const SliverToBoxAdapter(child: _TrustFooter()),
             ],
           ],
         ),
@@ -395,7 +438,7 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
-/// 워드마크: 굵은 한글 로고타입 + 제이드 점.
+/// 워드마크: 굵은 한글 로고타입 + 레드 점.
 class _Wordmark extends StatelessWidget {
   const _Wordmark();
 
@@ -412,9 +455,9 @@ class _Wordmark extends StatelessWidget {
         ],
       ),
       style: AppText.title2.copyWith(
-        fontSize: 22,
+        fontSize: 23,
         fontWeight: FontWeight.w900,
-        letterSpacing: -1.1,
+        letterSpacing: -1.2,
         color: AppColors.text,
       ),
     );
@@ -435,7 +478,7 @@ class _SortBar extends StatelessWidget {
       child: Row(
         children: [
           for (final s in _Sort.values) ...[
-            VaultChip(
+            AppChip(
               label: s.label,
               selected: s == value,
               onTap: () => onChanged(s),
@@ -464,7 +507,10 @@ class _TrustFooter extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text('알고 뽑으세요', style: AppText.headline),
+          Text(
+            '알고 뽑으세요',
+            style: AppText.headline.copyWith(fontWeight: FontWeight.w800),
+          ),
           const SizedBox(height: Space.x1),
           Text(
             '모든 박스의 등급별·상품별 확률과 천장 규칙을 공개하고, 한 달 충전 금액을 직접 정해 둘 수 있어요.',
@@ -513,38 +559,30 @@ class _FooterTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: AppColors.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: Radii.button,
-        side: BorderSide(color: AppColors.hairline),
-      ),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: Radii.button,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 13),
-          child: Row(
-            children: [
-              Icon(icon, size: 18, color: AppColors.textSecondary),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  label,
-                  style: AppText.caption.copyWith(
-                    color: AppColors.text,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+    return AppCard(
+      onTap: onTap,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+      borderRadius: Radii.button,
+      shadow: Shadows.small,
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: AppColors.brand),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              label,
+              style: AppText.caption.copyWith(
+                color: AppColors.text,
+                fontWeight: FontWeight.w700,
               ),
-              const Icon(
-                Icons.chevron_right,
-                size: 16,
-                color: AppColors.textTertiary,
-              ),
-            ],
+            ),
           ),
-        ),
+          const Icon(
+            Icons.chevron_right_rounded,
+            size: 18,
+            color: AppColors.textTertiary,
+          ),
+        ],
       ),
     );
   }
