@@ -26,6 +26,10 @@ class RarityFrame extends StatelessWidget {
   /// 홀로 반사광 세기(작은 카드는 낮게).
   final double holoIntensity;
 
+  /// false면 반사광이 멈춘 채로 그려진다(목록처럼 여러 장이 한 화면에
+  /// 있을 때 계속 다시 그리지 않게).
+  final bool holoAnimate;
+
   final Offset tilt;
 
   const RarityFrame({
@@ -36,6 +40,7 @@ class RarityFrame extends StatelessWidget {
     this.holo = false,
     this.glow = 1,
     this.holoIntensity = 0.6,
+    this.holoAnimate = true,
     this.tilt = Offset.zero,
   });
 
@@ -54,6 +59,7 @@ class RarityFrame extends StatelessWidget {
       content = HoloFoil(
         borderRadius: inner,
         intensity: holoIntensity,
+        animate: holoAnimate,
         tilt: tilt,
         child: content,
       );

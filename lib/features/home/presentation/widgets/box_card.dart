@@ -159,6 +159,7 @@ class PrizeChip extends StatelessWidget {
         rarity: prize.rarity,
         holo: holo && prize.rarity == Rarity.ssr,
         holoIntensity: 0.4,
+        holoAnimate: false,
         radius: 7,
         glow: 0.8,
         child: Stack(

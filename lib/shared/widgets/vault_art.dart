@@ -287,16 +287,19 @@ void paintIsoVault(
             ),
           ),
   );
-  canvas.drawOval(
-    Rect.fromCenter(
-      center: b + Offset(0, s * 0.1),
-      width: s * 1.9,
-      height: s * 0.3,
-    ),
+  // 블러 없이 눌린 원형 그라데이션으로 그림자.
+  canvas.save();
+  canvas.translate(b.dx, b.dy + s * 0.1);
+  canvas.scale(1, 0.18);
+  canvas.drawCircle(
+    Offset.zero,
+    s * 1.05,
     Paint()
-      ..color = Colors.black.withValues(alpha: 0.6)
-      ..maskFilter = MaskFilter.blur(BlurStyle.normal, s * 0.08),
+      ..shader = RadialGradient(
+        colors: [Colors.black.withValues(alpha: 0.65), Colors.transparent],
+      ).createShader(Rect.fromCircle(center: Offset.zero, radius: s * 1.05)),
   );
+  canvas.restore();
 
   // 몸통.
   final leftFace = Path()..addPolygon([ul, c, b, ll], true);

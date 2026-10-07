@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -33,35 +34,38 @@ class HeroCarousel extends StatefulWidget {
   State<HeroCarousel> createState() => _HeroCarouselState();
 }
 
-class _HeroCarouselState extends State<HeroCarousel>
-    with SingleTickerProviderStateMixin {
+class _HeroCarouselState extends State<HeroCarousel> {
   static const _interval = Duration(milliseconds: 4500);
   late final PageController _page = PageController(viewportFraction: 0.91);
-  late final AnimationController _progress = AnimationController(
-    vsync: this,
-    duration: _interval,
-  );
+
+  /// 자동 넘김은 Timer로만 센다(대기 중에는 프레임을 그리지 않는다).
+  Timer? _timer;
   int _index = 0;
   bool _userDragging = false;
 
   @override
   void initState() {
     super.initState();
-    _progress.addStatusListener((s) {
-      if (s == AnimationStatus.completed) _advance();
-    });
-    if (widget.banners.length > 1) _progress.forward();
+    _schedule();
   }
 
   @override
   void dispose() {
+    _timer?.cancel();
     _page.dispose();
-    _progress.dispose();
     super.dispose();
+  }
+
+  void _schedule() {
+    _timer?.cancel();
+    if (widget.banners.length < 2) return;
+    _timer = Timer(_interval, _advance);
   }
 
   void _advance() {
     if (!mounted || _userDragging || widget.banners.length < 2) return;
+    // 화면 밖 탭이면(TickerMode 꺼짐) 넘기지 않고 다음 차례를 기다린다.
+    if (!TickerMode.valuesOf(context).enabled) return _schedule();
     final next = (_index + 1) % widget.banners.length;
     if (!_page.hasClients) return;
     if (next == 0) {
@@ -84,10 +88,10 @@ class _HeroCarouselState extends State<HeroCarousel>
         onNotification: (n) {
           if (n is ScrollStartNotification && n.dragDetails != null) {
             _userDragging = true;
-            _progress.stop();
+            _timer?.cancel();
           } else if (n is ScrollEndNotification && _userDragging) {
             _userDragging = false;
-            _progress.forward(from: 0);
+            _schedule();
           }
           return false;
         },
@@ -96,9 +100,7 @@ class _HeroCarouselState extends State<HeroCarousel>
           itemCount: banners.length,
           onPageChanged: (i) {
             setState(() => _index = i);
-            if (!_userDragging && banners.length > 1) {
-              _progress.forward(from: 0);
-            }
+            if (!_userDragging) _schedule();
           },
           itemBuilder: (context, i) {
             final b = banners[i];
@@ -108,7 +110,6 @@ class _HeroCarouselState extends State<HeroCarousel>
                 banner: b,
                 index: i,
                 count: banners.length,
-                progress: i == _index ? _progress : null,
                 category: b.gachaId == null
                     ? null
                     : widget.categoryOf?.call(b.gachaId!),
@@ -128,7 +129,6 @@ class BannerSlide extends StatelessWidget {
   final HomeBanner banner;
   final int index;
   final int count;
-  final Animation<double>? progress;
   final ProductCategory? category;
   final VoidCallback? onTap;
 
@@ -137,7 +137,6 @@ class BannerSlide extends StatelessWidget {
     required this.banner,
     required this.index,
     required this.count,
-    this.progress,
     this.category,
     this.onTap,
   });
@@ -266,7 +265,7 @@ class BannerSlide extends StatelessWidget {
                           text: banner.endLabel!,
                         ),
                       const Spacer(),
-                      _Counter(index: index, count: count, progress: progress),
+                      _Counter(index: index, count: count),
                     ],
                   ),
                 ],
@@ -749,12 +748,11 @@ class _MetaChip extends StatelessWidget {
   }
 }
 
-/// "1 / 6" + 자동 넘김 진행선.
+/// "1 / 6".
 class _Counter extends StatelessWidget {
   final int index;
   final int count;
-  final Animation<double>? progress;
-  const _Counter({required this.index, required this.count, this.progress});
+  const _Counter({required this.index, required this.count});
 
   @override
   Widget build(BuildContext context) {
@@ -765,44 +763,26 @@ class _Counter extends StatelessWidget {
         color: Colors.black.withValues(alpha: 0.45),
         borderRadius: Radii.pill,
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            '${index + 1}',
-            style: AppText.num(AppText.micro).copyWith(
-              color: Colors.white,
-              fontWeight: FontWeight.w800,
-              height: 1,
-            ),
-          ),
-          if (progress != null) ...[
-            const SizedBox(width: 6),
-            SizedBox(
-              width: 18,
-              height: 2,
-              child: AnimatedBuilder(
-                animation: progress!,
-                builder: (context, _) => LinearProgressIndicator(
-                  value: progress!.value,
-                  backgroundColor: Colors.white.withValues(alpha: 0.2),
+      child: Center(
+        widthFactor: 1,
+        child: Text.rich(
+          TextSpan(
+            children: [
+              TextSpan(
+                text: '${index + 1}',
+                style: const TextStyle(
                   color: Colors.white,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
-            ),
-            const SizedBox(width: 6),
-          ] else
-            Text(
-              ' / ',
-              style: AppText.micro.copyWith(color: Colors.white54, height: 1),
-            ),
-          Text(
-            '$count',
-            style: AppText.num(
-              AppText.micro,
-            ).copyWith(color: Colors.white.withValues(alpha: 0.6), height: 1),
+              TextSpan(
+                text: '  /  $count',
+                style: TextStyle(color: Colors.white.withValues(alpha: 0.55)),
+              ),
+            ],
           ),
-        ],
+          style: AppText.num(AppText.micro).copyWith(height: 1),
+        ),
       ),
     );
   }

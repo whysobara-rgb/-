@@ -17,6 +17,33 @@ Color stageLight(Rarity r) => switch (r) {
   Rarity.ssr => const Color(0xFFF7CB5C),
 };
 
+/// 블러 없이 그리는 부드러운 타원 그림자(원형 그라데이션을 세로로 눌러 그린다).
+void softShadow(
+  Canvas canvas,
+  Offset center,
+  double rx,
+  double squash,
+  Color color,
+) {
+  canvas.save();
+  canvas.translate(center.dx, center.dy);
+  canvas.scale(1, squash);
+  canvas.drawCircle(
+    Offset.zero,
+    rx,
+    Paint()
+      ..shader = RadialGradient(
+        colors: [
+          color,
+          color.withValues(alpha: color.a * 0.4),
+          Colors.transparent,
+        ],
+        stops: const [0, 0.55, 1],
+      ).createShader(Rect.fromCircle(center: Offset.zero, radius: rx)),
+  );
+  canvas.restore();
+}
+
 /// ── 무대 배경 ─────────────────────────────────────────────────────
 ///
 /// 비네팅 + 가장자리에서 새어 드는 빛줄기(light leak) + 바닥 반사.
@@ -63,6 +90,7 @@ class StageBackdropPainter extends CustomPainter {
     );
 
     // 빛줄기: 위 양쪽 모서리에서 대각선으로 들어오는 부드러운 띠.
+    // 블러 대신 길쭉하게 늘린 원형 그라데이션으로 가장자리를 부드럽게 한다.
     if (energy > 0.02) {
       for (var i = 0; i < 3; i++) {
         final side = i.isEven ? -1.0 : 1.0;
@@ -77,20 +105,19 @@ class StageBackdropPainter extends CustomPainter {
         canvas.save();
         canvas.translate(origin.dx, origin.dy);
         canvas.rotate(angle);
-        final beam = Rect.fromLTWH(-w / 2, 0, w, len);
-        canvas.drawRect(
-          beam,
+        canvas.scale(w / len, 1);
+        canvas.drawCircle(
+          Offset.zero,
+          len,
           Paint()
-            ..shader = LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
+            ..shader = RadialGradient(
               colors: [
-                color.withValues(alpha: 0.22 * energy),
-                color.withValues(alpha: 0.05 * energy),
+                color.withValues(alpha: 0.24 * energy),
+                color.withValues(alpha: 0.07 * energy),
                 Colors.transparent,
               ],
-            ).createShader(beam)
-            ..maskFilter = MaskFilter.blur(BlurStyle.normal, w * 0.3),
+              stops: const [0, 0.45, 1],
+            ).createShader(Rect.fromCircle(center: Offset.zero, radius: len)),
         );
         canvas.restore();
       }
@@ -161,15 +188,12 @@ class VaultBoxPainter extends CustomPainter {
     final lr = c + Offset(s * cos30, s / 2);
     final b = c + Offset(0, s);
 
-    canvas.drawOval(
-      Rect.fromCenter(
-        center: b + Offset(0, s * 0.18),
-        width: s * 2.3,
-        height: s * 0.42,
-      ),
-      Paint()
-        ..color = Colors.black.withValues(alpha: 0.6 * opacity)
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, s * 0.12),
+    softShadow(
+      canvas,
+      b + Offset(0, s * 0.18),
+      s * 1.25,
+      0.2,
+      Colors.black.withValues(alpha: 0.65 * opacity),
     );
 
     final glow = (0.2 + 0.8 * crack) * intensity;
@@ -502,14 +526,21 @@ class ShockwavePainter extends CustomPainter {
       final e = Curves.easeOutCubic.transform(p);
       final r = maxR * e;
       final fade = 1 - p;
+      // 블러 대신 넓고 옅은 획 두 겹으로 번짐을 흉내 낸다.
+      final glowPaint = Paint()..style = PaintingStyle.stroke;
       canvas.drawCircle(
         c,
         r,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = (18 * weight) * fade + 1
-          ..color = color.withValues(alpha: 0.35 * fade)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8),
+        glowPaint
+          ..strokeWidth = (26 * weight) * fade + 2
+          ..color = color.withValues(alpha: 0.12 * fade),
+      );
+      canvas.drawCircle(
+        c,
+        r,
+        glowPaint
+          ..strokeWidth = (11 * weight) * fade + 1
+          ..color = color.withValues(alpha: 0.22 * fade),
       );
       canvas.drawCircle(
         c,
@@ -551,47 +582,37 @@ class LightRaysPainter extends CustomPainter {
     if (intensity <= 0) return;
     final c = origin ?? size.center(Offset.zero);
     final r = size.longestSide * 0.8;
-    final rect = Rect.fromCircle(center: c, radius: r);
-    final colors = <Color>[];
-    final stops = <double>[];
+    // 레이어(saveLayer) 없이: 가는 삼각형마다 중심에서 멀어질수록 사라지는
+    // 원형 그라데이션을 칠한다. 넓고 옅은 띠 + 좁고 밝은 띠 두 겹.
+    final shader = RadialGradient(
+      colors: [
+        color.withValues(alpha: 0.34 * intensity),
+        color.withValues(alpha: 0.12 * intensity),
+        color.withValues(alpha: 0),
+      ],
+      stops: const [0.08, 0.42, 1],
+    ).createShader(Rect.fromCircle(center: c, radius: r));
+    final wide = Paint()..shader = shader;
+    final core = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          Colors.white.withValues(alpha: 0.22 * intensity),
+          color.withValues(alpha: 0.10 * intensity),
+          color.withValues(alpha: 0),
+        ],
+        stops: const [0.05, 0.3, 0.8],
+      ).createShader(Rect.fromCircle(center: c, radius: r));
     for (var i = 0; i < rays; i++) {
-      final start = i / rays;
-      final width = (i.isEven ? 0.5 : 0.32) / rays;
-      colors.addAll([
-        color.withValues(alpha: 0),
-        color.withValues(alpha: (i.isEven ? 0.30 : 0.18) * intensity),
-        color.withValues(alpha: 0),
-        color.withValues(alpha: 0),
-      ]);
-      stops.addAll([
-        start,
-        start + width * 0.5,
-        start + width,
-        (start + 1 / rays).clamp(0.0, 1.0),
-      ]);
+      final a = rotation + i / rays * 2 * math.pi;
+      final half = (i.isEven ? 0.55 : 0.32) * math.pi / rays;
+      Path tri(double h) => Path()
+        ..moveTo(c.dx, c.dy)
+        ..lineTo(c.dx + math.cos(a - h) * r, c.dy + math.sin(a - h) * r)
+        ..lineTo(c.dx + math.cos(a + h) * r, c.dy + math.sin(a + h) * r)
+        ..close();
+      canvas.drawPath(tri(half), wide);
+      canvas.drawPath(tri(half * 0.35), core);
     }
-    canvas.saveLayer(rect, Paint());
-    canvas.drawCircle(
-      c,
-      r,
-      Paint()
-        ..shader = SweepGradient(
-          colors: colors,
-          stops: stops,
-          transform: GradientRotation(rotation),
-        ).createShader(rect),
-    );
-    canvas.drawCircle(
-      c,
-      r,
-      Paint()
-        ..shader = RadialGradient(
-          colors: [Colors.transparent, Colors.black.withValues(alpha: 0.95)],
-          stops: const [0.12, 0.9],
-        ).createShader(rect)
-        ..blendMode = BlendMode.dstOut,
-    );
-    canvas.restore();
   }
 
   @override
