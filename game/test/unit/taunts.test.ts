@@ -293,7 +293,7 @@ function worldOf(chars: CharacterState[]): TauntWorld {
     posOf: (id) => chars.find((c) => c.id === id)?.pos ?? null,
     nearestOpponent: (c) => {
       let best: number | null = null;
-      let bd = EMOTE.nearOpponentRadius;
+      let bd: number = EMOTE.nearOpponentRadius;
       for (const o of chars) {
         if (o.team === c.team) continue;
         const d = Math.hypot(o.pos.x - c.pos.x, o.pos.y - c.pos.y);

@@ -441,6 +441,8 @@ job('logo', {
           s.className = 'uh-logo__char';
           s.style.setProperty('--tilt', `${tilt[(i + seed) % tilt.length]}deg`);
           s.style.setProperty('--k', String(i));
+          // Latin capitals in Jua carry wide side bearings: tighten the pairs a little.
+          s.style.marginInline = '-0.03em';
           s.textContent = ch;
           el.appendChild(s);
         });
@@ -481,6 +483,8 @@ async function runJob(browser, base, j, lang) {
     async save(name, ui) {
       if (FRAMES && !FRAMES.some((o) => name.startsWith(o))) return;
       await S.setUiHidden(page, !ui);
+      const unzoomed = ui ? await S.undoBogusFit(page) : 0;
+      if (unzoomed) S.log(`  (undid a bogus shrink-to-fit zoom on ${unzoomed} screen frame)`);
       const ms = await S.drawFrame(page);
       const file = path.join(rawDir, `${name}.png`);
       await S.screenshot(page, file);

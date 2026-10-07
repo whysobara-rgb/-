@@ -524,6 +524,10 @@ const CAMERAS: Record<string, CamPreset> = {
   tauntsLeft: { pos: [S - 43.6, 1.6, 4.4], target: [S - 43.6, 0.7, 0], fov: 40 },
   tauntsRight: { pos: [S - 38.8, 1.6, 4.4], target: [S - 38.8, 0.7, 0], fov: 40 },
   tauntFaces: { pos: [S - 42.75, 1.5, 9.6], target: [S - 42.75, 0.75, 4.2], fov: 34 },
+  // One close-up per taunt (index = wheel slot), from where the rival stands.
+  ...Object.fromEntries(
+    [0, 1, 2, 3, 4, 5, 6].map((i) => [`taunt${i}`, { pos: [S - 46 + i * 1.6, 1.55, 3.1], target: [S - 46 + i * 1.6, 0.62, 0], fov: 36 } as CamPreset]),
+  ),
   tauntsGame: gameCam(S - 41.2, 0, 22),
   tauntsGameFar: gameCam(S - 41.2, 0, 29),
   police: { pos: [S - 2, 4.5, 14.5], target: [S - 2.5, 0.7, 8.5] },

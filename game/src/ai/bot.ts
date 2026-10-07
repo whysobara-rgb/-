@@ -106,6 +106,10 @@ interface Goal {
   wiggleDir?: Vec2;
   badFaceTicks?: number;
   mode?: 'pull' | 'push';
+  /** Cop guard: the officer's way to the covered mate around a bank / wall (re-planned now and then). */
+  coverPath?: { tick: number; pts: Vec2[] | null };
+  /** Cop guard: the officer last covered against. */
+  coverCopId?: EntityId;
   modeUntil?: number;
   carryDir?: Vec2;
   carryDirTick?: number;
@@ -1515,26 +1519,6 @@ export class Bot implements BotController {
           const mine = c.kind === 'collectSafe' || c.kind === 'stripBank' || c.kind === 'haulBank' || c.kind === 'assistHaul';
           const deny = c.kind === 'intercept' || c.kind === 'stripBank';
           if ((mine && d + v > R - v) || (deny && v - d >= R - v)) c.utility *= k;
-        }
-      }
-      // A few loads left and the score still open: on mirror-symmetric layouts each side picking
-      // up "its" last safe ends level. Go and contest the one the other team is heading for
-      // (catch them at it: they need a second to work it loose, a carrier is slower than a
-      // walker) instead of quietly taking the mirrored one.
-      if (BOT_TUNING.contestLate > 0 && R <= 400 && Math.abs(d) <= R && !me.grab && !this.isProxy) {
-        for (const c of out) {
-          if (c.kind !== 'collectSafe' || c.targetId === null) continue;
-          const l = st.loot.find((x) => x.id === c.targetId);
-          if (!l || l.floorOf !== null) continue;
-          const mine = V.dist(me.pos, l.pos);
-          for (const o of freshOpps) {
-            if (!o.last || o.last.holdingId !== null) continue;
-            const od = V.dist(o.last.pos, l.pos);
-            if (od < mine && mine < od + 10) {
-              c.utility *= 1 + BOT_TUNING.contestLate * Math.min(1, 0.5 + depth);
-              break;
-            }
-          }
         }
       }
     }
@@ -3380,6 +3364,16 @@ export class Bot implements BotController {
         cop = c;
       }
     }
+    // (the officer it was covering against is down for a moment — stunned, or tired after a
+    // lunge: stay between it and the mate, it gets up right there)
+    if (!cop && g.coverCopId !== undefined) {
+      const c = this.ps.cops.find((x) => x.id === g.coverCopId);
+      if (c && (c.phase === 'stunned' || c.phase === 'tired' || c.target === null) && V.dist(c.pos, mate.pos) < 6) {
+        cop = c;
+        cd = V.dist(c.pos, mate.pos);
+      }
+    }
+    if (cop) g.coverCopId = cop.id;
     if (!cop) {
       g.waitStart ??= tick;
       if (tick - g.waitStart > 2 * TICK_RATE) {
@@ -3390,15 +3384,33 @@ export class Bot implements BotController {
       return cmd(this.yieldToMates(sim, m.move), false);
     }
     g.waitStart = undefined;
-    const dir = V.norm(V.sub(cop.pos, mate.pos));
+    let dir = V.norm(V.sub(cop.pos, mate.pos));
     // in front of the officer's run, a body width from the mate (or half way when it is close)
     const off = Math.max(0.95, Math.min(1.6, cd * 0.5));
+    // (a bank or a wall between them: the officer has to come around it — cover the way it comes,
+    // the last stretch of its path to the mate, instead of a spot inside the bank)
+    if (!sim.lineOfSight(mate.pos, cop.pos)) {
+      if (!g.coverPath || tick - g.coverPath.tick > 12) {
+        const res = this.nav.findPath(cop.pos, mate.pos, 'walk', { maxExpand: 6000 });
+        g.coverPath = { tick, pts: res && !res.partial ? res.points : null };
+      }
+      const pts = g.coverPath.pts;
+      if (pts && pts.length >= 2) {
+        // walk back from the mate along the path to the first point at least `off` away
+        for (let i = pts.length - 2; i >= 0; i--) {
+          if (V.dist(pts[i]!, mate.pos) >= off) {
+            dir = V.norm(V.sub(pts[i]!, mate.pos));
+            break;
+          }
+        }
+      }
+    } else g.coverPath = undefined;
     const block = V.add(mate.pos, V.scale(dir, off));
     const k = this.nav.nearestPassable(block, 'walk', 2);
     const tgt = k >= 0 ? { x: this.nav.cellX(k), y: this.nav.cellY(k) } : block;
     const d = V.dist(me.pos, tgt);
-    // (still running over from afar: travelling, not covering yet)
-    g.phase = d > 3 ? 'travel' : 'block';
+    // (still running over to the covering spot: travelling, not covering yet)
+    g.phase = d > 1.0 ? 'travel' : 'block';
     const aim = V.sub(cop.pos, me.pos);
     if (d < 0.25) return cmd({ x: 0, y: 0 }, false, aim);
     if (d < 4 && this.nav.segmentClear(me.pos, tgt, 'walk', 0)) return cmd(V.scale(V.norm(V.sub(tgt, me.pos)), Math.min(1, d / 0.6)), false, aim);

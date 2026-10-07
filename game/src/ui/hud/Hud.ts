@@ -44,6 +44,7 @@ const ACTION_HINT: Partial<Record<PromptAction, string>> = {
   ping: 'hint.ping',
   move: 'hint.move',
   pause: 'hint.pause',
+  emoteWheel: 'hint.emoteWheel',
 };
 
 interface TeamPanel {

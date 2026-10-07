@@ -177,22 +177,17 @@ def manifest() -> dict:
 
 
 def step_plates() -> None:
+    """Every raw plate_* frame, downsampled 2x (captures are made at deviceScaleFactor 2)."""
     print('plates')
-    m = manifest()['frames']
-    for key, info in sorted(m.items()):
-        lang, name = key.split('/', 1)
-        if lang not in LANGS or not name.startswith('plate_'):
-            continue
-        src = ROOT / info['file']
-        if not src.exists():
-            continue
-        img = load(src).convert('RGB')
-        w, h = info['size']
-        out = downsample(img, (w, h))
-        c = contrast_report(out)
-        if c < 0.12:
-            print(f'  ! low contrast {c:.3f}: {key} (hazy capture? check it)')
-        save(out, STORE / 'plates' / lang / f'{name[6:]}.png')
+    dpr = int(manifest().get('dpr', 2)) or 2
+    for lang in LANGS:
+        for src in sorted((RAW / lang).glob('plate_*.png')):
+            img = load(src).convert('RGB')
+            out = downsample(img, (img.width // dpr, img.height // dpr))
+            c = contrast_report(out)
+            if c < 0.12:
+                print(f'  ! low contrast {c:.3f}: {lang}/{src.name} (hazy capture? check it)')
+            save(out, STORE / 'plates' / lang / f'{src.stem[6:]}.png')
 
 
 SCREENSHOTS = [

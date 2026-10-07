@@ -36,6 +36,10 @@ export async function openGame(browser, { base, query, width = 1920, height = 10
   page.on('pageerror', (e) => problems.push(`[pageerror] ${e.message}`));
   await page.goto(`${base}${pathName}?${query}`);
   await waitFor(page, `document.documentElement.dataset.booted === '1'`, 240_000);
+  // Load every bundled font face (all Hangul subsets, all weights) up front. The game preloads
+  // only the common subsets; a screen that shows rarer glyphs would otherwise be measured for
+  // its shrink-to-fit with fallback metrics while the subset is still loading.
+  await page.evaluate(() => Promise.all([...document.fonts].map((f) => f.load().catch(() => null))).then(() => document.fonts.size));
   return { ctx, page, problems };
 }
 
@@ -94,6 +98,8 @@ export async function drawFrame(page, dtMs = 1000 / 60) {
   // Make sure the GPU finished before the compositor grabs the frame.
   await page.evaluate(`(() => { const a = window.__uproot.app; try { const gl = a.d.view.webgl.getContext(); gl.finish(); } catch {} try { if (a.stage) a.stage.gl.getContext().finish(); } catch {} })()`);
   await page.evaluate(`__cap.setDraw(false)`);
+  // Let the compositor present the new frame before anyone grabs it (software GL is slow).
+  await page.evaluate(`__cap.realFrames(3)`);
   return Date.now() - t0;
 }
 
@@ -115,6 +121,32 @@ export async function setUiHidden(page, hidden) {
     },
     [HIDE_UI_CSS, hidden],
   );
+}
+
+/**
+ * Workaround for a shrink-to-fit false positive in the current build (UiScreen.fitToViewport):
+ * results / intermission / layout-preview frames get `zoom: 0.5` because direct children report
+ * a few px of overflow (stamp tilt, rolling-digit strips) that zoom cannot remove, so the search
+ * bottoms out at its 0.5 floor — the e2e shots (test-results/shots/06-results.png) show the same.
+ * Undo it only when the frame itself fits the 1920x1080 viewport without zoom, so the capture
+ * shows the screen as laid out. Remove once the fit logic is fixed (then this is a no-op).
+ */
+export async function undoBogusFit(page) {
+  return page.evaluate(() => {
+    let undone = 0;
+    for (const f of document.querySelectorAll('.uh-screen:not([hidden]) > .uh-frame')) {
+      const z = f.style.zoom;
+      if (!z) continue;
+      f.style.removeProperty('zoom');
+      f.style.removeProperty('--uh-fit');
+      const fits = f.scrollWidth <= f.clientWidth + 2 && f.scrollHeight <= f.clientHeight + 2 && f.clientWidth <= innerWidth + 1 && f.clientHeight <= innerHeight + 1;
+      if (!fits) {
+        f.style.setProperty('zoom', z);
+        f.style.setProperty('--uh-fit', z);
+      } else undone++;
+    }
+    return undone;
+  });
 }
 
 export async function screenshot(page, file) {

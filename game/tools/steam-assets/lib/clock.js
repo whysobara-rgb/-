@@ -210,5 +210,11 @@
       return -1;
     },
     realSleep: (ms) => new Promise((r) => realST(r, ms)),
+    /** Resolve after n real animation frames (the compositor has produced new frames). */
+    realFrames: (n = 2) =>
+      new Promise((r) => {
+        const step = (k) => (k <= 0 ? r(true) : realRAF(() => step(k - 1)));
+        step(n);
+      }),
   };
 })();
