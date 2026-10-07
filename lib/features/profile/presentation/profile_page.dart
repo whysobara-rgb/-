@@ -10,6 +10,7 @@ import '../../../shared/providers/auth_provider.dart';
 import '../../../shared/providers/gp_provider.dart';
 import '../../../shared/widgets/gp_badge.dart';
 import '../../../shared/widgets/ui.dart';
+import '../../admin/presentation/admin_home_page.dart';
 import '../../auth/domain/agreements.dart';
 import '../../auth/presentation/terms_page.dart';
 import '../../auth/social/social_auth_client.dart';
@@ -361,6 +362,16 @@ class _ProfilePageState extends State<ProfilePage> {
             const SizedBox(height: Space.x5),
             const SectionBand(),
 
+            if (user?.isAdmin ?? false) ...[
+              const _GroupTitle('운영'),
+              MenuRow(
+                icon: Icons.admin_panel_settings_outlined,
+                label: '운영자 모드',
+                value: '배송·박스·배너·결제',
+                onTap: () => Navigator.of(context).push(AdminHomePage.route()),
+              ),
+              const SectionBand(),
+            ],
             const _GroupTitle('내 활동'),
             MenuRow(
               icon: Icons.receipt_long_outlined,
