@@ -537,11 +537,27 @@ export class MatchController {
     return cmd;
   }
 
-  /** The seat whose taunt wheel the HUD draws (the most recently opened one that is open). */
-  private wheelSeat(): Seat {
-    let best: Seat | null = null;
-    for (const s of this.seats) if (s.wheel.open && (!best || s.wheelOpenedAt > best.wheelOpenedAt)) best = s;
-    return best ?? this.seats[0]!;
+  /** Where this seat's taunt wheel is drawn (local multiplayer: each player has their own). */
+  private wheelGeometry(seat: Seat): { x: number; y: number; dead: number } | null | undefined {
+    const hud = this.svc.hud;
+    return this.isLocal && hud.tauntWheelGeometry ? hud.tauntWheelGeometry(seat.index) : hud.taunts.geometry?.();
+  }
+
+  /**
+   * (local multiplayer) Where each open wheel sits: one open wheel is centred at full size; two
+   * or more share the middle of the screen side by side (2x2 for three or four), in P order.
+   */
+  private wheelPlaces(): Map<Seat, { x: number; y: number; scale: number }> {
+    const open = this.seats.filter((s) => s.wheel.open && !this.paused);
+    const out = new Map<Seat, { x: number; y: number; scale: number }>();
+    if (open.length < 2) return out;
+    const grid = open.length > 2;
+    open.forEach((s, i) => {
+      const col = i % 2;
+      const row = grid ? Math.floor(i / 2) : 0;
+      out.set(s, { x: col ? 0.7 : 0.3, y: grid ? (row ? 0.69 : 0.33) : 0.5, scale: grid ? 0.64 : 0.78 });
+    });
+    return out;
   }
 
   /** A taunt cannot start now: holding something, dashing, boosting, knocked down or dizzy (same as the sim, emotes.ts). */
@@ -577,7 +593,7 @@ export class MatchController {
       keys: f.wheelKeys,
       pointer: p ? { x: p.clientX, y: p.clientY } : null,
       // the mouse picks by direction from the wheel as drawn (HUD center), not from the cursor
-      center: mouse && (f.emoteWheelDown || seat.wheel.open) ? (this.svc.hud.taunts.geometry?.() ?? null) : null,
+      center: mouse && (f.emoteWheelDown || seat.wheel.open) ? (this.wheelGeometry(seat) ?? null) : null,
       click: mouse && f.wheelClick ? { x: f.wheelClick.clientX, y: f.wheelClick.clientY } : null,
       cancel: f.grabPressed || f.dashPressed || f.pausePressed || (seat.wheel.open && f.pingAtPointer !== null),
     });
@@ -622,8 +638,7 @@ export class MatchController {
   }
 
   /** HUD taunt wheel model for this frame. */
-  private tauntWheelModel(): Parameters<Hud['setTauntWheel']>[0] {
-    const seat = this.wheelSeat();
+  private tauntWheelModel(seat: Seat, place: { x: number; y: number; scale: number } | null = null): NonNullable<Parameters<Hud['setTauntWheel']>[0]> {
     const me = this.sim.getCharacter(seat.charId);
     const tick = this.sim.state.tick;
     const playing = !!me?.emote && tick < me.emote.endTick;
@@ -636,8 +651,16 @@ export class MatchController {
       cooldown: cool,
       blocked,
       showKeys: seat.device ? seat.device === 'kbA' || seat.device === 'kbB' : this.svc.input.glyphDevice === 'keyboard',
-      ...(this.isLocal ? { owner: { index: seat.index } } : {}),
+      ...(this.isLocal ? { owner: { index: seat.index, keys: this.directTauntKeys(seat) }, place } : {}),
     };
+  }
+
+  /** (local multiplayer) A keyboard player's own direct taunt keys, in wheel slot order. */
+  private directTauntKeys(seat: Seat): (string | null)[] | null {
+    const dev = seat.device;
+    const sets = this.svc.local?.keySets;
+    if (!sets || (dev !== 'kbA' && dev !== 'kbB')) return null;
+    return (['emote1', 'emote2', 'emote3', 'emote4'] as const).map((a) => sets[dev][a]?.[0] ?? null);
   }
 
   /** Key ping: at the grab candidate, else the ground ahead. Mouse ping: the cursor. */
@@ -892,7 +915,10 @@ export class MatchController {
       model.carry = null;
     }
     hud.update(model);
-    hud.setTauntWheel(this.phase === 'playing' ? this.tauntWheelModel() : null);
+    if (this.isLocal && hud.setTauntWheels) {
+      const places = this.wheelPlaces();
+      hud.setTauntWheels(this.phase === 'playing' ? this.seats.map((s) => this.tauntWheelModel(s, places.get(s) ?? null)) : null);
+    } else hud.setTauntWheel(this.phase === 'playing' ? this.tauntWheelModel(this.seats[0]!) : null);
     hud.setPlayerChips(this.seats.length > 1 ? this.playerChips() : null);
   }
 

@@ -38,6 +38,11 @@
   box-shadow: 0.15rem 0.15rem 0 var(--pop-ink);
   z-index: 2;
 }
+.uh-ewheel__owner[hidden] { display: none; }
+/* Several wheels open at once: each player's wheel moves aside (P order), smaller. */
+.uh-ewheel[data-place] { left: var(--wx); top: var(--wy); scale: var(--ws); }
+.uh-ewheel { transition: left 160ms ease, top 160ms ease, scale 160ms ease; }
+@media (prefers-reduced-motion: reduce) { .uh-ewheel { transition: none; } }
 
 /* Corner chips: P1 / P3 top-left, P2 / P4 top-right (the scoreboard owns the middle). */
 .uh-pchips { position: absolute; inset: 0; pointer-events: none; }

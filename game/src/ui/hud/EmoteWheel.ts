@@ -17,7 +17,7 @@ import { t } from '../i18n';
 import { animateEl, h, setClass, setText } from '../core/dom';
 import { icon } from '../core/icons';
 import { objectPortrait } from '../core/portrait';
-import { glyphChip, type PromptAction } from '../core/prompts';
+import { bindingChip, glyphChip, type PromptAction } from '../core/prompts';
 import { tauntIcon } from '../core/tauntIcons';
 import { playerColor, playerTag } from '../../shared/players';
 
@@ -40,7 +40,16 @@ export interface EmoteWheelModel {
   /** Show the direct-key glyphs on the base slots (keyboard players). */
   showKeys: boolean;
   /** (local multiplayer) Whose wheel this is: "P2" tag in that player's colour. */
-  owner?: { index: number } | null;
+  owner?: {
+    index: number;
+    /** That player's own direct taunt keys (key codes, slot order); omitted = the shared bindings. */
+    keys?: readonly (string | null)[] | null;
+  } | null;
+  /**
+   * (local multiplayer) Where the wheel sits when several are open at once: its centre as a
+   * fraction of the HUD box and a scale. Omitted / null: the screen centre at full size.
+   */
+  place?: { x: number; y: number; scale: number } | null;
 }
 
 /** Direct-key prompt per base slot (emote1..emote4). */
@@ -100,6 +109,8 @@ export class EmoteWheel {
   /** (local multiplayer) owner tag on the disc. */
   private ownerEl: HTMLElement | null = null;
   private cOwner = -2;
+  private cPlace = '';
+  private place: { x: number; y: number; scale: number } | null = null;
 
   constructor() {
     const r = ring(RING_R, 'uh-ewheel__ring', 100);
@@ -153,10 +164,24 @@ export class EmoteWheel {
         this.el.style.removeProperty('--p');
       }
     }
-    const key = m.slots.map((s) => `${s.id}:${s.unlocked ? 1 : 0}:${s.angle ?? ''}`).join('|');
+    const pk = m.place ? `${m.place.x}:${m.place.y}:${m.place.scale}` : '';
+    if (pk !== this.cPlace) {
+      this.cPlace = pk;
+      this.place = m.place ?? null;
+      if (m.place) {
+        this.el.dataset.place = '';
+        this.el.style.setProperty('--wx', `${m.place.x * 100}%`);
+        this.el.style.setProperty('--wy', `${m.place.y * 100}%`);
+        this.el.style.setProperty('--ws', String(m.place.scale));
+      } else {
+        delete this.el.dataset.place;
+        for (const v of ['--wx', '--wy', '--ws']) this.el.style.removeProperty(v);
+      }
+    }
+    const key = m.slots.map((s) => `${s.id}:${s.unlocked ? 1 : 0}:${s.angle ?? ''}`).join('|') + `#${m.owner?.keys?.join(',') ?? ''}`;
     if (key !== this.cKey) {
       this.cKey = key;
-      this.build(m.slots);
+      this.build(m.slots, m.owner?.keys ?? null);
       this.cHover = -1;
     }
     if (m.open !== this.cOpen) {
@@ -230,7 +255,8 @@ export class EmoteWheel {
     const b = host.getBoundingClientRect();
     if (!(b.width > 0 && b.height > 0)) return null;
     const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-    return { x: b.left + b.width / 2, y: b.top + b.height / 2, dead: 5.25 * rem };
+    const pl = this.place;
+    return { x: b.left + b.width * (pl?.x ?? 0.5), y: b.top + b.height * (pl?.y ?? 0.5), dead: 5.25 * rem * (pl?.scale ?? 1) };
   }
 
   /** Released over a locked slot: the gift box shakes. */
@@ -269,7 +295,7 @@ export class EmoteWheel {
     animateEl(this.chipEl, [{ scale: '1' }, { scale: '1.25', offset: 0.35 }, { scale: '0.95', offset: 0.7 }, { scale: '1' }], { duration: 320, easing: 'ease-out' });
   }
 
-  private build(slots: readonly EmoteWheelSlot[]): void {
+  private build(slots: readonly EmoteWheelSlot[], keys: readonly (string | null)[] | null): void {
     const n = Math.max(1, slots.length);
     this.slots = slots.map((s, i) => {
       const a = s.angle ?? (i / n) * 360;
@@ -282,10 +308,11 @@ export class EmoteWheel {
           'data-emote': s.id,
         },
         h('div', { class: 'uh-ewheel__sticker' }, face, !s.unlocked ? h('span', { class: 'uh-ewheel__lock' }, icon('lock')) : null),
-        i < DIRECT.length && s.unlocked ? h('span', { class: 'uh-ewheel__key' }, glyphChip(DIRECT[i]!)) : null,
+        i < DIRECT.length && s.unlocked ? h('span', { class: 'uh-ewheel__key' }, keys ? bindingChip('keyboard', keys[i] ?? null) : glyphChip(DIRECT[i]!)) : null,
       );
       return { root, id: s.id, unlocked: s.unlocked };
     });
-    this.disc.replaceChildren(...this.slots.map((s) => s.root));
+    // (local multiplayer) the owner pill lives on the disc too: keep it across rebuilds.
+    this.disc.replaceChildren(...this.slots.map((s) => s.root), ...(this.ownerEl ? [this.ownerEl] : []));
   }
 }

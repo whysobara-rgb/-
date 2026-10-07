@@ -96,6 +96,8 @@ export class Hud {
   readonly stamps: Stamps;
   /** Taunt wheel + taunt chip (owner addition). */
   readonly taunts: EmoteWheel;
+  /** (local multiplayer) P2..P4's own taunt wheels (created on first use). */
+  private readonly extraWheels: (EmoteWheel | undefined)[] = [];
   /** (local multiplayer) per-player corner chips. */
   readonly players: PlayerChips = new PlayerChips();
   /** [C8] Content 2.0 HUD parts (item slot in the dash button, bag chip, deposit ring, world tags). */
@@ -392,6 +394,35 @@ export class Hud {
   setPlayerChips(list: readonly PlayerChipModel[] | null): void {
     setClass(this.el, 'is-local', !!list && list.length > 1);
     this.players.update(list);
+  }
+
+  /**
+   * (local multiplayer) Every player's taunt wheel, one model each (owner.index picks the wheel:
+   * P1 uses the main one, P2..P4 their own), so two players holding their wheel buttons at once
+   * both see what they are choosing. Null hides them all.
+   */
+  setTauntWheels(list: readonly EmoteWheelModel[] | null): void {
+    const closed: EmoteWheelModel = { open: false, hover: null, slots: [], cooldown: 0, blocked: false, showKeys: false };
+    const byOwner = new Map((list ?? []).map((m) => [m.owner?.index ?? 0, m]));
+    this.setTauntWheel(byOwner.get(0) ?? null);
+    for (let i = 1; i < 4; i++) {
+      const m = byOwner.get(i);
+      let w = this.extraWheels[i - 1];
+      if (!w) {
+        if (!m) continue;
+        w = new EmoteWheel();
+        this.extraWheels[i - 1] = w;
+        this.taunts.el.after(w.el);
+      }
+      if (m) w.update(m);
+      else if (!w.el.hidden) w.update(closed);
+    }
+  }
+
+  /** (local multiplayer) Where player `index`'s open taunt wheel is (mouse picking), else the main one. */
+  tauntWheelGeometry(index: number): ReturnType<EmoteWheel['geometry']> {
+    const w = index > 0 ? this.extraWheels[index - 1] : undefined;
+    return (w ?? this.taunts).geometry();
   }
 
   /** Taunt wheel state (open / hover / cooldown); null hides the wheel. */
@@ -865,6 +896,7 @@ export class Hud {
     this.labels.invalidate();
     this.paintTutorial();
     this.taunts.relabel();
+    for (const w of this.extraWheels) w?.relabel();
     if (this.model) this.update(this.model);
   }
 }
