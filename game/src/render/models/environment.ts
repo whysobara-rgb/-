@@ -1249,7 +1249,9 @@ export function createGround(layout: LayoutDef, opts: { detail?: number } = {}):
   const sy = layout.size.y;
   const cx = sx / 2;
   const cz = sy / 2;
-  const style: GroundStyle = layout.groundStyle ?? 'plaza';
+  // Content 2.0: 'yard' / 'funpark' ground art arrives with C7b; until then they use the plaza paving.
+  const ls = layout.groundStyle ?? 'plaza';
+  const style: GroundStyle = ls === 'yard' || ls === 'funpark' ? 'plaza' : ls;
   const plane = (w: number, d: number, y: number, mat: THREE.Material, name: string): THREE.Mesh => {
     const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d).rotateX(-HALF_PI), mat);
     m.position.set(cx, y, cz);

@@ -11,6 +11,9 @@
  *   The identity test therefore does not depend on `src/ai` (bots may keep changing).
  * - Fuzz matches: the seeded `FuzzDriver` (test fixture, independent of `src/ai`) replays live.
  *
+ * Replays and the recorder pass `content: 'classic'` explicitly, so a map gaining `layout.v2` (C4)
+ * or the CONTENT_V2_BY_DEFAULT flip never changes what this fixture checks.
+ *
  * Every match stores the sha256 of `JSON.stringify(sim.eventLog)` plus a digest of the classic
  * state fields (characters, loot, scores) at the end.
  *

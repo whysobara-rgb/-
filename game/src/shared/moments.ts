@@ -23,7 +23,16 @@ export type MomentKind =
   | 'stealChance'
   | 'tauntPunished'
   | 'dodged'
-  | 'counterDash';
+  | 'counterDash'
+  // Content 2.0 (content-plan §4.5; C0 contract, produced by WP5/F5's MomentTracker, add-only)
+  | 'coinSplash'
+  | 'jackpot'
+  | 'hammerBonk'
+  | 'homeRun'
+  | 'goldHammer'
+  | 'tossScore'
+  | 'craneDrop'
+  | 'eventHaul';
 
 export const MOMENT_KINDS: readonly MomentKind[] = [
   'leadTaken',
@@ -37,6 +46,14 @@ export const MOMENT_KINDS: readonly MomentKind[] = [
   'tauntPunished',
   'dodged',
   'counterDash',
+  'coinSplash',
+  'jackpot',
+  'hammerBonk',
+  'homeRun',
+  'goldHammer',
+  'tossScore',
+  'craneDrop',
+  'eventHaul',
 ];
 
 /** Scoring-run tier (plan WP5: tier 1 = three recoveries in a row or 800 pts, tier 2 = 1000). */
@@ -58,6 +75,14 @@ export type StreakTier = 1 | 2;
  * | tauntPunished      | team of the dasher who hit the taunter  | the hit                 | –                | –                              | –    |
  * | dodged             | team of the character who dodged        | the dodger              | –                | –                              | –    |
  * | counterDash        | team of the local human (clash)         | the clash               | –                | –                              | –    |
+ * | coinSplash         | team that CAUSED a spill >= 60          | the spill               | –                | spilled value                  | –    |
+ * | jackpot            | team of the smasher / door breaker      | piggy / truck           | –                | value released (300 / 400)     | –    |
+ * | hammerBonk         | team of the hammerer                    | the hit                 | –                | victim's held value (loot+bag) | –    |
+ * | homeRun            | team of the hammerer (victim on soap)   | the hit                 | –                | victim's held value            | –    |
+ * | goldHammer         | team that picked it up                  | the pickup              | –                | –                              | –    |
+ * | tossScore          | team that recovered tossed / tubed loot | the recovery            | –                | points of that recovery        | –    |
+ * | craneDrop          | team that stunned the crane cat         | where the bank dropped  | –                | the bank's value               | –    |
+ * | eventHaul          | team that recovered >= 200 event value  | last event recovery     | –                | event value recovered          | –    |
  *
  * `ids` (optional) names the entities involved, most relevant first:
  * - leadTaken / equalized / streakTier / streakBroken: [recovered loot id] of the recovery that
@@ -67,6 +92,12 @@ export type StreakTier = 1 | 2;
  * - bigPlay: [actor character id, ...loot id(s) involved];
  * - tauntPunished / dodged / counterDash: [actor, other] character ids (tauntPunished: [dasher,
  *   taunter]; dodged: [dodger, bot that wound up]; counterDash: [human, other dasher]).
+ * - Content 2.0: coinSplash / hammerBonk / homeRun: [actor, victim]; jackpot: [actor, piggy loot
+ *   id] (truck: [actor]); goldHammer: [picker]; tossScore: [recovered loot id]; craneDrop: [cat
+ *   stunner, bank id]; eventHaul: [event loot id(s)] (coins: []).
+ * Content 2.0 timing (F5): streak tiers become fractions of `state.totalValue` (tier 1 25%,
+ * tier 2 31%); a deposit (`coinsBanked`) >= 50 counts as a recovery for runs; `bigPlay` adds
+ * jackpot 3, hammerBonk on a bank hauler 4, craneDrop 4, homeRun 3.
  *
  * `lootKind` (optional) is the kind of the load involved (leadTaken / equalized / matchPoint* /
  * streak* / bigPlay / stealChance), so HUD (WP4) and audio (WP8) can merge "은행째!" + "역전!" into

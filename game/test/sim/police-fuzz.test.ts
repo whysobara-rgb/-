@@ -1,5 +1,5 @@
 /**
- * Police event fuzz on the real match layouts: value conservation (3200), scores only change
+ * Police event fuzz on the real match layouts: value conservation (state.totalValue), scores only change
  * through settlement, officers stay finite / inside the arena / never permanently stuck,
  * tackles only ever hit loot carriers, determinism, and the per-officer performance budget.
  */
@@ -64,6 +64,7 @@ function policeFuzz(id: LayoutId, seed: number, ticks: number, rules: Partial<Ru
   const baseBodies = physics.bodies.length;
   const windowStart = new Map<number, { x: number; y: number; phase: string; run: number }>();
   let prevScores: [number, number] = [0, 0];
+  const total0 = st.totalValue;
   for (let t = 0; t < ticks && !st.over; t++) {
     if (assistEvery) driver.assist(assistEvery);
     const heldBefore = st.characters.map((c) => c.grab !== null);
@@ -72,7 +73,7 @@ function policeFuzz(id: LayoutId, seed: number, ticks: number, rules: Partial<Ru
     stats.ticks++;
     // --- value conservation and scores (police never touch them) ---
     expect(st.scores[0] + st.scores[1] + st.remainingValue).toBe(st.totalValue);
-    expect(st.totalValue).toBe(3200);
+    expect(st.totalValue).toBe(total0);
     let settled: [number, number] = [0, 0];
     for (const e of evs) {
       if (e.type === 'recovered') {

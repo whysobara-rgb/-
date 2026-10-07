@@ -4,6 +4,7 @@
  */
 import type { Body, GrabJoint, PhysicsWorld, StaticShape } from './physics';
 import type { PoliceSystem } from './police';
+import type { ContentSystems } from './systems';
 import type { Command, LayoutDef, LootState, MatchSetup, OBB, RuleConfig, SimEvent, SimState } from './types';
 
 export interface CharRuntime {
@@ -84,6 +85,20 @@ export interface SimContext {
   started: boolean;
   /** Police event runtime (null unless rules.police). */
   police: PoliceSystem | null;
+  // --- Content 2.0 (C0 skeleton) ---
+  /**
+   * Content 2.0 systems in the frozen order coins -> props -> items -> gimmicks -> events
+   * (src/sim/systems.ts). null in classic, so classic never runs any content code.
+   */
+  content: ContentSystems | null;
+  /**
+   * The item-deck RNG (C2 only): createRng(setup.seed ^ CONTENT_RNG_SALT). The event plan and the
+   * truck's curb side use their own stream inside `planMatchEvents` (events.ts, EVENT_RNG_SALT),
+   * so deck draws never shift the event plan. Never drawn in classic.
+   */
+  rng: () => number;
+  /** Next free id per Content 2.0 id range (use nextEntityId in world.ts). */
+  nextIds: { item: number; projectile: number; hazard: number; kinematic: number; coin: number };
 }
 
 export function lootById(ctx: SimContext, id: number): { state: LootState; rt: LootRuntime } | null {

@@ -6,6 +6,7 @@ Steam store art from the in-engine captures (tools/steam-assets/capture.mjs) —
     python3 tools/steam-assets/compose.py capsules   # one step: plates|screens|logos|capsules|icons
 
 Inputs  tools/out/steam-assets/raw/<lang>/*.png   2x supersampled frames from the real game
+        tools/out/steam-assets/raw/keyart/*.png   capsule key art (title diorama, night)
         tools/out/steam-assets/raw/ko/logo_*.png  the title wordmark from the real title screen
         tools/out/steam-assets/raw/icon/*.png     real-model renders (transparent)
 Outputs steam/store/plates/<lang>/           clean plates, downsampled to their CSS size
@@ -17,8 +18,9 @@ Outputs steam/store/plates/<lang>/           clean plates, downsampled to their 
 Rules kept here (Steam capsule guidelines + docs/ART_DIRECTION.md):
   - capsules carry the game logo and nothing else: no slogans, review quotes, awards, prices;
   - the library hero and the page background carry no logo and no text;
-  - all art is real in-engine frames + the real UI wordmark; composition only crops, scales,
-    grades lightly and lays the logo on top (no painted-over or generated imagery).
+  - screenshots and plates are real in-engine frames; capsule key art is the real title diorama
+    re-lit for night (capture.mjs KEYART, pages/models.ts keyArt); composition only crops,
+    scales, grades lightly and lays the logo on top (no painted-over or generated imagery).
 """
 from __future__ import annotations
 
@@ -229,6 +231,23 @@ def logo_src(lang: str) -> Image.Image:
     return trim(load(RAW / 'ko' / f'logo_{lang}.png').convert('RGBA'), pad=4)
 
 
+_STICKER: dict[str, Image.Image] = {}
+
+
+def logo_sticker(lang: str) -> Image.Image:
+    """The wordmark with a cream sticker band + thin ink rim around the whole lockup.
+
+    The title screen shows the logo on a bright sky, where its ink outlines carry the letter
+    shapes; on the night-indigo capsules those ink edges sink into the sky, so the lockup gets
+    the same die-cut sticker edge the UI's stickers and the app icon use.
+    """
+    if lang not in _STICKER:
+        lg = logo_src(lang)
+        h = lg.height
+        _STICKER[lang] = trim(toy_outline(lg, max(4, int(h * 0.016)), max(3, int(h * 0.011))), pad=2)
+    return _STICKER[lang]
+
+
 def step_logos() -> None:
     print('logos')
     for lang in LANGS:
@@ -245,62 +264,46 @@ def trim_to(img: Image.Image, w: int, h: int) -> Image.Image:
     return img if img.size == (w, h) else img.resize((w, h), LANCZOS)
 
 
-def title_plate(kind: str, lang: str, moment='pop') -> Image.Image:
-    suffix = '' if kind == 'wide' else f'_{kind}'
-    return load(RAW / lang / f'plate_title_{moment}{suffix}.png').convert('RGB')
+def keyart(name: str, size: tuple[int, int]) -> Image.Image:
+    """A capsule key-art render (capture.mjs KEYART: the title diorama re-lit for night)."""
+    img = load(RAW / 'keyart' / f'{name}.png').convert('RGB')
+    return img if img.size == size else downsample(img, size)
+
+
+# Logo boxes (x, y, w, h) per capsule: always over open night sky, clear of the crew and bank.
+CAPSULES = {
+    'header': ((920, 430), (20, 14, 420, 262), 'left'),
+    'small': ((462, 174), (6, 6, 262, 162), 'left'),
+    'main': ((1232, 706), (36, 28, 590, 330), 'left'),
+    'vertical': ((748, 896), (54, 34, 640, 316), 'center'),
+    'library': ((600, 900), (40, 40, 520, 292), 'center'),
+}
 
 
 def step_capsules() -> None:
     print('capsules')
     for lang in LANGS:
-        lg = logo_src(lang)
-        hero = title_plate('hero', lang, 'strain')   # 7680x2480: diorama centred, open sky both sides
-        wide = title_plate('wide', lang, 'strain')   # 3840x2160: the title-screen framing
-        tall = title_plate('tall', lang, 'strain')   # 2000x3000
-
-        # Header 920x430: the diorama on the right (left part of the wide hero frame), logo left.
-        bg = window(hero, (920, 430), x0=0.0, y0=0.03, h=0.97)
-        bg = vignette(side_shade(bg, 'left', 0.6, 0.16), 0.14)
-        save(place(bg, lg, (26, 26, 450, 378)), STORE / f'header_capsule_{lang}.png')
-
-        # Small 462x174: the logo as large as it fits; the bank peeks in on the right.
-        bg = window(hero, (462, 174), x0=0.05, y0=0.17, h=0.8)
-        bg = vignette(side_shade(bg, 'left', 0.66, 0.2), 0.12)
-        save(place(bg, lg, (6, 5, 270, 164), shadow=False), STORE / f'small_capsule_{lang}.png')
-
-        # Main 1232x706: the title-screen look — logo up in the sky (top left, clear of the bank
-        # sign and the clouds), the diorama below.
-        bg = window(wide, (1232, 706), x0=0.0, y0=0.0, h=1.0)
-        bg = vignette(side_shade(bg, 'top', 0.45, 0.12), 0.16)
-        save(place(bg, lg, (34, 26, 560, 292), align='left'), STORE / f'main_capsule_{lang}.png')
-
-        # Vertical 748x896 and library 600x900: logo up top, the diorama filling the lower half.
-        bg = window(tall, (748, 896), x0=0.09, y0=0.19, h=0.67)
-        bg = vignette(side_shade(bg, 'top', 0.4, 0.12), 0.16)
-        save(place(bg, lg, (60, 34, 628, 300)), STORE / f'vertical_capsule_{lang}.png')
-
-        bg = window(tall, (600, 900), x0=0.14, y0=0.16, h=0.72)
-        bg = vignette(side_shade(bg, 'top', 0.4, 0.12), 0.16)
-        save(place(bg, lg, (36, 40, 528, 290)), STORE / f'library_capsule_{lang}.png')
+        lg = logo_sticker(lang)
+        for name, (size, box, align) in CAPSULES.items():
+            bg = keyart(name, size)
+            side = 'left' if align == 'left' else 'top'
+            bg = vignette(side_shade(bg, side, 0.55, 0.22), 0.18)
+            out = place(bg, lg, box, align=align, shadow=name != 'small')
+            save(out, STORE / f'{name}_capsule_{lang}.png')
 
     # Library hero 3840x1240: no logo, no text (Steam lays the library logo over it).
-    hero = title_plate('hero', 'ko', 'strain')
-    save(vignette(downsample(hero, (3840, 1240)), 0.16), STORE / 'library_hero.png')
+    save(vignette(keyart('hero', (3840, 1240)), 0.14), STORE / 'library_hero.png')
 
-    # Page background 1438x810: a real match plate pushed far back into the brand night colour.
-    src = RAW / 'ko' / 'plate_uproot_strain.png'
-    if src.exists():
-        p = cover(load(src).convert('RGB'), (1438, 810), focus=(0.5, 0.45))
-        p = p.filter(ImageFilter.GaussianBlur(2))
-        night = Image.new('RGB', p.size, NIGHT_D)
-        p = Image.blend(night, ImageChops.multiply(p, Image.new('RGB', p.size, (150, 130, 210))), 0.42)
-        p = vignette(p, 0.6, NIGHT_D, 1.6)
-        # Fade the lower part into the page colour (Steam continues the page below it).
-        h = p.height
-        ramp = (np.clip((np.arange(h) / h - 0.45) / 0.55, 0, 1) ** 1.4 * 255).astype(np.uint8)
-        mask = Image.fromarray(np.repeat(ramp[:, None], p.width, axis=1), 'L')
-        p = Image.composite(Image.new('RGB', p.size, NIGHT_D), p, mask)
-        save(p, STORE / 'page_background.png')
+    # Page background 1438x810: the key art pushed far back into the page colour (Steam shows it
+    # behind the store page; it must stay quiet), fading into the page colour at the bottom.
+    p = keyart('page', (1438, 810)).filter(ImageFilter.GaussianBlur(3))
+    p = Image.blend(Image.new('RGB', p.size, NIGHT_D), p, 0.42)
+    p = vignette(p, 0.55, NIGHT_D, 1.6)
+    h = p.height
+    ramp = (np.clip((np.arange(h) / h - 0.4) / 0.6, 0, 1) ** 1.3 * 255).astype(np.uint8)
+    mask = Image.fromarray(np.repeat(ramp[:, None], p.width, axis=1), 'L')
+    p = Image.composite(Image.new('RGB', p.size, NIGHT_D), p, mask)
+    save(p, STORE / 'page_background.png')
 
 
 # ---------------------------------------------------------------------------------------------
@@ -384,9 +387,10 @@ def icon_master(fig_file: str, size=1024, fig_h=0.86, y_bottom=0.95, fig_w=0.88,
 
 def step_icons() -> None:
     print('icons')
-    full = icon_master('icon_full.png', 1024, fig_h=0.9, y_bottom=0.965, fig_w=0.9)
-    # Small sizes: just the masked face, smaller in the badge, with a much bolder toy outline.
-    head = icon_master('icon_head.png', 1024, fig_h=0.88, y_bottom=1.0, fig_w=0.84, cream=0.04, ink=0.04, keep_top=0.6)
+    full = icon_master('icon_full.png', 1024, fig_h=0.88, y_bottom=0.955, fig_w=0.9)
+    # Small sizes: just the masked face (head + collar) with a much bolder toy outline, the whole
+    # sticker inside the badge (nothing runs off its edge).
+    head = icon_master('icon_head.png', 1024, fig_h=0.74, y_bottom=0.89, fig_w=0.8, cream=0.035, ink=0.035, keep_top=0.6)
     # Keep the figure inside the badge: clip to the rounded square.
     mask = Image.new('L', (1024, 1024), 0)
     ImageDraw.Draw(mask).rounded_rectangle((0, 0, 1023, 1023), radius=int(1024 * 0.22), fill=255)

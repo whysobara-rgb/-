@@ -13,6 +13,11 @@
  *   7. police (rules.police only): alarms, dispatch, cars — skipped once the match is over.
  *      Officer brains run right before physics (after commands) and their lunges / dash stuns
  *      resolve after every substep, after character dash hits.
+ *
+ * Content 2.0 (C0 skeleton, content-plan §4.4): with rules.content 'v2' the ContentSystems
+ * (src/sim/systems.ts) hook into steps 1–7 in the frozen order coins -> props -> items ->
+ * gimmicks -> events -> police (post-tick: police -> events -> items -> gimmicks -> coins ->
+ * props). In classic ctx.content is null and every hook call below is skipped.
  */
 import { BANK_MODEL, CHARACTER, DT, FENCE, STALL_RESCUE, UNSTUCK } from './config';
 import { emit, lootById, type SimContext } from './context';
@@ -36,7 +41,8 @@ import { isFiniteVec } from './math';
 import { CAT_BANK, PhysicsWorld, type Body, type PhysicsHooks } from './physics';
 import { PoliceSystem, policeEntriesFor } from './police';
 import { isFreeCircle, isFreeOBB, lineOfSight, spiralSearch, staticToOBB } from './queries';
-import { checkEnd, removeRecovered, settle, updateLoading, updateRecovery, updateRemaining, updateTimer } from './rules';
+import { checkEnd, removeRecovered, settle, settleDeposits, updateLoading, updateRecovery, updateRemaining, updateTimer } from './rules';
+import { ContentSystems } from './systems';
 import { buildContext } from './world';
 import type {
   CharacterState,
@@ -103,8 +109,12 @@ export class Simulation {
     this.hooks = {
       onFenceContact: (fi, bank, approach, px, py) => this.onFenceContact(fi, bank, approach, px, py),
       onImpact: (a, b, approach) => this.onImpact(a, b, approach),
-      afterSubstep: () => {
+      beforeSubstep: (sub, n) => this.ctx.content?.beforeSubstep(sub, n),
+      // non-character impacts (C3 makes physics report them): content only, never `bump`
+      onBodyImpact: (a, b, approach) => this.ctx.content?.onImpact(a, b, approach),
+      afterSubstep: (sub) => {
         checkDashHits(this.ctx);
+        this.ctx.content?.afterSubstep(sub);
         this.ctx.police?.afterSubstep();
       },
     };
@@ -114,6 +124,7 @@ export class Simulation {
       setVelocity: (id, vel) => this.debugSetVelocity(id, vel),
     };
     if (this.rules.police) this.ctx.police = new PoliceSystem(this.ctx);
+    if (this.rules.content === 'v2') this.ctx.content = new ContentSystems(this.ctx);
     // initial derived state (interior safes loaded, estimates) without events
     updateLoading(this.ctx);
     this.ctx.events = [];
@@ -144,6 +155,7 @@ export class Simulation {
 
     // 2. physics + fences + unanchor + stability (police brains drive officers like commands)
     prepareBodies(ctx);
+    ctx.content?.prePhysics();
     ctx.police?.prePhysics();
     for (const f of ctx.fences) {
       f.touched = false;
@@ -152,20 +164,27 @@ export class Simulation {
     ctx.physics.step(DT, this.substepCount(), this.hooks);
     handleGripBreaks(ctx);
     this.updateFences();
+    ctx.content?.afterPhysics();
     updateUnanchor(ctx);
     this.stabilize();
     this.syncState();
     ctx.police?.afterPhysics();
 
-    // 3. loading
+    // 3. loading (+ coin pickup, C1)
     updateLoading(ctx);
+    ctx.content?.afterLoading();
 
-    // 4. recovery + settlement (all completions of this tick together)
+    // 4. recovery + settlement (all completions of this tick together; bag deposits settle in
+    //    the same batch, after the loot)
     const completed = updateRecovery(ctx);
     if (completed.length) {
       const settled = settle(ctx, completed);
       removeRecovered(ctx, settled);
       if (settled.length) updateLoading(ctx);
+    }
+    if (ctx.content) {
+      const deposits = ctx.content.coins.collectDeposits();
+      if (deposits.length) settleDeposits(ctx, deposits);
     }
     updateRemaining(ctx);
 
@@ -179,6 +198,11 @@ export class Simulation {
     if (ctx.police) {
       if (st.over) ctx.police.freeze();
       else ctx.police.postTick();
+    }
+    // 7b. Content 2.0 post-tick (events -> items -> gimmicks -> coins -> props), frozen once over
+    if (ctx.content) {
+      if (st.over) ctx.content.freeze();
+      else ctx.content.postTick();
     }
 
     for (const e of ctx.events) this.eventLog.push(e);
@@ -238,6 +262,7 @@ export class Simulation {
   }
 
   private onImpact(a: Body, b: Body | null, approach: number): void {
+    this.ctx.content?.onImpact(a, b, approach);
     const aId = a.entityId;
     const bId = b ? b.entityId : 0;
     const key = Math.min(aId, bId) * 100003 + Math.max(aId, bId);
@@ -275,7 +300,7 @@ export class Simulation {
       const l = st.loot[i]!;
       const rt = ctx.loot[i]!;
       const b = rt.body;
-      if (l.recovered) continue;
+      if (l.recovered || l.dormant || l.airborne) continue; // Content 2.0: out-of-world bodies (absent in classic)
       if (!Number.isFinite(b.x) || !Number.isFinite(b.y) || !Number.isFinite(b.a) || !Number.isFinite(b.vx) || !Number.isFinite(b.vy) || !Number.isFinite(b.w)) {
         b.x = rt.lastX;
         b.y = rt.lastY;

@@ -100,7 +100,9 @@ then outdoor safes in layout order). Ids are stable for the match and never reus
 5. Bank body count; when it reaches 2 for the first time: `endTick = min(endTick, tick + 30 s)`.
 6. End check: `tick >= endTick`, all loot recovered, or (earlyDecision) leader > other + remainingValue.
 
-Invariant at every tick: `scores[0] + scores[1] + remainingValue === totalValue` (3200).
+Invariant at every tick: `scores[0] + scores[1] + remainingValue === totalValue` (classic 3200;
+Content 2.0 v2 maps 4000 / 4400 — always read `state.totalValue`, never a constant). With
+`rules.content === 'v2'` the Content 2.0 systems hook into these steps (see "Content 2.0 contracts").
 
 ## Bot API (`src/ai/index.ts`)
 
@@ -277,6 +279,128 @@ Notes:
 - Unit tests guarding the frozen shapes: `test/sim/queries-fun.test.ts`,
   `test/unit/fun-contracts.test.ts` (owners update the "stub" expectations when they implement).
 
+## Content 2.0 contracts (C0, frozen day 0)
+
+Plan: `plans/content-plan.md` (§3 economy, §4 shared sim contracts, §5 content, §6 packages).
+Design overrides: `docs/design-v0.5.md` §22 "Content 2.0 오너 결정". These contracts exist in
+code as compilable stubs / no-op systems so every package builds against the final shapes now.
+
+**Rules.**
+- **Add-only.** Nobody renames, removes or changes the meaning of anything below or in the fun-round
+  contracts above; new fields are optional, new union members are appended.
+- **`src/sim/types.ts` is read-only after day 0.** Any change (a field, a union member, a new id) is a
+  change request to C0, who lands it for everyone. Pre-approved: C4b moves `'yard'` / `'funpark'` from
+  `PlannedLayoutId` into `LayoutId` in the same change that registers the layout in `LAYOUTS` /
+  `LAYOUT_META` (and adds them to `RECORD_LAYOUT_IDS` / the v2 save defaults with F9).
+- **`src/sim/config.ts`:** each package edits only its own block (table below); after a package lands,
+  values are tuned only by C11 (single tuning owner, single-lever changes, n >= 300).
+- **Classic is frozen.** `content: 'classic'` (the tutorial, every layout without `v2`, or an explicit
+  override) must stay byte-identical: `test/sim/content-classic-identity.test.ts` replays 30 recorded bot
+  matches + 5 fuzz runs and compares the full event log (sha256) and final state. Classic never builds
+  content systems (`ctx.content === null`) and never draws from `ctx.rng`. Regenerating the fixture
+  (`npx tsx tools/record-classic-identity.ts`; `--check` diffs without writing) is only for an intended,
+  agreed classic change (e.g. C11 police tuning, WP2's emote step) and goes through C0.
+- **Determinism.** The content RNG has two independent streams so one package's draw count never shifts
+  the other's results: the item deck (C2) uses `ctx.rng = createRng(setup.seed ^ CONTENT_RNG_SALT)`; the
+  event plan and the truck's curb side (C5) are drawn at build inside the pure
+  `planMatchEvents(seed, v2, opts)` from `createRng(seed ^ CONTENT_RNG_SALT ^ EVENT_RNG_SALT)` (so items
+  off / on or a bigger deck never change a seed's events, and game flow can compute the same plan).
+  No other draws. Everything else is a pure function of state and tick; hits inside a substep are
+  collected then applied in id order (never slot order); mirrored situations give mirrored outcomes.
+- **JSON-safe state.** `SimState` / `SimEvent` never hold `Infinity` / `NaN` (event-log hashes, replays,
+  saves): "forever" is `ITEM_FOREVER` (`0x7fffffff`; HUD: no pips / no lifetime ring at or above it).
+- **Default-v2 gate.** `mergeRules` defaults to `'v2'` on a layout with `v2` only once
+  `CONTENT_V2_BY_DEFAULT` (config.ts, C0) is true. It stays false until the wave-1 integration (C1 + C3 + C4
+  landed, invariant fuzz green on every v2 map), so C4 attaching `layout.v2` to plaza / shortcut / counter
+  does not switch every match, test and tool on those maps to a half-built ruleset. Until then v2 work and
+  tests pass `content: 'v2'` explicitly. At the flip C0 pins the classic-dependent tests (3200 on real
+  layouts: `timer`, `queries-fun`, `layouts`, AI expectations) to `content: 'classic'`; the identity test
+  and its recorder already pin it.
+- **Conservation.** Value only moves between terms (innerValue -> pile -> bag -> score); `totalValue` is
+  computed once at build (after `buildV2`) and never changes.
+
+### Files and owners
+
+| Contract | File | Owner | Consumers |
+|---|---|---|---|
+| Layout data: `PropVariant`, `PropPlacementDef`, `BreakableKind`, `BreakableDef`, `ItemPadDef`, `GimmickDef` (10 kinds) / `GimmickKind`, `LayoutV2Def { safes, props, breakables, gimmicks, itemPads, eventSpots }`, `LayoutDef.v2?`, `LayoutDef.groundStyle` += `'yard' \| 'funpark'`, `BankRouteDef.via?` (AI hint), `PlannedLayoutId` | `src/sim/types.ts` | C0 (data: C4 existing maps, C4b new maps) | builder, validator, sim build, AI, render, previews |
+| `RuleConfig.content? / items? / events? / eventPlan? / gimmicks?` — resolved by `mergeRules` (world.ts): `content` defaults to `'v2'` iff `layout.v2` (and `CONTENT_V2_BY_DEFAULT`), explicit `'v2'` without `layout.v2` throws; `items 'on'`, `events 'on'`, `gimmicks true` in `DEFAULT_RULES`; `eventPlan` undefined = derive from the seed, null = none | `src/sim/types.ts`, `config.ts`, `world.ts` | C0 | game flow (C8 toggles, F7 onboarding, F9 `lastQuick` / `lastEventKind`), harness (C11 A/B) |
+| `LootState` add-only: `variant?`, `innerValue?`, `cracks?`, `dormant?`, `airborne?`, `bonkCooldown?` (absent on plain safes / banks) | `types.ts` | C3 (props), C5 (dormant / parachute), C4 (airborne) | rules, AI, render, HUD |
+| `CharacterState` add-only: `bag?`, `depositTicks?`, `item?: HeldItem \| null`, `dizzyTicks?` (absent in classic; read with `?? 0`) | `types.ts` | C1 (bag, deposit), C2 (item, dizzy) | police, AI, render, HUD |
+| Live state: `CoinPile`, `BreakableState`, `ItemKind`, `HeldItem`, `ItemPickupState`, `HazardState`, `ProjectileState`, `GimmickState`, `LootEventKind`, `MatchEventPlan` (`loot.tick` = the FIRE tick, warning starts `EVENTS.warnTicks` earlier; add-only `loot.truckFrom?`), `MatchEventState` (phase adds `'scheduled'`: exists from tick 0 so pending value is in `totalValue`); `KnockdownCause = SpillCause \| 'self'`. Dormant loot keeps a LootRuntime body with `enabled = false`; airborne loot's disabled body follows the flight arc (`flyBody`) | `types.ts` | C1 / C2 / C4 / C5 | everyone (read-only) |
+| `SimState` add-only, always present, empty / null in classic: `coins`, `breakables`, `items`, `hazards`, `projectiles`, `gimmicks`, `matchEvents`, `eventPlan` | `types.ts`, built in `world.ts` | C1 / C2 / C4 / C5 | everyone |
+| `SimEvent` members: `coinSpawn` (`source: CoinSpawnSource`), `coinPickup`, `coinDepositStart \| coinDepositCancel`, `coinsBanked`, `bagSpilled` (`cause: SpillCause`), `breakableHit`, `breakableBroken`, `propHit`, `piggyCrack`, `itemIncoming`, `itemSpawn`, `itemPickup`, `itemUse`, `itemHit`, `itemClash`, `itemDropped`, `itemExpired`, `hazard`, `gimmick` (generic `what`), `matchEvent`; add-only fields `fenceBroken.byCharId?` (bankId -1 for non-bank breaks), `recovered.innerValue?` + `recovered.variant?` (props only; F6 points-by-source, F10 predicates), `dashHit.spilled?` (only on the knocking attacker's event) | `types.ts` | emitter per member: C1 coins / breakables, C3 props, C2 items / hazards, C4 gimmick, C5 matchEvent | render (C7), audio (C9), HUD (C8), moments (F5), challenges (F10), results (F6) |
+| Id ranges `ITEM_ID_BASE 2000`, `PROJECTILE_ID_BASE 3000`, `HAZARD_ID_BASE 4000`, `KINEMATIC_ID_BASE 5000` (every non-character / non-loot / non-officer physics Body: teacup floors, bumper cars, truck, crane carrier), `COIN_ID_BASE 10000` (officers stay `POLICE_ID_BASE 1000`; layout loot incl. props right after the characters; dormant event loot appended last); allocate with `nextEntityId(ctx, 'item' \| 'projectile' \| 'hazard' \| 'kinematic' \| 'coin')`; loot via `nextLootId(ctx)` + `appendLoot(ctx, state, rt)`; `ITEM_FOREVER` | `config.ts`, `world.ts`, `context.ts` (`ctx.nextIds`) | C0 | C1, C2, C3, C4, C5 |
+| `CONTENT_RNG_SALT = 0x17e15` (`ctx.rng`, item deck), `EVENT_RNG_SALT` (inside `planMatchEvents`), `CONTENT_V2_BY_DEFAULT` | `config.ts`, `world.ts`, `context.ts` | C0 | C2 (deck), C5 (plan, curb) only |
+| Config blocks: `COINS` + `BREAKABLE_SPECS` + `BREAKABLE_DAMAGE` (C1), `PROP_SPECS` (`PropSpec`) + `PROP_RULES` (C3), `ITEMS` (`ItemSpec`, hammer / goldHammer / plunger / skates / soap, `drop`, `decks`) (C2), `GIMMICKS` (C4/C4b), `EVENTS` (C5); `POLICE` / `BOT_TUNING` values stay with C11 | `config.ts` | per block | — |
+| System hooks: `ContentSystem` (`prePhysics`, `beforeSubstep(sub, n)`, `afterSubstep(sub)`, `onImpact(a, b, approach)`, `afterPhysics`, `afterLoading`, `postTick`, `freeze`) + no-op `ContentSystemBase`; `ContentSystems` (`coins`, `props`, `items`, `gimmicks`, `events`, `ordered`, `postOrder`, `onKnockdown(victimId, cause, byId, dir): number` = `coins.spillBag` (not for `'self'`) then `items.dropHeld`), built only for `content: 'v2'` as `ctx.content` after the build; build callbacks never touch `ctx.content` (per-match runtime such as decks lives in the system constructors) | `src/sim/systemBase.ts`, `src/sim/systems.ts`, wired in `sim.ts` | C0 (wiring frozen; sim.ts body C1) | C1–C5 |
+| **Knockdown chokepoint** `knockDown(ctx, slot, kvx, kvy, cause: KnockdownCause, byId, ticks = KNOCKDOWN_TICKS): number` — release, timers, knockback, then `ctx.content.onKnockdown`; used by dash hits and police tackles today and by the hammer (C2), skate crash (`'self'`, C2), hazards (C4), gold-safe landing (C5). No package wires spill / item drop at its own knockdown site | `src/sim/actions.ts` | C0 (C2 owns actions.ts) | C1, C2, C4, C5, police |
+| Physics: `PhysicsHooks.beforeSubstep?(sub, n)` (before kinematic welds sync); `PhysicsHooks.onBodyImpact?` (non-character impacts; the Simulation routes them to `content.onImpact` only, never to `bump`; C3 makes the solver report them); `Body.fieldVx / fieldVy / dragScale / driveScale / kickable` (neutral defaults; v2 `prePhysics` resets them each tick, then systems ADD fields and MULTIPLY scales; C3 makes the solver read them); `setKinematicPose(b, x, y, a, vx, vy, w)` (stub throws until C3) | `src/sim/physics.ts` | C0 contract, C3 owns physics.ts | C2 soap, C4 belts / slicks / kinematics, C5 truck |
+| `CoinSystem.spawnCoins(req: CoinSpawnRequest): EntityId[]`, `spillBag(victimId, cause, byId, dir): number`, `collectDeposits(): DepositClaim[]` (stubs: spawnCoins throws until C1 lands; spillBag returns 0 for an empty bag) | `src/sim/coins.ts` | C1 | C2, C3, C4, C5, police (tackle hook) |
+| `buildBreakables(ctx, v2)`, `damageBreakable(ctx, id, damage, byCharId, dir)` | `src/sim/breakables.ts` | C1 | C2 hammer, C4 stomper, C5 quake |
+| `buildProps(ctx, v2)`, `addUnanchorProgress(ctx, lootId, amount, byCharId): boolean` (implemented: progress fraction, frees at 1, emits the existing `unanchored`), `flyBody(ctx, lootId, to, ticks, via)` (stub throws until C3), `PropSystem` (C3 keeps a prop's `estimatedValue === baseValue + innerValue`) | `src/sim/props.ts` | C3 | C2 hammer / plunger, C4 stomper / catapult / tube / crane, C5 quake / parachute |
+| `buildItemPads(ctx, v2)`, `ItemSystem.onDash(slot)` (rising dash edge with an item and empty hands, called by `processCommands` instead of `startDash`; `startDash` is exported for soap / skates), `ItemSystem.dropHeld(charId)` (called by `onKnockdown`) | `src/sim/items.ts`, hook in `actions.ts` | C2 | knockdown chokepoint |
+| `buildGimmicks(ctx, v2)`, `GimmickSystem` | `src/sim/gimmicks.ts` | C4 / C4b | — |
+| `planMatchEvents(seed, v2, { avoidKind?, quake? }): MatchEventPlan \| null` (pure, own RNG stream; stub null; re-exported by `index.ts` so game flow builds the `eventPlan` override — never-repeat `lastEventKind`, novice cup without quake), `deriveEventPlan(ctx)` (= `planMatchEvents(seed, layout.v2)`), `buildEvents(ctx, v2)` (resolves `state.eventPlan`; creates scheduled events + dormant loot), `EventSystem` | `src/sim/events.ts` | C5 | game flow (F7 / F9 plan override) |
+| Value extension points: `computeRemainingValue(state)` (Σ loot baseValue + innerValue incl. dormant, + piles + bags + unbroken breakables' innerValue + pending event value), `isAllRecovered(state)` (all loot recovered, no piles, empty bags, every breakable broken, no pending value) — used by `updateRemaining`, `checkEnd` and the build; `settleDeposits(ctx, claims)` (step-4 batch after loot, ascending charId, emits `coinsBanked`). Already landed by C0 (classic-safe, the fields are absent in classic): `settle` pays `baseValue + innerValue` and adds `recovered.innerValue` / `variant` for props; dormant / airborne loot never starts recovery, never loads, has no floor, is skipped by `grabCandidate` and by stabilize; props never load into banks; `updateUnanchor` uses `PROP_SPECS[variant].uprootTicks` for props (C3 detects ATM spurt thresholds by comparing `unanchorProgress` with its last-seen value in `afterPhysics`, no edit to `updateUnanchor`) | `src/sim/rules.ts`, `actions.ts`, `sim.ts` | C0 formula, C1 producers | checkEnd, queries, F4 |
+| Queries: `heldValue(state, charId)` (held loot estimate + bag), `isCarryable(l)` (not recovered / dormant / airborne), `navClassOf(l)` (prop -> PROP_SPECS kind) | `src/sim/queries.ts` (re-exported by `index.ts`) | C1 | police targeting, C6 bots, C8 HUD, F4 (`MatchPointInfo.bagCharIds?` is F4's add) |
+| Moments: `MomentKind` += `coinSplash`, `jackpot`, `hammerBonk`, `homeRun`, `goldHammer`, `tossScore`, `craneDrop`, `eventHaul` (appended to `MOMENT_KINDS`; field table in `src/shared/moments.ts`) | `src/shared/moments.ts` | C0 shape, F5 produces | F3, F4, F8, C8, C9 |
+
+### Build order (`buildV2`, world.ts; v2 only)
+
+`layout.v2.safes` replace `layout.safes` (ids keep the classic order: characters, banks, interiors,
+outdoor safes) -> `buildProps` (C3, prop loot ids follow) -> `buildBreakables` (C1) -> `buildGimmicks`
+(C4; nothing when `gimmicks: false`) -> `buildItemPads` (C2; nothing when `items: 'off'`) ->
+`buildEvents` (C5; dormant event loot appended last) -> `totalValue = remainingValue =
+computeRemainingValue(state)`. `ContentSystems` is constructed by the `Simulation` constructor after the
+build (systems read what the callbacks built).
+
+### Tick order with content (content-plan §4.4; frozen)
+
+Order of every hook: **coins (C1) -> props (C3) -> items (C2) -> gimmicks (C4) -> events (C5) -> police**;
+post-tick only: **police -> events -> items -> gimmicks -> coins -> props**.
+
+1. Commands: `processCommands`; a rising dash edge goes to `items.onDash(slot)` when `ch.item && !ch.grab`,
+   otherwise `startDash` (dash cooldown applies to the dash only).
+2. Physics: `prepareBodies` -> `content.prePhysics` (first resets every body's `fieldVx / fieldVy /
+   dragScale / driveScale` to neutral; then gimmicks add belt / fountain fields and multiply slick
+   scales, items multiply soap scales) -> `police.prePhysics` -> substeps (`beforeSubstep` -> integrate / solve -> `checkDashHits` ->
+   `content.afterSubstep` -> `police.afterSubstep`; `content.onImpact` from the impact hook, before the
+   `bump` cooldown) -> `handleGripBreaks` -> fences -> **`content.afterPhysics`** (projectiles, coins,
+   hazards, breakable damage, prop spurts / sheds, gimmick triggers) -> `updateUnanchor` -> stabilize ->
+   `syncState` -> `police.afterPhysics`. In `afterPhysics` state poses are still last tick's: read
+   `ctx.chars[i].body` / `ctx.loot[i].body`.
+3. Loading (unchanged) -> `content.afterLoading` (coin pickup contest: closest center wins, exact tie =
+   nobody).
+4. `updateRecovery` -> `settle` loot -> `removeRecovered` -> `coins.collectDeposits()` ->
+   `settleDeposits` -> `updateRemaining`.
+5. Bank bodies -> final countdown (unchanged). 6. `checkEnd` (extended `remainingValue` /
+   `isAllRecovered`; earlyDecision stays `max > min + remainingValue`).
+7. `police.postTick` -> `content.postTick` (events: warn / fire / truck; items: drop schedule, ground
+   expiry; gimmicks: cooldowns); on the ending tick `police.freeze` -> `content.freeze` instead.
+
+### Shared-file ownership (content-plan §6)
+
+`sim/types.ts` C0 (read-only after day 0) · `sim/config.ts` per block · `sim/sim.ts`, `world.ts`,
+`rules.ts`, `context.ts` C1 (systems plug in via the hooks and build callbacks above, in their own
+files) · `sim/actions.ts` C2 (C1 provides `spillBag`, C3 `addUnanchorProgress`) · `sim/physics.ts` C3 ·
+`sim/police.ts` police owner (tackle spill / item drop already go through `knockDown`; C1 adds bag
+carriers to tackle eligibility and `heldValue` targeting; C2 hammer / soap stun entry points) · `sim/queries.ts` C1 new helpers, F4 fun functions · `sim/layouts/*`, `validate.ts`,
+`tools/layout-check.ts` C4 (existing maps + validator), C4b (new map files) · `ai/bot.ts` C6 (provider
+hook, then all new goals; F2 `dashAt` after it) · AI contracts (`src/ai/goals/types.ts` `GoalProvider`,
+`GoalKind` adds, `DifficultyParams.itemSkill / gimmickSkill / aimErrorRad`, `BotIntent.phase
+'itemWindup'`) are C6's · render `view.ts` `extras` registration C7, beats F3 · `ui/hud/Hud.ts` F4 +
+C8 (separate components, one mount point) · `game/match.ts` F5 / F4 (C8 pushes event banners through
+F4's queue) · `game/app.ts` F6 / F7 / C10 · `platform/save.ts`, `progress.ts` F9 only · main screen
+files C10 · quick setup / preview C8 · `audio/*` F8 + C9 (namespaced director sections).
+String prefixes: `item.*`, `hud.item.*`, `hud.bag.*`, `prop.*`, `gimmick.*`, `event.*`, `layout.yard.*`,
+`layout.funpark.*`, `front.*`, `news.*`, `onboard.content.*` — each in its own marked block.
+
+Tests guarding these shapes: `test/sim/content-contracts.test.ts` (rules, build skeleton, hook order,
+value extension points, deposits, ids, helpers — owners update the stub expectations when they
+implement) and `test/sim/content-classic-identity.test.ts` (classic byte-identity). Fuzzers and tests
+check conservation against `state.totalValue` captured at tick 0, never a hard-coded 3200.
+
 ## Police event (owner addition beyond doc v0.5)
 
 Enabled per match with `rules.police` (default false; quick match and tournament turn it on, the
@@ -301,7 +425,7 @@ tutorial and the first match after practice keep it off). Implemented inside the
   squeezes past dynamic bodies (never walls) and still boards only at its car. The getaway wave
   brings `POLICE.getawayOfficers` officers (0 = the usual `officersPerWave`: doc §8 keeps the same
   carrying conditions to the end).
-- Police never change scores, loot ownership or recovery; the 3200 invariant is fuzz-tested with
-  police on. Mirror-fairness tests check team 0 and team 1 get mirrored outcomes.
+- Police never change scores, loot ownership or recovery; the value invariant (`state.totalValue`) is
+  fuzz-tested with police on. Mirror-fairness tests check team 0 and team 1 get mirrored outcomes.
 - Render: `src/render/police.ts` + `models/police.ts` (puppy cops, police car with strobe light,
   edge markers). Audio: `MatchAudioDirector` maps police events and alarm loops.

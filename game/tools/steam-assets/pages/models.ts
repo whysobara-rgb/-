@@ -115,6 +115,8 @@ export interface KeyArtSpec {
   lift?: number;
   /** Sky burst colour / strength. */
   rays?: [string, number];
+  /** Light overrides: hemi [sky, ground, intensity], sun / fill [colour, intensity]. */
+  light?: { hemi?: [string, string, number]; sun?: [string, number]; fill?: [string, number]; exposure?: number };
 }
 
 /** Deterministic Math.random for the scene's dust / wobble jitter (same art on every run). */
@@ -168,13 +170,18 @@ function keyArt(spec: KeyArtSpec): string {
     sc.scene.add(any.sky);
     sc.scene.fog = new THREE.Fog('#2E2268', 70, 170);
     const L = any.lighting;
-    L.hemi.color.set('#9C98F0');
-    L.hemi.groundColor.set('#6E5A9E');
-    L.hemi.intensity = 1.45;
-    L.sun.color.set('#FFD58A');
-    L.sun.intensity = 3.3;
-    L.fill.color.set('#8FA2FF');
-    L.fill.intensity = 0.9;
+    const lo = spec.light ?? {};
+    const [hs, hg, hi] = lo.hemi ?? ['#9C98F0', '#6E5A9E', 1.45];
+    L.hemi.color.set(hs);
+    L.hemi.groundColor.set(hg);
+    L.hemi.intensity = hi;
+    const [sc0, si] = lo.sun ?? ['#FFD58A', 3.3];
+    L.sun.color.set(sc0);
+    L.sun.intensity = si;
+    const [fc, fi] = lo.fill ?? ['#8FA2FF', 0.9];
+    L.fill.color.set(fc);
+    L.fill.intensity = fi;
+    renderer.toneMappingExposure = lo.exposure ?? 1.02;
     if (spec.noFx) any.fx.root.visible = false;
     // --- our framing
     const cam = sc.camera;
@@ -186,7 +193,6 @@ function keyArt(spec: KeyArtSpec): string {
     cam.updateProjectionMatrix();
     sc.scene.updateMatrixWorld();
     inner.batcher.sync();
-    console.log('DBG', JSON.stringify((sc as any).pullers.map((p: any) => p.holder.position.toArray().map((v: number) => +v.toFixed(2)))), JSON.stringify((sc as any).van.root.position), JSON.stringify(bank.root.position));
     setModelTime(sc.clock);
     setOcclusionFocus(null, null);
     setViewCamera(cam);
@@ -196,6 +202,7 @@ function keyArt(spec: KeyArtSpec): string {
     renderer.render(sc.scene, cam);
     return renderer.domElement.toDataURL('image/png');
   } finally {
+    renderer.toneMappingExposure = 1.02;
     sc.dispose();
     restore();
   }

@@ -38,6 +38,15 @@ describe('fun round contracts (day-0 stubs)', () => {
         'tauntPunished',
         'dodged',
         'counterDash',
+        // Content 2.0 add-only kinds (content-plan §4.5)
+        'coinSplash',
+        'jackpot',
+        'hammerBonk',
+        'homeRun',
+        'goldHammer',
+        'tossScore',
+        'craneDrop',
+        'eventHaul',
       ].sort(),
     );
   });

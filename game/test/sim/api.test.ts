@@ -151,10 +151,11 @@ describe('Simulation query API', () => {
 describe('rule merging (MatchSetup.rules)', () => {
   it('present-but-undefined keys keep the defaults', () => {
     const sim = makeSim(openLayout(), [0], { matchTicks: undefined, recoveryTicks: undefined, timeLimit: undefined });
-    expect(sim.rules).toEqual(DEFAULT_RULES);
+    // Content 2.0: `content` is resolved per layout (no layout.v2 -> 'classic') and always set
+    expect(sim.rules).toEqual({ ...DEFAULT_RULES, content: 'classic' });
     expect(sim.state.endTick).toBe(DEFAULT_RULES.matchTicks);
     const practice = makeSim(openLayout(), [0], { timeLimit: false, earlyDecision: undefined });
-    expect(practice.rules).toEqual({ ...DEFAULT_RULES, timeLimit: false });
+    expect(practice.rules).toEqual({ ...DEFAULT_RULES, timeLimit: false, content: 'classic' });
     expect(practice.state.endTick).toBe(Infinity);
   });
 
@@ -165,6 +166,12 @@ describe('rule merging (MatchSetup.rules)', () => {
     expect(() => makeSim(openLayout(), [0], { matchTicks: NaN })).toThrow(/matchTicks/);
     expect(() => makeSim(openLayout(), [0], { timeLimit: 'no' as unknown as boolean })).toThrow(/timeLimit/);
     expect(() => makeSim(openLayout(), [0], { finalCountdownTicks: 0, recoveryTicks: 1 })).not.toThrow();
+    // Content 2.0 switches
+    expect(() => makeSim(openLayout(), [0], { content: 'v2' })).toThrow(/layout\.v2/);
+    expect(() => makeSim(openLayout(), [0], { content: 'v3' as unknown as 'v2' })).toThrow(/content/);
+    expect(() => makeSim(openLayout(), [0], { items: 'some' as unknown as 'on' })).toThrow(/items/);
+    expect(() => makeSim(openLayout(), [0], { events: true as unknown as 'on' })).toThrow(/events/);
+    expect(() => makeSim(openLayout(), [0], { gimmicks: 'yes' as unknown as boolean })).toThrow(/gimmicks/);
   });
 });
 

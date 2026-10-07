@@ -58,7 +58,8 @@ function recordAi(i: number): AiMatchFixture {
   const team0 = twoVsTwo ? [slot(0), slot(1)] : [slot(0)];
   const team1 = twoVsTwo ? [slot(2), slot(3)] : [slot(1)];
   const seed = 1001 + i * 17;
-  const rules: Partial<RuleConfig> = { police };
+  // classic pinned explicitly: maps gaining `layout.v2` (C4) must not change what is recorded
+  const rules: Partial<RuleConfig> = { police, content: 'classic' };
   const { sim, bots } = createMatch({ layout, team0, team1, seed, rules });
   const enc = bots.map(() => new StreamEncoder());
   while (!sim.state.over && sim.state.tick < MAX_TICKS) {
@@ -77,7 +78,7 @@ function recordAi(i: number): AiMatchFixture {
 }
 
 function runFuzz(f: Omit<FuzzMatchFixture, 'expect'>): IdentityExpect {
-  const sim = new Simulation({ ...makeSetup(LAYOUTS[f.layout as LayoutId], f.teams, f.rules), seed: f.seed });
+  const sim = new Simulation({ ...makeSetup(LAYOUTS[f.layout as LayoutId], f.teams, { ...f.rules, content: 'classic' }), seed: f.seed });
   const driver = new FuzzDriver(sim, f.seed);
   for (let t = 0; t < f.ticks && !sim.state.over; t++) {
     if (f.assistEvery) driver.assist(f.assistEvery);

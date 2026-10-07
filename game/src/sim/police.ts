@@ -34,9 +34,9 @@
  *
  * Police never touch scores, loot ownership or recovery dwell; they only push bodies around.
  */
-import { CHARACTER, DASH, KNOCKDOWN_TICKS, POLICE, POLICE_CAR, PROTECT_TICKS, UNSTUCK, secondsToTicks } from './config';
+import { CHARACTER, DASH, POLICE, POLICE_CAR, UNSTUCK, secondsToTicks } from './config';
 import { emit, lootById, type SimContext } from './context';
-import { doRelease, floorAt } from './actions';
+import { floorAt, knockDown } from './actions';
 import { CAT_POLICE, type Body } from './physics';
 import { PoliceNav } from './policeNav';
 import { isFreeCircle, lineOfSight } from './queries';
@@ -879,21 +879,8 @@ export class PoliceSystem {
       }
       if (best < 0) continue;
       const victim = st.characters[best]!;
-      const vrt = ctx.chars[best]!;
-      const vb = vrt.body;
-      // exactly the effect of an opposing dash hit
-      if (victim.grab) doRelease(ctx, best, true);
-      vrt.grabLatch = true;
-      victim.knockdownTicks = KNOCKDOWN_TICKS;
-      victim.protectTicks = PROTECT_TICKS;
-      victim.dashTicks = 0;
-      victim.boostTicks = 0;
-      victim.straining = false;
-      vb.noDrag = false;
-      vb.fx = 0;
-      vb.fy = 0;
-      vb.vx = vb.fvx + bnx * DASH.knockbackSpeed;
-      vb.vy = vb.fvy + bny * DASH.knockbackSpeed;
+      // exactly the effect of an opposing dash hit (Content 2.0: + bag spill / item drop in v2)
+      knockDown(ctx, best, bnx * DASH.knockbackSpeed, bny * DASH.knockbackSpeed, 'police', s.id);
       ob.vx = ob.fvx + (ob.vx - ob.fvx) * 0.3;
       ob.vy = ob.fvy + (ob.vy - ob.fvy) * 0.3;
       o.memory.delete(victim.id);

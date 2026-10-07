@@ -1,12 +1,12 @@
 /**
  * Spatial queries over the live simulation (used by rules, anti-pin, bots via Simulation).
  */
-import { BANK_MODEL, CHARACTER } from './config';
+import { BANK_MODEL, CHARACTER, PROP_SPECS } from './config';
 import type { SimContext } from './context';
 import { bankFootprint, bankWalls, lootOBBOf } from './actions';
 import { circleOverlapsOBB, obbOverlap, pointInOBB, rayCircle, rayOBB } from './math';
 import { SHAPE_CIRCLE, type StaticShape } from './physics';
-import type { EntityId, OBB, SimState, TeamId, Vec2 } from './types';
+import type { CharacterState, EntityId, LootKind, LootState, OBB, SimState, TeamId, Vec2 } from './types';
 
 export function staticToOBB(s: StaticShape): OBB {
   return { center: { x: s.x, y: s.y }, half: { x: s.hx, y: s.hy }, angle: Math.atan2(s.uy, s.ux) };
@@ -303,4 +303,36 @@ export function swingInfo(state: Readonly<Pick<SimState, 'scores' | 'remainingVa
     toLead: mine > theirs ? 0 : deficit + step,
     remaining: state.remainingValue,
   };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Content 2.0 contracts (C0 day-0 signatures; owner C1). Pure reads of SimState. Police targeting
+// (C1 one-line hook), bots (C6), HUD (C8) and F4 call these instead of re-deriving them.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * What a character carries right now: the estimatedValue of the loot it holds (bank wall
+ * holders count the bank; props include their innerValue) + its coin bag. 0 = empty hands and an
+ * empty bag (never tackled). Classic: the held loot's estimate.
+ */
+export function heldValue(state: Readonly<Pick<SimState, 'characters' | 'loot'>>, charId: EntityId): number {
+  const ch: CharacterState | undefined = state.characters[charId - 1];
+  if (!ch || ch.id !== charId) return 0;
+  let v = ch.bag ?? 0;
+  if (ch.grab) {
+    const id = ch.grab.targetId;
+    const l = state.loot.find((x) => x.id === id);
+    if (l && !l.recovered) v += l.estimatedValue;
+  }
+  return v;
+}
+
+/** True if the loot can be grabbed / carried / recovered right now: not recovered, not dormant, not airborne. */
+export function isCarryable(l: Readonly<LootState>): boolean {
+  return !l.recovered && !l.dormant && !l.airborne;
+}
+
+/** Nav / carry class of a loot item: a prop's PROP_SPECS kind, otherwise its kind. */
+export function navClassOf(l: Readonly<Pick<LootState, 'kind' | 'variant'>>): LootKind {
+  return l.variant ? PROP_SPECS[l.variant].kind : l.kind;
 }

@@ -99,7 +99,7 @@
       "category": "public.app-category.games",
       "identity": null,
       "hardenedRuntime": false,
-      "icon": "build/icon.png",
+      "icon": "build/icons/1024x1024.png",
       "files": [
         "dist/**/*",
         "electron/**/*",

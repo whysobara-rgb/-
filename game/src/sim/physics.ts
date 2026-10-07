@@ -159,6 +159,19 @@ export class Body {
   fvx = 0;
   fvy = 0;
   fw = 0;
+  // --- Content 2.0 (C0 contract, content-plan §4.5; the solver reads them once C3 lands) ---
+  // Neutral values = classic behaviour. ContentSystems.prePhysics (v2 only) resets every body to
+  // neutral each tick, then systems combine their contributions: field velocities ADD (belts,
+  // fountain push), scales MULTIPLY (slick gimmicks, soap hazards). Classic never writes them.
+  /** Ground-field velocity (m/s, world): drag pulls the body toward it instead of toward 0 (belts). */
+  fieldVx = 0;
+  fieldVy = 0;
+  /** Ground drag multiplier (slick / soap < 1). */
+  dragScale = 1;
+  /** Drive-force multiplier (slick / soap < 1). */
+  driveScale = 1;
+  /** Kickable (the piggy): a dashing character skips softPushFactor against it. */
+  kickable = false;
 
   constructor(
     readonly index: number,
@@ -479,6 +492,28 @@ export interface PhysicsHooks {
   onImpact?(a: Body, b: Body | null, approach: number): void;
   /** After every substep (positions integrated). */
   afterSubstep?(substep: number): void;
+  /**
+   * (Content 2.0, C0 skeleton) Before every substep, before kinematic welds follow their parents:
+   * kinematic gimmick poses = f(tick, substep) so nothing drifts.
+   */
+  beforeSubstep?(substep: number, substeps: number): void;
+  /**
+   * (Content 2.0, C0 contract; C3 makes the solver call it) An impact faster than the threshold
+   * that involves NO character (loot vs wall / loot vs loot: piggy cracks, 돈나무 sheds). The
+   * Simulation routes it only to the content systems' `onImpact` (a no-op in classic, where
+   * `ctx.content` is null), never to the classic `bump` logic. Character impacts keep `onImpact`.
+   */
+  onBodyImpact?(a: Body, b: Body | null, approach: number): void;
+}
+
+/**
+ * (Content 2.0, C0 contract; owner C3) Drive a kinematic body (teacup floor, bumper car, truck,
+ * crane load) to a pose computed as a pure function of (tick, substep), with the matching
+ * velocities so riders and contacts see the motion. Call from `beforeSubstep`. Day-0 stub: throws
+ * until C3 implements it (nothing calls it in classic).
+ */
+export function setKinematicPose(b: Body, x: number, y: number, a: number, vx: number, vy: number, w: number): void {
+  throw new Error(`setKinematicPose not implemented yet (C3): body ${b.entityId} -> (${x}, ${y}, ${a}) v (${vx}, ${vy}, ${w})`);
 }
 
 export interface PhysicsParams {
@@ -687,6 +722,7 @@ export class PhysicsWorld {
     }
     const gripTick = P.gripBreakForce * dt;
     for (let sub = 0; sub < substeps; sub++) {
+      hooks.beforeSubstep?.(sub, substeps);
       const bodies = this.bodies;
       // 1. kinematic welds follow their parents; remember pre-substep velocities.
       for (let i = 0; i < bodies.length; i++) {

@@ -184,7 +184,11 @@
    * the pop) and the HUD "은행째!" stamp are the game's own reaction.
    */
   S.uproot = (o = {}) => {
-    const b = D.banks()[0];
+    const b = D.banks()[o.bank ?? 0];
+    // After real play the AI may already have loosened it: plant it again first.
+    if (!b.anchored) D.sim.debug.setAnchored(b.id, true);
+    // Rivals come in from the open plaza side (south of the north bank, north of the south one).
+    const sy = b.pos.y > D.sim.layout.size.y / 2 ? -1 : 1;
     const n = D.sim.state.characters.length;
     if (o.side === 'south') {
       const faceY = b.pos.y + 4 + 0.55;
@@ -201,12 +205,12 @@
       D.set(1, D.hold({ x: -1, y: -0.1 }, { x: 1, y: 0 }));
     }
     if (n > 2) {
-      D.tp(D.charId(2), D.freeNear({ x: b.pos.x - 13, y: b.pos.y + 9 }), -Math.PI / 4);
-      D.set(2, D.walk(2, { x: b.pos.x - 7.2, y: b.pos.y + 5.2 }, { speed: 0.85, faceAt: b.pos }));
+      D.tp(D.charId(2), D.freeNear({ x: b.pos.x - 13, y: b.pos.y + 9 * sy }), -Math.PI / 4);
+      D.set(2, D.walk(2, { x: b.pos.x - 7.2, y: b.pos.y + 5.2 * sy }, { speed: 0.85, faceAt: b.pos }));
     }
     if (n > 3) {
-      D.tp(D.charId(3), D.freeNear({ x: b.pos.x - 14, y: b.pos.y - 3 }), 0);
-      D.set(3, D.walk(3, { x: b.pos.x - 8.2, y: b.pos.y - 1.5 }, { speed: 0.75, faceAt: b.pos }));
+      D.tp(D.charId(3), D.freeNear({ x: b.pos.x - 14, y: b.pos.y - 3 * sy }), 0);
+      D.set(3, D.walk(3, { x: b.pos.x - 8.2, y: b.pos.y - 1.5 * sy }, { speed: 0.75, faceAt: b.pos }));
     }
     return { bankId: b.id };
   };

@@ -151,9 +151,14 @@ const ACH_IDS = JSON.parse(fs.readFileSync(path.join(ROOT, 'steam/achievements.j
  * Wait for the match to be live (and the "출발!" stamp to clear), take over command input and
  * mark achievements as earned so no unlock toast covers a staged screenshot.
  */
-async function liveMatch(page, settle = 150) {
+async function liveMatch(page, settle = 150, warmSec = 0) {
   await S.pumpUntil(page, MATCH_PLAYING, 3000);
-  await S.ev(page, `__dir.hijack(), __dir.quietAchievements(${JSON.stringify(ACH_IDS)})`);
+  await S.ev(page, `__dir.quietAchievements(${JSON.stringify(ACH_IDS)})`);
+  // Real play first (every slot on its real AI, the human slot on the autotest proxy), so the
+  // clock, the scores and the police timers read like a match in progress when the moment is
+  // staged — never a whole bank uprooted 4 seconds into a 4:00 match.
+  if (warmSec > 0) await S.pump(page, Math.round(warmSec * 60));
+  await S.ev(page, `__dir.hijack()`);
   for (let s = 0; s < 4; s++) await S.ev(page, `__dir.set(${s}, __dir.idle())`);
   await S.pump(page, settle);
 }
@@ -198,15 +203,20 @@ for (const [suffix, w, h] of [
 
 // --- match start + layout preview diorama (quick match, real bots) -------------------------------
 job('start', {
-  query: () => ({ flow: 'quick', layout: 'shortcut', mode: '2v2', rival: 'tongkeun' }),
+  query: () => ({ flow: 'quick', layout: 'plaza', mode: '2v2', rival: 'tongkeun' }),
   async run(c) {
     await S.pumpUntil(c.page, APP_STATE('preview'), 3000);
     await S.pump(c.page, 100);
     await c.save('shot_09_preview', true);
     await c.save('plate_preview', false);
     await S.pumpUntil(c.page, MATCH_PLAYING, 3000);
-    await S.pump(c.page, 22);
-    await c.save('shot_01_start', true);
+    // As the "출발!" stamp clears: both crews sprinting out of the zones toward the first safes.
+    await S.pump(c.page, 75);
+    await c.save('shot_01_start_a', true);
+    await S.pump(c.page, 30);
+    await c.save('shot_01_start_b', true);
+    await S.pump(c.page, 30);
+    await c.save('shot_01_start_c', true);
   },
 });
 
@@ -214,9 +224,11 @@ job('start', {
 job('uproot', {
   query: () => ({ flow: 'quick', skipIntro: '1', layout: 'plaza', mode: '2v2', rival: 'hodadak' }),
   async run(c) {
-    await liveMatch(c.page);
-    await stage(c.page, '__dir.scenarios.uproot()');
-    await S.pumpUntil(c.page, `__dir.loot(__dir.banks()[0].id).unanchorProgress >= 0.86`, 900);
+    await liveMatch(c.page, 90, 12);
+    // The south bank: the camera then holds it mid-screen, so the world-anchored "은행째!" stamp
+    // above it stays clear of the top HUD row (on the north bank it slams in under the pills).
+    await stage(c.page, '__dir.scenarios.uproot({ bank: 1 })');
+    await S.pumpUntil(c.page, `__dir.loot(__dir.banks()[1].id).unanchorProgress >= 0.86`, 900);
     await c.save('plate_uproot_strain', false);
     await S.pumpUntil(c.page, `__dir.hasEvent('unanchored')`, 900);
     await S.pump(c.page, 3);
@@ -224,9 +236,12 @@ job('uproot', {
     await S.pump(c.page, 7);
     await c.save('plate_uproot_snap', false);
     await S.pump(c.page, 8);
-    await c.save('shot_02_uproot', true);
-    await S.pump(c.page, 10);
     await c.save('plate_uproot_after', false);
+    // The "은행째!" stamp once the HUD pills have settled around it (it slams in over them).
+    for (const [k, n] of [['a', 14], ['b', 12], ['c', 14]]) {
+      await S.pump(c.page, n);
+      await c.save(`shot_02_uproot_${k}`, true);
+    }
   },
 });
 
@@ -234,13 +249,16 @@ job('uproot', {
 job('steal', {
   query: () => ({ flow: 'quick', skipIntro: '1', layout: 'plaza', mode: '2v2', rival: 'nunchi' }),
   async run(c) {
-    await liveMatch(c.page);
+    await liveMatch(c.page, 90, 34);
     await stage(c.page, '__dir.scenarios.steal()');
     await S.pumpUntil(c.page, `__dir.hasEvent('safeUnloaded')`, 900);
     await S.pump(c.page, 8);
     await c.save('plate_steal', false);
-    await S.pump(c.page, 16);
-    await c.save('shot_03_steal', true);
+    // The rivals' bank tag drops (예상 1,000 -> 700) while the stamp moves off it.
+    for (const [k, n] of [['a', 16], ['b', 20], ['c', 24]]) {
+      await S.pump(c.page, n);
+      await c.save(`shot_03_steal_${k}`, true);
+    }
   },
 });
 
@@ -249,7 +267,7 @@ job('police', {
   query: () => ({ flow: 'quick', skipIntro: '1', layout: 'counter', mode: '1v1', rival: 'hodadak', police: '1' }),
   async run(c) {
     const p = c.page;
-    await liveMatch(p);
+    await liveMatch(p, 150, 14);
     await S.ev(p, `(() => { const r = __dir.scenarios.police(); window.__pol = r;
       __dir.set(0, __dir.idle({x:0,y:1})); __dir.set(1, __dir.idle({x:-1,y:0}));
       const me = __dir.charId(0); __dir.tp(me, __dir.freeNear({x: 22, y: 20}), 0); })()`);
@@ -270,14 +288,18 @@ job('police', {
       return spot;
     })()`);
     const near = (d) => `(() => { const me = __dir.sim.state.characters[0]; return __dir.sim.state.police.some(o => o.phase === 'chase' && Math.hypot(o.pos.x - me.pos.x, o.pos.y - me.pos.y) < ${d}); })()`;
+    await S.pumpUntil(p, near(4.6), 1800);
+    await c.save('shot_04_police_a', true);
     await S.pumpUntil(p, near(3.4), 1800);
     await S.pump(p, 3);
     await c.save('plate_police', false);
-    await c.save('shot_04b_police_chase', true);
+    await c.save('shot_04_police_b', true);
     await S.pumpUntil(p, `__dir.sim.state.police.some(o => o.phase === 'tackle')`, 1800);
     await S.pump(p, 2);
-    await c.save('shot_04_police', true);
+    await c.save('shot_04_police_c', true);
     await c.save('plate_police_tackle', false);
+    await S.pump(p, 14);
+    await c.save('shot_04_police_d', true);
   },
 });
 
@@ -285,13 +307,15 @@ job('police', {
 job('fence', {
   query: () => ({ flow: 'quick', skipIntro: '1', layout: 'shortcut', mode: '2v2', rival: 'tongkeun' }),
   async run(c) {
-    await liveMatch(c.page);
+    await liveMatch(c.page, 90, 22);
     await stage(c.page, '__dir.scenarios.fence()');
     await S.pumpUntil(c.page, `__dir.hasEvent('fenceBroken')`, 900);
     await S.pump(c.page, 5);
     await c.save('plate_fence', false);
-    await S.pump(c.page, 14);
-    await c.save('shot_05_fence', true);
+    for (const [k, n] of [['a', 14], ['b', 16]]) {
+      await S.pump(c.page, n);
+      await c.save(`shot_05_fence_${k}`, true);
+    }
   },
 });
 
@@ -300,7 +324,7 @@ job('final', {
   query: () => ({ flow: 'quick', skipIntro: '1', layout: 'plaza', mode: '2v2', rival: 'tongkeun', police: '1' }),
   async run(c) {
     const p = c.page;
-    await liveMatch(p);
+    await liveMatch(p, 150, 40);
     // Both banks home: the player waits at the east edge of our zone with a small safe in paw.
     await stage(p, `(() => { __dir.scenarios.final();
       const sim = __dir.sim; const z = sim.layout.zones.find(z => z.team === 0);
@@ -316,16 +340,20 @@ job('final', {
     })()`);
     await S.pumpUntil(p, `__dir.hasEvent('finalCountdown')`, 900);
     await S.pump(p, 36);
-    await c.save('shot_06_final', true);
+    await c.save('shot_06_final_banner', true);
     // The getaway wave answers the sirens; the player bolts for the van once they close in.
     const near = (d) => `(() => { const me = __dir.sim.state.characters[0]; return __dir.sim.state.police.some(o => (o.phase === 'chase' || o.phase === 'tackle') && Math.hypot(o.pos.x - me.pos.x, o.pos.y - me.pos.y) < ${d}); })()`;
     await S.pumpUntil(p, near(5.5), 3600);
     await S.ev(p, `(() => { const z = __dir.sim.layout.zones.find(z => z.team === 0);
       __dir.set(0, (s) => { const me = s.state.characters[0]; const d = { x: z.center.x - 1 - me.pos.x, y: z.center.y - 1 - me.pos.y }; const k = Math.hypot(d.x, d.y) || 1;
         return __dir.cmd({ x: d.x / k * 0.8, y: d.y / k * 0.8 }, true, { x: -1, y: 0 }); }); })()`);
+    await S.pumpUntil(p, near(4.2), 900);
+    await c.save('shot_06_final_a', true);
     await S.pumpUntil(p, near(3.0), 900);
     await c.save('plate_final_chase', false);
-    await c.save('shot_06b_final_chase', true);
+    await c.save('shot_06_final_b', true);
+    await S.pump(p, 12);
+    await c.save('shot_06_final_c', true);
   },
 });
 
@@ -333,7 +361,7 @@ job('final', {
 job('recover', {
   query: () => ({ flow: 'quick', skipIntro: '1', layout: 'plaza', mode: '2v2', rival: 'hodadak', police: '0' }),
   async run(c) {
-    await liveMatch(c.page);
+    await liveMatch(c.page, 90, 30);
     await stage(c.page, '__dir.scenarios.recover()');
     await S.pumpUntil(c.page, `__dir.hasEvent('recoveryStart')`, 1200);
     await S.pump(c.page, 45);
@@ -347,26 +375,20 @@ job('recover', {
   },
 });
 
-// --- results with the biggest-event card (plaza 1v1) -----------------------------------------------------
+// --- results: a whole real match (2v2 plaza, every slot on its real AI) -------------------------------------
 job('results', {
-  query: () => ({ flow: 'quick', skipIntro: '1', layout: 'plaza', mode: '1v1', rival: 'nunchi', police: '0' }),
+  query: () => ({ flow: 'quick', skipIntro: '1', layout: 'plaza', mode: '2v2', rival: 'hodadak' }),
   async run(c) {
     const p = c.page;
-    await liveMatch(p);
-    await S.pump(p, 30);
-    // A small safe recovered first (the lead), then the steal from the rival's moving bank.
-    await S.ev(p, `(() => { const sim = __dir.sim; const z = sim.layout.zones.find(z => z.team === 0);
-      const s = sim.state.loot.find(l => l.kind === 'smallSafe' && l.homeBank === null);
-      sim.debug.setAnchored(s.id, false); __dir.tp(s.id, z.center, 0);
-      for (const ch of sim.state.characters) __dir.set(ch.slot, __dir.idle()); })()`);
-    await S.pumpUntil(p, `__dir.hasEvent('recovered')`, 600);
-    await stage(p, '__dir.scenarios.steal()');
-    await S.pumpUntil(p, `__dir.hasEvent('safeUnloaded')`, 900);
-    await S.pump(p, 90);
-    await S.ev(p, `window.__uproot.endMatch()`);
-    await S.pumpUntil(p, APP_STATE('results'), 1200);
-    await S.pump(p, 60 * 4);
-    await c.save('shot_07_results', true);
+    await S.pumpUntil(p, MATCH_PLAYING, 3000);
+    await S.ev(p, `__dir.quietAchievements(${JSON.stringify(ACH_IDS)})`);
+    // Nothing staged: the match is played out to the end and the results screen shows its real
+    // biggest event (sim.eventLog -> pickBiggestEvent).
+    await S.pumpUntil(p, APP_STATE('results'), 60 * 60 * 5);
+    for (const [k, n] of [['a', 60 * 4], ['b', 60 * 2]]) {
+      await S.pump(p, n);
+      await c.save(`shot_07_results_${k}`, true);
+    }
   },
 });
 
@@ -381,19 +403,18 @@ job('rival', {
     await S.pump(p, 150);
     await c.save('shot_08b_ladder', true);
     await c.save('plate_rival_ladder', false);
-    // Play game 1 of the series: the player keeps stealing out of moving banks, then wins.
+    // Game 1 of the series, played out for real; the intermission then shows 통큰이's answer to
+    // what the player actually did.
     await S.ev(p, `window.__uproot.app.startTournamentGame('tongkeun', false)`);
-    await liveMatch(p);
-    await stage(p, '__dir.scenarios.steal()');
-    await S.pumpUntil(p, `__dir.hasEvent('safeUnloaded')`, 900);
-    await S.pump(p, 240);
-    await S.ev(p, `window.__uproot.forceResult({ winner: 0, reason: 'time' })`);
-    await S.pumpUntil(p, APP_STATE('results'), 1200);
+    await S.pumpUntil(p, MATCH_PLAYING, 3000);
+    await S.pumpUntil(p, APP_STATE('results'), 60 * 60 * 5);
     await S.pump(p, 200);
     await S.ev(p, `window.__uproot.nav({ confirm: true })`);
     await S.pumpUntil(p, APP_STATE('intermission'), 1200);
     await S.pump(p, 60 * 4);
-    await c.save('shot_08_rival', true);
+    await c.save('shot_08_rival_a', true);
+    await S.pump(p, 60);
+    await c.save('shot_08_rival_b', true);
     await c.save('plate_rival_stage', false);
   },
 });
@@ -442,15 +463,23 @@ job('logo', {
           s.className = 'uh-logo__char';
           s.style.setProperty('--tilt', `${tilt[(i + seed) % tilt.length]}deg`);
           s.style.setProperty('--k', String(i));
-          // Latin capitals in Jua carry wide side bearings: tighten the pairs a little.
-          s.style.marginInline = '-0.03em';
+          // A hair of air between the chunky Latin capitals (their ink drop shadows touch).
+          s.style.marginInline = seed ? '0.035em' : '0.01em';
           s.textContent = ch;
           el.appendChild(s);
         });
       };
       fill(words[0], 'UPROOT', 0);
       fill(words[1], 'HEIST', 3);
-      logo.querySelector('.uh-logo__ribbon span').textContent = '뿌리째 털어라';
+      // The two lines keep the title's stagger, a little narrower (Latin lines are wider than
+      // the Korean ones; the stock offsets would push HEIST off the ribbon's axis).
+      logo.querySelector('.uh-logo__line--a').style.translate = '-2.75rem 0';
+      logo.querySelector('.uh-logo__line--b').style.translate = '3.25rem 0';
+      const rib = logo.querySelector('.uh-logo__ribbon');
+      rib.style.letterSpacing = '0.16em';
+      const span = rib.querySelector('span');
+      span.textContent = '뿌리째 털어라';
+      span.style.marginRight = '-0.16em';
       logo.setAttribute('aria-label', 'Uproot Heist');
     }, TILT);
     await S.pump(p, 2);
@@ -494,8 +523,6 @@ async function runJob(browser, base, j, lang) {
         await S.warmUp(page);
         await page.screenshot({ timeout: 15 * 60 * 1000 });
       }
-      const unzoomed = ui ? await S.undoBogusFit(page) : 0;
-      if (unzoomed) S.log(`  (undid a bogus shrink-to-fit zoom on ${unzoomed} screen frame)`);
       const ms = await S.drawFrame(page);
       const file = path.join(rawDir, `${name}.png`);
       await S.screenshot(page, file);
@@ -543,10 +570,10 @@ async function main() {
         }
       }
     }
-    if (!ONLY || ONLY.includes('icon')) {
+    if (!ONLY || ONLY.includes('icon') || ONLY.includes('keyart')) {
       await browser.close().catch(() => undefined);
       browser = await launch();
-      await icons(browser);
+      await modelRenders(browser, { icons: !ONLY || ONLY.includes('icon'), keyart: !ONLY || ONLY.includes('keyart') });
     }
   } finally {
     await browser.close();
@@ -566,18 +593,58 @@ async function main() {
   }
 }
 
-/** Real-model renders for the app icon (tools/steam-assets/pages/models.ts on a dev server). */
-async function icons(browser) {
-  const dev = `http://127.0.0.1:${DEV_PORT}`;
-  await startServer('npx', ['vite', '--config', 'tools/steam-assets/vite.capture.config.mjs', '--port', String(DEV_PORT), '--strictPort'], `${dev}/tools/steam-assets/pages/models.html`);
+/**
+ * Capsule key art: the real title diorama (TitleScene) at the heave just before the pop, re-lit
+ * for night with the game's own sky dome (docs/STEAM_RELEASE.md: night-sky indigo + gold bank),
+ * one framing per capsule shape so the logo always has open sky. Sizes are the Steam sizes;
+ * renders are KEYART_SCALE x larger (supersampled) and compose.py scales them down.
+ */
+const KEYART_SCALE = Number(args.keyartScale ?? 2);
+const KEYART_LIGHT = { hemi: ['#8C86E6', '#5E4C8E', 0.9], sun: ['#FFC468', 3.8], fill: ['#7F93FF', 1.0] };
+const KEYART = {
+  // shift: lens shift as a fraction of the frame (+x moves the subject right, +y moves it down).
+  header: { size: [920, 430], cam: [-2.0, 3.6, 9.5], look: [-0.2, 2.4, -1.5], fov: 42, shift: [0.24, 0.03] },
+  small: { size: [462, 174], cam: [-2.0, 3.6, 8.0], look: [-0.8, 2.0, -1.0], fov: 38, shift: [0.4, 0.02] },
+  main: { size: [1232, 706], cam: [-2.0, 3.6, 9.5], look: [-0.2, 2.4, -1.5], fov: 44, shift: [0.2, 0.07] },
+  vertical: { size: [748, 896], cam: [-2.0, 3.6, 10.5], look: [-0.6, 2.4, -1.5], fov: 56, shift: [0.16, 0.16] },
+  library: { size: [600, 900], cam: [-2.0, 3.6, 10.5], look: [-0.6, 2.4, -1.5], fov: 60, shift: [0.18, 0.18] },
+  hero: { size: [3840, 1240], cam: [-2.4, 3.8, 12.5], look: [-0.2, 2.4, -1.5], fov: 28, shift: [0.22, 0.03], scale: 1.5 },
+  page: { size: [1438, 810], cam: [-2.0, 3.6, 9.5], look: [-0.2, 2.4, -1.5], fov: 44, shift: [0.2, 0.07] },
+};
+const KEYART_ONLY = args.keyartOnly ? args.keyartOnly.split(',') : null;
+
+/** Real-model renders: app icon figures and the capsule key art (pages/models.ts, dev server). */
+async function modelRenders(browser, want) {
+  const dev = args.devBase ?? `http://127.0.0.1:${DEV_PORT}`;
+  if (!args.devBase) await startServer('npx', ['vite', '--config', 'tools/steam-assets/vite.capture.config.mjs', '--port', String(DEV_PORT), '--strictPort'], `${dev}/tools/steam-assets/pages/models.html`);
   const page = await browser.newPage();
   await page.goto(`${dev}/tools/steam-assets/pages/models.html`);
   await S.waitFor(page, 'window.__models && window.__models.ready', 180_000);
+  if (want.keyart) {
+    const kdir = path.join(RAW, 'keyart');
+    fs.mkdirSync(kdir, { recursive: true });
+    for (const [name, k] of Object.entries(KEYART)) {
+      if (KEYART_ONLY && !KEYART_ONLY.includes(name)) continue;
+      const sc = k.scale ? Math.min(KEYART_SCALE, k.scale) : KEYART_SCALE;
+      const spec = { w: Math.round(k.size[0] * sc), h: Math.round(k.size[1] * sc), t: 3.05, cam: k.cam, look: k.look, fov: k.fov, shift: k.shift, light: KEYART_LIGHT };
+      const t0 = Date.now();
+      const url = await page.evaluate((s) => window.__models.keyArt(s), spec);
+      const file = path.join(kdir, `${name}.png`);
+      fs.writeFileSync(file, Buffer.from(url.split(',')[1], 'base64'));
+      manifest.frames[`keyart/${name}`] = { file: path.relative(ROOT, file), spec, size: k.size };
+      S.log(`  saved keyart/${name} ${spec.w}x${spec.h} (${Date.now() - t0} ms)`);
+    }
+  }
+  if (!want.icons) {
+    await page.close();
+    return;
+  }
   const dir = path.join(RAW, 'icon');
   fs.mkdirSync(dir, { recursive: true });
   for (const [name, spec] of [
-    ['icon_full', { shot: 'icon', size: 2048 }],
-    ['icon_head', { shot: 'head', size: 1024 }],
+    // No hat: the raccoon's own black eye mask and the ringed tail (turned a little so it shows).
+    ['icon_full', { shot: 'icon', size: 2048, hat: 'none', yaw: 0.35 }],
+    ['icon_head', { shot: 'head', size: 1024, hat: 'none' }],
   ]) {
     const url = await page.evaluate((s) => window.__models.render(s), spec);
     const file = path.join(dir, `${name}.png`);

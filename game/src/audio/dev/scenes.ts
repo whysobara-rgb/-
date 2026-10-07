@@ -48,6 +48,7 @@ function baseState(chars: CharacterState[], loots: LootState[]): SimState {
     layoutId: 'plaza', tick: 0, endTick: 240 * T, over: false, result: null, scores: [0, 0], characters: chars, loot: loots, fences: [],
     banksRecovered: 0, finalCountdown: false, finalCountdownTick: null, remainingValue: 3200, totalValue: 3200, pings: [], police: [],
     policeCars: [], alarm: { ringing: [], dispatchTick: null, waves: 0 },
+    coins: [], breakables: [], items: [], hazards: [], projectiles: [], gimmicks: [], matchEvents: [], eventPlan: null,
   };
 }
 

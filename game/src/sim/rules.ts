@@ -8,7 +8,8 @@ import { emit, lootById, type SimContext } from './context';
 import { bankFootprint, doRelease, floorAt, lootOBBOf, safeFullyOnFloor } from './actions';
 import { obbInsideOBB } from './math';
 import { ejectSpot } from './queries';
-import type { EntityId, LootState, MatchResult, TeamId } from './types';
+import type { DepositClaim } from './coins';
+import type { EntityId, LootState, MatchResult, SimState, TeamId } from './types';
 
 // ---------------------------------------------------------------------------
 // 3. Loading (moving floor contents)
@@ -55,10 +56,14 @@ export function updateLoading(ctx: SimContext): void {
       continue;
     }
     const b = ctx.loot[i]!.body;
-    const f = floorAt(ctx, b.x, b.y);
+    // Content 2.0: dormant / airborne loot is out of the world (no floor); props never load (they
+    // ride a bank floor like any body). All three fields are absent in classic.
+    const f = l.dormant || l.airborne ? null : floorAt(ctx, b.x, b.y);
     l.floorOf = f ? f.id : null;
     let loaded: EntityId | null = null;
-    if (f) {
+    if (l.variant) {
+      // never cargo
+    } else if (f) {
       const fb = lootById(ctx, f.id)!.rt.body;
       // Only cargo that actually moves with the bank can be loaded: a safe welded to this bank,
       // or a free (unanchored, dynamic) safe fully on its floor. An anchored outdoor safe the
@@ -133,7 +138,8 @@ export function updateRecovery(ctx: SimContext): EntityId[] {
   for (let i = 0; i < st.loot.length; i++) {
     const l = st.loot[i]!;
     if (l.recovered) continue;
-    const eligible = !l.anchored && (l.kind === 'bank' || l.loadedIn === null);
+    // Content 2.0: dormant / airborne loot cannot be recovered (absent in classic)
+    const eligible = !l.anchored && !l.dormant && !l.airborne && (l.kind === 'bank' || l.loadedIn === null);
     const team = eligible ? zoneTeamFor(ctx, i) : null;
     const prev = l.recovery;
     if (team === null) {
@@ -179,7 +185,9 @@ export function settle(ctx: SimContext, ids: ReadonlyArray<EntityId>, teamOverri
     if (l.recovered || ctx.settled.has(id)) continue; // duplicate request: no points
     const team = teamOverride ?? l.recovery?.team;
     if (team === undefined) continue;
-    let value = l.baseValue;
+    // Content 2.0: a prop pays its shell + the coins still inside (innerValue absent in classic)
+    const inner = l.innerValue ?? 0;
+    let value = l.baseValue + inner;
     const safeIds: EntityId[] = [];
     let safesValue = 0;
     if (l.kind === 'bank') {
@@ -187,7 +195,7 @@ export function settle(ctx: SimContext, ids: ReadonlyArray<EntityId>, teamOverri
         const s = lootById(ctx, sid);
         if (!s || s.state.recovered || ctx.settled.has(sid)) continue;
         safeIds.push(sid);
-        safesValue += s.state.baseValue;
+        safesValue += s.state.baseValue + (s.state.innerValue ?? 0);
       }
       value += safesValue;
     }
@@ -213,6 +221,7 @@ export function settle(ctx: SimContext, ids: ReadonlyArray<EntityId>, teamOverri
       safeIds,
       safesValue,
       holders,
+      ...(l.variant ? { innerValue: inner, variant: l.variant } : {}),
     });
     if (l.kind === 'bank') {
       st.banksRecovered++;
@@ -279,11 +288,61 @@ export function removeRecovered(ctx: SimContext, settlements: ReadonlyArray<Sett
   }
 }
 
-/** remainingValue = every unrecovered safe + 500 per unrecovered bank body. */
+/** Recompute state.remainingValue (computeRemainingValue). */
 export function updateRemaining(ctx: SimContext): void {
+  ctx.state.remainingValue = computeRemainingValue(ctx.state);
+}
+
+/**
+ * Every point still on the field (content-plan §3.5, Content 2.0 extension point; C1 owns the
+ * producers of each term):
+ *   Σ unrecovered loot (baseValue + innerValue; dormant included) + Σ coin piles + Σ bags
+ *   + Σ unbroken breakables' innerValue + Σ matchEvents' pendingValue.
+ * Classic: every unrecovered safe + 500 per unrecovered bank body (the other terms are empty).
+ * Invariant every tick: scores[0] + scores[1] + remainingValue === totalValue.
+ */
+export function computeRemainingValue(st: Readonly<Pick<SimState, 'loot' | 'coins' | 'characters' | 'breakables' | 'matchEvents'>>): number {
   let v = 0;
-  for (const l of ctx.state.loot) if (!l.recovered) v += l.baseValue;
-  ctx.state.remainingValue = v;
+  for (const l of st.loot) if (!l.recovered) v += l.baseValue + (l.innerValue ?? 0);
+  for (const c of st.coins) v += c.value;
+  for (const ch of st.characters) v += ch.bag ?? 0;
+  for (const b of st.breakables) if (!b.broken) v += b.innerValue;
+  for (const e of st.matchEvents) v += e.pendingValue;
+  return v;
+}
+
+/**
+ * "모두 털림" (Content 2.0 extension point): every loot item recovered (dormant ones are not),
+ * no loose piles, every bag empty, every breakable broken and no pending event value.
+ * Classic: every loot item recovered.
+ */
+export function isAllRecovered(st: Readonly<Pick<SimState, 'loot' | 'coins' | 'characters' | 'breakables' | 'matchEvents'>>): boolean {
+  if (st.loot.length === 0 || !st.loot.every((l) => l.recovered)) return false;
+  if (st.coins.length > 0) return false;
+  for (const ch of st.characters) if (ch.bag) return false;
+  for (const b of st.breakables) if (!b.broken) return false;
+  for (const e of st.matchEvents) if (e.pendingValue > 0) return false;
+  return true;
+}
+
+/**
+ * [C1] Step 4: settle this tick's bag deposits (after the loot settlements of the same tick, same
+ * batch): bag -> score, emits `coinsBanked`. Claims are applied in ascending charId; a claim whose
+ * bag is already empty pays nothing. Day-0 skeleton by C0 (C1 may refine; the signature is frozen).
+ */
+export function settleDeposits(ctx: SimContext, claims: ReadonlyArray<DepositClaim>): void {
+  const st = ctx.state;
+  const sorted = [...claims].sort((a, b) => a.charId - b.charId);
+  for (const c of sorted) {
+    const ch = st.characters[c.charId - 1];
+    if (!ch || !ch.bag) continue;
+    const value = Math.min(ch.bag, c.value);
+    ch.bag -= value;
+    ch.depositTicks = 0;
+    st.scores[ch.team] += value;
+    emit(ctx, { type: 'coinsBanked', tick: st.tick, charId: ch.id, team: ch.team, value });
+  }
+  if (sorted.length) updateRemaining(ctx);
 }
 
 // ---------------------------------------------------------------------------
@@ -312,7 +371,7 @@ export function checkEnd(ctx: SimContext): boolean {
   if (st.over) return true;
   const [a, b] = st.scores;
   let reason: MatchResult['reason'] | null = null;
-  if (st.loot.length > 0 && st.loot.every((l) => l.recovered)) reason = 'allRecovered';
+  if (isAllRecovered(st)) reason = 'allRecovered';
   else if (st.tick >= st.endTick) reason = 'time';
   else if (ctx.rules.earlyDecision && Math.max(a, b) > Math.min(a, b) + st.remainingValue) reason = 'decided';
   if (!reason) return false;

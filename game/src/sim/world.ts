@@ -4,11 +4,24 @@
  * Entity ids: characters 1..N (id = slot + 1), then banks (layout order), then safes
  * (bank interiors first: bank 0's BANK_MODEL.interior in order, then bank 1's ...,
  * then outdoor safes in layout order). All loot starts anchored (doc §5).
+ *
+ * Content 2.0 (C0 skeleton): with `rules.content === 'v2'` the outdoor safes come from
+ * `layout.v2.safes`, then buildV2() runs the package callbacks in the frozen build order
+ * props (C3) -> breakables (C1) -> gimmicks (C4) -> item pads (C2) -> events (C5, dormant event
+ * loot appended last), and totalValue / remainingValue are computed afterwards (rules.ts
+ * computeRemainingValue). Classic never runs any of it.
  */
 import {
   BANK_MODEL,
   CHARACTER,
+  COIN_ID_BASE,
+  CONTENT_RNG_SALT,
+  CONTENT_V2_BY_DEFAULT,
   DEFAULT_RULES,
+  HAZARD_ID_BASE,
+  ITEM_ID_BASE,
+  KINEMATIC_ID_BASE,
+  PROJECTILE_ID_BASE,
   FENCE,
   SAFE_SPECS,
   SCORE,
@@ -16,9 +29,17 @@ import {
 } from './config';
 import type { CharRuntime, FenceRuntime, LootRuntime, SimContext, ZoneRuntime } from './context';
 import { CAT_BANK, CAT_CHARACTER, CAT_SAFE, PhysicsWorld, type Body, type PhysicsParams, type StaticShape } from './physics';
+import { buildBreakables } from './breakables';
+import { buildEvents } from './events';
+import { buildGimmicks } from './gimmicks';
+import { buildItemPads } from './items';
+import { createRng } from './math';
+import { buildProps } from './props';
+import { computeRemainingValue } from './rules';
 import type {
   CharacterState,
   FenceState,
+  LayoutV2Def,
   LootKind,
   LootState,
   MatchSetup,
@@ -76,11 +97,21 @@ export function mergeRules(setup: MatchSetup): RuleConfig {
   tickCount('matchTicks', 1);
   tickCount('finalCountdownTicks', 0);
   tickCount('recoveryTicks', 1);
-  for (const key of ['earlyDecision', 'timeLimit', 'police'] as const) {
+  for (const key of ['earlyDecision', 'timeLimit', 'police', 'gimmicks'] as const) {
     if (typeof rules[key] !== 'boolean') {
       throw new TypeError(`RuleConfig.${key} must be a boolean (got ${String(rules[key])})`);
     }
   }
+  // Content 2.0 (C0): resolve the ruleset per layout; always set on the merged rules.
+  const content = src?.content ?? (setup.layout.v2 && CONTENT_V2_BY_DEFAULT ? 'v2' : 'classic');
+  if (content !== 'classic' && content !== 'v2') throw new RangeError(`RuleConfig.content must be 'classic' or 'v2' (got ${String(content)})`);
+  if (content === 'v2' && !setup.layout.v2) throw new RangeError(`RuleConfig.content 'v2' needs layout.v2 (layout ${setup.layout.id} has none)`);
+  rules.content = content;
+  if (rules.items !== 'off' && rules.items !== 'hammerOnly' && rules.items !== 'on') {
+    throw new RangeError(`RuleConfig.items must be 'off' | 'hammerOnly' | 'on' (got ${String(rules.items)})`);
+  }
+  if (rules.events !== 'off' && rules.events !== 'on') throw new RangeError(`RuleConfig.events must be 'off' | 'on' (got ${String(rules.events)})`);
+  if (src && src.eventPlan !== undefined) rules.eventPlan = src.eventPlan;
   return rules;
 }
 
@@ -295,7 +326,8 @@ export function buildContext(setup: MatchSetup): SimContext {
       lootStates.push(newLootState(id, it.kind, pos, angle, SAFE_SPECS[it.kind].half, bank.entityId));
     }
   });
-  for (const sp of layout.safes) {
+  const v2: LayoutV2Def | null = rules.content === 'v2' ? layout.v2! : null;
+  for (const sp of v2 ? v2.safes : layout.safes) {
     const id = nextId++;
     const body = makeSafeBody(physics, id, sp.kind, sp.pos, sp.angle);
     loot.push({ body, baseMass: SAFE_SPECS[sp.kind].mass, stuckTicks: 0, lastX: sp.pos.x, lastY: sp.pos.y, lastA: sp.angle });
@@ -304,7 +336,6 @@ export function buildContext(setup: MatchSetup): SimContext {
   const lootIndex = new Map<number, number>();
   lootStates.forEach((l, i) => lootIndex.set(l.id, i));
 
-  const totalValue = lootStates.reduce((sum, l) => sum + l.baseValue, 0);
   const state: SimState = {
     layoutId: layout.id,
     tick: 0,
@@ -318,17 +349,23 @@ export function buildContext(setup: MatchSetup): SimContext {
     banksRecovered: 0,
     finalCountdown: false,
     finalCountdownTick: null,
-    remainingValue: totalValue,
-    totalValue,
+    remainingValue: 0,
+    totalValue: 0,
     pings: [],
     police: [],
     policeCars: [],
     alarm: { ringing: [], dispatchTick: null, waves: 0 },
+    coins: [],
+    breakables: [],
+    items: [],
+    hazards: [],
+    projectiles: [],
+    gimmicks: [],
+    matchEvents: [],
+    eventPlan: null,
   };
 
-  for (const b of physics.bodies) b.updateShapes(0);
-
-  return {
+  const ctx: SimContext = {
     setup,
     rules,
     layout,
@@ -347,5 +384,53 @@ export function buildContext(setup: MatchSetup): SimContext {
     settled: new Set(),
     started: false,
     police: null,
+    content: null,
+    rng: createRng((setup.seed ^ CONTENT_RNG_SALT) >>> 0),
+    nextIds: { item: ITEM_ID_BASE + 1, projectile: PROJECTILE_ID_BASE + 1, hazard: HAZARD_ID_BASE + 1, kinematic: KINEMATIC_ID_BASE + 1, coin: COIN_ID_BASE + 1 },
   };
+  if (v2) buildV2(ctx, v2);
+
+  for (const b of physics.bodies) b.updateShapes(0);
+
+  // Constant for the match (content-plan §3.5); classic: Σ loot baseValue (3200 on full layouts).
+  state.totalValue = computeRemainingValue(state);
+  state.remainingValue = state.totalValue;
+  return ctx;
+}
+
+/**
+ * Content 2.0 build (C0 skeleton): the package callbacks in the frozen build order. Each callback
+ * only appends to its own state array / the loot list (appendLoot) and the physics world. They run
+ * BEFORE the systems exist (`ctx.content` is still null): per-match runtime (item decks, breakable
+ * static indices, gimmick bodies' bookkeeping) is created in the owning system's constructor from
+ * `ctx.layout.v2` / `ctx.state`, which runs right after the build (Simulation constructor).
+ */
+function buildV2(ctx: SimContext, v2: LayoutV2Def): void {
+  buildProps(ctx, v2); // C3: prop loot, ids right after the v2 safes
+  buildBreakables(ctx, v2); // C1
+  buildGimmicks(ctx, v2); // C4 (skips when rules.gimmicks is false)
+  buildItemPads(ctx, v2); // C2 (skips when rules.items is 'off')
+  buildEvents(ctx, v2); // C5: eventPlan, scheduled events, dormant event loot (appended last)
+}
+
+/** Next loot id (after every loot built so far). */
+export function nextLootId(ctx: SimContext): number {
+  const st = ctx.state;
+  return st.loot.length ? st.loot[st.loot.length - 1]!.id + 1 : st.characters.length + 1;
+}
+
+/**
+ * Append a loot item built by a Content 2.0 callback (props, dormant event loot). `state.id`
+ * must be nextLootId(ctx); keeps state.loot / ctx.loot / ctx.lootIndex aligned.
+ */
+export function appendLoot(ctx: SimContext, state: LootState, rt: LootRuntime): void {
+  if (state.id !== nextLootId(ctx)) throw new Error(`appendLoot: id ${state.id} != next loot id ${nextLootId(ctx)}`);
+  ctx.lootIndex.set(state.id, ctx.state.loot.length);
+  ctx.state.loot.push(state);
+  ctx.loot.push(rt);
+}
+
+/** Allocate the next id of a Content 2.0 id range (ITEM / PROJECTILE / HAZARD / KINEMATIC / COIN_ID_BASE). */
+export function nextEntityId(ctx: SimContext, kind: keyof SimContext['nextIds']): number {
+  return ctx.nextIds[kind]++;
 }

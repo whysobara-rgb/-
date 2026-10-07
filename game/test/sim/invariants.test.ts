@@ -27,16 +27,23 @@ function fuzz(seed: number, ticks: number, rules = {}, assistEvery = 0): FuzzSta
   const settledIds = new Set<number>();
   let prev: [number, number] = [0, 0];
   let prevEnd = sim.state.endTick;
+  const total0 = sim.state.totalValue;
   const stats: FuzzStats = { recovered: 0, banks: 0, fences: 0, knockdowns: 0, grabs: 0, unstuck: 0, over: null };
   for (let t = 0; t < ticks && !sim.state.over; t++) {
     if (assistEvery) driver.assist(assistEvery);
     const ev = sim.step(driver.commands());
     const s = sim.state;
     // value conservation
+    // (Content 2.0: totalValue is constant from tick 0 — never a hard-coded 3200 — and
+    // remainingValue covers loot + inner coins, piles, bags, breakables and pending event value)
     expect(s.scores[0] + s.scores[1] + s.remainingValue).toBe(s.totalValue);
-    expect(s.totalValue).toBe(3200);
+    expect(s.totalValue).toBe(total0);
     let rem = 0;
-    for (const l of s.loot) if (!l.recovered) rem += l.baseValue;
+    for (const l of s.loot) if (!l.recovered) rem += l.baseValue + (l.innerValue ?? 0);
+    for (const c of s.coins) rem += c.value;
+    for (const c of s.characters) rem += c.bag ?? 0;
+    for (const b of s.breakables) if (!b.broken) rem += b.innerValue;
+    for (const e of s.matchEvents) rem += e.pendingValue;
     expect(s.remainingValue).toBe(rem);
     // scores never decrease, end never later
     expect(s.scores[0]).toBeGreaterThanOrEqual(prev[0]);

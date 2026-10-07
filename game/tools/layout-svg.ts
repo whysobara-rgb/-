@@ -98,7 +98,7 @@ export function renderLayoutSvg(def: LayoutDef, meta: LayoutDesignMeta, lang: 'k
   const out: string[] = [];
   out.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`);
   out.push(`<rect x="0" y="0" width="${W}" height="${H}" fill="#2B2F3A"/>`);
-  const ground = { plaza: '#EDE3CC', arcade: '#E4DDD2', square: '#E8E1D3', practice: '#E3EAD5' }[def.groundStyle ?? 'plaza'];
+  const ground = { plaza: '#EDE3CC', arcade: '#E4DDD2', square: '#E8E1D3', practice: '#E3EAD5', yard: '#E6DCC3', funpark: '#3A3550' }[def.groundStyle ?? 'plaza'];
   out.push(`<rect x="${X(0)}" y="${Y(0)}" width="${def.size.x * S}" height="${def.size.y * S}" fill="${ground}"/>`);
   // 4 m grid
   for (let x = 0; x <= def.size.x; x += 4) out.push(`<line x1="${X(x)}" y1="${Y(0)}" x2="${X(x)}" y2="${Y(def.size.y)}" stroke="#0000000d"/>`);

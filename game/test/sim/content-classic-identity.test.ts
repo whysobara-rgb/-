@@ -56,7 +56,8 @@ describe('content: classic is byte-identical to the pre-Content-2.0 sim', () => 
 
   for (const m of FIXTURE.ai) {
     it(`replays ${m.name}`, () => {
-      const sim = new Simulation({ layout: LAYOUTS[m.layout as LayoutId], roster: m.roster, seed: m.seed, rules: m.rules });
+      // classic pinned explicitly (a map gaining `layout.v2` must not switch the replay to v2)
+      const sim = new Simulation({ layout: LAYOUTS[m.layout as LayoutId], roster: m.roster, seed: m.seed, rules: { ...m.rules, content: 'classic' } });
       const dec = unpackStreams(m.commands).map((s) => new StreamDecoder(s));
       const n = dec[0]!.length;
       expectClassicContentState(sim);
@@ -69,7 +70,7 @@ describe('content: classic is byte-identical to the pre-Content-2.0 sim', () => 
 
   for (const f of FIXTURE.fuzz) {
     it(`replays ${f.name}`, () => {
-      const sim = new Simulation({ ...makeSetup(LAYOUTS[f.layout as LayoutId], f.teams, f.rules), seed: f.seed });
+      const sim = new Simulation({ ...makeSetup(LAYOUTS[f.layout as LayoutId], f.teams, { ...f.rules, content: 'classic' }), seed: f.seed });
       const driver = new FuzzDriver(sim, f.seed);
       for (let t = 0; t < f.ticks && !sim.state.over; t++) {
         if (f.assistEvery) driver.assist(f.assistEvery);

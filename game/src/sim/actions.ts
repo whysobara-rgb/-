@@ -13,13 +13,14 @@ import {
   DT,
   KNOCKDOWN_TICKS,
   PING,
+  PROP_SPECS,
   PROTECT_TICKS,
   UNANCHOR_TICKS,
 } from './config';
 import { emit, lootById, type SimContext } from './context';
 import { closestPointOnOBB, obbInsideOBB, pointInOBB, rayCircle, rayOBB } from './math';
 import { GrabJoint, SHAPE_CIRCLE, type Body } from './physics';
-import type { CharacterState, Command, EntityId, GrabCandidate, LootState, OBB, TeamId, Vec2 } from './types';
+import type { CharacterState, Command, EntityId, GrabCandidate, KnockdownCause, LootState, OBB, TeamId, Vec2 } from './types';
 import { EMPTY_COMMAND } from './types';
 import { boxInertia } from './world';
 
@@ -175,7 +176,7 @@ export function grabCandidate(ctx: SimContext, slot: number): GrabCandidate | nu
 
   for (let i = 0; i < st.loot.length; i++) {
     const l = st.loot[i]!;
-    if (l.recovered) continue;
+    if (l.recovered || l.dormant || l.airborne) continue; // Content 2.0: = !isCarryable(l)
     const lb = ctx.loot[i]!.body;
     if (l.kind === 'bank') {
       const fp = bankFootprint(lb);
@@ -378,7 +379,11 @@ function updateFacing(ctx: SimContext, slot: number, cmd: Command): void {
   if (Math.hypot(cmd.move.x, cmd.move.y) > 1e-3) ch.facing = Math.atan2(cmd.move.y, cmd.move.x);
 }
 
-function startDash(ctx: SimContext, slot: number): void {
+/**
+ * Start a dash (empty hands) or a carry boost (holding loot). Exported for C2 (Content 2.0): the
+ * soap item is "a normal dash that leaves a slick", skates modify the burst / boost here.
+ */
+export function startDash(ctx: SimContext, slot: number): void {
   const ch = ctx.state.characters[slot]!;
   const body = ctx.chars[slot]!.body;
   ch.dashCooldown = DASH.cooldownTicks;
@@ -454,7 +459,9 @@ export function processCommands(ctx: SimContext, commands: ReadonlyArray<Command
         updateFacing(ctx, slot, cmd);
       }
     }
-    if (risingDash && ch.dashCooldown === 0) startDash(ctx, slot);
+    // Content 2.0 (C0 skeleton, R2): empty-handed with an item, the dash edge uses the item (C2)
+    if (risingDash && ch.item && !ch.grab && ctx.content) ctx.content.items.onDash(slot);
+    else if (risingDash && ch.dashCooldown === 0) startDash(ctx, slot);
     if (cmd.ping) handlePing(ctx, slot, cmd.ping);
     // straining: pulling an anchored target with a meaningful stick input
     let straining = false;
@@ -658,35 +665,69 @@ export function checkDashHits(ctx: SimContext): void {
       vb.vy += h.ny * DASH.teamShoveSpeed;
     }
   }
+  // Content 2.0: the knocking attacker (lowest slot among this victim's hits) gets the spill credit
+  let spills: Map<number, { att: number; value: number }> | null = null;
   for (let j = 0; j < n; j++) {
     const k = knock.get(j);
     if (!k) continue;
-    const victim = st.characters[j]!;
-    const vb = ctx.chars[j]!.body;
-    if (victim.grab) doRelease(ctx, j, true);
-    ctx.chars[j]!.grabLatch = true;
-    victim.knockdownTicks = KNOCKDOWN_TICKS;
-    victim.protectTicks = PROTECT_TICKS;
-    victim.dashTicks = 0;
-    victim.boostTicks = 0;
-    victim.straining = false;
-    vb.noDrag = false;
-    vb.fx = 0;
-    vb.fy = 0;
     const l = Math.hypot(k.x, k.y);
     const s = l > 1 ? DASH.knockbackSpeed / l : DASH.knockbackSpeed;
-    vb.vx = vb.fvx + k.x * s;
-    vb.vy = vb.fvy + k.y * s;
+    let att = -1;
+    for (const h of hits) if (h.vic === j && !h.clash && h.vulnerable && (att < 0 || h.att < att)) att = h.att;
+    const spilled = knockDown(ctx, j, k.x * s, k.y * s, 'dash', att >= 0 ? st.characters[att]!.id : null);
+    if (spilled > 0) (spills ??= new Map()).set(j, { att, value: spilled });
   }
   for (const h of hits) {
+    const knockdown = !h.clash && h.vulnerable;
+    const sp = knockdown ? spills?.get(h.vic) : undefined;
     emit(ctx, {
       type: 'dashHit',
       tick: st.tick,
       attackerId: st.characters[h.att]!.id,
       victimId: st.characters[h.vic]!.id,
-      knockdown: !h.clash && h.vulnerable,
+      knockdown,
+      ...(sp && sp.att === h.att ? { spilled: sp.value } : {}),
     });
   }
+}
+
+/**
+ * THE knockdown (doc §7/§8, Content 2.0 chokepoint): forced release, knockdown + protection timers,
+ * dash / boost / strain cleared, drive zeroed, knockback velocity (kvx, kvy) relative to the floor
+ * under the victim. Then, in v2 only, `ctx.content.onKnockdown` spills the bag (C1; not for
+ * 'self') and drops the held item (C2). Returns the spilled value (0 in classic).
+ *
+ * Every knockdown source calls this — dash hits, police tackles, the hammer (C2), skate crashes
+ * ('self', C2), pile drivers / catapult landings (C4), gold-safe landings (C5) — so spill and item
+ * drop never need per-source wiring. The caller checks vulnerability (opponent, not protected,
+ * not already down). Spill events (`bagSpilled`, `coinSpawn`) precede the caller's own event
+ * (`dashHit`, `policeTackle`, `itemHit`, ...) in the log of the same tick.
+ */
+export function knockDown(
+  ctx: SimContext,
+  slot: number,
+  kvx: number,
+  kvy: number,
+  cause: KnockdownCause,
+  byId: EntityId | null,
+  ticks: number = KNOCKDOWN_TICKS,
+): number {
+  const victim = ctx.state.characters[slot]!;
+  const vrt = ctx.chars[slot]!;
+  const vb = vrt.body;
+  if (victim.grab) doRelease(ctx, slot, true);
+  vrt.grabLatch = true;
+  victim.knockdownTicks = ticks;
+  victim.protectTicks = PROTECT_TICKS;
+  victim.dashTicks = 0;
+  victim.boostTicks = 0;
+  victim.straining = false;
+  vb.noDrag = false;
+  vb.fx = 0;
+  vb.fy = 0;
+  vb.vx = vb.fvx + kvx;
+  vb.vy = vb.fvy + kvy;
+  return ctx.content ? ctx.content.onKnockdown(victim.id, cause, byId, Math.atan2(kvy, kvx)) : 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -762,7 +803,9 @@ export function updateUnanchor(ctx: SimContext): void {
       else if (team !== ch.team) mixed = true;
     }
     if (count === 0) continue;
-    l.unanchorProgress = Math.min(1, l.unanchorProgress + count / UNANCHOR_TICKS[l.kind]);
+    // Content 2.0: a prop uproots in PROP_SPECS[variant].uprootTicks (ATM 3 s, 돈나무 / gold safe 2.5 s)
+    const uproot = l.variant ? PROP_SPECS[l.variant].uprootTicks : UNANCHOR_TICKS[l.kind];
+    l.unanchorProgress = Math.min(1, l.unanchorProgress + count / uproot);
     if (l.unanchorProgress >= 1 - 1e-9) {
       setLootFree(ctx, i);
       for (const cid of l.grabbedBy) {
