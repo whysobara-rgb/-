@@ -1,38 +1,132 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import '../../domain/gacha_grade.dart';
+import '../../../../core/domain/rarity.dart';
+import '../../../../core/theme/app_colors.dart';
 
 /// 뽑기 연출용 CustomPainter 모음.
 ///
-/// 외부 엔진 없이 Canvas만으로 그린다. 셸은 조용하게, 이 무대는 화려하게:
-/// 어두운 무채색 무대 위에서 오직 실제 결과 등급의 빛 색만 쓴다.
+/// 외부 엔진 없이 Canvas만으로 그린다. 파티클 수는 등급별 상한
+/// (RevealTimeline.sparkCount)을 넘지 않고, 모든 위치는 시드 고정 난수 +
+/// 시간으로 계산해 프레임마다 객체를 새로 만들지 않는다.
+
+/// 어두운 무대 위에서 쓰는 등급 빛 색(셸의 레어도 색보다 밝게).
+Color stageLight(Rarity r) => switch (r) {
+  Rarity.n => const Color(0xFFE4E8EE),
+  Rarity.r => const Color(0xFF6FA6FF),
+  Rarity.sr => const Color(0xFFC490FF),
+  Rarity.ssr => const Color(0xFFF7CB5C),
+};
+
+/// ── 무대 배경 ─────────────────────────────────────────────────────
+///
+/// 비네팅 + 가장자리에서 새어 드는 빛줄기(light leak) + 바닥 반사.
+/// [energy]가 오를수록 빛이 진해지고 넓어진다.
+class StageBackdropPainter extends CustomPainter {
+  final Color color;
+  final double energy;
+  final double time;
+
+  StageBackdropPainter({
+    required this.color,
+    required this.energy,
+    required this.time,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    final c = Offset(size.width / 2, size.height * 0.46);
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..shader = RadialGradient(
+          center: const Alignment(0, -0.1),
+          radius: 0.95,
+          colors: [
+            Color.lerp(const Color(0xFF15151A), color, 0.06 + 0.10 * energy)!,
+            AppColors.stage,
+          ],
+        ).createShader(rect),
+    );
+
+    final bloomR = size.width * (0.45 + 0.5 * energy);
+    canvas.drawCircle(
+      c,
+      bloomR,
+      Paint()
+        ..shader = RadialGradient(
+          colors: [
+            color.withValues(alpha: 0.10 + 0.32 * energy),
+            color.withValues(alpha: 0),
+          ],
+        ).createShader(Rect.fromCircle(center: c, radius: bloomR)),
+    );
+
+    // 빛줄기: 위 양쪽 모서리에서 대각선으로 들어오는 부드러운 띠.
+    if (energy > 0.02) {
+      for (var i = 0; i < 3; i++) {
+        final side = i.isEven ? -1.0 : 1.0;
+        final sway = math.sin(time * (0.6 + i * 0.25) + i) * 0.08;
+        final origin = Offset(
+          size.width * (0.5 + side * (0.62 + i * 0.08)),
+          -size.height * 0.05,
+        );
+        final angle = side * (0.5 + sway + i * 0.12);
+        final len = size.height * 0.95;
+        final w = size.width * (0.16 + 0.08 * i) * (0.7 + 0.5 * energy);
+        canvas.save();
+        canvas.translate(origin.dx, origin.dy);
+        canvas.rotate(angle);
+        final beam = Rect.fromLTWH(-w / 2, 0, w, len);
+        canvas.drawRect(
+          beam,
+          Paint()
+            ..shader = LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                color.withValues(alpha: 0.22 * energy),
+                color.withValues(alpha: 0.05 * energy),
+                Colors.transparent,
+              ],
+            ).createShader(beam)
+            ..maskFilter = MaskFilter.blur(BlurStyle.normal, w * 0.3),
+        );
+        canvas.restore();
+      }
+    }
+
+    final floor = Rect.fromCenter(
+      center: Offset(size.width / 2, size.height * 0.64),
+      width: size.width * 1.1,
+      height: size.height * 0.16,
+    );
+    canvas.drawOval(
+      floor,
+      Paint()
+        ..shader = RadialGradient(
+          colors: [
+            color.withValues(alpha: 0.10 + 0.22 * energy),
+            Colors.transparent,
+          ],
+        ).createShader(floor),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant StageBackdropPainter old) =>
+      old.color != color || old.energy != energy || old.time != time;
+}
 
 /// ── 아이소메트릭 박스 ─────────────────────────────────────────────
 ///
 /// 흑연색 상자. 뚜껑 이음새와 균열로 등급 빛이 새어 나온다.
 class VaultBoxPainter extends CustomPainter {
-  /// 0~1 등장(스케일·불투명도).
   final double appear;
-
-  /// 0~1 균열 진행도.
   final double crack;
-
-  /// 현재 빛 색.
   final Color color;
-
-  /// 맥동 스케일(1.0 기준).
   final double pulse;
-
-  /// 0~1 뚜껑 열림(개봉 단계).
   final double lidOpen;
-
-  /// 0~1 반복값. SSR 금속 광택 회전.
-  final double sheen;
-
-  /// SSR 금속 광택 사용 여부.
-  final bool metallic;
-
-  /// 빛의 세기 배율(등급이 높을수록 큼).
   final double intensity;
 
   VaultBoxPainter({
@@ -41,14 +135,12 @@ class VaultBoxPainter extends CustomPainter {
     required this.color,
     this.pulse = 1,
     this.lidOpen = 0,
-    this.sheen = 0,
-    this.metallic = false,
     this.intensity = 1,
   });
 
-  static const _top = Color(0xFF34343A);
-  static const _left = Color(0xFF222226);
-  static const _right = Color(0xFF17171A);
+  static const _top = Color(0xFF3A3A42);
+  static const _left = Color(0xFF26262C);
+  static const _right = Color(0xFF18181C);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -56,13 +148,12 @@ class VaultBoxPainter extends CustomPainter {
     final c = size.center(Offset.zero) + const Offset(0, 6);
     final s =
         size.width *
-        0.27 *
+        0.25 *
         pulse *
         (0.6 + 0.4 * Curves.easeOutBack.transform(appear.clamp(0.0, 1.0)));
     final cos30 = math.cos(math.pi / 6);
     final opacity = appear.clamp(0.0, 1.0);
 
-    // 꼭짓점.
     final t = c + Offset(0, -s);
     final ul = c + Offset(-s * cos30, -s / 2);
     final ur = c + Offset(s * cos30, -s / 2);
@@ -70,7 +161,6 @@ class VaultBoxPainter extends CustomPainter {
     final lr = c + Offset(s * cos30, s / 2);
     final b = c + Offset(0, s);
 
-    // 바닥 그림자.
     canvas.drawOval(
       Rect.fromCenter(
         center: b + Offset(0, s * 0.18),
@@ -78,38 +168,30 @@ class VaultBoxPainter extends CustomPainter {
         height: s * 0.42,
       ),
       Paint()
-        ..color = Colors.black.withValues(alpha: 0.55 * opacity)
+        ..color = Colors.black.withValues(alpha: 0.6 * opacity)
         ..maskFilter = MaskFilter.blur(BlurStyle.normal, s * 0.12),
     );
 
-    // 등 뒤 후광: 균열이 진행될수록 커진다.
-    final glow = (0.15 + 0.85 * crack) * intensity;
-    if (glow > 0) {
-      canvas.drawCircle(
-        c,
-        s * (1.6 + 0.9 * crack),
-        Paint()
-          ..shader =
-              RadialGradient(
-                colors: [
-                  color.withValues(
-                    alpha: (0.42 * glow).clamp(0.0, 0.8) * opacity,
-                  ),
-                  color.withValues(alpha: 0),
-                ],
-              ).createShader(
-                Rect.fromCircle(center: c, radius: s * (1.6 + 0.9 * crack)),
-              ),
-      );
-    }
+    final glow = (0.2 + 0.8 * crack) * intensity;
+    final glowR = s * (1.6 + 1.1 * crack);
+    canvas.drawCircle(
+      c,
+      glowR,
+      Paint()
+        ..shader = RadialGradient(
+          colors: [
+            color.withValues(alpha: (0.45 * glow).clamp(0.0, 0.85) * opacity),
+            color.withValues(alpha: 0),
+          ],
+        ).createShader(Rect.fromCircle(center: c, radius: glowR)),
+    );
 
     final lidLift = Offset(
       0,
-      -s * 1.6 * Curves.easeIn.transform(lidOpen.clamp(0.0, 1.0)),
+      -s * 1.8 * Curves.easeIn.transform(lidOpen.clamp(0.0, 1.0)),
     );
     final lidAlpha = (1 - lidOpen * 1.4).clamp(0.0, 1.0);
 
-    // 몸통 좌/우 면.
     final leftFace = Path()..addPolygon([ul, c, b, ll], true);
     final rightFace = Path()..addPolygon([c, ur, lr, b], true);
     canvas.drawPath(
@@ -121,40 +203,14 @@ class VaultBoxPainter extends CustomPainter {
       Paint()..color = _right.withValues(alpha: opacity),
     );
 
-    if (metallic) {
-      // SSR: 면 위로 아주 옅은 금속 광택 띠가 천천히 지나간다.
-      final band = Rect.fromLTRB(ll.dx, t.dy, lr.dx, b.dy);
-      final shift = sheen * 2 - 0.5;
-      final sheenPaint = Paint()
-        ..shader = LinearGradient(
-          begin: Alignment(-1 + shift * 2, -1),
-          end: Alignment(1 + shift * 2, 1),
-          colors: [
-            Colors.transparent,
-            const Color(0xFFF2C14E).withValues(alpha: 0.16 * opacity),
-            Colors.transparent,
-          ],
-          stops: const [0.35, 0.5, 0.65],
-        ).createShader(band);
-      canvas.drawPath(leftFace, sheenPaint);
-      canvas.drawPath(rightFace, sheenPaint);
-    }
-
-    // 뚜껑 이음새 높이(옆면 위쪽 22%).
     const seamT = 0.22;
     final seamL1 = Offset.lerp(ul, ll, seamT)!;
     final seamC = Offset.lerp(c, b, seamT)!;
     final seamR1 = Offset.lerp(ur, lr, seamT)!;
 
-    // 균열: 이음새에서 아래로 번개처럼 갈라진다.
     if (crack > 0) {
       final rng = math.Random(7);
-      final count = (crack * 6).ceil().clamp(0, 6);
-      final crackPaint = Paint()
-        ..color = color.withValues(alpha: opacity)
-        ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round;
+      final count = (crack * 7).ceil().clamp(0, 7);
       for (var i = 0; i < count; i++) {
         final onLeft = i.isEven;
         final a = onLeft ? seamL1 : seamC;
@@ -162,41 +218,51 @@ class VaultBoxPainter extends CustomPainter {
         final start = Offset.lerp(a, bEdge, 0.2 + rng.nextDouble() * 0.6)!;
         final path = Path()..moveTo(start.dx, start.dy);
         var p = start;
-        final segs = 4;
-        final reach = s * 0.95 * (crack * 1.2 - i * 0.12).clamp(0.0, 1.0);
+        const segs = 4;
+        final reach = s * 0.95 * (crack * 1.2 - i * 0.11).clamp(0.0, 1.0);
         for (var k = 1; k <= segs; k++) {
-          p = p + Offset((rng.nextDouble() - 0.5) * s * 0.22, reach / segs);
+          p = p + Offset((rng.nextDouble() - 0.5) * s * 0.24, reach / segs);
           path.lineTo(p.dx, p.dy);
         }
-        final clip = onLeft ? leftFace : rightFace;
         canvas.save();
-        canvas.clipPath(clip);
+        canvas.clipPath(onLeft ? leftFace : rightFace);
         canvas.drawPath(
           path,
           Paint()
-            ..color = color.withValues(alpha: 0.6 * opacity)
+            ..color = color.withValues(alpha: 0.65 * opacity)
             ..style = PaintingStyle.stroke
-            ..strokeWidth = 6
+            ..strokeWidth = 7
             ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5),
         );
-        canvas.drawPath(path, crackPaint..strokeWidth = 1.6);
+        canvas.drawPath(
+          path,
+          Paint()
+            ..color = Color.lerp(
+              color,
+              Colors.white,
+              0.6,
+            )!.withValues(alpha: opacity)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.6
+            ..strokeCap = StrokeCap.round
+            ..strokeJoin = StrokeJoin.round,
+        );
         canvas.restore();
       }
     }
 
-    // 이음새 빛.
     final seamPath = Path()
       ..moveTo(seamL1.dx, seamL1.dy)
       ..lineTo(seamC.dx, seamC.dy)
       ..lineTo(seamR1.dx, seamR1.dy);
-    final seamStrength = (0.25 + 0.75 * crack) * opacity;
+    final seamStrength = (0.3 + 0.7 * crack) * opacity;
     canvas.drawPath(
       seamPath,
       Paint()
-        ..color = color.withValues(alpha: (0.8 * seamStrength).clamp(0.0, 1.0))
+        ..color = color.withValues(alpha: (0.85 * seamStrength).clamp(0.0, 1.0))
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 4 + 6 * crack * intensity
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 4 + 6 * crack),
+        ..strokeWidth = 4 + 7 * crack * intensity
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 4 + 7 * crack),
     );
     canvas.drawPath(
       seamPath,
@@ -204,19 +270,18 @@ class VaultBoxPainter extends CustomPainter {
         ..color = Color.lerp(
           color,
           Colors.white,
-          0.5,
+          0.55,
         )!.withValues(alpha: seamStrength)
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.4,
+        ..strokeWidth = 1.5,
     );
 
-    // 열린 뚜껑 아래로 쏟아지는 빛 기둥.
     if (lidOpen > 0) {
-      final beamH = s * 4 * lidOpen;
+      final beamH = s * 4.5 * lidOpen;
       final beamRect = Rect.fromLTRB(
-        ul.dx + s * 0.2,
+        ul.dx + s * 0.15,
         seamC.dy - beamH,
-        ur.dx - s * 0.2,
+        ur.dx - s * 0.15,
         seamC.dy,
       );
       canvas.drawRect(
@@ -226,8 +291,8 @@ class VaultBoxPainter extends CustomPainter {
             begin: Alignment.bottomCenter,
             end: Alignment.topCenter,
             colors: [
-              Colors.white.withValues(alpha: 0.9 * (1 - lidOpen * 0.6)),
-              color.withValues(alpha: 0.5 * (1 - lidOpen * 0.6)),
+              Colors.white.withValues(alpha: 0.95 * (1 - lidOpen * 0.6)),
+              color.withValues(alpha: 0.55 * (1 - lidOpen * 0.6)),
               color.withValues(alpha: 0),
             ],
           ).createShader(beamRect)
@@ -235,7 +300,6 @@ class VaultBoxPainter extends CustomPainter {
       );
     }
 
-    // 뚜껑(윗면 + 옆면 윗부분).
     canvas.save();
     canvas.translate(lidLift.dx, lidLift.dy);
     final lidLeft = Path()..addPolygon([ul, c, seamC, seamL1], true);
@@ -244,27 +308,23 @@ class VaultBoxPainter extends CustomPainter {
     canvas.drawPath(
       lidLeft,
       Paint()
-        ..color = const Color(0xFF29292E).withValues(alpha: opacity * lidAlpha),
+        ..color = const Color(0xFF2E2E35).withValues(alpha: opacity * lidAlpha),
     );
     canvas.drawPath(
       lidRight,
       Paint()
-        ..color = const Color(0xFF1C1C20).withValues(alpha: opacity * lidAlpha),
+        ..color = const Color(0xFF1F1F24).withValues(alpha: opacity * lidAlpha),
     );
     canvas.drawPath(
       topFace,
       Paint()..color = _top.withValues(alpha: opacity * lidAlpha),
     );
-
-    // 모서리 하이라이트.
     final edge = Paint()
-      ..color = Colors.white.withValues(alpha: 0.14 * opacity * lidAlpha)
+      ..color = Colors.white.withValues(alpha: 0.16 * opacity * lidAlpha)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1;
-    canvas.drawPath(Path()..addPolygon([t, ur, c, ul], true), edge);
+    canvas.drawPath(topFace, edge);
     canvas.drawLine(c, seamC, edge);
-
-    // 윗면 각인(브랜드 마크 대신 얇은 사각 테두리).
     final inset = Path()
       ..addPolygon([
         Offset.lerp(t, c, 0.22)!,
@@ -275,28 +335,21 @@ class VaultBoxPainter extends CustomPainter {
     canvas.drawPath(
       inset,
       Paint()
-        ..color = (metallic ? const Color(0xFFF2C14E) : Colors.white)
-            .withValues(alpha: (metallic ? 0.35 : 0.08) * opacity * lidAlpha)
+        ..color = color.withValues(alpha: 0.35 * opacity * lidAlpha)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1,
     );
     canvas.restore();
 
-    // 몸통 모서리.
     canvas.drawPath(
       Path()
         ..moveTo(ll.dx, ll.dy)
         ..lineTo(b.dx, b.dy)
         ..lineTo(lr.dx, lr.dy),
       Paint()
-        ..color = Colors.white.withValues(alpha: 0.06 * opacity)
+        ..color = Colors.white.withValues(alpha: 0.07 * opacity)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1,
-    );
-    canvas.drawLine(
-      seamC,
-      b,
-      Paint()..color = Colors.white.withValues(alpha: 0.08 * opacity),
     );
   }
 
@@ -307,13 +360,10 @@ class VaultBoxPainter extends CustomPainter {
       old.color != color ||
       old.pulse != pulse ||
       old.lidOpen != lidOpen ||
-      old.sheen != sheen ||
-      old.metallic != metallic;
+      old.intensity != intensity;
 }
 
 /// ── 바닥 링 ──────────────────────────────────────────────────────
-///
-/// 박스 아래 원근 타원 링과 회전 눈금. 등급 빛을 아주 약하게 반사한다.
 class FloorRingPainter extends CustomPainter {
   final double rotation;
   final double appear;
@@ -328,40 +378,36 @@ class FloorRingPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     if (appear <= 0) return;
-    final center = size.center(Offset.zero) + Offset(0, size.height * 0.31);
+    final center = size.center(Offset.zero) + Offset(0, size.height * 0.30);
     final rx = size.width * 0.44 * appear;
     final ry = rx * 0.26;
     final rect = Rect.fromCenter(center: center, width: rx * 2, height: ry * 2);
-
     canvas.drawOval(
       rect,
       Paint()
-        ..color = color.withValues(alpha: 0.35 * appear)
+        ..color = color.withValues(alpha: 0.4 * appear)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.2,
     );
     canvas.drawOval(
-      rect.inflate(10),
+      rect.inflate(12),
       Paint()
         ..color = color.withValues(alpha: 0.12 * appear)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1,
     );
-
-    const ticks = 36;
+    const ticks = 48;
+    final tick = Paint();
     for (var i = 0; i < ticks; i++) {
       final a = rotation + i / ticks * 2 * math.pi;
-      final front = math.sin(a) > 0; // 앞쪽 눈금만 조금 밝게.
+      final front = math.sin(a) > 0;
       final p1 =
           center + Offset(math.cos(a) * rx * 0.9, math.sin(a) * ry * 0.9);
       final p2 = center + Offset(math.cos(a) * rx, math.sin(a) * ry);
-      canvas.drawLine(
-        p1,
-        p2,
-        Paint()
-          ..color = color.withValues(alpha: (front ? 0.55 : 0.2) * appear)
-          ..strokeWidth = i % 6 == 0 ? 1.6 : 0.8,
-      );
+      tick
+        ..color = color.withValues(alpha: (front ? 0.6 : 0.18) * appear)
+        ..strokeWidth = i % 6 == 0 ? 1.8 : 0.8;
+      canvas.drawLine(p1, p2, tick);
     }
   }
 
@@ -370,255 +416,160 @@ class FloorRingPainter extends CustomPainter {
       old.rotation != rotation || old.appear != appear || old.color != color;
 }
 
-class AbsorbParticle {
-  final double angle;
-  final double startRadius;
-  final double delay;
-  final double size;
-  const AbsorbParticle({
-    required this.angle,
-    required this.startRadius,
-    required this.delay,
-    required this.size,
-  });
-}
-
-/// ── 박스 등장: 주변 빛 입자가 박스로 빨려 든다 ──────────────────────
-class AbsorbParticlesPainter extends CustomPainter {
-  final double progress;
+/// ── 차지: 주변 빛 입자가 박스로 빨려 든다 ─────────────────────────
+///
+/// [density] 0~1에 따라 보이는 입자 수가 늘어난다(최대 [maxCount]).
+/// [time]은 초 단위 연속 시간.
+class ConvergeParticlesPainter extends CustomPainter {
+  final double time;
+  final double density;
   final Color color;
-  final List<AbsorbParticle> particles;
+  final int maxCount;
+  final Offset? origin;
 
-  AbsorbParticlesPainter({
-    required this.progress,
+  ConvergeParticlesPainter({
+    required this.time,
+    required this.density,
     required this.color,
-    required this.particles,
+    this.maxCount = 90,
+    this.origin,
   });
 
-  static List<AbsorbParticle> generate(int count, {int seed = 42}) {
-    final rng = math.Random(seed);
+  static final List<(double, double, double, double)> _seeds = () {
+    final rng = math.Random(42);
     return List.generate(
-      count,
-      (_) => AbsorbParticle(
-        angle: rng.nextDouble() * 2 * math.pi,
-        startRadius: 0.6 + rng.nextDouble() * 0.5,
-        delay: rng.nextDouble() * 0.5,
-        size: 1.2 + rng.nextDouble() * 1.8,
+      120,
+      (_) => (
+        rng.nextDouble() * 2 * math.pi,
+        rng.nextDouble(),
+        0.5 + rng.nextDouble() * 0.9,
+        0.8 + rng.nextDouble() * 1.8,
       ),
     );
-  }
+  }();
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (progress <= 0) return;
-    final center = size.center(Offset.zero);
-    final maxR = size.width * 0.6;
-    for (final p in particles) {
-      final local = ((progress - p.delay) / (1 - p.delay)).clamp(0.0, 1.0);
-      if (local <= 0 || local >= 1) continue;
-      final r = maxR * p.startRadius * (1 - Curves.easeIn.transform(local));
-      final pos = center + Offset(math.cos(p.angle), math.sin(p.angle)) * r;
+    if (density <= 0) return;
+    final center = origin ?? size.center(Offset.zero);
+    final maxR = size.longestSide * 0.62;
+    final n = (math.min(maxCount, _seeds.length) * density).round();
+    final paint = Paint()..strokeCap = StrokeCap.round;
+    final hot = Color.lerp(color, Colors.white, 0.5)!;
+    for (var i = 0; i < n; i++) {
+      final (angle, phase, speed, sz) = _seeds[i];
+      final cycle = (time * speed * (0.6 + density * 0.9) + phase) % 1.0;
+      final r = maxR * (1 - Curves.easeIn.transform(cycle));
+      final a = angle + cycle * 0.9;
+      final dir = Offset(math.cos(a), math.sin(a));
+      final pos = center + dir * r;
+      final alpha = math.sin(cycle * math.pi).clamp(0.0, 1.0) * 0.9;
+      final tail = 6 + 18 * cycle * density;
+      paint
+        ..color = (i.isEven ? hot : color).withValues(alpha: alpha)
+        ..strokeWidth = sz;
+      canvas.drawLine(pos, pos + dir * tail, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant ConvergeParticlesPainter old) =>
+      old.time != time || old.density != density || old.color != color;
+}
+
+/// ── 충격파 고리 ───────────────────────────────────────────────────
+///
+/// [rings]: (진행도 0~1, 굵기 배율) 목록. 진행도에 따라 퍼지며 사라진다.
+class ShockwavePainter extends CustomPainter {
+  final List<(double, double)> rings;
+  final Color color;
+  final Offset? origin;
+  final double maxRadius;
+
+  ShockwavePainter({
+    required this.rings,
+    required this.color,
+    this.origin,
+    this.maxRadius = 0,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = origin ?? size.center(Offset.zero);
+    final maxR = maxRadius > 0 ? maxRadius : size.longestSide * 0.75;
+    for (final (p, weight) in rings) {
+      if (p <= 0 || p >= 1) continue;
+      final e = Curves.easeOutCubic.transform(p);
+      final r = maxR * e;
+      final fade = 1 - p;
       canvas.drawCircle(
-        pos,
-        p.size,
-        Paint()..color = color.withValues(alpha: 0.8 * (1 - local)),
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant AbsorbParticlesPainter old) =>
-      old.progress != progress || old.color != color;
-}
-
-class BurstShard {
-  final double angle;
-  final double speed;
-  final double size;
-  final double rotSpeed;
-  final double whiteMix;
-  const BurstShard({
-    required this.angle,
-    required this.speed,
-    required this.size,
-    required this.rotSpeed,
-    required this.whiteMix,
-  });
-}
-
-/// ── 개봉: 박스 파편이 사방으로 흩어진다 ───────────────────────────
-class BurstShardsPainter extends CustomPainter {
-  final double progress;
-  final Color color;
-  final List<BurstShard> shards;
-
-  BurstShardsPainter({
-    required this.progress,
-    required this.color,
-    required this.shards,
-  });
-
-  static List<BurstShard> generate(int count, {int seed = 11}) {
-    final rng = math.Random(seed);
-    return List.generate(
-      count,
-      (_) => BurstShard(
-        angle: rng.nextDouble() * 2 * math.pi,
-        speed: 0.5 + rng.nextDouble() * 0.6,
-        size: 3 + rng.nextDouble() * 7,
-        rotSpeed: (rng.nextDouble() - 0.5) * 10,
-        whiteMix: rng.nextDouble() * 0.6,
-      ),
-    );
-  }
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (progress <= 0 || progress >= 1) return;
-    final center = size.center(Offset.zero);
-    final maxDist = size.width * 0.8;
-    final eased = Curves.easeOutCubic.transform(progress);
-    final alpha = (1 - progress).clamp(0.0, 1.0);
-    for (final s in shards) {
-      final pos =
-          center +
-          Offset(math.cos(s.angle), math.sin(s.angle)) *
-              maxDist *
-              s.speed *
-              eased;
-      canvas.save();
-      canvas.translate(pos.dx, pos.dy);
-      canvas.rotate(s.rotSpeed * progress);
-      final shardColor = Color.lerp(color, Colors.white, s.whiteMix)!;
-      canvas.drawPath(
-        Path()
-          ..moveTo(-s.size / 2, -s.size * 0.8)
-          ..lineTo(s.size / 2, 0)
-          ..lineTo(-s.size / 3, s.size * 0.8)
-          ..close(),
-        Paint()..color = shardColor.withValues(alpha: alpha),
-      );
-      canvas.restore();
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant BurstShardsPainter old) =>
-      old.progress != progress;
-}
-
-class GoldLeaf {
-  final double startX;
-  final double delay;
-  final double fallSpeed;
-  final double size;
-  final double swayFreq;
-  final double swayAmp;
-  final double rotSpeed;
-  final Color color;
-  const GoldLeaf({
-    required this.startX,
-    required this.delay,
-    required this.fallSpeed,
-    required this.size,
-    required this.swayFreq,
-    required this.swayAmp,
-    required this.rotSpeed,
-    required this.color,
-  });
-}
-
-/// ── SSR 전용: 금박이 천천히 흩날린다 ───────────────────────────────
-class GoldLeafPainter extends CustomPainter {
-  final double progress;
-  final List<GoldLeaf> pieces;
-
-  GoldLeafPainter({required this.progress, required this.pieces});
-
-  static List<GoldLeaf> generate(int count, {int seed = 99}) {
-    final rng = math.Random(seed);
-    return List.generate(
-      count,
-      (_) => GoldLeaf(
-        startX: rng.nextDouble(),
-        delay: rng.nextDouble() * 0.3,
-        fallSpeed: 0.55 + rng.nextDouble() * 0.6,
-        size: 4 + rng.nextDouble() * 6,
-        swayFreq: 1.5 + rng.nextDouble() * 2.5,
-        swayAmp: 8 + rng.nextDouble() * 16,
-        rotSpeed: (rng.nextDouble() - 0.5) * 10,
-        color: kGoldLeafPalette[rng.nextInt(kGoldLeafPalette.length)],
-      ),
-    );
-  }
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    for (final p in pieces) {
-      final local = ((progress - p.delay) / (1 - p.delay)).clamp(0.0, 1.0);
-      if (local <= 0) continue;
-      final dy = local * p.fallSpeed * (size.height + 60) - 30;
-      final sway = math.sin(local * p.swayFreq * math.pi * 2) * p.swayAmp;
-      final dx = p.startX * size.width + sway;
-      // 회전에 따라 폭이 줄었다 늘었다 — 얇은 금박이 뒤집히는 느낌.
-      final flip = math.cos(local * p.rotSpeed).abs().clamp(0.15, 1.0);
-      canvas.save();
-      canvas.translate(dx, dy);
-      canvas.rotate(local * p.rotSpeed * 0.5);
-      canvas.drawRect(
-        Rect.fromCenter(
-          center: Offset.zero,
-          width: p.size * flip,
-          height: p.size * 0.55,
-        ),
+        c,
+        r,
         Paint()
-          ..color = p.color.withValues(
-            alpha: local < 0.75 ? 1.0 : ((1 - local) / 0.25).clamp(0.0, 1.0),
-          ),
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = (18 * weight) * fade + 1
+          ..color = color.withValues(alpha: 0.35 * fade)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8),
       );
-      canvas.restore();
+      canvas.drawCircle(
+        c,
+        r,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.2 * weight * fade + 0.5
+          ..color = Color.lerp(
+            color,
+            Colors.white,
+            0.6,
+          )!.withValues(alpha: 0.9 * fade),
+      );
     }
   }
 
   @override
-  bool shouldRepaint(covariant GoldLeafPainter old) => old.progress != progress;
+  bool shouldRepaint(covariant ShockwavePainter old) => true;
 }
 
-/// ── SR/SSR: 카드 뒤에서 천천히 도는 빛줄기 ──────────────────────────
+/// ── 빛줄기(god rays) ──────────────────────────────────────────────
 class LightRaysPainter extends CustomPainter {
   final double rotation;
   final double intensity;
   final Color color;
   final int rays;
+  final Offset? origin;
 
   LightRaysPainter({
     required this.rotation,
     required this.intensity,
     required this.color,
     this.rays = 12,
+    this.origin,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
     if (intensity <= 0) return;
-    final c = size.center(Offset.zero);
-    final r = size.longestSide * 0.75;
+    final c = origin ?? size.center(Offset.zero);
+    final r = size.longestSide * 0.8;
     final rect = Rect.fromCircle(center: c, radius: r);
     final colors = <Color>[];
     final stops = <double>[];
     for (var i = 0; i < rays; i++) {
       final start = i / rays;
-      final mid = start + 0.5 / rays * 0.5;
-      final end = start + 1 / rays * 0.5;
+      final width = (i.isEven ? 0.5 : 0.32) / rays;
       colors.addAll([
         color.withValues(alpha: 0),
-        color.withValues(alpha: 0.22 * intensity),
+        color.withValues(alpha: (i.isEven ? 0.30 : 0.18) * intensity),
         color.withValues(alpha: 0),
         color.withValues(alpha: 0),
       ]);
-      stops.addAll([start, mid, end, (start + 1 / rays).clamp(0.0, 1.0)]);
+      stops.addAll([
+        start,
+        start + width * 0.5,
+        start + width,
+        (start + 1 / rays).clamp(0.0, 1.0),
+      ]);
     }
-    // 바깥으로 갈수록 지우는 마스크가 무대 배경까지 지우지 않도록 별도 레이어.
     canvas.saveLayer(rect, Paint());
     canvas.drawCircle(
       c,
@@ -630,14 +581,13 @@ class LightRaysPainter extends CustomPainter {
           transform: GradientRotation(rotation),
         ).createShader(rect),
     );
-    // 중앙으로 갈수록 밝고, 바깥은 사라지게.
     canvas.drawCircle(
       c,
       r,
       Paint()
         ..shader = RadialGradient(
-          colors: [Colors.transparent, Colors.black.withValues(alpha: 0.9)],
-          stops: const [0.15, 0.85],
+          colors: [Colors.transparent, Colors.black.withValues(alpha: 0.95)],
+          stops: const [0.12, 0.9],
         ).createShader(rect)
         ..blendMode = BlendMode.dstOut,
     );
@@ -651,48 +601,164 @@ class LightRaysPainter extends CustomPainter {
       old.color != color;
 }
 
-/// ── SR/SSR 컷인: 대각선 섬광이 화면을 가른다 ────────────────────────
-class LightningCutinPainter extends CustomPainter {
-  final double progress;
+/// ── 불꽃 폭발 ─────────────────────────────────────────────────────
+///
+/// 중심에서 사방으로 튀는 불꽃 줄기. [age]는 폭발 후 경과 초(슬로모션을
+/// 반영한 가상 시간). 공기 저항 + 중력으로 감속·낙하한다.
+class SparkBurstPainter extends CustomPainter {
+  final double age;
   final Color color;
+  final int count;
+  final Offset? origin;
+  final double power;
 
-  LightningCutinPainter({required this.progress, required this.color});
+  SparkBurstPainter({
+    required this.age,
+    required this.color,
+    required this.count,
+    this.origin,
+    this.power = 1,
+  });
+
+  static final List<(double, double, double, double)> _seeds = () {
+    final rng = math.Random(11);
+    return List.generate(
+      120,
+      (_) => (
+        rng.nextDouble() * 2 * math.pi,
+        0.35 + rng.nextDouble() * 0.9,
+        rng.nextDouble(),
+        0.9 + rng.nextDouble() * 1.6,
+      ),
+    );
+  }();
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (progress <= 0 || progress >= 1) return;
-    final w = size.width;
-    final h = size.height;
-    final sweep = (progress * 1.6 - 0.3) * (w + h);
-
-    final paint = Paint()
-      ..shader = LinearGradient(
-        colors: [
-          Colors.transparent,
-          Colors.white.withValues(alpha: 0.85),
-          color.withValues(alpha: 0.7),
-          Colors.transparent,
-        ],
-        stops: const [0.0, 0.46, 0.54, 1.0],
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-      ).createShader(Rect.fromLTWH(0, 0, w, h));
-
-    canvas.save();
-    canvas.translate(sweep - h, 0);
-    canvas.drawPath(
-      Path()
-        ..moveTo(0, h)
-        ..lineTo(h * 0.55, 0)
-        ..lineTo(h * 0.7, 0)
-        ..lineTo(h * 0.15, h)
-        ..close(),
-      paint,
-    );
-    canvas.restore();
+    if (age <= 0 || count <= 0) return;
+    final c = origin ?? size.center(Offset.zero);
+    final speed0 = size.width * 1.5 * power;
+    const drag = 2.6;
+    const life = 1.5;
+    final gravity = size.height * 0.35;
+    final paint = Paint()..strokeCap = StrokeCap.round;
+    final n = math.min(count, _seeds.length);
+    for (var i = 0; i < n; i++) {
+      final (angle, sp, mix, width) = _seeds[i];
+      final lifeI = life * (0.6 + mix * 0.6);
+      if (age > lifeI) continue;
+      final v0 = speed0 * sp;
+      final travel = v0 / drag * (1 - math.exp(-drag * age));
+      final dir = Offset(math.cos(angle), math.sin(angle));
+      final pos = c + dir * travel + Offset(0, 0.5 * gravity * age * age);
+      final vNow = v0 * math.exp(-drag * age);
+      final tail = (vNow * 0.045).clamp(2.0, 46.0);
+      final vel = dir * vNow + Offset(0, gravity * age);
+      final back = vel.distance == 0 ? dir : vel / vel.distance;
+      final fade = (1 - age / lifeI).clamp(0.0, 1.0);
+      paint
+        ..strokeWidth = width
+        ..color = Color.lerp(
+          Colors.white,
+          color,
+          ((0.25 + mix * 0.75) * (age / lifeI + 0.3)).clamp(0.0, 1.0),
+        )!.withValues(alpha: fade);
+      canvas.drawLine(pos, pos - back * tail, paint);
+    }
   }
 
   @override
-  bool shouldRepaint(covariant LightningCutinPainter old) =>
-      old.progress != progress;
+  bool shouldRepaint(covariant SparkBurstPainter old) =>
+      old.age != age || old.color != color || old.count != count;
+}
+
+class GoldLeaf {
+  final double startX;
+  final double delay;
+  final double fallSpeed;
+  final double size;
+  final double swayFreq;
+  final double swayAmp;
+  final double rotSpeed;
+  final Color color;
+  final bool ribbon;
+  const GoldLeaf({
+    required this.startX,
+    required this.delay,
+    required this.fallSpeed,
+    required this.size,
+    required this.swayFreq,
+    required this.swayAmp,
+    required this.rotSpeed,
+    required this.color,
+    required this.ribbon,
+  });
+}
+
+/// SSR 금박·색종이 팔레트(금·샴페인·백색 — 무지개 아님).
+const List<Color> kGoldLeafPalette = [
+  Color(0xFFF7CB5C),
+  Color(0xFFFFE6A6),
+  Color(0xFFFFFFFF),
+  Color(0xFFD9A43A),
+  Color(0xFFFFF4D6),
+  Color(0xFFB8862B),
+];
+
+/// ── SSR 전용: 금박과 리본 색종이가 흩날린다 ──────────────────────────
+class GoldLeafPainter extends CustomPainter {
+  final double progress;
+  final List<GoldLeaf> pieces;
+
+  GoldLeafPainter({required this.progress, required this.pieces});
+
+  static List<GoldLeaf> generate(int count, {int seed = 99}) {
+    final rng = math.Random(seed);
+    return List.generate(
+      count,
+      (i) => GoldLeaf(
+        startX: rng.nextDouble(),
+        delay: rng.nextDouble() * 0.35,
+        fallSpeed: 0.55 + rng.nextDouble() * 0.6,
+        size: 4 + rng.nextDouble() * 7,
+        swayFreq: 1.2 + rng.nextDouble() * 2.5,
+        swayAmp: 8 + rng.nextDouble() * 18,
+        rotSpeed: (rng.nextDouble() - 0.5) * 12,
+        color: kGoldLeafPalette[rng.nextInt(kGoldLeafPalette.length)],
+        ribbon: i % 3 == 0,
+      ),
+    );
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (progress <= 0) return;
+    final paint = Paint();
+    for (final p in pieces) {
+      final local = ((progress - p.delay) / (1 - p.delay)).clamp(0.0, 1.0);
+      if (local <= 0) continue;
+      final dy = local * p.fallSpeed * (size.height + 80) - 40;
+      final sway = math.sin(local * p.swayFreq * math.pi * 2) * p.swayAmp;
+      final dx = p.startX * size.width + sway;
+      final flip = math.cos(local * p.rotSpeed).abs().clamp(0.12, 1.0);
+      canvas.save();
+      canvas.translate(dx, dy);
+      canvas.rotate(local * p.rotSpeed * 0.5);
+      paint.color = p.color.withValues(
+        alpha: local < 0.75 ? 1.0 : ((1 - local) / 0.25).clamp(0.0, 1.0),
+      );
+      canvas.drawRect(
+        Rect.fromCenter(
+          center: Offset.zero,
+          width: p.size * flip * (p.ribbon ? 0.45 : 1),
+          height: p.size * (p.ribbon ? 1.8 : 0.6),
+        ),
+        paint,
+      );
+      canvas.restore();
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant GoldLeafPainter old) => old.progress != progress;
 }

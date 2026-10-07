@@ -44,4 +44,13 @@ void main() {
     expect(keepAll('a b').contains('\u2060'), isFalse);
     expect(keepAll('배송 신청').replaceAll('\u2060', ''), '배송 신청');
   });
+
+  test('formatWonShort는 좁은 칸에 맞게 만/억 단위로 줄인다', () {
+    expect(formatWonShort(2000), '2,000원');
+    expect(formatWonShort(10000), '1만원');
+    expect(formatWonShort(369000), '36.9만원');
+    expect(formatWonShort(1700000), '170만원');
+    expect(formatWonShort(16000000), '1,600만원');
+    expect(formatWonShort(150000000), '1.5억원');
+  });
 }

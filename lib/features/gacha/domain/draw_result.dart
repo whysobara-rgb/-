@@ -1,6 +1,5 @@
 import '../../../core/domain/rarity.dart';
 import '../../../core/utils/format.dart';
-import 'gacha_grade.dart';
 import 'gacha_models.dart';
 
 /// 뽑기 결과 상품 1개 (`POST /draws` results[]).
@@ -32,9 +31,6 @@ class DrawResult {
     this.isPity = false,
     this.isBonus = false,
   });
-
-  /// 연출 엔진 등급.
-  GachaGrade get grade => GachaGrade.fromRarity(rarity);
 
   factory DrawResult.fromJson(Map<String, dynamic> json) {
     final value = asInt(json['estimatedValue']);

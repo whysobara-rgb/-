@@ -70,6 +70,10 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
+  # 뽑기 연출 효과음 — tool/sfx/generate_sfx.py로 직접 합성한 WAV
+  assets:
+    - assets/sfx/
+
   # Pretendard — 앱 전체 서체 (타입 스케일은 lib/core/theme/app_typography.dart)
   fonts:
     - family: Pretendard

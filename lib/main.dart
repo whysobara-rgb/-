@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'core/feedback/sfx.dart';
 import 'core/theme/app_colors.dart';
 import 'core/theme/app_theme.dart';
 import 'features/auth/presentation/login_page.dart';
@@ -49,12 +50,16 @@ class GachaVaultApp extends StatelessWidget {
           debugShowCheckedModeBanner: false,
           theme: vault ? AppTheme.vault : AppTheme.paper,
           // 넓은 화면(웹)에서도 모바일 폭으로 가운데 정렬한다.
-          builder: (context, child) => ColoredBox(
-            color: vault ? Colors.black : AppColors.bgSubtle,
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 480),
-                child: child,
+          builder: (context, child) => Listener(
+            // 웹 자동재생 규칙: 첫 터치 전에는 효과음을 내지 않는다.
+            onPointerDown: (_) => SfxPlayer.instance.markUserGesture(),
+            child: ColoredBox(
+              color: vault ? Colors.black : AppColors.bgSubtle,
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 480),
+                  child: child,
+                ),
               ),
             ),
           ),

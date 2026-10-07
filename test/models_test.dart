@@ -2,7 +2,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gacha_vault/core/domain/rarity.dart';
 import 'package:gacha_vault/core/network/api_client.dart';
 import 'package:gacha_vault/features/gacha/domain/draw_result.dart';
-import 'package:gacha_vault/features/gacha/domain/gacha_grade.dart';
 import 'package:gacha_vault/features/gacha/domain/gacha_models.dart';
 import 'package:gacha_vault/features/inventory/domain/inventory_item.dart';
 import 'package:gacha_vault/features/rewards/domain/attendance.dart';
@@ -106,14 +105,6 @@ void main() {
     expect(o.best!.isBonus, isTrue);
     expect(o.totalExchange, 2464);
     expect(o.inventoryItemIds, [11, 12]);
-    expect(GachaGrade.fromRarity(o.highestRarity), GachaGrade.s);
-  });
-
-  test('승급 색은 실제 등급에서 멈춘다 (니어미스 없음)', () {
-    expect(GachaGrade.b.ascensionColors.length, 2);
-    expect(GachaGrade.a.ascensionColors.last, GachaGrade.a.primaryColor);
-    expect(GachaGrade.s.ascensionColors.last, GachaGrade.s.primaryColor);
-    expect(GachaGrade.sss.ascensionColors.last, GachaGrade.sss.primaryColor);
   });
 
   test('InventoryItem: EXCHANGED 상태와 exchangeValue 누락', () {

@@ -32,6 +32,26 @@ String formatSignedGp(num value) =>
 /// "20,000원"
 String formatWon(num value) => '${formatNumber(value)}원';
 
+/// 좁은 자리용 원화 축약: "2,000원", "36.9만원", "1,600만원", "1.2억원".
+String formatWonShort(num value) {
+  final v = value.abs();
+  final sign = value < 0 ? '-' : '';
+  String trim(double x) {
+    var t = x.toStringAsFixed(1);
+    if (t.endsWith('.0')) t = t.substring(0, t.length - 2);
+    final parts = t.split('.');
+    final head = formatNumber(int.parse(parts[0]));
+    return parts.length > 1 ? '$head.${parts[1]}' : head;
+  }
+
+  if (v >= 100000000) return '$sign${trim(v / 100000000)}억원';
+  if (v >= 10000) {
+    final man = v / 10000;
+    return '$sign${man >= 100 ? formatNumber(man.floor()) : trim(man)}만원';
+  }
+  return '$sign${formatNumber(v)}원';
+}
+
 /// 백엔드 퍼센트 값(0.6867 = 0.6867%)을 소수점 최대 [maxDecimals]자리로.
 String formatPercent(num percent, {int maxDecimals = 4}) {
   var text = percent.toDouble().toStringAsFixed(maxDecimals);
