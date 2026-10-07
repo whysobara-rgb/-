@@ -1,77 +1,121 @@
-import '../../../core/utils/grade_mapper.dart';
+import '../../../core/domain/rarity.dart';
+import '../../../core/utils/format.dart';
 import 'gacha_grade.dart';
+import 'gacha_models.dart';
 
-/// 가치가차 - 뽑기(가챠) 1회 결과로 획득한 상품 정보.
-///
-/// 등급([grade], "B"/"A"/"S"/"SSS")에 따라 CLOVE 오리파 스타일 연출/색상이
-/// 결정되며, [price]는 해당 상품의 추정 가치(원화 = marketPriceGP 상당)를
-/// 나타낸다. 백엔드 응답의 rarity(N/R/SR/SSR)는 [GradeMapper]를 통해
-/// UI 등급(B/A/S/SSS)으로 매핑된다.
+/// 뽑기 결과 상품 1개 (`POST /draws` results[]).
 class DrawResult {
-  final String id;
+  final int drawId;
+  final int? inventoryItemId;
+  final int itemId;
   final String name;
-  final String grade;
-
-  /// 상품 추정 가치 (정가, GP/원화 단위 그대로 사용).
-  final int price;
-
-  /// 프리미엄(고가/한정) 상품 여부. 결과 화면 강조 표시 등에 활용.
-  final bool isPremium;
-
-  /// 실제 상품 이미지 URL (있으면 실사진, 없으면 로컬 3D 폴백 사용).
+  final Rarity rarity;
+  final int estimatedValue;
+  final int exchangeValue;
   final String? imageUrl;
 
-  /// 상품 카테고리 (백엔드가 제공하지 않으면 빈 문자열).
-  final String category;
+  /// 천장으로 확정된 결과.
+  final bool isPity;
+
+  /// 10+1 보너스로 받은 결과.
+  final bool isBonus;
 
   const DrawResult({
-    required this.id,
+    required this.drawId,
+    required this.itemId,
     required this.name,
-    required this.grade,
-    required this.price,
-    this.isPremium = false,
+    required this.rarity,
+    required this.estimatedValue,
+    required this.exchangeValue,
+    this.inventoryItemId,
     this.imageUrl,
-    this.category = '',
+    this.isPity = false,
+    this.isBonus = false,
   });
 
-  /// CLOVE 등급 enum 표현.
-  GachaGrade get gradeEnum => GachaGrade.fromCode(grade);
+  /// 연출 엔진 등급.
+  GachaGrade get grade => GachaGrade.fromRarity(rarity);
 
-  /// 즉시 포인트 환원 시 지급되는 GP (정가의 약 87%).
-  int get refundPointGP => (price * 0.87).round();
-
-  /// 백엔드 `POST /draws` 응답의 results[] 항목 1개를 [DrawResult]로 변환한다.
   factory DrawResult.fromJson(Map<String, dynamic> json) {
-    final grade = GradeMapper.toUiGrade(json['rarity'] as String?);
-    final price = (json['estimatedValue'] as num?)?.toInt() ?? 0;
+    final value = asInt(json['estimatedValue']);
     return DrawResult(
-      id: 'draw_${json['drawId']}',
-      name: json['name'] as String? ?? '',
-      grade: grade,
-      price: price,
-      isPremium: grade == 'S' || grade == 'SSS',
-      imageUrl: json['imageUrl'] as String?,
-      category: json['category'] as String? ?? '',
+      drawId: asInt(json['drawId']),
+      inventoryItemId: asIntOrNull(json['inventoryItemId']),
+      itemId: asInt(json['itemId']),
+      name: asStringOrNull(json['name']) ?? '',
+      rarity: Rarity.fromCode(json['rarity']),
+      estimatedValue: value,
+      // 구버전 서버: exchangeValue가 없으면 0으로 두고 전환 버튼을 숨긴다.
+      exchangeValue: asInt(json['exchangeValue']),
+      imageUrl: asStringOrNull(json['imageUrl']),
+      isPity: asBool(json['isPity']),
+      isBonus: asBool(json['isBonus']),
+    );
+  }
+}
+
+/// `POST /draws` 전체 응답.
+class DrawOutcome {
+  final int gachaId;
+  final int count;
+  final int bonusCount;
+  final int spent;
+  final int? balanceAfter;
+  final Rarity highestRarity;
+  final PityStatus? pity;
+  final List<DrawResult> results;
+
+  const DrawOutcome({
+    required this.gachaId,
+    required this.count,
+    required this.bonusCount,
+    required this.spent,
+    required this.balanceAfter,
+    required this.highestRarity,
+    required this.pity,
+    required this.results,
+  });
+
+  factory DrawOutcome.fromJson(Map<String, dynamic> json) {
+    final results = asMapList(
+      json['results'],
+    ).map(DrawResult.fromJson).toList();
+    final highestFromResults = results.isEmpty
+        ? Rarity.n
+        : results
+              .map((r) => r.rarity)
+              .reduce((a, b) => a.rank >= b.rank ? a : b);
+    final pityRaw = json['pity'];
+    return DrawOutcome(
+      gachaId: asInt(json['gachaId']),
+      count: asInt(json['count'], results.length),
+      bonusCount: asInt(json['bonusCount']),
+      spent: asInt(json['spent']),
+      balanceAfter: asIntOrNull(json['balanceAfter']),
+      highestRarity: json['highestRarity'] != null
+          ? Rarity.fromCode(json['highestRarity'])
+          : highestFromResults,
+      pity: pityRaw is Map<String, dynamic>
+          ? PityStatus.fromJson(pityRaw)
+          : null,
+      results: results,
     );
   }
 
-  /// 화면 표시용 가격 포맷 (예: "1,200,000원")
-  String get formattedPrice => '${_formatNumber(price)}원';
+  /// 희귀한 순으로 정렬한 결과.
+  List<DrawResult> get sortedResults => [...results]
+    ..sort((a, b) {
+      final byRarity = Rarity.rarestFirst(a.rarity, b.rarity);
+      return byRarity != 0
+          ? byRarity
+          : b.estimatedValue.compareTo(a.estimatedValue);
+    });
 
-  /// 화면 표시용 GP 포맷 (예: "1,200,000 GP")
-  String get formattedGP => '${_formatNumber(price)} GP';
+  DrawResult? get best => results.isEmpty ? null : sortedResults.first;
 
-  /// 환원 GP 포맷 (예: "1,044,000 GP")
-  String get formattedRefundGP => '${_formatNumber(refundPointGP)} GP';
+  int get totalValue => results.fold(0, (s, r) => s + r.estimatedValue);
+  int get totalExchange => results.fold(0, (s, r) => s + r.exchangeValue);
 
-  static String _formatNumber(int value) {
-    final str = value.toString();
-    final buffer = StringBuffer();
-    for (int i = 0; i < str.length; i++) {
-      final posFromEnd = str.length - i;
-      buffer.write(str[i]);
-      if (posFromEnd > 1 && posFromEnd % 3 == 1) buffer.write(',');
-    }
-    return buffer.toString();
-  }
+  List<int> get inventoryItemIds =>
+      results.map((r) => r.inventoryItemId).whereType<int>().toList();
 }
