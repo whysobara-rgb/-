@@ -55,6 +55,9 @@ dependencies:
   google_sign_in: 7.2.0
   sign_in_with_apple: 8.2.0
 
+  # GP 충전 결제위젯(Android·iOS). 웹에서는 불러오지 않는다(조건부 import).
+  tosspayments_widget_sdk_flutter: 2.2.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

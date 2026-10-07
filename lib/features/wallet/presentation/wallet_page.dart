@@ -6,20 +6,27 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/format.dart';
 import '../../../navigation/tab_navigator.dart';
-import '../../../shared/providers/auth_provider.dart';
 import '../../../shared/providers/gp_provider.dart';
 import '../../../shared/widgets/gp_badge.dart';
 import '../../../shared/widgets/ui.dart';
 import '../../../shared/widgets/vault_art.dart';
+import '../data/payment_repository.dart';
 import '../data/wallet_repository.dart';
+import '../domain/payment_models.dart';
 import '../domain/point_history.dart';
 import '../domain/topup_limit.dart';
+import '../payments/payment_checkout.dart';
+import 'payment_history_page.dart';
 import 'point_history_page.dart';
+import 'topup_result_page.dart';
 import 'widgets/history_row.dart';
 import 'widgets/limit_sheet.dart';
 import 'widgets/topup_sheet.dart';
 
-/// 충전 탭: 보유 GP, 충전, 월 충전 한도, 최근 내역.
+/// 충전 탭: 보유 GP, 충전(토스페이먼츠), 월 충전 한도, 최근 내역.
+///
+/// 충전은 `/payments/*`만 쓴다. 서버에 결제가 설정돼 있지 않으면(enabled
+/// false) 충전을 막고, 데모 충전(`POST /wallet/topup`)으로 대신하지 않는다.
 class WalletPage extends StatefulWidget {
   const WalletPage({super.key});
 
@@ -29,12 +36,24 @@ class WalletPage extends StatefulWidget {
 
 class _WalletPageState extends State<WalletPage> {
   static const _repository = WalletRepository();
+  static const _payments = PaymentRepository();
 
   List<PointHistoryEntry> _recent = const [];
   TopupLimit? _limit;
+  PaymentConfig? _config;
+  String? _configError;
   bool _loadingHistory = true;
   bool _toppingUp = false;
   int _seenRevision = -1;
+
+  /// 이 빌드의 결제창(웹이면 null).
+  final PaymentCheckout? _checkout = resolveCheckout();
+
+  CheckoutMode get _mode => _checkout == null
+      ? CheckoutMode.unavailable
+      : _checkout.isSandbox
+      ? CheckoutMode.sandbox
+      : CheckoutMode.toss;
 
   @override
   void initState() {
@@ -43,7 +62,23 @@ class _WalletPageState extends State<WalletPage> {
   }
 
   Future<void> _refresh() async {
-    await Future.wait([_loadHistory(), _loadLimit()]);
+    await Future.wait([_loadHistory(), _loadLimit(), _loadConfig()]);
+  }
+
+  Future<PaymentConfig?> _loadConfig() async {
+    try {
+      final config = await _payments.config();
+      if (mounted) {
+        setState(() {
+          _config = config;
+          _configError = null;
+        });
+      }
+      return config;
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _configError = e.displayMessage);
+      return null;
+    }
   }
 
   Future<void> _loadHistory() async {
@@ -69,31 +104,60 @@ class _WalletPageState extends State<WalletPage> {
   }
 
   Future<void> _topup() async {
-    final balance = context.read<GpProvider>().balance;
-    final amount = await showTopupSheet(
-      context,
-      balance: balance,
-      limit: _limit,
-    );
-    if (amount == null || !mounted) return;
-
+    if (_toppingUp) return;
     setState(() => _toppingUp = true);
     try {
-      final after = await _repository.topup(amount);
-      if (!mounted) return;
-      final auth = context.read<AuthProvider>();
-      if (after != null) {
-        auth.applyBalance(after);
-      } else {
-        await auth.refreshProfile();
-      }
-      if (!mounted) return;
-      showToast(context, '${formatGp(amount)}를 충전했어요');
-    } on ApiException catch (e) {
-      if (mounted) showToast(context, e.displayMessage);
+      await _runTopup();
     } finally {
       if (mounted) setState(() => _toppingUp = false);
       _refresh();
+    }
+  }
+
+  Future<void> _runTopup() async {
+    final config = _config ?? await _loadConfig();
+    if (!mounted) return;
+    if (config == null) {
+      showToast(context, _configError ?? '충전 정보를 불러오지 못했어요');
+      return;
+    }
+    if (!config.enabled) {
+      showToast(context, '지금은 충전할 수 없어요');
+      return;
+    }
+    final package = await showTopupSheet(
+      context,
+      config: config,
+      balance: context.read<GpProvider>().balance,
+      limit: _limit,
+      mode: _mode,
+    );
+    final checkout = _checkout;
+    if (package == null || checkout == null || !mounted) return;
+
+    final PaymentOrder order;
+    try {
+      order = await _payments.createOrder(package.id);
+    } on ApiException catch (e) {
+      if (mounted) showToast(context, e.displayMessage);
+      return;
+    }
+    if (!mounted) return;
+
+    final result = await checkout.pay(context, order);
+    if (!mounted) return;
+    switch (result) {
+      case CheckoutCancelled():
+        showToast(context, '결제를 취소했어요');
+      case CheckoutFailed(:final message):
+        showToast(context, message);
+      case CheckoutSuccess():
+        await Navigator.of(context).push<bool>(
+          MaterialPageRoute(
+            fullscreenDialog: true,
+            builder: (_) => TopupResultPage(payment: result, order: order),
+          ),
+        );
     }
   }
 
@@ -148,10 +212,11 @@ class _WalletPageState extends State<WalletPage> {
                   _BalanceCard(balance: balance),
                   const SizedBox(height: Space.x4),
                   PrimaryButton(
-                    label: '충전하기',
+                    label: _config?.enabled == false ? '지금은 충전할 수 없어요' : '충전하기',
                     loading: _toppingUp,
-                    onPressed: _topup,
+                    onPressed: _config?.enabled == false ? null : _topup,
                   ),
+                  _TopupHint(config: _config, mode: _mode),
                 ],
               ),
             ),
@@ -159,6 +224,16 @@ class _WalletPageState extends State<WalletPage> {
               const SectionBand(),
               _LimitSection(limit: _limit!, onEdit: _editLimit),
             ],
+            const SectionBand(),
+            MenuRow(
+              icon: Icons.credit_card_outlined,
+              label: '결제 내역',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const PaymentHistoryPage(),
+                ),
+              ),
+            ),
             const SectionBand(),
             SectionHeader(
               title: '최근 내역',
@@ -314,7 +389,7 @@ class _LimitSection extends StatelessWidget {
   }
 }
 
-/// 보유 GP 카드: 금속 카드 같은 먹색 면 + 기요셰 + 제이드 빛.
+/// 보유 GP 카드: 표면 그라데이션 + 기요셰 + 브랜드 빛.
 class _BalanceCard extends StatelessWidget {
   final int balance;
   const _BalanceCard({required this.balance});
@@ -326,13 +401,17 @@ class _BalanceCard extends StatelessWidget {
       child: Container(
         decoration: BoxDecoration(
           borderRadius: Radii.hero,
-          gradient: const LinearGradient(
+          gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFF1E1E24), Color(0xFF111114), Color(0xFF0C1F18)],
-            stops: [0, 0.55, 1],
+            colors: [
+              AppColors.raised,
+              AppColors.surface,
+              Color.lerp(AppColors.surface, AppColors.brand, 0.08)!,
+            ],
+            stops: const [0, 0.55, 1],
           ),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+          border: Border.all(color: AppColors.hairlineStrong),
           boxShadow: [
             BoxShadow(
               color: AppColors.brand.withValues(alpha: 0.12),
@@ -406,6 +485,59 @@ class _BalanceCard extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// 충전 버튼 아래 한 줄: 결제 불가 사유, 웹 안내, 첫 충전 보너스.
+class _TopupHint extends StatelessWidget {
+  final PaymentConfig? config;
+  final CheckoutMode mode;
+  const _TopupHint({required this.config, required this.mode});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = config;
+    final (IconData, String, Color)? hint;
+    if (c != null && !c.enabled) {
+      hint = (
+        Icons.block,
+        '결제가 아직 준비되지 않았어요. 잠시 후 다시 확인해 주세요.',
+        AppColors.textSecondary,
+      );
+    } else if (mode == CheckoutMode.unavailable) {
+      hint = (
+        Icons.phone_iphone,
+        '결제는 앱에서 가능해요. 웹에서는 패키지만 볼 수 있어요.',
+        AppColors.textSecondary,
+      );
+    } else if (c != null && c.firstTopupEligible) {
+      final b = c.firstTopupBonus!;
+      hint = (
+        Icons.auto_awesome,
+        '첫 충전 보너스 +${b.percent}% · 최대 ${formatGp(b.maxGp)}',
+        AppColors.brand,
+      );
+    } else {
+      hint = null;
+    }
+    if (hint == null) return const SizedBox.shrink();
+    final (icon, text, color) = hint;
+    return Padding(
+      padding: const EdgeInsets.only(top: Space.x3),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 15, color: color),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              text,
+              style: AppText.num(AppText.caption).copyWith(color: color),
+            ),
+          ),
+        ],
       ),
     );
   }

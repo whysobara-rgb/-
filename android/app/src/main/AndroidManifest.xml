@@ -5,7 +5,10 @@
     <application
         android:label="GACHI GACHA"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true">
+        <!-- usesCleartextTraffic: 토스 결제위젯 Flutter SDK 안내대로, 웹뷰 안에서
+             모든 카드사 결제 페이지·앱 호출이 열리게 한다. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -26,6 +29,14 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+            <!-- 카드사 앱(ISP 등)에서 결제를 마치고 gachigacha:// 로 돌아온다
+                 (PaymentInfo.appScheme, build.gradle.kts의 appScheme). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="${appScheme}" />
             </intent-filter>
         </activity>
 

@@ -3,6 +3,10 @@ import '../../../core/utils/format.dart';
 import '../domain/point_history.dart';
 import '../domain/topup_limit.dart';
 
+/// `/wallet/*`: GP 내역과 월 충전 한도.
+///
+/// 충전은 [PaymentRepository](토스페이먼츠)만 쓴다. 데모 충전
+/// `POST /wallet/topup`은 앱에서 부르지 않는다.
 class WalletRepository {
   final ApiClient _api;
   const WalletRepository({ApiClient apiClient = const ApiClient()})
@@ -32,14 +36,4 @@ class WalletRepository {
       await _api.put('/wallet/limit', body: {'monthlyLimit': monthlyLimit}),
     ),
   );
-
-  /// 한도 초과면 statusCode 10007 [ApiException].
-  Future<int?> topup(int amount) async {
-    final data = asMap(
-      await _api.post('/wallet/topup', body: {'amount': amount}),
-    );
-    return asIntOrNull(
-      data['balanceAfter'] ?? data['coinBalance'] ?? data['balance'],
-    );
-  }
 }
