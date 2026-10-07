@@ -89,12 +89,14 @@ export async function pumpUntil(page, pred, limit = 3600, dtMs = 1000 / 60) {
   return n;
 }
 
-/** Draw exactly one frame (the next pumped frame) with every renderer on. */
+/** Draw the next two pumped frames with every renderer on (the second is what gets captured). */
 export async function drawFrame(page, dtMs = 1000 / 60) {
   await registerRenderers(page);
   await page.evaluate(`__cap.setDraw(true)`);
   const t0 = Date.now();
-  await pump(page, 1, dtMs);
+  // Two drawn frames: the first one after a long draw-less stretch may still be compiling
+  // programs / allocating targets on software GL; the second is the one that is presented.
+  await pump(page, 2, dtMs);
   // Make sure the GPU finished before the compositor grabs the frame.
   await page.evaluate(`(() => { const a = window.__uproot.app; try { const gl = a.d.view.webgl.getContext(); gl.finish(); } catch {} try { if (a.stage) a.stage.gl.getContext().finish(); } catch {} })()`);
   await page.evaluate(`__cap.setDraw(false)`);
