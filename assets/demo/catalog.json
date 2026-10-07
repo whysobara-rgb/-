@@ -1,0 +1,2091 @@
+{
+ "source": "http://localhost:3000",
+ "snapshotAt": "2026-10-07T10:25:11Z",
+ "note": "실제 서버 응답 그대로. soldStock/soldOut은 체험판에서 0부터 다시 센다.",
+ "gachas": [
+  {
+   "id": 9,
+   "title": "그랜드 오픈 기념 박스",
+   "description": "오픈 기념으로 환급률을 90%(10+1은 99%)로 높인 한정 박스. 커피 기프티콘부터 에어팟 프로까지.",
+   "price": 5000,
+   "currency": "GP",
+   "active": true,
+   "tagline": "오픈 기념 3,000개 한정",
+   "iconName": "celebration",
+   "badgeLabel": "OPEN 기념",
+   "accentColorHex": "#C9A227",
+   "imageUrl": null,
+   "pityThreshold": 400,
+   "totalStock": 3000,
+   "soldStock": 0,
+   "soldOut": false,
+   "topPrize": {
+    "itemId": 33,
+    "name": "애플 에어팟 프로",
+    "rarity": "SSR",
+    "estimatedValue": 369000,
+    "imageUrl": null
+   }
+  },
+  {
+   "id": 10,
+   "title": "기프티콘 박스",
+   "description": "편의점 상품권부터 백화점 상품권 10만원까지, 전부 액면가 그대로.",
+   "price": 3000,
+   "currency": "GP",
+   "active": true,
+   "tagline": "하루 한 번, 가볍게",
+   "iconName": "card_giftcard",
+   "badgeLabel": null,
+   "accentColorHex": "#3D7BF7",
+   "imageUrl": null,
+   "pityThreshold": 300,
+   "totalStock": 30000,
+   "soldStock": 50,
+   "soldOut": false,
+   "topPrize": {
+    "itemId": 40,
+    "name": "신세계상품권 10만원",
+    "rarity": "SSR",
+    "estimatedValue": 100000,
+    "imageUrl": null
+   }
+  },
+  {
+   "id": 11,
+   "title": "뷰티 박스",
+   "description": "올리브영 기프트카드부터 조말론, 다이슨 에어랩까지 담은 뷰티 박스.",
+   "price": 14900,
+   "currency": "GP",
+   "active": true,
+   "tagline": "다이슨 에어랩을 노려라",
+   "iconName": "face_retouching_natural",
+   "badgeLabel": null,
+   "accentColorHex": "#D6558C",
+   "imageUrl": null,
+   "pityThreshold": 400,
+   "totalStock": 10000,
+   "soldStock": 0,
+   "soldOut": false,
+   "topPrize": {
+    "itemId": 47,
+    "name": "다이슨 에어랩 멀티 스타일러",
+    "rarity": "SSR",
+    "estimatedValue": 749000,
+    "imageUrl": null
+   }
+  },
+  {
+   "id": 12,
+   "title": "테크 액세서리 박스",
+   "description": "충전기와 케이블부터 에어팟 4, 에어팟 맥스까지 매일 쓰는 테크 아이템.",
+   "price": 14900,
+   "currency": "GP",
+   "active": true,
+   "tagline": "에어팟 맥스 라인업",
+   "iconName": "headphones",
+   "badgeLabel": "NEW",
+   "accentColorHex": "#2A7DAF",
+   "imageUrl": null,
+   "pityThreshold": 500,
+   "totalStock": 10000,
+   "soldStock": 0,
+   "soldOut": false,
+   "topPrize": {
+    "itemId": 54,
+    "name": "애플 에어팟 맥스",
+    "rarity": "SSR",
+    "estimatedValue": 769000,
+    "imageUrl": null
+   }
+  },
+  {
+   "id": 13,
+   "title": "가전 박스",
+   "description": "미니 가전부터 발뮤다 토스터, 다이슨 무선청소기까지 홈 가전 박스.",
+   "price": 29900,
+   "currency": "GP",
+   "active": true,
+   "tagline": "다이슨 V15가 들어 있는 박스",
+   "iconName": "devices",
+   "badgeLabel": null,
+   "accentColorHex": "#4C8C4A",
+   "imageUrl": null,
+   "pityThreshold": 500,
+   "totalStock": 6000,
+   "soldStock": 0,
+   "soldOut": false,
+   "topPrize": {
+    "itemId": 61,
+    "name": "다이슨 V15 디텍트 무선청소기",
+    "rarity": "SSR",
+    "estimatedValue": 1190000,
+    "imageUrl": null
+   }
+  },
+  {
+   "id": 14,
+   "title": "애플 박스",
+   "description": "애플 기프트카드부터 애플워치, 아이폰 프로와 맥북 에어까지 애플 전용 박스.",
+   "price": 49000,
+   "currency": "GP",
+   "active": true,
+   "tagline": "아이폰 프로 · 맥북 에어",
+   "iconName": "phone_iphone",
+   "badgeLabel": "HOT",
+   "accentColorHex": "#3C3C3C",
+   "imageUrl": null,
+   "pityThreshold": 400,
+   "totalStock": 5000,
+   "soldStock": 0,
+   "soldOut": false,
+   "topPrize": {
+    "itemId": 68,
+    "name": "애플 아이폰 프로 256GB",
+    "rarity": "SSR",
+    "estimatedValue": 1700000,
+    "imageUrl": null
+   }
+  },
+  {
+   "id": 15,
+   "title": "명품 잡화 박스",
+   "description": "명품 향수 미니어처부터 카드케이스, 구찌와 프라다 숄더백까지.",
+   "price": 59000,
+   "currency": "GP",
+   "active": true,
+   "tagline": "구찌 · 프라다 숄더백",
+   "iconName": "shopping_bag",
+   "badgeLabel": null,
+   "accentColorHex": "#8A6D3B",
+   "imageUrl": null,
+   "pityThreshold": 400,
+   "totalStock": 5000,
+   "soldStock": 0,
+   "soldOut": false,
+   "topPrize": {
+    "itemId": 76,
+    "name": "프라다 리나일론 숄더백",
+    "rarity": "SSR",
+    "estimatedValue": 2500000,
+    "imageUrl": null
+   }
+  },
+  {
+   "id": 16,
+   "title": "드림 박스",
+   "description": "최소 백화점 상품권 3만원, 최고 롤렉스 서브마리너와 샤넬 클래식 플랩백까지 담은 최고가 박스.",
+   "price": 99000,
+   "currency": "GP",
+   "active": true,
+   "tagline": "롤렉스 · 샤넬 SSR",
+   "iconName": "diamond",
+   "badgeLabel": "DREAM",
+   "accentColorHex": "#B8862B",
+   "imageUrl": null,
+   "pityThreshold": 1500,
+   "totalStock": 2000,
+   "soldStock": 0,
+   "soldOut": false,
+   "topPrize": {
+    "itemId": 84,
+    "name": "롤렉스 서브마리너 데이트",
+    "rarity": "SSR",
+    "estimatedValue": 16000000,
+    "imageUrl": null
+   }
+  }
+ ],
+ "details": {
+  "9": {
+   "id": 9,
+   "title": "그랜드 오픈 기념 박스",
+   "description": "오픈 기념으로 환급률을 90%(10+1은 99%)로 높인 한정 박스. 커피 기프티콘부터 에어팟 프로까지.",
+   "price": 5000,
+   "currency": "GP",
+   "active": true,
+   "tagline": "오픈 기념 3,000개 한정",
+   "iconName": "celebration",
+   "badgeLabel": "OPEN 기념",
+   "accentColorHex": "#C9A227",
+   "imageUrl": null,
+   "totalStock": 3000,
+   "soldStock": 0,
+   "soldOut": false,
+   "pityThreshold": 400,
+   "lineup": [
+    {
+     "itemId": 33,
+     "name": "애플 에어팟 프로",
+     "rarity": "SSR",
+     "estimatedValue": 369000,
+     "exchangeValue": 295200,
+     "imageUrl": null,
+     "weight": 2400,
+     "probabilityPercent": 0.24
+    },
+    {
+     "itemId": 34,
+     "name": "신세계상품권 5만원",
+     "rarity": "SR",
+     "estimatedValue": 50000,
+     "exchangeValue": 40000,
+     "imageUrl": null,
+     "weight": 7201,
+     "probabilityPercent": 0.7201
+    },
+    {
+     "itemId": 35,
+     "name": "배달의민족 상품권 3만원",
+     "rarity": "SR",
+     "estimatedValue": 30000,
+     "exchangeValue": 24000,
+     "imageUrl": null,
+     "weight": 7200,
+     "probabilityPercent": 0.72
+    },
+    {
+     "itemId": 36,
+     "name": "스타벅스 e카드 1만원",
+     "rarity": "R",
+     "estimatedValue": 10000,
+     "exchangeValue": 8000,
+     "imageUrl": null,
+     "weight": 48005,
+     "probabilityPercent": 4.8005
+    },
+    {
+     "itemId": 37,
+     "name": "CU 모바일상품권 5천원",
+     "rarity": "R",
+     "estimatedValue": 5000,
+     "exchangeValue": 4000,
+     "imageUrl": null,
+     "weight": 48005,
+     "probabilityPercent": 4.8005
+    },
+    {
+     "itemId": 38,
+     "name": "메가MGC커피 아메리카노",
+     "rarity": "N",
+     "estimatedValue": 2000,
+     "exchangeValue": 1600,
+     "imageUrl": null,
+     "weight": 443595,
+     "probabilityPercent": 44.3595
+    },
+    {
+     "itemId": 39,
+     "name": "GS25 모바일상품권 2천원",
+     "rarity": "N",
+     "estimatedValue": 2000,
+     "exchangeValue": 1600,
+     "imageUrl": null,
+     "weight": 443594,
+     "probabilityPercent": 44.3594
+    }
+   ]
+  },
+  "10": {
+   "id": 10,
+   "title": "기프티콘 박스",
+   "description": "편의점 상품권부터 백화점 상품권 10만원까지, 전부 액면가 그대로.",
+   "price": 3000,
+   "currency": "GP",
+   "active": true,
+   "tagline": "하루 한 번, 가볍게",
+   "iconName": "card_giftcard",
+   "badgeLabel": null,
+   "accentColorHex": "#3D7BF7",
+   "imageUrl": null,
+   "totalStock": 30000,
+   "soldStock": 50,
+   "soldOut": false,
+   "pityThreshold": 300,
+   "lineup": [
+    {
+     "itemId": 40,
+     "name": "신세계상품권 10만원",
+     "rarity": "SSR",
+     "estimatedValue": 100000,
+     "exchangeValue": 80000,
+     "imageUrl": null,
+     "weight": 3526,
+     "probabilityPercent": 0.3526
+    },
+    {
+     "itemId": 41,
+     "name": "배달의민족 상품권 2만원",
+     "rarity": "SR",
+     "estimatedValue": 20000,
+     "exchangeValue": 16000,
+     "imageUrl": null,
+     "weight": 10578,
+     "probabilityPercent": 1.0578
+    },
+    {
+     "itemId": 42,
+     "name": "스타벅스 e카드 2만원",
+     "rarity": "SR",
+     "estimatedValue": 20000,
+     "exchangeValue": 16000,
+     "imageUrl": null,
+     "weight": 10578,
+     "probabilityPercent": 1.0578
+    },
+    {
+     "itemId": 43,
+     "name": "스타벅스 카페 아메리카노 T",
+     "rarity": "R",
+     "estimatedValue": 4700,
+     "exchangeValue": 3760,
+     "imageUrl": null,
+     "weight": 70522,
+     "probabilityPercent": 7.0522
+    },
+    {
+     "itemId": 44,
+     "name": "배스킨라빈스 싱글레귤러",
+     "rarity": "R",
+     "estimatedValue": 3900,
+     "exchangeValue": 3120,
+     "imageUrl": null,
+     "weight": 70521,
+     "probabilityPercent": 7.0521
+    },
+    {
+     "itemId": 45,
+     "name": "GS25 모바일상품권 1천원",
+     "rarity": "N",
+     "estimatedValue": 1000,
+     "exchangeValue": 800,
+     "imageUrl": null,
+     "weight": 417138,
+     "probabilityPercent": 41.7138
+    },
+    {
+     "itemId": 46,
+     "name": "CU 모바일상품권 1천원",
+     "rarity": "N",
+     "estimatedValue": 1000,
+     "exchangeValue": 800,
+     "imageUrl": null,
+     "weight": 417137,
+     "probabilityPercent": 41.7137
+    }
+   ]
+  },
+  "11": {
+   "id": 11,
+   "title": "뷰티 박스",
+   "description": "올리브영 기프트카드부터 조말론, 다이슨 에어랩까지 담은 뷰티 박스.",
+   "price": 14900,
+   "currency": "GP",
+   "active": true,
+   "tagline": "다이슨 에어랩을 노려라",
+   "iconName": "face_retouching_natural",
+   "badgeLabel": null,
+   "accentColorHex": "#D6558C",
+   "imageUrl": null,
+   "totalStock": 10000,
+   "soldStock": 0,
+   "soldOut": false,
+   "pityThreshold": 400,
+   "lineup": [
+    {
+     "itemId": 47,
+     "name": "다이슨 에어랩 멀티 스타일러",
+     "rarity": "SSR",
+     "estimatedValue": 749000,
+     "exchangeValue": 599200,
+     "imageUrl": null,
+     "weight": 2845,
+     "probabilityPercent": 0.2845
+    },
+    {
+     "itemId": 48,
+     "name": "조말론 런던 코롱 30ml",
+     "rarity": "SR",
+     "estimatedValue": 117000,
+     "exchangeValue": 93600,
+     "imageUrl": null,
+     "weight": 8536,
+     "probabilityPercent": 0.8536
+    },
+    {
+     "itemId": 49,
+     "name": "디올 어딕트 립 글로우",
+     "rarity": "SR",
+     "estimatedValue": 53000,
+     "exchangeValue": 42400,
+     "imageUrl": null,
+     "weight": 8535,
+     "probabilityPercent": 0.8535
+    },
+    {
+     "itemId": 50,
+     "name": "라로슈포제 시카플라스트 밤 B5 100ml",
+     "rarity": "R",
+     "estimatedValue": 33000,
+     "exchangeValue": 26400,
+     "imageUrl": null,
+     "weight": 56905,
+     "probabilityPercent": 5.6905
+    },
+    {
+     "itemId": 51,
+     "name": "올리브영 기프트카드 2만원",
+     "rarity": "R",
+     "estimatedValue": 20000,
+     "exchangeValue": 16000,
+     "imageUrl": null,
+     "weight": 56905,
+     "probabilityPercent": 5.6905
+    },
+    {
+     "itemId": 52,
+     "name": "올리브영 기프트카드 5천원",
+     "rarity": "N",
+     "estimatedValue": 5000,
+     "exchangeValue": 4000,
+     "imageUrl": null,
+     "weight": 433137,
+     "probabilityPercent": 43.3137
+    },
+    {
+     "itemId": 53,
+     "name": "브랜드 핸드크림 미니 30ml",
+     "rarity": "N",
+     "estimatedValue": 5000,
+     "exchangeValue": 4000,
+     "imageUrl": null,
+     "weight": 433137,
+     "probabilityPercent": 43.3137
+    }
+   ]
+  },
+  "12": {
+   "id": 12,
+   "title": "테크 액세서리 박스",
+   "description": "충전기와 케이블부터 에어팟 4, 에어팟 맥스까지 매일 쓰는 테크 아이템.",
+   "price": 14900,
+   "currency": "GP",
+   "active": true,
+   "tagline": "에어팟 맥스 라인업",
+   "iconName": "headphones",
+   "badgeLabel": "NEW",
+   "accentColorHex": "#2A7DAF",
+   "imageUrl": null,
+   "totalStock": 10000,
+   "soldStock": 0,
+   "soldOut": false,
+   "pityThreshold": 500,
+   "lineup": [
+    {
+     "itemId": 54,
+     "name": "애플 에어팟 맥스",
+     "rarity": "SSR",
+     "estimatedValue": 769000,
+     "exchangeValue": 615200,
+     "imageUrl": null,
+     "weight": 2148,
+     "probabilityPercent": 0.2148
+    },
+    {
+     "itemId": 55,
+     "name": "애플 에어팟 4",
+     "rarity": "SR",
+     "estimatedValue": 199000,
+     "exchangeValue": 159200,
+     "imageUrl": null,
+     "weight": 6445,
+     "probabilityPercent": 0.6445
+    },
+    {
+     "itemId": 56,
+     "name": "로지텍 MX Master 3S",
+     "rarity": "SR",
+     "estimatedValue": 139000,
+     "exchangeValue": 111200,
+     "imageUrl": null,
+     "weight": 6444,
+     "probabilityPercent": 0.6444
+    },
+    {
+     "itemId": 57,
+     "name": "앤커 나노 고속충전기 30W",
+     "rarity": "R",
+     "estimatedValue": 35000,
+     "exchangeValue": 28000,
+     "imageUrl": null,
+     "weight": 42963,
+     "probabilityPercent": 4.2963
+    },
+    {
+     "itemId": 58,
+     "name": "애플 정품 USB-C 케이블 1m",
+     "rarity": "R",
+     "estimatedValue": 29000,
+     "exchangeValue": 23200,
+     "imageUrl": null,
+     "weight": 42963,
+     "probabilityPercent": 4.2963
+    },
+    {
+     "itemId": 59,
+     "name": "스마트폰 강화유리 필름 2매",
+     "rarity": "N",
+     "estimatedValue": 6000,
+     "exchangeValue": 4800,
+     "imageUrl": null,
+     "weight": 449519,
+     "probabilityPercent": 44.9519
+    },
+    {
+     "itemId": 60,
+     "name": "케이블 정리 홀더 세트",
+     "rarity": "N",
+     "estimatedValue": 4000,
+     "exchangeValue": 3200,
+     "imageUrl": null,
+     "weight": 449518,
+     "probabilityPercent": 44.9518
+    }
+   ]
+  },
+  "13": {
+   "id": 13,
+   "title": "가전 박스",
+   "description": "미니 가전부터 발뮤다 토스터, 다이슨 무선청소기까지 홈 가전 박스.",
+   "price": 29900,
+   "currency": "GP",
+   "active": true,
+   "tagline": "다이슨 V15가 들어 있는 박스",
+   "iconName": "devices",
+   "badgeLabel": null,
+   "accentColorHex": "#4C8C4A",
+   "imageUrl": null,
+   "totalStock": 6000,
+   "soldStock": 0,
+   "soldOut": false,
+   "pityThreshold": 500,
+   "lineup": [
+    {
+     "itemId": 61,
+     "name": "다이슨 V15 디텍트 무선청소기",
+     "rarity": "SSR",
+     "estimatedValue": 1190000,
+     "exchangeValue": 952000,
+     "imageUrl": null,
+     "weight": 2005,
+     "probabilityPercent": 0.2005
+    },
+    {
+     "itemId": 62,
+     "name": "발뮤다 더 토스터",
+     "rarity": "SR",
+     "estimatedValue": 399000,
+     "exchangeValue": 319200,
+     "imageUrl": null,
+     "weight": 6017,
+     "probabilityPercent": 0.6017
+    },
+    {
+     "itemId": 63,
+     "name": "필립스 에어프라이어 XXL",
+     "rarity": "SR",
+     "estimatedValue": 329000,
+     "exchangeValue": 263200,
+     "imageUrl": null,
+     "weight": 6016,
+     "probabilityPercent": 0.6016
+    },
+    {
+     "itemId": 64,
+     "name": "필립스 소닉케어 전동칫솔",
+     "rarity": "R",
+     "estimatedValue": 89000,
+     "exchangeValue": 71200,
+     "imageUrl": null,
+     "weight": 40110,
+     "probabilityPercent": 4.011
+    },
+    {
+     "itemId": 65,
+     "name": "브라운 전기면도기 시리즈 3",
+     "rarity": "R",
+     "estimatedValue": 79000,
+     "exchangeValue": 63200,
+     "imageUrl": null,
+     "weight": 40110,
+     "probabilityPercent": 4.011
+    },
+    {
+     "itemId": 66,
+     "name": "휴대용 미니 선풍기",
+     "rarity": "N",
+     "estimatedValue": 10000,
+     "exchangeValue": 8000,
+     "imageUrl": null,
+     "weight": 452871,
+     "probabilityPercent": 45.2871
+    },
+    {
+     "itemId": 67,
+     "name": "무선 미니 가습기",
+     "rarity": "N",
+     "estimatedValue": 10000,
+     "exchangeValue": 8000,
+     "imageUrl": null,
+     "weight": 452871,
+     "probabilityPercent": 45.2871
+    }
+   ]
+  },
+  "14": {
+   "id": 14,
+   "title": "애플 박스",
+   "description": "애플 기프트카드부터 애플워치, 아이폰 프로와 맥북 에어까지 애플 전용 박스.",
+   "price": 49000,
+   "currency": "GP",
+   "active": true,
+   "tagline": "아이폰 프로 · 맥북 에어",
+   "iconName": "phone_iphone",
+   "badgeLabel": "HOT",
+   "accentColorHex": "#3C3C3C",
+   "imageUrl": null,
+   "totalStock": 5000,
+   "soldStock": 0,
+   "soldOut": false,
+   "pityThreshold": 400,
+   "lineup": [
+    {
+     "itemId": 68,
+     "name": "애플 아이폰 프로 256GB",
+     "rarity": "SSR",
+     "estimatedValue": 1700000,
+     "exchangeValue": 1360000,
+     "imageUrl": null,
+     "weight": 1615,
+     "probabilityPercent": 0.1615
+    },
+    {
+     "itemId": 69,
+     "name": "애플 맥북 에어 13",
+     "rarity": "SSR",
+     "estimatedValue": 1590000,
+     "exchangeValue": 1272000,
+     "imageUrl": null,
+     "weight": 1614,
+     "probabilityPercent": 0.1614
+    },
+    {
+     "itemId": 70,
+     "name": "애플 에어팟 프로",
+     "rarity": "SR",
+     "estimatedValue": 369000,
+     "exchangeValue": 295200,
+     "imageUrl": null,
+     "weight": 9689,
+     "probabilityPercent": 0.9689
+    },
+    {
+     "itemId": 71,
+     "name": "애플 워치 SE",
+     "rarity": "SR",
+     "estimatedValue": 359000,
+     "exchangeValue": 287200,
+     "imageUrl": null,
+     "weight": 9688,
+     "probabilityPercent": 0.9688
+    },
+    {
+     "itemId": 72,
+     "name": "애플 에어태그 4팩",
+     "rarity": "R",
+     "estimatedValue": 129000,
+     "exchangeValue": 103200,
+     "imageUrl": null,
+     "weight": 64590,
+     "probabilityPercent": 6.459
+    },
+    {
+     "itemId": 73,
+     "name": "애플 맥세이프 충전기",
+     "rarity": "R",
+     "estimatedValue": 59000,
+     "exchangeValue": 47200,
+     "imageUrl": null,
+     "weight": 64590,
+     "probabilityPercent": 6.459
+    },
+    {
+     "itemId": 74,
+     "name": "애플 기프트카드 2만원",
+     "rarity": "N",
+     "estimatedValue": 20000,
+     "exchangeValue": 16000,
+     "imageUrl": null,
+     "weight": 424107,
+     "probabilityPercent": 42.4107
+    },
+    {
+     "itemId": 75,
+     "name": "애플 기프트카드 1만원",
+     "rarity": "N",
+     "estimatedValue": 10000,
+     "exchangeValue": 8000,
+     "imageUrl": null,
+     "weight": 424107,
+     "probabilityPercent": 42.4107
+    }
+   ]
+  },
+  "15": {
+   "id": 15,
+   "title": "명품 잡화 박스",
+   "description": "명품 향수 미니어처부터 카드케이스, 구찌와 프라다 숄더백까지.",
+   "price": 59000,
+   "currency": "GP",
+   "active": true,
+   "tagline": "구찌 · 프라다 숄더백",
+   "iconName": "shopping_bag",
+   "badgeLabel": null,
+   "accentColorHex": "#8A6D3B",
+   "imageUrl": null,
+   "totalStock": 5000,
+   "soldStock": 0,
+   "soldOut": false,
+   "pityThreshold": 400,
+   "lineup": [
+    {
+     "itemId": 76,
+     "name": "프라다 리나일론 숄더백",
+     "rarity": "SSR",
+     "estimatedValue": 2500000,
+     "exchangeValue": 2000000,
+     "imageUrl": null,
+     "weight": 1505,
+     "probabilityPercent": 0.1505
+    },
+    {
+     "itemId": 77,
+     "name": "구찌 GG 마몬트 미니 숄더백",
+     "rarity": "SSR",
+     "estimatedValue": 2400000,
+     "exchangeValue": 1920000,
+     "imageUrl": null,
+     "weight": 1504,
+     "probabilityPercent": 0.1504
+    },
+    {
+     "itemId": 78,
+     "name": "구찌 GG 마몬트 카드케이스",
+     "rarity": "SR",
+     "estimatedValue": 590000,
+     "exchangeValue": 472000,
+     "imageUrl": null,
+     "weight": 9028,
+     "probabilityPercent": 0.9028
+    },
+    {
+     "itemId": 79,
+     "name": "메종 마르지엘라 레플리카 오 드 뚜왈렛 100ml",
+     "rarity": "SR",
+     "estimatedValue": 220000,
+     "exchangeValue": 176000,
+     "imageUrl": null,
+     "weight": 9028,
+     "probabilityPercent": 0.9028
+    },
+    {
+     "itemId": 80,
+     "name": "메종 키츠네 폭스헤드 반팔 티셔츠",
+     "rarity": "R",
+     "estimatedValue": 150000,
+     "exchangeValue": 120000,
+     "imageUrl": null,
+     "weight": 60189,
+     "probabilityPercent": 6.0189
+    },
+    {
+     "itemId": 81,
+     "name": "폴로 랄프로렌 베이스볼 캡",
+     "rarity": "R",
+     "estimatedValue": 89000,
+     "exchangeValue": 71200,
+     "imageUrl": null,
+     "weight": 60188,
+     "probabilityPercent": 6.0188
+    },
+    {
+     "itemId": 82,
+     "name": "명품 브랜드 향수 미니어처",
+     "rarity": "N",
+     "estimatedValue": 15000,
+     "exchangeValue": 12000,
+     "imageUrl": null,
+     "weight": 429279,
+     "probabilityPercent": 42.9279
+    },
+    {
+     "itemId": 83,
+     "name": "신세계상품권 2만원",
+     "rarity": "N",
+     "estimatedValue": 20000,
+     "exchangeValue": 16000,
+     "imageUrl": null,
+     "weight": 429279,
+     "probabilityPercent": 42.9279
+    }
+   ]
+  },
+  "16": {
+   "id": 16,
+   "title": "드림 박스",
+   "description": "최소 백화점 상품권 3만원, 최고 롤렉스 서브마리너와 샤넬 클래식 플랩백까지 담은 최고가 박스.",
+   "price": 99000,
+   "currency": "GP",
+   "active": true,
+   "tagline": "롤렉스 · 샤넬 SSR",
+   "iconName": "diamond",
+   "badgeLabel": "DREAM",
+   "accentColorHex": "#B8862B",
+   "imageUrl": null,
+   "totalStock": 2000,
+   "soldStock": 0,
+   "soldOut": false,
+   "pityThreshold": 1500,
+   "lineup": [
+    {
+     "itemId": 84,
+     "name": "롤렉스 서브마리너 데이트",
+     "rarity": "SSR",
+     "estimatedValue": 16000000,
+     "exchangeValue": 12800000,
+     "imageUrl": null,
+     "weight": 362,
+     "probabilityPercent": 0.0362
+    },
+    {
+     "itemId": 85,
+     "name": "샤넬 클래식 플랩백 미디엄",
+     "rarity": "SSR",
+     "estimatedValue": 16000000,
+     "exchangeValue": 12800000,
+     "imageUrl": null,
+     "weight": 362,
+     "probabilityPercent": 0.0362
+    },
+    {
+     "itemId": 86,
+     "name": "애플 맥북 프로 14",
+     "rarity": "SR",
+     "estimatedValue": 2400000,
+     "exchangeValue": 1920000,
+     "imageUrl": null,
+     "weight": 2171,
+     "probabilityPercent": 0.2171
+    },
+    {
+     "itemId": 87,
+     "name": "루이비통 포쉐트 악세수아",
+     "rarity": "SR",
+     "estimatedValue": 1700000,
+     "exchangeValue": 1360000,
+     "imageUrl": null,
+     "weight": 2170,
+     "probabilityPercent": 0.217
+    },
+    {
+     "itemId": 88,
+     "name": "애플 아이패드 에어",
+     "rarity": "R",
+     "estimatedValue": 900000,
+     "exchangeValue": 720000,
+     "imageUrl": null,
+     "weight": 14470,
+     "probabilityPercent": 1.447
+    },
+    {
+     "itemId": 89,
+     "name": "다이슨 에어랩 멀티 스타일러",
+     "rarity": "R",
+     "estimatedValue": 749000,
+     "exchangeValue": 599200,
+     "imageUrl": null,
+     "weight": 14470,
+     "probabilityPercent": 1.447
+    },
+    {
+     "itemId": 90,
+     "name": "신세계상품권 3만원",
+     "rarity": "N",
+     "estimatedValue": 30000,
+     "exchangeValue": 24000,
+     "imageUrl": null,
+     "weight": 482998,
+     "probabilityPercent": 48.2998
+    },
+    {
+     "itemId": 91,
+     "name": "현대백화점 상품권 3만원",
+     "rarity": "N",
+     "estimatedValue": 30000,
+     "exchangeValue": 24000,
+     "imageUrl": null,
+     "weight": 482997,
+     "probabilityPercent": 48.2997
+    }
+   ]
+  }
+ },
+ "odds": {
+  "9": {
+   "gachaId": 9,
+   "title": "그랜드 오픈 기념 박스",
+   "price": 5000,
+   "currency": "GP",
+   "items": [
+    {
+     "itemId": 33,
+     "name": "애플 에어팟 프로",
+     "rarity": "SSR",
+     "estimatedValue": 369000,
+     "exchangeValue": 295200,
+     "imageUrl": null,
+     "weight": 2400,
+     "probabilityPercent": 0.24
+    },
+    {
+     "itemId": 34,
+     "name": "신세계상품권 5만원",
+     "rarity": "SR",
+     "estimatedValue": 50000,
+     "exchangeValue": 40000,
+     "imageUrl": null,
+     "weight": 7201,
+     "probabilityPercent": 0.7201
+    },
+    {
+     "itemId": 35,
+     "name": "배달의민족 상품권 3만원",
+     "rarity": "SR",
+     "estimatedValue": 30000,
+     "exchangeValue": 24000,
+     "imageUrl": null,
+     "weight": 7200,
+     "probabilityPercent": 0.72
+    },
+    {
+     "itemId": 36,
+     "name": "스타벅스 e카드 1만원",
+     "rarity": "R",
+     "estimatedValue": 10000,
+     "exchangeValue": 8000,
+     "imageUrl": null,
+     "weight": 48005,
+     "probabilityPercent": 4.8005
+    },
+    {
+     "itemId": 37,
+     "name": "CU 모바일상품권 5천원",
+     "rarity": "R",
+     "estimatedValue": 5000,
+     "exchangeValue": 4000,
+     "imageUrl": null,
+     "weight": 48005,
+     "probabilityPercent": 4.8005
+    },
+    {
+     "itemId": 38,
+     "name": "메가MGC커피 아메리카노",
+     "rarity": "N",
+     "estimatedValue": 2000,
+     "exchangeValue": 1600,
+     "imageUrl": null,
+     "weight": 443595,
+     "probabilityPercent": 44.3595
+    },
+    {
+     "itemId": 39,
+     "name": "GS25 모바일상품권 2천원",
+     "rarity": "N",
+     "estimatedValue": 2000,
+     "exchangeValue": 1600,
+     "imageUrl": null,
+     "weight": 443594,
+     "probabilityPercent": 44.3594
+    }
+   ],
+   "rarities": [
+    {
+     "rarity": "SSR",
+     "probabilityPercent": 0.24,
+     "itemCount": 1
+    },
+    {
+     "rarity": "SR",
+     "probabilityPercent": 1.4401,
+     "itemCount": 2
+    },
+    {
+     "rarity": "R",
+     "probabilityPercent": 9.601,
+     "itemCount": 2
+    },
+    {
+     "rarity": "N",
+     "probabilityPercent": 88.7189,
+     "itemCount": 2
+    }
+   ],
+   "pity": {
+    "threshold": 400,
+    "rarity": "SSR",
+    "baseRatePercent": 0.24,
+    "effectiveRatePercent": 0.3886,
+    "expectedDrawsToHit": 257.3
+   },
+   "multiDrawBonus": {
+    "every": 10,
+    "bonus": 1
+   },
+   "exchangeRatePercent": 80,
+   "expectedValue": {
+    "perDraw": 3956,
+    "perDrawWithPity": 4500
+   },
+   "payoutRatioPercent": {
+    "singleDraw": 90,
+    "multiDraw": 99
+   }
+  },
+  "10": {
+   "gachaId": 10,
+   "title": "기프티콘 박스",
+   "price": 3000,
+   "currency": "GP",
+   "items": [
+    {
+     "itemId": 40,
+     "name": "신세계상품권 10만원",
+     "rarity": "SSR",
+     "estimatedValue": 100000,
+     "exchangeValue": 80000,
+     "imageUrl": null,
+     "weight": 3526,
+     "probabilityPercent": 0.3526
+    },
+    {
+     "itemId": 41,
+     "name": "배달의민족 상품권 2만원",
+     "rarity": "SR",
+     "estimatedValue": 20000,
+     "exchangeValue": 16000,
+     "imageUrl": null,
+     "weight": 10578,
+     "probabilityPercent": 1.0578
+    },
+    {
+     "itemId": 42,
+     "name": "스타벅스 e카드 2만원",
+     "rarity": "SR",
+     "estimatedValue": 20000,
+     "exchangeValue": 16000,
+     "imageUrl": null,
+     "weight": 10578,
+     "probabilityPercent": 1.0578
+    },
+    {
+     "itemId": 43,
+     "name": "스타벅스 카페 아메리카노 T",
+     "rarity": "R",
+     "estimatedValue": 4700,
+     "exchangeValue": 3760,
+     "imageUrl": null,
+     "weight": 70522,
+     "probabilityPercent": 7.0522
+    },
+    {
+     "itemId": 44,
+     "name": "배스킨라빈스 싱글레귤러",
+     "rarity": "R",
+     "estimatedValue": 3900,
+     "exchangeValue": 3120,
+     "imageUrl": null,
+     "weight": 70521,
+     "probabilityPercent": 7.0521
+    },
+    {
+     "itemId": 45,
+     "name": "GS25 모바일상품권 1천원",
+     "rarity": "N",
+     "estimatedValue": 1000,
+     "exchangeValue": 800,
+     "imageUrl": null,
+     "weight": 417138,
+     "probabilityPercent": 41.7138
+    },
+    {
+     "itemId": 46,
+     "name": "CU 모바일상품권 1천원",
+     "rarity": "N",
+     "estimatedValue": 1000,
+     "exchangeValue": 800,
+     "imageUrl": null,
+     "weight": 417137,
+     "probabilityPercent": 41.7137
+    }
+   ],
+   "rarities": [
+    {
+     "rarity": "SSR",
+     "probabilityPercent": 0.3526,
+     "itemCount": 1
+    },
+    {
+     "rarity": "SR",
+     "probabilityPercent": 2.1156,
+     "itemCount": 2
+    },
+    {
+     "rarity": "R",
+     "probabilityPercent": 14.1043,
+     "itemCount": 2
+    },
+    {
+     "rarity": "N",
+     "probabilityPercent": 83.4275,
+     "itemCount": 2
+    }
+   ],
+   "pity": {
+    "threshold": 300,
+    "rarity": "SSR",
+    "baseRatePercent": 0.3526,
+    "effectiveRatePercent": 0.5396,
+    "expectedDrawsToHit": 185.3
+   },
+   "multiDrawBonus": {
+    "every": 10,
+    "bonus": 1
+   },
+   "exchangeRatePercent": 80,
+   "expectedValue": {
+    "perDraw": 2216,
+    "perDrawWithPity": 2400
+   },
+   "payoutRatioPercent": {
+    "singleDraw": 80,
+    "multiDraw": 88
+   }
+  },
+  "11": {
+   "gachaId": 11,
+   "title": "뷰티 박스",
+   "price": 14900,
+   "currency": "GP",
+   "items": [
+    {
+     "itemId": 47,
+     "name": "다이슨 에어랩 멀티 스타일러",
+     "rarity": "SSR",
+     "estimatedValue": 749000,
+     "exchangeValue": 599200,
+     "imageUrl": null,
+     "weight": 2845,
+     "probabilityPercent": 0.2845
+    },
+    {
+     "itemId": 48,
+     "name": "조말론 런던 코롱 30ml",
+     "rarity": "SR",
+     "estimatedValue": 117000,
+     "exchangeValue": 93600,
+     "imageUrl": null,
+     "weight": 8536,
+     "probabilityPercent": 0.8536
+    },
+    {
+     "itemId": 49,
+     "name": "디올 어딕트 립 글로우",
+     "rarity": "SR",
+     "estimatedValue": 53000,
+     "exchangeValue": 42400,
+     "imageUrl": null,
+     "weight": 8535,
+     "probabilityPercent": 0.8535
+    },
+    {
+     "itemId": 50,
+     "name": "라로슈포제 시카플라스트 밤 B5 100ml",
+     "rarity": "R",
+     "estimatedValue": 33000,
+     "exchangeValue": 26400,
+     "imageUrl": null,
+     "weight": 56905,
+     "probabilityPercent": 5.6905
+    },
+    {
+     "itemId": 51,
+     "name": "올리브영 기프트카드 2만원",
+     "rarity": "R",
+     "estimatedValue": 20000,
+     "exchangeValue": 16000,
+     "imageUrl": null,
+     "weight": 56905,
+     "probabilityPercent": 5.6905
+    },
+    {
+     "itemId": 52,
+     "name": "올리브영 기프트카드 5천원",
+     "rarity": "N",
+     "estimatedValue": 5000,
+     "exchangeValue": 4000,
+     "imageUrl": null,
+     "weight": 433137,
+     "probabilityPercent": 43.3137
+    },
+    {
+     "itemId": 53,
+     "name": "브랜드 핸드크림 미니 30ml",
+     "rarity": "N",
+     "estimatedValue": 5000,
+     "exchangeValue": 4000,
+     "imageUrl": null,
+     "weight": 433137,
+     "probabilityPercent": 43.3137
+    }
+   ],
+   "rarities": [
+    {
+     "rarity": "SSR",
+     "probabilityPercent": 0.2845,
+     "itemCount": 1
+    },
+    {
+     "rarity": "SR",
+     "probabilityPercent": 1.7071,
+     "itemCount": 2
+    },
+    {
+     "rarity": "R",
+     "probabilityPercent": 11.381,
+     "itemCount": 2
+    },
+    {
+     "rarity": "N",
+     "probabilityPercent": 86.6274,
+     "itemCount": 2
+    }
+   ],
+   "pity": {
+    "threshold": 400,
+    "rarity": "SSR",
+    "baseRatePercent": 0.2845,
+    "effectiveRatePercent": 0.4183,
+    "expectedDrawsToHit": 239
+   },
+   "multiDrawBonus": {
+    "every": 10,
+    "bonus": 1
+   },
+   "exchangeRatePercent": 80,
+   "expectedValue": {
+    "perDraw": 10929,
+    "perDrawWithPity": 11920
+   },
+   "payoutRatioPercent": {
+    "singleDraw": 80,
+    "multiDraw": 88
+   }
+  },
+  "12": {
+   "gachaId": 12,
+   "title": "테크 액세서리 박스",
+   "price": 14900,
+   "currency": "GP",
+   "items": [
+    {
+     "itemId": 54,
+     "name": "애플 에어팟 맥스",
+     "rarity": "SSR",
+     "estimatedValue": 769000,
+     "exchangeValue": 615200,
+     "imageUrl": null,
+     "weight": 2148,
+     "probabilityPercent": 0.2148
+    },
+    {
+     "itemId": 55,
+     "name": "애플 에어팟 4",
+     "rarity": "SR",
+     "estimatedValue": 199000,
+     "exchangeValue": 159200,
+     "imageUrl": null,
+     "weight": 6445,
+     "probabilityPercent": 0.6445
+    },
+    {
+     "itemId": 56,
+     "name": "로지텍 MX Master 3S",
+     "rarity": "SR",
+     "estimatedValue": 139000,
+     "exchangeValue": 111200,
+     "imageUrl": null,
+     "weight": 6444,
+     "probabilityPercent": 0.6444
+    },
+    {
+     "itemId": 57,
+     "name": "앤커 나노 고속충전기 30W",
+     "rarity": "R",
+     "estimatedValue": 35000,
+     "exchangeValue": 28000,
+     "imageUrl": null,
+     "weight": 42963,
+     "probabilityPercent": 4.2963
+    },
+    {
+     "itemId": 58,
+     "name": "애플 정품 USB-C 케이블 1m",
+     "rarity": "R",
+     "estimatedValue": 29000,
+     "exchangeValue": 23200,
+     "imageUrl": null,
+     "weight": 42963,
+     "probabilityPercent": 4.2963
+    },
+    {
+     "itemId": 59,
+     "name": "스마트폰 강화유리 필름 2매",
+     "rarity": "N",
+     "estimatedValue": 6000,
+     "exchangeValue": 4800,
+     "imageUrl": null,
+     "weight": 449519,
+     "probabilityPercent": 44.9519
+    },
+    {
+     "itemId": 60,
+     "name": "케이블 정리 홀더 세트",
+     "rarity": "N",
+     "estimatedValue": 4000,
+     "exchangeValue": 3200,
+     "imageUrl": null,
+     "weight": 449518,
+     "probabilityPercent": 44.9518
+    }
+   ],
+   "rarities": [
+    {
+     "rarity": "SSR",
+     "probabilityPercent": 0.2148,
+     "itemCount": 1
+    },
+    {
+     "rarity": "SR",
+     "probabilityPercent": 1.2889,
+     "itemCount": 2
+    },
+    {
+     "rarity": "R",
+     "probabilityPercent": 8.5926,
+     "itemCount": 2
+    },
+    {
+     "rarity": "N",
+     "probabilityPercent": 89.9037,
+     "itemCount": 2
+    }
+   ],
+   "pity": {
+    "threshold": 500,
+    "rarity": "SSR",
+    "baseRatePercent": 0.2148,
+    "effectiveRatePercent": 0.3261,
+    "expectedDrawsToHit": 306.7
+   },
+   "multiDrawBonus": {
+    "every": 10,
+    "bonus": 1
+   },
+   "exchangeRatePercent": 80,
+   "expectedValue": {
+    "perDraw": 11075,
+    "perDrawWithPity": 11920
+   },
+   "payoutRatioPercent": {
+    "singleDraw": 80,
+    "multiDraw": 88
+   }
+  },
+  "13": {
+   "gachaId": 13,
+   "title": "가전 박스",
+   "price": 29900,
+   "currency": "GP",
+   "items": [
+    {
+     "itemId": 61,
+     "name": "다이슨 V15 디텍트 무선청소기",
+     "rarity": "SSR",
+     "estimatedValue": 1190000,
+     "exchangeValue": 952000,
+     "imageUrl": null,
+     "weight": 2005,
+     "probabilityPercent": 0.2005
+    },
+    {
+     "itemId": 62,
+     "name": "발뮤다 더 토스터",
+     "rarity": "SR",
+     "estimatedValue": 399000,
+     "exchangeValue": 319200,
+     "imageUrl": null,
+     "weight": 6017,
+     "probabilityPercent": 0.6017
+    },
+    {
+     "itemId": 63,
+     "name": "필립스 에어프라이어 XXL",
+     "rarity": "SR",
+     "estimatedValue": 329000,
+     "exchangeValue": 263200,
+     "imageUrl": null,
+     "weight": 6016,
+     "probabilityPercent": 0.6016
+    },
+    {
+     "itemId": 64,
+     "name": "필립스 소닉케어 전동칫솔",
+     "rarity": "R",
+     "estimatedValue": 89000,
+     "exchangeValue": 71200,
+     "imageUrl": null,
+     "weight": 40110,
+     "probabilityPercent": 4.011
+    },
+    {
+     "itemId": 65,
+     "name": "브라운 전기면도기 시리즈 3",
+     "rarity": "R",
+     "estimatedValue": 79000,
+     "exchangeValue": 63200,
+     "imageUrl": null,
+     "weight": 40110,
+     "probabilityPercent": 4.011
+    },
+    {
+     "itemId": 66,
+     "name": "휴대용 미니 선풍기",
+     "rarity": "N",
+     "estimatedValue": 10000,
+     "exchangeValue": 8000,
+     "imageUrl": null,
+     "weight": 452871,
+     "probabilityPercent": 45.2871
+    },
+    {
+     "itemId": 67,
+     "name": "무선 미니 가습기",
+     "rarity": "N",
+     "estimatedValue": 10000,
+     "exchangeValue": 8000,
+     "imageUrl": null,
+     "weight": 452871,
+     "probabilityPercent": 45.2871
+    }
+   ],
+   "rarities": [
+    {
+     "rarity": "SSR",
+     "probabilityPercent": 0.2005,
+     "itemCount": 1
+    },
+    {
+     "rarity": "SR",
+     "probabilityPercent": 1.2033,
+     "itemCount": 2
+    },
+    {
+     "rarity": "R",
+     "probabilityPercent": 8.022,
+     "itemCount": 2
+    },
+    {
+     "rarity": "N",
+     "probabilityPercent": 90.5742,
+     "itemCount": 2
+    }
+   ],
+   "pity": {
+    "threshold": 500,
+    "rarity": "SSR",
+    "baseRatePercent": 0.2005,
+    "effectiveRatePercent": 0.3165,
+    "expectedDrawsToHit": 315.9
+   },
+   "multiDrawBonus": {
+    "every": 10,
+    "bonus": 1
+   },
+   "exchangeRatePercent": 80,
+   "expectedValue": {
+    "perDraw": 22562,
+    "perDrawWithPity": 23919
+   },
+   "payoutRatioPercent": {
+    "singleDraw": 80,
+    "multiDraw": 88
+   }
+  },
+  "14": {
+   "gachaId": 14,
+   "title": "애플 박스",
+   "price": 49000,
+   "currency": "GP",
+   "items": [
+    {
+     "itemId": 68,
+     "name": "애플 아이폰 프로 256GB",
+     "rarity": "SSR",
+     "estimatedValue": 1700000,
+     "exchangeValue": 1360000,
+     "imageUrl": null,
+     "weight": 1615,
+     "probabilityPercent": 0.1615
+    },
+    {
+     "itemId": 69,
+     "name": "애플 맥북 에어 13",
+     "rarity": "SSR",
+     "estimatedValue": 1590000,
+     "exchangeValue": 1272000,
+     "imageUrl": null,
+     "weight": 1614,
+     "probabilityPercent": 0.1614
+    },
+    {
+     "itemId": 70,
+     "name": "애플 에어팟 프로",
+     "rarity": "SR",
+     "estimatedValue": 369000,
+     "exchangeValue": 295200,
+     "imageUrl": null,
+     "weight": 9689,
+     "probabilityPercent": 0.9689
+    },
+    {
+     "itemId": 71,
+     "name": "애플 워치 SE",
+     "rarity": "SR",
+     "estimatedValue": 359000,
+     "exchangeValue": 287200,
+     "imageUrl": null,
+     "weight": 9688,
+     "probabilityPercent": 0.9688
+    },
+    {
+     "itemId": 72,
+     "name": "애플 에어태그 4팩",
+     "rarity": "R",
+     "estimatedValue": 129000,
+     "exchangeValue": 103200,
+     "imageUrl": null,
+     "weight": 64590,
+     "probabilityPercent": 6.459
+    },
+    {
+     "itemId": 73,
+     "name": "애플 맥세이프 충전기",
+     "rarity": "R",
+     "estimatedValue": 59000,
+     "exchangeValue": 47200,
+     "imageUrl": null,
+     "weight": 64590,
+     "probabilityPercent": 6.459
+    },
+    {
+     "itemId": 74,
+     "name": "애플 기프트카드 2만원",
+     "rarity": "N",
+     "estimatedValue": 20000,
+     "exchangeValue": 16000,
+     "imageUrl": null,
+     "weight": 424107,
+     "probabilityPercent": 42.4107
+    },
+    {
+     "itemId": 75,
+     "name": "애플 기프트카드 1만원",
+     "rarity": "N",
+     "estimatedValue": 10000,
+     "exchangeValue": 8000,
+     "imageUrl": null,
+     "weight": 424107,
+     "probabilityPercent": 42.4107
+    }
+   ],
+   "rarities": [
+    {
+     "rarity": "SSR",
+     "probabilityPercent": 0.3229,
+     "itemCount": 2
+    },
+    {
+     "rarity": "SR",
+     "probabilityPercent": 1.9377,
+     "itemCount": 2
+    },
+    {
+     "rarity": "R",
+     "probabilityPercent": 12.918,
+     "itemCount": 2
+    },
+    {
+     "rarity": "N",
+     "probabilityPercent": 84.8214,
+     "itemCount": 2
+    }
+   ],
+   "pity": {
+    "threshold": 400,
+    "rarity": "SSR",
+    "baseRatePercent": 0.3229,
+    "effectiveRatePercent": 0.4449,
+    "expectedDrawsToHit": 224.8
+   },
+   "multiDrawBonus": {
+    "every": 10,
+    "bonus": 1
+   },
+   "exchangeRatePercent": 80,
+   "expectedValue": {
+    "perDraw": 37231,
+    "perDrawWithPity": 39199
+   },
+   "payoutRatioPercent": {
+    "singleDraw": 80,
+    "multiDraw": 88
+   }
+  },
+  "15": {
+   "gachaId": 15,
+   "title": "명품 잡화 박스",
+   "price": 59000,
+   "currency": "GP",
+   "items": [
+    {
+     "itemId": 76,
+     "name": "프라다 리나일론 숄더백",
+     "rarity": "SSR",
+     "estimatedValue": 2500000,
+     "exchangeValue": 2000000,
+     "imageUrl": null,
+     "weight": 1505,
+     "probabilityPercent": 0.1505
+    },
+    {
+     "itemId": 77,
+     "name": "구찌 GG 마몬트 미니 숄더백",
+     "rarity": "SSR",
+     "estimatedValue": 2400000,
+     "exchangeValue": 1920000,
+     "imageUrl": null,
+     "weight": 1504,
+     "probabilityPercent": 0.1504
+    },
+    {
+     "itemId": 78,
+     "name": "구찌 GG 마몬트 카드케이스",
+     "rarity": "SR",
+     "estimatedValue": 590000,
+     "exchangeValue": 472000,
+     "imageUrl": null,
+     "weight": 9028,
+     "probabilityPercent": 0.9028
+    },
+    {
+     "itemId": 79,
+     "name": "메종 마르지엘라 레플리카 오 드 뚜왈렛 100ml",
+     "rarity": "SR",
+     "estimatedValue": 220000,
+     "exchangeValue": 176000,
+     "imageUrl": null,
+     "weight": 9028,
+     "probabilityPercent": 0.9028
+    },
+    {
+     "itemId": 80,
+     "name": "메종 키츠네 폭스헤드 반팔 티셔츠",
+     "rarity": "R",
+     "estimatedValue": 150000,
+     "exchangeValue": 120000,
+     "imageUrl": null,
+     "weight": 60189,
+     "probabilityPercent": 6.0189
+    },
+    {
+     "itemId": 81,
+     "name": "폴로 랄프로렌 베이스볼 캡",
+     "rarity": "R",
+     "estimatedValue": 89000,
+     "exchangeValue": 71200,
+     "imageUrl": null,
+     "weight": 60188,
+     "probabilityPercent": 6.0188
+    },
+    {
+     "itemId": 82,
+     "name": "명품 브랜드 향수 미니어처",
+     "rarity": "N",
+     "estimatedValue": 15000,
+     "exchangeValue": 12000,
+     "imageUrl": null,
+     "weight": 429279,
+     "probabilityPercent": 42.9279
+    },
+    {
+     "itemId": 83,
+     "name": "신세계상품권 2만원",
+     "rarity": "N",
+     "estimatedValue": 20000,
+     "exchangeValue": 16000,
+     "imageUrl": null,
+     "weight": 429279,
+     "probabilityPercent": 42.9279
+    }
+   ],
+   "rarities": [
+    {
+     "rarity": "SSR",
+     "probabilityPercent": 0.3009,
+     "itemCount": 2
+    },
+    {
+     "rarity": "SR",
+     "probabilityPercent": 1.8056,
+     "itemCount": 2
+    },
+    {
+     "rarity": "R",
+     "probabilityPercent": 12.0377,
+     "itemCount": 2
+    },
+    {
+     "rarity": "N",
+     "probabilityPercent": 85.8558,
+     "itemCount": 2
+    }
+   ],
+   "pity": {
+    "threshold": 400,
+    "rarity": "SSR",
+    "baseRatePercent": 0.3009,
+    "effectiveRatePercent": 0.4296,
+    "expectedDrawsToHit": 232.8
+   },
+   "multiDrawBonus": {
+    "every": 10,
+    "bonus": 1
+   },
+   "exchangeRatePercent": 80,
+   "expectedValue": {
+    "perDraw": 44095,
+    "perDrawWithPity": 47200
+   },
+   "payoutRatioPercent": {
+    "singleDraw": 80,
+    "multiDraw": 88
+   }
+  },
+  "16": {
+   "gachaId": 16,
+   "title": "드림 박스",
+   "price": 99000,
+   "currency": "GP",
+   "items": [
+    {
+     "itemId": 84,
+     "name": "롤렉스 서브마리너 데이트",
+     "rarity": "SSR",
+     "estimatedValue": 16000000,
+     "exchangeValue": 12800000,
+     "imageUrl": null,
+     "weight": 362,
+     "probabilityPercent": 0.0362
+    },
+    {
+     "itemId": 85,
+     "name": "샤넬 클래식 플랩백 미디엄",
+     "rarity": "SSR",
+     "estimatedValue": 16000000,
+     "exchangeValue": 12800000,
+     "imageUrl": null,
+     "weight": 362,
+     "probabilityPercent": 0.0362
+    },
+    {
+     "itemId": 86,
+     "name": "애플 맥북 프로 14",
+     "rarity": "SR",
+     "estimatedValue": 2400000,
+     "exchangeValue": 1920000,
+     "imageUrl": null,
+     "weight": 2171,
+     "probabilityPercent": 0.2171
+    },
+    {
+     "itemId": 87,
+     "name": "루이비통 포쉐트 악세수아",
+     "rarity": "SR",
+     "estimatedValue": 1700000,
+     "exchangeValue": 1360000,
+     "imageUrl": null,
+     "weight": 2170,
+     "probabilityPercent": 0.217
+    },
+    {
+     "itemId": 88,
+     "name": "애플 아이패드 에어",
+     "rarity": "R",
+     "estimatedValue": 900000,
+     "exchangeValue": 720000,
+     "imageUrl": null,
+     "weight": 14470,
+     "probabilityPercent": 1.447
+    },
+    {
+     "itemId": 89,
+     "name": "다이슨 에어랩 멀티 스타일러",
+     "rarity": "R",
+     "estimatedValue": 749000,
+     "exchangeValue": 599200,
+     "imageUrl": null,
+     "weight": 14470,
+     "probabilityPercent": 1.447
+    },
+    {
+     "itemId": 90,
+     "name": "신세계상품권 3만원",
+     "rarity": "N",
+     "estimatedValue": 30000,
+     "exchangeValue": 24000,
+     "imageUrl": null,
+     "weight": 482998,
+     "probabilityPercent": 48.2998
+    },
+    {
+     "itemId": 91,
+     "name": "현대백화점 상품권 3만원",
+     "rarity": "N",
+     "estimatedValue": 30000,
+     "exchangeValue": 24000,
+     "imageUrl": null,
+     "weight": 482997,
+     "probabilityPercent": 48.2997
+    }
+   ],
+   "rarities": [
+    {
+     "rarity": "SSR",
+     "probabilityPercent": 0.0724,
+     "itemCount": 2
+    },
+    {
+     "rarity": "SR",
+     "probabilityPercent": 0.4341,
+     "itemCount": 2
+    },
+    {
+     "rarity": "R",
+     "probabilityPercent": 2.894,
+     "itemCount": 2
+    },
+    {
+     "rarity": "N",
+     "probabilityPercent": 96.5995,
+     "itemCount": 2
+    }
+   ],
+   "pity": {
+    "threshold": 1500,
+    "rarity": "SSR",
+    "baseRatePercent": 0.0724,
+    "effectiveRatePercent": 0.1093,
+    "expectedDrawsToHit": 915.2
+   },
+   "multiDrawBonus": {
+    "every": 10,
+    "bonus": 1
+   },
+   "exchangeRatePercent": 80,
+   "expectedValue": {
+    "perDraw": 73324,
+    "perDrawWithPity": 79201
+   },
+   "payoutRatioPercent": {
+    "singleDraw": 80,
+    "multiDraw": 88
+   }
+  }
+ },
+ "banners": [
+  {
+   "id": 1,
+   "title": "그랜드 오픈 기념 박스",
+   "subtitle": "3,000개 한정 · 환급률 90%, 10+1은 99%",
+   "badge": "OPEN 기념",
+   "imageUrl": null,
+   "accentColorHex": "#C9A227",
+   "link": {
+    "type": "GACHA",
+    "target": "9"
+   },
+   "startsAt": "2026-10-07T05:20:47.650Z",
+   "endsAt": "2026-10-21T05:20:47.650Z"
+  },
+  {
+   "id": 2,
+   "title": "첫 충전 20% 추가 적립",
+   "subtitle": "첫 결제 1회 · 최대 10,000 GP",
+   "badge": "첫 충전",
+   "imageUrl": null,
+   "accentColorHex": "#0B6E4F",
+   "link": {
+    "type": "TOPUP",
+    "target": null
+   },
+   "startsAt": "2026-10-07T05:20:47.650Z",
+   "endsAt": null
+  },
+  {
+   "id": 3,
+   "title": "매일 출석하면 최대 500 GP",
+   "subtitle": "7일 연속 출석 보상",
+   "badge": "출석체크",
+   "imageUrl": null,
+   "accentColorHex": "#3D7BF7",
+   "link": {
+    "type": "ATTENDANCE",
+    "target": null
+   },
+   "startsAt": "2026-10-07T05:20:47.650Z",
+   "endsAt": null
+  },
+  {
+   "id": 4,
+   "title": "10회 뽑으면 1회 더",
+   "subtitle": "모든 박스 10+1 상시 진행",
+   "badge": "10+1",
+   "imageUrl": null,
+   "accentColorHex": "#7A3FE0",
+   "link": {
+    "type": "ODDS",
+    "target": null
+   },
+   "startsAt": "2026-10-07T05:20:47.650Z",
+   "endsAt": null
+  },
+  {
+   "id": 5,
+   "title": "천장이 있어 끝이 보입니다",
+   "subtitle": "정해진 횟수 안에 SSR 확정",
+   "badge": "천장",
+   "imageUrl": null,
+   "accentColorHex": "#B8862B",
+   "link": {
+    "type": "ODDS",
+    "target": null
+   },
+   "startsAt": "2026-10-07T05:20:47.650Z",
+   "endsAt": null
+  },
+  {
+   "id": 6,
+   "title": "드림 박스",
+   "subtitle": "롤렉스 · 샤넬 SSR · 확률은 박스에서 공개",
+   "badge": "DREAM",
+   "imageUrl": null,
+   "accentColorHex": "#1A1A1A",
+   "link": {
+    "type": "GACHA",
+    "target": "16"
+   },
+   "startsAt": "2026-10-07T05:20:47.650Z",
+   "endsAt": null
+  }
+ ],
+ "bannerMeta": {
+  "1": {
+   "priority": 10,
+   "active": true
+  },
+  "2": {
+   "priority": 20,
+   "active": true
+  },
+  "3": {
+   "priority": 30,
+   "active": true
+  },
+  "4": {
+   "priority": 40,
+   "active": true
+  },
+  "5": {
+   "priority": 50,
+   "active": true
+  },
+  "6": {
+   "priority": 60,
+   "active": true
+  }
+ },
+ "payments": {
+  "packages": [
+   {
+    "id": "gp5000",
+    "price": 5000,
+    "gp": 5000,
+    "bonusGp": 0
+   },
+   {
+    "id": "gp10000",
+    "price": 10000,
+    "gp": 10000,
+    "bonusGp": 0
+   },
+   {
+    "id": "gp30000",
+    "price": 30000,
+    "gp": 30000,
+    "bonusGp": 0
+   },
+   {
+    "id": "gp50000",
+    "price": 50000,
+    "gp": 50000,
+    "bonusGp": 1000
+   },
+   {
+    "id": "gp100000",
+    "price": 100000,
+    "gp": 100000,
+    "bonusGp": 3000
+   },
+   {
+    "id": "gp300000",
+    "price": 300000,
+    "gp": 300000,
+    "bonusGp": 15000
+   }
+  ],
+  "firstTopupBonus": {
+   "rate": 0.2,
+   "maxGp": 10000
+  }
+ }
+}

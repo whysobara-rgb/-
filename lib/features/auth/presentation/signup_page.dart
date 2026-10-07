@@ -1,13 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
+import '../../../shared/widgets/ui.dart';
 import '../../../shared/providers/auth_provider.dart';
+import '../domain/agreements.dart';
+import 'welcome_gp_page.dart';
+import 'widgets/agreement_panel.dart';
 
-/// 가치가차 - 회원가입 페이지 (이메일/비밀번호/닉네임).
+/// 이메일 가입. 필수 약관에 모두 동의해야 가입 버튼이 열린다.
 ///
-/// 성공 시 [AuthProvider.signup]이 내부적으로 로그인까지 처리하므로,
-/// 이 화면에서는 성공 시 단순히 pop()만 호출하면 AuthGate가
-/// isLoggedIn 변화를 감지해 자동으로 메인 화면으로 전환한다.
+/// 성공하면 [AuthProvider.signup]이 로그인까지 처리하고(AuthGate가 메인 탭으로
+/// 전환), 이 화면은 닫히면서 가입 축하 GP 화면을 띄운다.
 class SignupPage extends StatefulWidget {
   const SignupPage({super.key});
 
@@ -21,6 +25,7 @@ class _SignupPageState extends State<SignupPage> {
   final _passwordController = TextEditingController();
   final _nicknameController = TextEditingController();
   bool _obscurePassword = true;
+  Agreements _agreements = const Agreements();
 
   @override
   void dispose() {
@@ -32,201 +37,164 @@ class _SignupPageState extends State<SignupPage> {
 
   Future<void> _handleSignup() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
+    if (!_agreements.allRequired) return;
 
     final auth = context.read<AuthProvider>();
+    // 로그인되면 AuthGate가 바탕 화면을 메인 탭으로 바꾼다. 같은 내비게이터에서
+    // 이 화면을 닫고 가입 축하 화면을 올린다.
+    final navigator = Navigator.of(context);
     final success = await auth.signup(
       email: _emailController.text.trim(),
       password: _passwordController.text,
       nickname: _nicknameController.text.trim(),
+      agreements: _agreements,
     );
 
-    if (!mounted) return;
     if (success) {
-      Navigator.of(context).pop();
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(auth.errorMessage ?? '회원가입에 실패했습니다')),
-      );
+      final welcomeGp = auth.takeWelcomeGp();
+      navigator.pop();
+      if (welcomeGp != null) navigator.push(WelcomeGpPage.route(welcomeGp));
+      return;
     }
+    if (mounted) showToast(context, auth.errorMessage ?? '가입하지 못했어요');
   }
 
-  String? _validateEmail(String? value) {
-    if (value == null || value.trim().isEmpty) return '이메일을 입력해주세요';
+  static String? validateEmail(String? value) {
+    if (value == null || value.trim().isEmpty) return '이메일을 입력해 주세요';
     final emailRegex = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
-    if (!emailRegex.hasMatch(value.trim())) return '올바른 이메일 형식이 아닙니다';
+    if (!emailRegex.hasMatch(value.trim())) return '이메일 형식을 확인해 주세요';
     return null;
   }
 
-  String? _validatePassword(String? value) {
-    if (value == null || value.isEmpty) return '비밀번호를 입력해주세요';
-    if (value.length < 8) return '비밀번호는 8자 이상이어야 합니다';
+  static String? validatePassword(String? value) {
+    if (value == null || value.isEmpty) return '비밀번호를 입력해 주세요';
+    if (value.length < 8) return '8자 이상 입력해 주세요';
+    if (value.length > 64) return '64자까지 입력할 수 있어요';
     final hasLetterAndDigit = RegExp(r'(?=.*[A-Za-z])(?=.*\d)');
     if (!hasLetterAndDigit.hasMatch(value)) {
-      return '영문과 숫자를 최소 1개 이상 포함해야 합니다';
+      return '영문과 숫자를 함께 넣어 주세요';
     }
     return null;
   }
 
-  String? _validateNickname(String? value) {
-    if (value == null || value.trim().isEmpty) return '닉네임을 입력해주세요';
-    if (value.trim().length < 2) return '닉네임은 2자 이상이어야 합니다';
-    if (value.trim().length > 20) return '닉네임은 20자 이하여야 합니다';
+  static String? validateNickname(String? value) {
+    if (value == null || value.trim().isEmpty) return '닉네임을 입력해 주세요';
+    if (value.trim().length < 2) return '2자 이상 입력해 주세요';
+    if (value.trim().length > 20) return '20자까지 입력할 수 있어요';
     return null;
   }
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     final auth = context.watch<AuthProvider>();
-
+    final ready = _agreements.allRequired;
     return Scaffold(
-      backgroundColor: AppColors.scaffoldBg,
-      appBar: AppBar(
-        backgroundColor: AppColors.scaffoldBg,
-        elevation: 0,
-        title: const Text(
-          '회원가입',
-          style: TextStyle(
-            color: AppColors.textPrimary,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        iconTheme: const IconThemeData(color: AppColors.textPrimary),
-      ),
+      appBar: AppBar(titleSpacing: 0, title: const Text('이메일로 가입')),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const Text(
-                  '가치가차에서 특별한 순간을 만들어보세요',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-                const SizedBox(height: 28),
-                _buildTextField(
-                  controller: _emailController,
-                  hintText: '이메일',
-                  prefixIcon: Icons.email_outlined,
-                  obscureText: false,
-                  validator: _validateEmail,
-                ),
-                const SizedBox(height: 12),
-                _buildTextField(
-                  controller: _nicknameController,
-                  hintText: '닉네임 (2~20자)',
-                  prefixIcon: Icons.person_outline,
-                  obscureText: false,
-                  validator: _validateNickname,
-                ),
-                const SizedBox(height: 12),
-                _buildTextField(
-                  controller: _passwordController,
-                  hintText: '비밀번호 (영문+숫자 8자 이상)',
-                  prefixIcon: Icons.lock_outline,
-                  obscureText: _obscurePassword,
-                  validator: _validatePassword,
+        child: Form(
+          key: _formKey,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(
+              Space.gutter,
+              Space.x2,
+              Space.gutter,
+              Space.x8,
+            ),
+            children: [
+              Text('금고를 열 준비를 해요', style: AppText.title1),
+              const SizedBox(height: Space.x1),
+              Text('가입하면 축하 GP를 바로 드려요.', style: AppText.callout),
+              const SizedBox(height: Space.x6),
+              const _FieldLabel('이메일'),
+              TextFormField(
+                controller: _emailController,
+                keyboardType: TextInputType.emailAddress,
+                autofillHints: const [AutofillHints.email],
+                textInputAction: TextInputAction.next,
+                style: AppText.body,
+                decoration: const InputDecoration(hintText: 'name@example.com'),
+                validator: validateEmail,
+              ),
+              const SizedBox(height: Space.x4),
+              const _FieldLabel('비밀번호'),
+              TextFormField(
+                controller: _passwordController,
+                obscureText: _obscurePassword,
+                autofillHints: const [AutofillHints.newPassword],
+                textInputAction: TextInputAction.next,
+                style: AppText.body,
+                decoration: InputDecoration(
+                  hintText: '영문·숫자 포함 8자 이상',
                   suffixIcon: IconButton(
+                    tooltip: _obscurePassword ? '비밀번호 보기' : '비밀번호 숨기기',
                     icon: Icon(
                       _obscurePassword
                           ? Icons.visibility_off_outlined
                           : Icons.visibility_outlined,
-                      color: AppColors.textSecondary,
                       size: 20,
+                      color: cs.onSurfaceVariant,
                     ),
-                    onPressed: () {
-                      setState(() => _obscurePassword = !_obscurePassword);
-                    },
+                    onPressed: () =>
+                        setState(() => _obscurePassword = !_obscurePassword),
                   ),
                 ),
-                const SizedBox(height: 24),
-                Container(
-                  width: double.infinity,
-                  height: 54,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    gradient: auth.isLoading ? null : AppColors.goldGradient,
-                    color: auth.isLoading ? AppColors.surfaceBorder : null,
-                  ),
-                  child: Material(
-                    color: Colors.transparent,
-                    borderRadius: BorderRadius.circular(12),
-                    child: InkWell(
-                      onTap: auth.isLoading ? null : _handleSignup,
-                      borderRadius: BorderRadius.circular(12),
-                      child: Center(
-                        child: auth.isLoading
-                            ? const SizedBox(
-                                width: 22,
-                                height: 22,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2.5,
-                                  color: AppColors.textSecondary,
-                                ),
-                              )
-                            : const Text(
-                                '회원가입',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
-                                  color: Color(0xFF1A1A1A),
-                                ),
-                              ),
-                      ),
-                    ),
-                  ),
+                validator: validatePassword,
+              ),
+              const SizedBox(height: Space.x4),
+              const _FieldLabel('닉네임'),
+              TextFormField(
+                controller: _nicknameController,
+                textInputAction: TextInputAction.done,
+                style: AppText.body,
+                decoration: const InputDecoration(hintText: '2~20자'),
+                validator: validateNickname,
+              ),
+              const SizedBox(height: Space.x8),
+              Text('약관 동의', style: AppText.title2),
+              const SizedBox(height: Space.x3),
+              AgreementPanel(
+                value: _agreements,
+                onChanged: (v) => setState(() => _agreements = v),
+              ),
+              const SizedBox(height: Space.x2),
+              AnimatedSwitcher(
+                duration: Motion.fast,
+                child: Text(
+                  ready
+                      ? '마케팅 수신 동의는 나중에 MY에서 바꿀 수 있어요.'
+                      : '필수 항목에 모두 동의해야 가입할 수 있어요.',
+                  key: ValueKey(ready),
+                  style: AppText.caption,
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(height: Space.x6),
+              PrimaryButton(
+                label: '동의하고 가입하기',
+                loading: auth.isLoading,
+                onPressed: ready ? _handleSignup : null,
+              ),
+            ],
           ),
         ),
       ),
     );
   }
+}
 
-  Widget _buildTextField({
-    required TextEditingController controller,
-    required String hintText,
-    required IconData prefixIcon,
-    required bool obscureText,
-    String? Function(String?)? validator,
-    Widget? suffixIcon,
-  }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surfaceElevated2,
-        borderRadius: BorderRadius.circular(12),
+class _FieldLabel extends StatelessWidget {
+  final String text;
+  const _FieldLabel(this.text);
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 6),
+    child: Text(
+      text,
+      style: AppText.caption.copyWith(
+        color: Theme.of(context).colorScheme.onSurface,
+        fontWeight: FontWeight.w600,
       ),
-      child: TextFormField(
-        controller: controller,
-        obscureText: obscureText,
-        validator: validator,
-        style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
-        decoration: InputDecoration(
-          hintText: hintText,
-          hintStyle: const TextStyle(
-            color: AppColors.textSecondary,
-            fontSize: 14,
-          ),
-          prefixIcon: Icon(
-            prefixIcon,
-            color: AppColors.textSecondary,
-            size: 20,
-          ),
-          suffixIcon: suffixIcon,
-          border: InputBorder.none,
-          errorBorder: InputBorder.none,
-          focusedErrorBorder: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 14,
-          ),
-        ),
-      ),
-    );
-  }
+    ),
+  );
 }

@@ -1,5 +1,5 @@
 name: gacha_vault
-description: "GACHI GACHA - 프리미엄 랜덤박스 뽑기 앱"
+description: "가치가차 - 실물 상품 랜덤박스 앱"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -40,10 +40,26 @@ dependencies:
 
   # Networking & local storage (for real backend API integration)
   http: 1.5.0
-  shared_preferences: 2.5.3
+  shared_preferences: 2.5.4
 
   # Real product photo rendering (network image caching, web-compatible)
   cached_network_image: 3.4.1
+  audioplayers: 6.8.1
+  share_plus: 13.3.1
+  url_launcher: 6.3.3
+
+  # 소셜 로그인 SDK. 앱은 SDK가 준 토큰만 서버(/auth/social-login)로 보낸다.
+  # 키 설정은 docs/SOCIAL_LOGIN_SETUP.md.
+  kakao_flutter_sdk_user: 2.0.1
+  flutter_naver_login: 2.1.1
+  google_sign_in: 7.2.0
+  sign_in_with_apple: 8.2.0
+
+  # GP 충전 결제위젯(Android·iOS). 웹에서는 불러오지 않는다(조건부 import).
+  tosspayments_widget_sdk_flutter: 2.2.0
+
+  # 체험판(DEMO_MODE) 로컬 계정의 비밀번호 해시. 플래그가 꺼진 빌드에서는 쓰지 않는다.
+  crypto: 3.0.7
 
 dev_dependencies:
   flutter_test:
@@ -67,12 +83,13 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
-  # 클레이모피즘(Claymorphism) 리디자인 - 3D 캐릭터/아이콘 이미지 에셋
+  # 뽑기 연출 효과음 — tool/sfx/generate_sfx.py로 직접 합성한 WAV
   assets:
-    - assets/images/
-    - assets/images/products/
+    - assets/sfx/
+    # 체험판(DEMO_MODE) 카탈로그 스냅샷. tool/demo/snapshot_catalog.py로 갱신한다.
+    - assets/demo/catalog.json
 
-  # 클레이모피즘(Claymorphism) 리디자인 - 라운드 고딕 폰트
+  # Pretendard — 앱 전체 서체 (타입 스케일은 lib/core/theme/app_typography.dart)
   fonts:
     - family: Pretendard
       fonts:

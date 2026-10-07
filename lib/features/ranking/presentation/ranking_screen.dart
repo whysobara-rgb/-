@@ -1,100 +1,76 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
+import '../../../core/theme/rarity_style.dart';
+import '../../../core/domain/rarity.dart';
+import '../../../core/utils/format.dart';
 import '../../../shared/widgets/gp_badge.dart';
+import '../../../shared/widgets/collectible_card.dart';
+import '../../../shared/widgets/product_image.dart';
+import '../../../shared/widgets/rarity_tag.dart';
+import '../../../shared/widgets/ui.dart';
+import '../../gacha/data/gacha_repository.dart';
+import '../../gacha/domain/gacha_models.dart';
+import '../../gacha/presentation/gacha_detail_page.dart';
+import '../../gacha/presentation/widgets/box_thumb.dart';
 import '../data/ranking_repository.dart';
 import '../domain/ranking_models.dart';
 
-/// 가치가차 - 랭킹 탭 메인 화면.
-///
-/// Claymorphism & Pastel 3D 컨셉 - 크림 화이트 배경 위에 화이트 라운드
-/// 카드(border-radius 14~16px)와 소프트 섀도우로 랭킹 항목을 표시한다.
-/// 3개 탭(유저 랭킹 / 인기 박스 / 실시간 당첨)으로 구성되며, 각각
-/// 백엔드 `GET /rankings/users`, `/rankings/gachas`, `/rankings/wins`를
-/// 실시간으로 조회해 표시한다.
-class RankingScreen extends StatefulWidget {
+/// 랭킹 탭: 회원 순위 / 인기 박스 / 최근 당첨 기록.
+class RankingScreen extends StatelessWidget {
   const RankingScreen({super.key});
 
-  @override
-  State<RankingScreen> createState() => _RankingScreenState();
-}
-
-class _RankingScreenState extends State<RankingScreen> {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
       length: 3,
       child: Scaffold(
-        backgroundColor: AppColors.scaffoldBg,
         appBar: AppBar(
-          backgroundColor: AppColors.scaffoldBg,
-          elevation: 0,
-          centerTitle: false,
-          title: ShaderMask(
-            shaderCallback: (bounds) => AppColors.goldGradient.createShader(
-              Rect.fromLTWH(0, 0, bounds.width, bounds.height),
-            ),
-            child: const Text(
-              '랭킹',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 22,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-          ),
+          title: const Text('랭킹'),
           actions: const [GpBadge()],
-          bottom: const TabBar(
-            indicatorColor: AppColors.neonPrimary,
-            indicatorWeight: 3,
-            labelColor: AppColors.neonPrimary,
-            unselectedLabelColor: AppColors.textSecondary,
-            labelStyle: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
-            unselectedLabelStyle: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
+          bottom: const PreferredSize(
+            preferredSize: Size.fromHeight(44),
+            child: TabBar(
+              tabs: [
+                Tab(text: '회원', height: 44),
+                Tab(text: '인기 박스', height: 44),
+                Tab(text: '최근 당첨', height: 44),
+              ],
             ),
-            tabs: [
-              Tab(text: '유저 랭킹'),
-              Tab(text: '인기 박스'),
-              Tab(text: '실시간 당첨'),
-            ],
           ),
         ),
-        body: const TabBarView(
-          children: [_UserRankingTab(), _GachaRankingTab(), _WinFeedTab()],
-        ),
+        body: const TabBarView(children: [_UserTab(), _GachaTab(), _WinsTab()]),
       ),
     );
   }
 }
 
-// ─────────────────────────────────────────────────────────────
-// 공통: 로딩/에러/빈 상태 래퍼
-// ─────────────────────────────────────────────────────────────
+class _AsyncList<T> extends StatefulWidget {
+  final Future<List<T>> Function() loader;
+  final Widget? header;
+  final Widget Function(BuildContext, T) itemBuilder;
+  final String emptyTitle;
+  final String? emptyMessage;
+  final String? sparseNote;
 
-typedef _Loader<T> = Future<List<T>> Function();
-
-class _AsyncListView<T> extends StatefulWidget {
-  final _Loader<T> loader;
-  final Widget Function(BuildContext context, List<T> items) builder;
-  final String emptyMessage;
-
-  const _AsyncListView({
+  const _AsyncList({
     required this.loader,
-    required this.builder,
-    this.emptyMessage = '데이터가 없습니다',
+    required this.itemBuilder,
+    required this.emptyTitle,
+    this.emptyMessage,
+    this.sparseNote,
+    this.header,
   });
 
   @override
-  State<_AsyncListView<T>> createState() => _AsyncListViewState<T>();
+  State<_AsyncList<T>> createState() => _AsyncListState<T>();
 }
 
-class _AsyncListViewState<T> extends State<_AsyncListView<T>>
+class _AsyncListState<T> extends State<_AsyncList<T>>
     with AutomaticKeepAliveClientMixin {
   List<T>? _items;
-  bool _isLoading = true;
   String? _error;
 
   @override
@@ -103,547 +79,358 @@ class _AsyncListViewState<T> extends State<_AsyncListView<T>>
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+    _load();
   }
 
   Future<void> _load() async {
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
     try {
       final items = await widget.loader();
       if (!mounted) return;
       setState(() {
         _items = items;
-        _isLoading = false;
+        _error = null;
       });
     } on ApiException catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _error = e.message;
-        _isLoading = false;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _error = '데이터를 불러오지 못했습니다';
-        _isLoading = false;
-      });
+      if (mounted) setState(() => _error = e.displayMessage);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     super.build(context);
-
-    if (_isLoading) {
-      return const Center(
-        child: CircularProgressIndicator(color: AppColors.neonPrimary),
-      );
+    final items = _items;
+    if (_error != null && items == null) {
+      return ErrorView(message: _error!, onRetry: _load);
     }
-    if (_error != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
-                Icons.error_outline_rounded,
-                size: 40,
-                color: AppColors.textSecondary,
-              ),
-              const SizedBox(height: 12),
-              Text(
-                _error!,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: AppColors.textSecondary),
-              ),
-              const SizedBox(height: 16),
-              TextButton(
-                onPressed: _load,
-                child: const Text(
-                  '다시 시도',
-                  style: TextStyle(
-                    color: AppColors.neonPrimary,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-    final items = _items ?? [];
-    if (items.isEmpty) {
-      return Center(
-        child: Text(
-          widget.emptyMessage,
-          style: const TextStyle(color: AppColors.textSecondary),
-        ),
-      );
-    }
+    if (items == null) return const LoadingView();
+    final sparse = items.isNotEmpty && items.length < 5;
     return RefreshIndicator(
+      color: AppColors.text,
       onRefresh: _load,
-      color: AppColors.neonPrimary,
-      backgroundColor: AppColors.surfaceElevated,
-      child: widget.builder(context, items),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────
-// 탭 1: 유저 랭킹
-// ─────────────────────────────────────────────────────────────
-
-class _UserRankingTab extends StatelessWidget {
-  const _UserRankingTab();
-
-  static const _repository = RankingRepository();
-
-  @override
-  Widget build(BuildContext context) {
-    return _AsyncListView<UserRankingItem>(
-      loader: _repository.getUserRankings,
-      builder: (context, items) => ListView.separated(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-        itemCount: items.length,
-        separatorBuilder: (context, index) => const SizedBox(height: 10),
-        itemBuilder: (context, index) => _UserRankRow(item: items[index]),
+      child: ListView.separated(
+        padding: const EdgeInsets.only(bottom: Space.x8),
+        // 기록이 적을 때는 마지막에 짧은 안내를 붙인다(빈칸을 가짜로 채우지 않는다).
+        itemCount: items.isEmpty ? 2 : items.length + (sparse ? 2 : 1),
+        separatorBuilder: (_, i) => i == 0
+            ? const SizedBox.shrink()
+            : const Hairline(inset: Space.gutter),
+        itemBuilder: (context, i) {
+          if (i == 0) return widget.header ?? const SizedBox(height: Space.x2);
+          if (sparse && i == items.length + 1) {
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(
+                Space.gutter,
+                Space.x5,
+                Space.gutter,
+                0,
+              ),
+              child: Text(
+                widget.sparseNote ?? '기록이 쌓이면 더 채워져요.',
+                style: AppText.caption.copyWith(color: AppColors.textTertiary),
+              ),
+            );
+          }
+          if (items.isEmpty) {
+            return EmptyView(
+              icon: Icons.leaderboard_outlined,
+              title: widget.emptyTitle,
+              message: widget.emptyMessage,
+            );
+          }
+          return widget.itemBuilder(context, items[i - 1]);
+        },
       ),
     );
   }
 }
 
-class _UserRankRow extends StatelessWidget {
-  final UserRankingItem item;
+class _Note extends StatelessWidget {
+  final String text;
+  const _Note(this.text);
 
-  const _UserRankRow({required this.item});
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(
+      Space.gutter,
+      Space.x4,
+      Space.gutter,
+      Space.x2,
+    ),
+    child: Text(text, style: AppText.caption),
+  );
+}
+
+/// 순위 숫자: 굵은 이탤릭. 1위만 캡슐 레드, 2·3위 잉크, 그 아래 회색.
+class _RankNumber extends StatelessWidget {
+  final int rank;
+  const _RankNumber(this.rank);
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 34,
+    child: Text(
+      '$rank',
+      style: AppText.num(AppText.title1).copyWith(
+        fontSize: 24,
+        fontWeight: FontWeight.w900,
+        fontStyle: FontStyle.italic,
+        letterSpacing: -1,
+        color: rank == 1
+            ? AppColors.brand
+            : rank <= 3
+            ? AppColors.text
+            : AppColors.textTertiary,
+      ),
+    ),
+  );
+}
+
+class _UserTab extends StatelessWidget {
+  const _UserTab();
+  static const _repo = RankingRepository();
 
   @override
   Widget build(BuildContext context) {
-    final isTop3 = item.rank <= 3;
-    final rankColor = switch (item.rank) {
-      1 => const Color(0xFFFFD54A),
-      2 => const Color(0xFFD9D9E0),
-      3 => const Color(0xFFCE8946),
-      _ => AppColors.textSecondary,
-    };
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceElevated,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: isTop3
-              ? rankColor.withValues(alpha: 0.4)
-              : AppColors.surfaceBorder,
+    return _AsyncList<UserRankingItem>(
+      loader: _repo.users,
+      emptyTitle: '아직 순위가 없어요',
+      emptyMessage: '박스를 연 기록이 생기면 여기에 순위가 매겨져요.',
+      sparseNote: '실제 뽑기 기록만으로 순위를 매겨요. 기록이 쌓이면 더 채워져요.',
+      header: const _Note('받은 상품의 정가 합계 순이에요.'),
+      itemBuilder: (context, u) => Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: Space.gutter,
+          vertical: 14,
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          // ── 순위 ──
-          SizedBox(
-            width: 32,
-            child: isTop3
-                ? Icon(Icons.emoji_events_rounded, color: rankColor, size: 26)
-                : Text(
-                    '${item.rank}',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 15,
+        child: Row(
+          children: [
+            _RankNumber(u.rank),
+            const SizedBox(width: Space.x2),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    u.nickname,
+                    style: AppText.bodyStrong.copyWith(
+                      color: AppColors.text,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
-          ),
-          const SizedBox(width: 10),
-          // ── 닉네임 + 뽑기 횟수 ──
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  item.nickname,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
+                  const SizedBox(height: 2),
+                  Text(
+                    '뽑기 ${formatNumber(u.drawCount)}회',
+                    style: AppText.num(AppText.caption),
                   ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '누적 ${item.drawCount}회 뽑기',
-                  style: const TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 11,
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          // ── 누적 획득 가치 ──
-          Text(
-            '${_formatNumber(item.totalValue)} GP',
-            style: const TextStyle(
-              color: AppColors.neonPrimary,
-              fontSize: 14,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────
-// 탭 2: 인기 박스 랭킹
-// ─────────────────────────────────────────────────────────────
-
-class _GachaRankingTab extends StatelessWidget {
-  const _GachaRankingTab();
-
-  static const _repository = RankingRepository();
-
-  @override
-  Widget build(BuildContext context) {
-    return _AsyncListView<GachaRankingItem>(
-      loader: _repository.getGachaRankings,
-      builder: (context, items) => ListView.separated(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-        itemCount: items.length,
-        separatorBuilder: (context, index) => const SizedBox(height: 10),
-        itemBuilder: (context, index) => _GachaRankRow(item: items[index]),
-      ),
-    );
-  }
-}
-
-class _GachaRankRow extends StatelessWidget {
-  final GachaRankingItem item;
-
-  const _GachaRankRow({required this.item});
-
-  @override
-  Widget build(BuildContext context) {
-    final isTop3 = item.rank <= 3;
-    final rankColor = switch (item.rank) {
-      1 => const Color(0xFFFFD54A),
-      2 => const Color(0xFFD9D9E0),
-      3 => const Color(0xFFCE8946),
-      _ => AppColors.textSecondary,
-    };
-    final accentColor = _colorFromHex(item.accentColorHex);
-
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceElevated,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: isTop3
-              ? rankColor.withValues(alpha: 0.4)
-              : AppColors.surfaceBorder,
+            PriceText(u.totalValue, unit: '원', size: 16),
+          ],
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 24,
-            child: isTop3
-                ? Icon(Icons.emoji_events_rounded, color: rankColor, size: 22)
-                : Text(
-                    '${item.rank}',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-          ),
-          const SizedBox(width: 8),
-          // ── 박스 썸네일 (실제 이미지) ──
-          ClipRRect(
-            borderRadius: BorderRadius.circular(10),
-            child: SizedBox(
-              width: 56,
-              height: 56,
-              child: item.imageUrl != null
-                  ? CachedNetworkImage(
-                      imageUrl: item.imageUrl!,
-                      fit: BoxFit.cover,
-                      placeholder: (context, url) =>
-                          Container(color: AppColors.surfaceElevated2),
-                      errorWidget: (context, url, error) => Container(
-                        color: accentColor.withValues(alpha: 0.4),
-                        child: const Icon(
-                          Icons.card_giftcard_rounded,
-                          color: Colors.white,
-                        ),
-                      ),
-                    )
-                  : Container(
-                      color: accentColor.withValues(alpha: 0.4),
-                      child: const Icon(
-                        Icons.card_giftcard_rounded,
-                        color: Colors.white,
-                      ),
-                    ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  item.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '누적 ${item.drawCount}회 개봉',
-                  style: const TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 11,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Text(
-            '${_formatNumber(item.price)} GP',
-            style: const TextStyle(
-              color: AppColors.neonPrimary,
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
       ),
     );
   }
 }
 
-// ─────────────────────────────────────────────────────────────
-// 탭 3: 실시간 당첨 피드
-// ─────────────────────────────────────────────────────────────
+class _GachaTab extends StatelessWidget {
+  const _GachaTab();
+  static const _repo = RankingRepository();
+  static const _gachas = GachaRepository();
 
-class _WinFeedTab extends StatelessWidget {
-  const _WinFeedTab();
-
-  static const _repository = RankingRepository();
-
-  @override
-  Widget build(BuildContext context) {
-    return _AsyncListView<WinFeedItem>(
-      loader: _repository.getWinFeed,
-      builder: (context, items) => ListView.separated(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-        itemCount: items.length,
-        separatorBuilder: (context, index) => const SizedBox(height: 10),
-        itemBuilder: (context, index) => _WinFeedRow(item: items[index]),
-      ),
-    );
-  }
-}
-
-class _WinFeedRow extends StatelessWidget {
-  final WinFeedItem item;
-
-  const _WinFeedRow({required this.item});
-
-  Color _rarityColor(String rarity) {
-    switch (rarity) {
-      case 'SSR':
-        return AppColors.raritySSR;
-      case 'SR':
-        return AppColors.raritySR;
-      case 'R':
-        return AppColors.rarityR;
-      case 'N':
-      default:
-        return AppColors.rarityN;
-    }
+  /// 순위 + (판매 중이면) 박스 요약. 박스 요약이 있어야 그 박스의 패키지를
+  /// 그릴 수 있다. 목록을 못 받으면 순위만 보여준다.
+  static Future<List<(GachaRankingItem, GachaSummary?)>> _load() async {
+    final ranking = await _repo.gachas();
+    List<GachaSummary> boxes = const [];
+    try {
+      boxes = await _gachas.list();
+    } catch (_) {}
+    return [
+      for (final g in ranking)
+        (g, boxes.where((b) => b.id == g.gachaId).firstOrNull),
+    ];
   }
 
   @override
   Widget build(BuildContext context) {
-    final color = _rarityColor(item.rarity);
-
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceElevated,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.surfaceBorder),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          // ── 아이템 썸네일 ──
-          ClipRRect(
-            borderRadius: BorderRadius.circular(10),
-            child: SizedBox(
-              width: 52,
-              height: 52,
-              child: item.imageUrl != null
-                  ? CachedNetworkImage(
-                      imageUrl: item.imageUrl!,
-                      fit: BoxFit.cover,
-                      placeholder: (context, url) =>
-                          Container(color: AppColors.surfaceElevated2),
-                      errorWidget: (context, url, error) => Container(
-                        color: AppColors.surfaceElevated2,
-                        child: Icon(
-                          Icons.card_giftcard_rounded,
-                          color: color,
-                        ),
-                      ),
-                    )
-                  : Container(
-                      color: AppColors.surfaceElevated2,
-                      child: Icon(Icons.card_giftcard_rounded, color: color),
-                    ),
+    return _AsyncList<(GachaRankingItem, GachaSummary?)>(
+      loader: _load,
+      emptyTitle: '아직 순위가 없어요',
+      emptyMessage: '박스를 연 기록이 생기면 여기에 순위가 매겨져요.',
+      sparseNote: '실제 뽑기 기록만으로 순위를 매겨요. 기록이 쌓이면 더 채워져요.',
+      header: const _Note('누적 뽑기 횟수 순이에요.'),
+      itemBuilder: (context, entry) {
+        final (g, box) = entry;
+        final summary =
+            box ??
+            GachaSummary(
+              id: g.gachaId,
+              title: g.title,
+              price: g.price,
+              imageUrl: g.imageUrl,
+              accent: g.accent,
+            );
+        return InkWell(
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => GachaDetailPage(gacha: summary),
             ),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Space.gutter,
+              vertical: Space.x3,
+            ),
+            child: Row(
               children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 1,
-                      ),
-                      decoration: BoxDecoration(
-                        color: color.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(5),
-                        border: Border.all(
-                          color: color.withValues(alpha: 0.6),
-                        ),
-                      ),
-                      child: Text(
-                        item.rarity,
-                        style: TextStyle(
-                          color: color,
-                          fontSize: 9,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
+                _RankNumber(g.rank),
+                const SizedBox(width: Space.x2),
+                SizedBox(
+                  width: 60,
+                  height: 60,
+                  child: DecoratedBox(
+                    decoration: const BoxDecoration(
+                      borderRadius: Radii.thumb,
+                      boxShadow: Shadows.small,
                     ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        item.itemName,
+                    child: BoxThumb(
+                      box: summary,
+                      scale: 0.76,
+                      borderRadius: Radii.thumb,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: Space.x3),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        g.title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: AppColors.textPrimary,
-                          fontSize: 13,
+                        style: AppText.bodyStrong.copyWith(
+                          color: AppColors.text,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${item.nickname}님이 「${item.gachaTitle}」에서 획득',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 11,
+                      const SizedBox(height: 2),
+                      Text(
+                        '1회 ${formatGp(g.price)}',
+                        style: AppText.num(AppText.caption),
+                      ),
+                    ],
                   ),
+                ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      formatNumber(g.drawCount),
+                      style: AppText.num(AppText.headline).copyWith(
+                        color: AppColors.text,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    Text('회 오픈', style: AppText.micro),
+                  ],
                 ),
               ],
             ),
           ),
-          const SizedBox(width: 8),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                '${_formatNumber(item.estimatedValue)} GP',
-                style: const TextStyle(
-                  color: AppColors.neonPrimary,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                item.relativeTimeLabel,
-                style: const TextStyle(
-                  color: AppColors.textDisabled,
-                  fontSize: 10,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
 
-// ─────────────────────────────────────────────────────────────
-// 공통 유틸
-// ─────────────────────────────────────────────────────────────
+class _WinsTab extends StatelessWidget {
+  const _WinsTab();
+  static const _repo = RankingRepository();
 
-String _formatNumber(int value) {
-  final str = value.toString();
-  final buffer = StringBuffer();
-  for (int i = 0; i < str.length; i++) {
-    final posFromEnd = str.length - i;
-    buffer.write(str[i]);
-    if (posFromEnd > 1 && posFromEnd % 3 == 1) buffer.write(',');
+  @override
+  Widget build(BuildContext context) {
+    return _AsyncList<WinFeedItem>(
+      loader: _repo.wins,
+      emptyTitle: '최근 당첨 기록이 없어요',
+      emptyMessage: '누군가 박스를 열면 여기에 바로 보여요.',
+      sparseNote: '실제 당첨 기록만 보여드려요.',
+      header: const _Note('최근 당첨 기록이에요. 닉네임 일부는 가려서 보여드려요.'),
+      itemBuilder: (context, w) => Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: Space.gutter,
+          vertical: Space.x3,
+        ),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 52,
+              height: 52,
+              child: RarityFrame(
+                rarity: w.rarity,
+                radius: 11,
+                glow: 0.6,
+                child: ProductImage(
+                  url: w.imageUrl,
+                  rarity: w.rarity,
+                  name: w.itemName,
+                  borderRadius: BorderRadius.zero,
+                ),
+              ),
+            ),
+            const SizedBox(width: Space.x3),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      RarityTag(w.rarity, dense: true),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          w.itemName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppText.bodyStrong,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    '${w.nickname} · ${w.gachaTitle}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.caption,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: Space.x2),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  formatWon(w.estimatedValue),
+                  style: AppText.num(AppText.callout).copyWith(
+                    color: w.rarity == Rarity.n ? AppColors.text : w.rarity.ink,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  w.relativeTimeLabel,
+                  style: AppText.caption.copyWith(
+                    color: AppColors.textTertiary,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
-  return buffer.toString();
-}
-
-Color _colorFromHex(String hex) {
-  final cleaned = hex.replaceAll('#', '');
-  final value = int.tryParse(cleaned, radix: 16) ?? 0x9AA0A6;
-  return Color(0xFF000000 | value);
 }

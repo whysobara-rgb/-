@@ -1,38 +1,44 @@
-import 'dart:math';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'dart:math' as math;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import '../../../core/constants/rank_colors.dart';
+import 'package:share_plus/share_plus.dart';
+import '../../../core/domain/rarity.dart';
+import '../../../core/network/api_client.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
+import '../../../core/theme/rarity_style.dart';
+import '../../../core/utils/format.dart';
+import '../../../navigation/tab_navigator.dart';
+import '../../../shared/providers/auth_provider.dart';
 import '../../../shared/providers/gp_provider.dart';
-import '../../home/domain/capsule_box.dart';
+import '../../../shared/widgets/collectible_card.dart';
+import '../../../shared/widgets/meters.dart';
+import '../../../shared/widgets/rarity_tag.dart';
+import '../../../shared/widgets/ui.dart';
+import '../../inventory/data/inventory_repository.dart';
 import '../domain/draw_result.dart';
-import '../domain/gacha_grade.dart';
-import 'gacha_animation_page.dart';
+import '../domain/gacha_models.dart';
+import '../domain/reveal_timeline.dart';
 import 'widgets/gacha_fx_painters.dart';
+import 'widgets/reveal_card.dart';
 
-/// 가치가차 - 뽑기 결과 화면 (CLOVE 오리파 스타일 Stage5).
+/// 뽑기 결과.
 ///
-/// 전체 배경은 화이트이며, 최고 등급 결과 카드만 등급 컬러 아우라로 대비를
-/// 준다. 결과 중 가장 높은 등급 1개를 상단에 크게 강조하고, count > 1이면
-/// 나머지 결과를 화이트 배경 2열 그리드로 하단에 나열한다.
-/// S/SSS 등급 당첨 시 화면 상단에서 색종이 낙하 효과를 재생한다.
-///
-/// 하단에는 CLOVE 오리파 핵심 기능인 3대 원클릭 액션 버튼을 제공한다:
-///  - ⚡ 즉시 포인트로 환원: 결과 전체를 정가의 ~87% GP로 즉시 환급
-///  - 📦 보관함에 담기: 서버에 이미 저장된 상태를 그대로 유지하고 확인만
-///  - 🔄 한 번 더 뽑기: 동일 박스/수량으로 GP 차감 후 다음 뽑기 시퀀스 재실행
+/// 결과는 서버에서 이미 보관함에 담긴 상태다. 기본 동작은 "보관함에 보관"
+/// (그대로 두기)이고, 원하면 그 자리에서 정가의 80%를 GP로 전환할 수 있다.
+/// SR 이상이 나오면 들어올 때 한 번 축하 연출(불꽃·SSR 금박)과 홀로 카드,
+/// 그리고 실제 결과 문구만 담은 "자랑하기"를 보여준다.
 class GachaResultPage extends StatefulWidget {
-  final CapsuleBox box;
-  final int count;
-  final List<DrawResult> results;
+  final GachaSummary gacha;
+  final DrawOutcome outcome;
 
   const GachaResultPage({
     super.key,
-    required this.box,
-    required this.count,
-    required this.results,
+    required this.gacha,
+    required this.outcome,
   });
 
   @override
@@ -40,599 +46,737 @@ class GachaResultPage extends StatefulWidget {
 }
 
 class _GachaResultPageState extends State<GachaResultPage>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _entranceController;
-  late final Animation<Offset> _slideAnimation;
-  late final Animation<double> _fadeAnimation;
+    with TickerProviderStateMixin {
+  static const _inventory = InventoryRepository();
+  bool _exchanging = false;
+  bool _exchanged = false;
 
-  late final DrawResult _highlightResult;
-  late final List<DrawResult> _remainingResults;
+  /// 들어올 때 한 번 터지는 축하(SR 이상).
+  late final AnimationController _celebrate = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 3600),
+  );
 
-  bool _redeemed = false;
-  bool _isRedeeming = false;
-  bool _isRedrawing = false;
+  /// 빛줄기 회전.
+  late final AnimationController _spin = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 24),
+  );
 
-  GachaGrade get _highlightGrade => _highlightResult.gradeEnum;
-  bool get _hasCelebration =>
-      widget.results.any((r) => r.gradeEnum.hasCutinStage);
-  bool get _hasRainbow =>
-      widget.results.any((r) => r.gradeEnum.hasRainbowConfetti);
+  late final List<GoldLeaf> _leaves = GoldLeafPainter.generate(
+    60,
+    seed: 7,
+    palette: kConfettiOnLight,
+  );
+  Offset _tilt = Offset.zero;
 
-  int get _totalValue => widget.results.fold(0, (sum, r) => sum + r.price);
-  int get _totalRefund =>
-      widget.results.fold(0, (sum, r) => sum + r.refundPointGP);
-  int get _totalSpent => widget.count * widget.box.priceWon;
+  DrawOutcome get _o => widget.outcome;
+  DrawResult? get _best => _o.best;
+  bool get _festive => _best?.rarity.isFoil ?? false;
 
   @override
   void initState() {
     super.initState();
-
-    final sorted = [...widget.results]
-      ..sort((a, b) => b.gradeEnum.rank.compareTo(a.gradeEnum.rank));
-    _highlightResult = sorted.first;
-    _remainingResults = sorted.skip(1).toList();
-
-    _entranceController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 600),
-    );
-    _slideAnimation =
-        Tween<Offset>(begin: const Offset(0, 0.2), end: Offset.zero).animate(
-          CurvedAnimation(
-            parent: _entranceController,
-            curve: Curves.easeOutCubic,
-          ),
-        );
-    _fadeAnimation = CurvedAnimation(
-      parent: _entranceController,
-      curve: Curves.easeOut,
-    );
-    _entranceController.forward();
-
-    if (_highlightGrade.hasCutinStage) {
-      HapticFeedback.heavyImpact();
+    if (_festive) {
+      _celebrate.forward();
+      _spin.repeat();
     }
   }
 
   @override
   void dispose() {
-    _entranceController.dispose();
+    _celebrate.dispose();
+    _spin.dispose();
     super.dispose();
   }
 
-  String _formatWon(int value) {
-    final str = value.toString();
-    final buffer = StringBuffer();
-    for (int i = 0; i < str.length; i++) {
-      final posFromEnd = str.length - i;
-      buffer.write(str[i]);
-      if (posFromEnd > 1 && posFromEnd % 3 == 1) buffer.write(',');
-    }
-    return buffer.toString();
+  void _keep() {
+    final count = _o.results.length;
+    final tabs = context.read<TabNavigator>();
+    final messenger = ScaffoldMessenger.of(context);
+    Navigator.of(context).pop();
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text('보관함에 $count개를 담았어요'),
+          action: SnackBarAction(
+            label: '보관함 보기',
+            onPressed: () => tabs.select(AppTab.inventory),
+          ),
+        ),
+      );
   }
 
-  /// ⚡ 즉시 포인트로 환원: 정가의 약 87%에 해당하는 GP를 즉시 지급하고
-  /// 결과 화면을 닫는다. (서버에 이미 저장된 인벤토리 아이템은 실제
-  /// "판매 처리" API가 없는 관계로, 낙관적 GP 지급 + 안내로 대체한다.)
-  Future<void> _instantRefund() async {
-    if (_redeemed || _isRedeeming) return;
-    setState(() => _isRedeeming = true);
-    HapticFeedback.mediumImpact();
-
-    context.read<GpProvider>().add(_totalRefund);
-
-    await Future<void>.delayed(const Duration(milliseconds: 420));
-    if (!mounted) return;
-
-    setState(() {
-      _redeemed = true;
-      _isRedeeming = false;
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${_formatWon(_totalRefund)} GP가 즉시 환원되었습니다'),
-        backgroundColor: AppColors.accentViolet,
-      ),
-    );
-
-    await Future<void>.delayed(const Duration(milliseconds: 500));
-    if (!mounted) return;
-    Navigator.of(context).popUntil((route) => route.isFirst);
+  /// 실제 결과만 담은 공유 문구.
+  String get _brag {
+    final b = _best!;
+    final extra = _o.results.length > 1 ? ' (${_o.results.length}개 중)' : '';
+    return '가치가차 ${widget.gacha.title}에서 ${b.rarity.code} ${b.name}'
+        '(정가 ${formatWon(b.estimatedValue)})을 받았어요!$extra';
   }
 
-  void _saveToInventory() {
-    // 뽑기 결과는 서버(POST /draws)에서 이미 인벤토리에 저장되었으므로
-    // 여기서는 확인 메시지만 보여주고 홈으로 복귀한다.
-    HapticFeedback.selectionClick();
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('보관함에 저장되었습니다')));
-    Navigator.of(context).popUntil((route) => route.isFirst);
-  }
-
-  /// 🔄 한 번 더 뽑기: 현재 박스 가격만큼 GP를 낙관적으로 차감한 뒤,
-  /// 동일한 박스/수량으로 뽑기 애니메이션을 즉시 재실행한다.
-  Future<void> _drawAgain() async {
-    if (_isRedrawing) return;
-    final gp = context.read<GpProvider>();
-    final cost = _totalSpent;
-
-    if (gp.balance < cost) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('GP 잔액이 부족합니다')));
+  Future<void> _share() async {
+    final text = _brag;
+    if (kIsWeb) {
+      // 웹 공유 시트가 없는 브라우저는 메일 앱으로 넘어가므로 복사로 대신한다.
+      await Clipboard.setData(ClipboardData(text: text));
+      if (mounted) showToast(context, '자랑 문구를 복사했어요');
       return;
     }
+    try {
+      await SharePlus.instance.share(ShareParams(text: text, subject: '가치가차'));
+    } catch (_) {
+      await Clipboard.setData(ClipboardData(text: text));
+      if (mounted) showToast(context, '자랑 문구를 복사했어요');
+    }
+  }
 
-    setState(() => _isRedrawing = true);
-    HapticFeedback.mediumImpact();
-    gp.spend(cost);
+  Future<void> _confirmExchange() async {
+    final ids = _o.inventoryItemIds;
+    final total = _o.totalExchange;
+    if (ids.isEmpty || total <= 0) return;
+    final balance = context.read<GpProvider>().balance;
 
-    if (!mounted) return;
-    await Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (context) =>
-            GachaAnimationPage(box: widget.box, count: widget.count),
+    final ok = await showAppSheet<bool>(
+      context: context,
+      title: '포인트로 전환',
+      builder: (sheet) => Padding(
+        padding: const EdgeInsets.fromLTRB(
+          Space.gutter,
+          0,
+          Space.gutter,
+          Space.x4,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              '이번에 받은 상품 ${ids.length}개를 정가의 80%로 전환해요.',
+              style: AppText.callout,
+            ),
+            const SizedBox(height: Space.x4),
+            SheetPanel(
+              child: Column(
+                children: [
+                  InfoRow(label: '상품 정가 합계', value: formatWon(_o.totalValue)),
+                  InfoRow(
+                    label: '받는 GP',
+                    value: formatGp(total),
+                    valueStyle: AppText.num(
+                      AppText.headline,
+                    ).copyWith(color: AppColors.brand),
+                  ),
+                  const Hairline(),
+                  InfoRow(label: '전환 후 보유', value: formatGp(balance + total)),
+                ],
+              ),
+            ),
+            const SizedBox(height: Space.x3),
+            Text('전환한 상품은 보관함에서 사라지고 되돌릴 수 없어요.', style: AppText.caption),
+            const SizedBox(height: Space.x5),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.of(sheet).pop(false),
+                    child: const Text('취소'),
+                  ),
+                ),
+                const SizedBox(width: Space.x2),
+                Expanded(
+                  flex: 2,
+                  child: FilledButton(
+                    onPressed: () => Navigator.of(sheet).pop(true),
+                    child: Text('${formatGp(total)} 받기'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
+    if (ok != true || !mounted) return;
+
+    setState(() => _exchanging = true);
+    try {
+      final result = await _inventory.exchange(ids);
+      if (!mounted) return;
+      final auth = context.read<AuthProvider>();
+      if (result.balanceAfter != null) {
+        auth.applyBalance(result.balanceAfter!);
+      } else {
+        await auth.refreshProfile();
+      }
+      if (!mounted) return;
+      setState(() => _exchanged = true);
+      final messenger = ScaffoldMessenger.of(context);
+      Navigator.of(context).pop();
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(content: Text('${formatGp(result.totalGp)}를 받았어요')),
+        );
+    } on ApiException catch (e) {
+      if (mounted) showToast(context, e.displayMessage);
+    } finally {
+      if (mounted) setState(() => _exchanging = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.scaffoldBg,
-      appBar: AppBar(
-        backgroundColor: AppColors.scaffoldBg,
-        elevation: 0,
-        automaticallyImplyLeading: false,
-        centerTitle: true,
-        title: const Text(
-          '뽑기 결과',
-          style: TextStyle(
-            color: AppColors.textPrimary,
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
-          ),
+    final sorted = _o.sortedResults;
+    final best = sorted.isEmpty ? null : sorted.first;
+    final isSingle = sorted.length == 1;
+    final canExchange =
+        !_exchanged && _o.totalExchange > 0 && _o.inventoryItemIds.isNotEmpty;
+
+    return PopScope(
+      canPop: !_exchanging,
+      child: Scaffold(
+        appBar: AppBar(
+          automaticallyImplyLeading: false,
+          title: const Text('뽑기 결과'),
+          actions: [
+            IconButton(
+              tooltip: '닫기',
+              onPressed: _exchanging ? null : _keep,
+              icon: const Icon(Icons.close),
+            ),
+            const SizedBox(width: Space.x1),
+          ],
         ),
-        actions: [
-          IconButton(
-            onPressed: () =>
-                Navigator.of(context).popUntil((route) => route.isFirst),
-            icon: const Icon(Icons.close_rounded, color: AppColors.textPrimary),
-          ),
-        ],
-      ),
-      body: Stack(
-        children: [
-          SafeArea(
-            child: Column(
+        body: Stack(
+          children: [
+            ListView(
+              padding: const EdgeInsets.only(bottom: Space.x8),
               children: [
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                if (best != null)
+                  _Hero(
+                    result: best,
+                    caption: isSingle
+                        ? '${widget.gacha.title} · 1회'
+                        : '${widget.gacha.title} · 이번 최고',
+                    spin: _spin,
+                    festive: _festive,
+                    tilt: _tilt,
+                    onTilt: (t) => setState(() => _tilt = t),
+                    onShare: _festive ? _share : null,
+                  ),
+                if (!isSingle) ...[
+                  _CountsHeader(outcome: _o),
+                  _ResultGrid(results: sorted),
+                ],
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    Space.gutter,
+                    Space.x5,
+                    Space.gutter,
+                    0,
+                  ),
+                  child: AppCard(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: Space.x4,
+                      vertical: Space.x2,
+                    ),
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        // ── 최고 등급 강조 카드 (홀로그램 shimmer 포함) ──
-                        SlideTransition(
-                          position: _slideAnimation,
-                          child: FadeTransition(
-                            opacity: _fadeAnimation,
-                            child: _HighlightCard(result: _highlightResult),
-                          ),
+                        InfoRow(label: '사용', value: formatGp(_o.spent)),
+                        InfoRow(
+                          label: '받은 상품 정가',
+                          value: formatWon(_o.totalValue),
                         ),
-
-                        // ── 나머지 결과 2열 그리드 ──
-                        if (_remainingResults.isNotEmpty) ...[
-                          const SizedBox(height: 24),
-                          const Align(
-                            alignment: Alignment.centerLeft,
-                            child: Text(
-                              '획득한 다른 상품',
-                              style: TextStyle(
-                                color: AppColors.textPrimary,
-                                fontSize: 15,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
+                        if (_o.totalExchange > 0)
+                          InfoRow(
+                            label: '포인트 전환 시',
+                            value: formatGp(_o.totalExchange),
+                            valueStyle: AppText.num(
+                              AppText.bodyStrong,
+                            ).copyWith(color: AppColors.textSecondary),
                           ),
-                          const SizedBox(height: 12),
-                          GridView.builder(
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            gridDelegate:
-                                const SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: 2,
-                                  mainAxisSpacing: 12,
-                                  crossAxisSpacing: 12,
-                                  mainAxisExtent: 100,
-                                ),
-                            itemCount: _remainingResults.length,
-                            itemBuilder: (context, index) {
-                              return _ResultGridCard(
-                                result: _remainingResults[index],
-                              );
-                            },
-                          ),
-                        ],
-
-                        const SizedBox(height: 24),
-
-                        // ── 결과 요약 Row ──
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 14,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppColors.surfaceElevated,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: AppColors.surfaceBorder),
-                          ),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text(
-                                      '총 획득 가치',
-                                      style: TextStyle(
-                                        color: AppColors.textSecondary,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      '${_formatWon(_totalValue)}원',
-                                      style: const TextStyle(
-                                        color: AppColors.goldPrimary,
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Container(
-                                width: 1,
-                                height: 32,
-                                color: AppColors.surfaceBorder,
-                              ),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.end,
-                                  children: [
-                                    const Text(
-                                      '지불 금액',
-                                      style: TextStyle(
-                                        color: AppColors.textSecondary,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      '${_formatWon(_totalSpent)}원',
-                                      style: const TextStyle(
-                                        color: AppColors.textSecondary,
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
                       ],
                     ),
                   ),
                 ),
-
-                // ── CLOVE 오리파 3대 원클릭 액션 버튼 ──
+                if (_o.pity?.hasPity ?? false) _PityLine(pity: _o.pity!),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                  child: Column(
-                    children: [
-                      // ⚡ 즉시 포인트로 환원 (전체 폭 강조 버튼)
-                      SizedBox(
-                        width: double.infinity,
-                        height: 54,
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            gradient: _redeemed
-                                ? null
-                                : const LinearGradient(
-                                    colors: [
-                                      Color(0xFFFFC94A),
-                                      AppColors.accentViolet,
-                                    ],
-                                    begin: Alignment.centerLeft,
-                                    end: Alignment.centerRight,
-                                  ),
-                            color: _redeemed
-                                ? AppColors.surfaceElevated2
-                                : null,
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: Material(
-                            type: MaterialType.transparency,
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(16),
-                              onTap: _redeemed ? null : _instantRefund,
-                              child: Center(
-                                child: _isRedeeming
-                                    ? const SizedBox(
-                                        width: 20,
-                                        height: 20,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2.4,
-                                          valueColor:
-                                              AlwaysStoppedAnimation<Color>(
-                                                Colors.white,
-                                              ),
-                                        ),
-                                      )
-                                    : Text(
-                                        _redeemed
-                                            ? '환원 완료'
-                                            : '⚡ 즉시 포인트로 환원 (+${_formatWon(_totalRefund)} GP)',
-                                        style: TextStyle(
-                                          color: _redeemed
-                                              ? AppColors.textSecondary
-                                              : Colors.white,
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      ),
+                  padding: const EdgeInsets.fromLTRB(
+                    Space.gutter,
+                    Space.x5,
+                    Space.gutter,
+                    0,
+                  ),
+                  child: Text(
+                    keepAll('보관한 상품은 보관함에서 언제든 배송 신청하거나 포인트로 전환할 수 있어요.'),
+                    style: AppText.caption.copyWith(
+                      color: AppColors.textTertiary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (_festive)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: AnimatedBuilder(
+                    animation: _celebrate,
+                    builder: (context, _) {
+                      final t = _celebrate.value;
+                      if (t <= 0 || t >= 1) return const SizedBox.shrink();
+                      final r = best!.rarity;
+                      return LayoutBuilder(
+                        builder: (context, c) => Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            CustomPaint(
+                              painter: SparkBurstPainter(
+                                age: t * 3.6 * 0.6,
+                                color: r.color,
+                                count: RevealTimeline.sparkCount(r),
+                                origin: Offset(c.maxWidth / 2, 200),
+                                power: 0.7,
                               ),
                             ),
+                            if (r == Rarity.ssr)
+                              CustomPaint(
+                                painter: GoldLeafPainter(
+                                  progress: t,
+                                  pieces: _leaves,
+                                ),
+                              ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+          ],
+        ),
+        bottomNavigationBar: _BottomActions(
+          exchangeLabel: canExchange
+              ? '포인트 전환 · ${formatGp(_o.totalExchange)}'
+              : null,
+          exchanging: _exchanging,
+          onExchange: _confirmExchange,
+          onKeep: _keep,
+        ),
+      ),
+    );
+  }
+}
+
+/// 대표 결과: 등급 색으로 물든 밝은 무대 + 빛줄기 + 큰 카드(SSR 홀로·틸트)
+/// + 이름·정가 + 자랑하기.
+class _Hero extends StatelessWidget {
+  final DrawResult result;
+  final String caption;
+  final Animation<double> spin;
+  final bool festive;
+  final Offset tilt;
+  final ValueChanged<Offset> onTilt;
+  final VoidCallback? onShare;
+
+  const _Hero({
+    required this.result,
+    required this.caption,
+    required this.spin,
+    required this.festive,
+    required this.tilt,
+    required this.onTilt,
+    required this.onShare,
+  });
+
+  static Color _wash(Rarity r) => switch (r) {
+    Rarity.n => const Color(0xFFF1F3F6),
+    Rarity.r => const Color(0xFFE3EDFF),
+    Rarity.sr => const Color(0xFFEFE4FF),
+    Rarity.ssr => const Color(0xFFFFF0C2),
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final r = result.rarity;
+    const cardW = 204.0;
+    return Column(
+      children: [
+        SizedBox(
+          // 폭을 꽉 채운다(느슨한 폭이면 Stack이 카드 폭으로 줄어 배경이 기둥처럼 잘린다).
+          width: double.infinity,
+          height: cardW * 1.4 + 64,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              // 바탕(등급 색 → 흰색) + 가운데 흰 빛 + 회전하는 빛줄기를 한 장의
+              // 그림으로 그리고, 매 프레임 도는 빛줄기가 카드까지 다시 그리지 않게
+              // 별도 층으로 둔다.
+              Positioned.fill(
+                child: RepaintBoundary(
+                  child: festive
+                      ? AnimatedBuilder(
+                          animation: spin,
+                          builder: (context, _) => CustomPaint(
+                            painter: _HeroBackdropPainter(
+                              wash: _wash(r),
+                              rays: r.color,
+                              rayCount: r == Rarity.ssr ? 16 : 12,
+                              intensity: r == Rarity.ssr ? 0.75 : 0.55,
+                              rotation: spin.value * 2 * math.pi,
+                            ),
                           ),
+                        )
+                      : CustomPaint(
+                          painter: _HeroBackdropPainter(wash: _wash(r)),
+                        ),
+                ),
+              ),
+              CardGlow(rarity: r, width: cardW),
+              GestureDetector(
+                onPanUpdate: (d) => onTilt(
+                  Offset(
+                    (tilt.dx + d.delta.dx / 90).clamp(-1.0, 1.0),
+                    (tilt.dy + d.delta.dy / 90).clamp(-1.0, 1.0),
+                  ),
+                ),
+                onPanEnd: (_) => onTilt(Offset.zero),
+                // 기울이지 않을 때는 3D 변환 없이 그린다(웹 합성 비용·잔상 방지).
+                child: tilt == Offset.zero
+                    ? RevealCardFace(result: result, width: cardW, glow: 0)
+                    : Transform(
+                        alignment: Alignment.center,
+                        transform: Matrix4.identity()
+                          ..setEntry(3, 2, 0.0012)
+                          ..rotateY(tilt.dx * 0.25)
+                          ..rotateX(-tilt.dy * 0.2),
+                        child: RevealCardFace(
+                          result: result,
+                          width: cardW,
+                          tilt: tilt,
+                          glow: 0,
                         ),
                       ),
-                      const SizedBox(height: 10),
-                      // 📦 보관함에 담기 / 🔄 한번더 뽑기 (1:1 비율)
-                      Row(
-                        children: [
-                          Expanded(
-                            child: SizedBox(
-                              height: 50,
-                              child: OutlinedButton(
-                                onPressed: _saveToInventory,
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: AppColors.textPrimary,
-                                  side: const BorderSide(
-                                    color: AppColors.surfaceBorder,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(14),
-                                  ),
-                                ),
-                                child: const Text(
-                                  '📦 보관함에 담기',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: SizedBox(
-                              height: 50,
-                              child: OutlinedButton(
-                                onPressed: _isRedrawing ? null : _drawAgain,
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: AppColors.primary,
-                                  side: BorderSide(
-                                    color: AppColors.primary.withValues(
-                                      alpha: 0.5,
-                                    ),
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(14),
-                                  ),
-                                ),
-                                child: _isRedrawing
-                                    ? const SizedBox(
-                                        width: 18,
-                                        height: 18,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2.2,
-                                        ),
-                                      )
-                                    : const Text(
-                                        '🔄 한번더 뽑기',
-                                        style: TextStyle(
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      ),
-                              ),
-                            ),
-                          ),
-                        ],
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: Space.page,
+          child: Column(
+            children: [
+              Text(caption, style: AppText.caption),
+              const SizedBox(height: 6),
+              Text(
+                result.name,
+                textAlign: TextAlign.center,
+                style: AppText.display.copyWith(fontSize: 26),
+              ),
+              const SizedBox(height: 6),
+              Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(
+                      text: '정가 ${formatWon(result.estimatedValue)}',
+                      style: TextStyle(
+                        color: r == Rarity.n ? AppColors.text : r.ink,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    if (result.exchangeValue > 0)
+                      TextSpan(
+                        text: '  ·  전환 시 ${formatGp(result.exchangeValue)}',
+                      ),
+                  ],
+                ),
+                textAlign: TextAlign.center,
+                style: AppText.num(AppText.callout).copyWith(
+                  color: AppColors.textSecondary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              if (onShare != null) ...[
+                const SizedBox(height: Space.x4),
+                FilledButton.icon(
+                  onPressed: onShare,
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(0, 40),
+                    padding: const EdgeInsets.symmetric(horizontal: 18),
+                    shape: const StadiumBorder(),
+                    backgroundColor: AppColors.text,
+                    foregroundColor: Colors.white,
+                    textStyle: AppText.bodyStrong.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  icon: const Icon(Icons.ios_share_rounded, size: 17),
+                  label: const Text('자랑하기'),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _HeroBackdropPainter extends CustomPainter {
+  final Color wash;
+  final Color? rays;
+  final int rayCount;
+  final double intensity;
+  final double rotation;
+
+  _HeroBackdropPainter({
+    required this.wash,
+    this.rays,
+    this.rayCount = 12,
+    this.intensity = 0,
+    this.rotation = 0,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [wash, AppColors.canvas],
+          stops: const [0.45, 1],
+        ).createShader(rect),
+    );
+    final c = Offset(size.width / 2, size.height * 0.45);
+    final glow = size.shortestSide * 0.7;
+    canvas.drawCircle(
+      c,
+      glow,
+      Paint()
+        ..shader = RadialGradient(
+          colors: [Colors.white, Colors.white.withValues(alpha: 0)],
+        ).createShader(Rect.fromCircle(center: c, radius: glow)),
+    );
+    final r = rays;
+    if (r != null && intensity > 0) {
+      LightRaysPainter(
+        rotation: rotation,
+        intensity: intensity,
+        color: r,
+        rays: rayCount,
+        origin: size.center(Offset.zero),
+      ).paint(canvas, size);
+      // 위·아래 가장자리에서 빛줄기가 칼같이 잘리지 않게 바탕색으로 덮는다.
+      final top = Rect.fromLTWH(0, 0, size.width, 56);
+      canvas.drawRect(
+        top,
+        Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [wash, wash.withValues(alpha: 0)],
+          ).createShader(top),
+      );
+      final bottom = Rect.fromLTWH(0, size.height - 72, size.width, 72);
+      canvas.drawRect(
+        bottom,
+        Paint()
+          ..shader = const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0x00FFFFFF), AppColors.canvas],
+          ).createShader(bottom),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _HeroBackdropPainter old) =>
+      old.wash != wash ||
+      old.rays != rays ||
+      old.rotation != rotation ||
+      old.intensity != intensity;
+}
+
+class _CountsHeader extends StatelessWidget {
+  final DrawOutcome outcome;
+  const _CountsHeader({required this.outcome});
+
+  @override
+  Widget build(BuildContext context) {
+    final counts = <Rarity, int>{};
+    for (final r in outcome.results) {
+      counts[r.rarity] = (counts[r.rarity] ?? 0) + 1;
+    }
+    final drawLabel = outcome.bonusCount > 0
+        ? '${outcome.count}+${outcome.bonusCount}회'
+        : '${outcome.count}회';
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        Space.gutter,
+        Space.x8,
+        Space.gutter,
+        Space.x3,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(drawLabel, style: AppText.eyebrow),
+          const SizedBox(height: 4),
+          Text('${outcome.results.length}개를 받았어요', style: AppText.title1),
+          const SizedBox(height: Space.x3),
+          Row(
+            children: [
+              for (final rarity in Rarity.values.reversed) ...[
+                Expanded(
+                  child: _CountCell(rarity: rarity, count: counts[rarity] ?? 0),
+                ),
+                if (rarity != Rarity.n) const SizedBox(width: 6),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CountCell extends StatelessWidget {
+  final Rarity rarity;
+  final int count;
+  const _CountCell({required this.rarity, required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    final on = count > 0;
+    return Container(
+      height: 56,
+      decoration: BoxDecoration(
+        color: on ? rarity.color.withValues(alpha: 0.1) : AppColors.surface,
+        borderRadius: Radii.button,
+        border: Border.all(
+          color: on ? rarity.color.withValues(alpha: 0.45) : AppColors.hairline,
+        ),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            rarity.code,
+            style: AppText.micro.copyWith(
+              color: on ? rarity.ink : AppColors.textTertiary,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0.6,
+            ),
+          ),
+          Text(
+            '$count',
+            style: AppText.num(AppText.headline).copyWith(
+              color: on ? AppColors.text : AppColors.textTertiary,
+              fontWeight: FontWeight.w900,
+              fontSize: 18,
+              height: 1.2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ResultGrid extends StatelessWidget {
+  final List<DrawResult> results;
+  const _ResultGrid({required this.results});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        Space.gutter,
+        Space.x2,
+        Space.gutter,
+        0,
+      ),
+      child: LayoutBuilder(
+        builder: (context, c) {
+          const columns = 3;
+          const gap = 8.0;
+          final w = (c.maxWidth - gap * (columns - 1)) / columns;
+          return Wrap(
+            spacing: gap,
+            runSpacing: gap,
+            children: [
+              for (final r in results)
+                SizedBox(
+                  width: w,
+                  child: CollectibleCard(
+                    rarity: r.rarity,
+                    name: r.name,
+                    imageUrl: r.imageUrl,
+                    dense: true,
+                    holo: r.rarity == Rarity.ssr,
+                    meta: formatWonShort(r.estimatedValue),
+                    labels: [if (r.isPity) '천장', if (r.isBonus) '보너스'],
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _PityLine extends StatelessWidget {
+  final PityStatus pity;
+  const _PityLine({required this.pity});
+
+  @override
+  Widget build(BuildContext context) {
+    final remaining = pity.remaining ?? 0;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        Space.gutter,
+        Space.x3,
+        Space.gutter,
+        0,
+      ),
+      child: AppCard(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const RarityTag(Rarity.ssr, dense: true),
+                const SizedBox(width: 6),
+                Text('천장', style: AppText.bodyStrong),
+                const Spacer(),
+                Text.rich(
+                  TextSpan(
+                    children: [
+                      const TextSpan(text: '확정까지 '),
+                      TextSpan(
+                        text: '${formatNumber(remaining)}회',
+                        style: AppText.num(AppText.bodyStrong).copyWith(
+                          color: AppColors.raritySSRInk,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
                     ],
                   ),
+                  style: AppText.callout,
                 ),
               ],
             ),
-          ),
-
-          // ── S/SSS 등급 당첨 시 색종이 낙하 효과 ──
-          if (_hasCelebration)
-            Positioned.fill(
-              child: IgnorePointer(
-                child: _ConfettiOverlay(rainbow: _hasRainbow),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 최고 등급 1개를 강조하는 카드. 등급 컬러 BoxShadow로 빛나는 효과를 내며,
-/// 터치 시 무지개빛 홀로그램 광택 셰이더(Holographic Shimmer)가 스윕된다.
-class _HighlightCard extends StatefulWidget {
-  final DrawResult result;
-
-  const _HighlightCard({required this.result});
-
-  @override
-  State<_HighlightCard> createState() => _HighlightCardState();
-}
-
-class _HighlightCardState extends State<_HighlightCard>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _shimmerController;
-
-  @override
-  void initState() {
-    super.initState();
-    _shimmerController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 900),
-    );
-  }
-
-  @override
-  void dispose() {
-    _shimmerController.dispose();
-    super.dispose();
-  }
-
-  void _triggerShimmer() {
-    if (_shimmerController.isAnimating) return;
-    HapticFeedback.selectionClick();
-    _shimmerController.forward(from: 0);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final grade = widget.result.gradeEnum;
-    final color = grade.primaryColor;
-
-    return GestureDetector(
-      onTap: _triggerShimmer,
-      child: Container(
-        width: double.infinity,
-        height: 220,
-        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
-        decoration: BoxDecoration(
-          color: AppColors.surfaceElevated,
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: AppColors.surfaceBorder),
-          boxShadow: [
-            BoxShadow(
-              color: color.withValues(alpha: 0.55),
-              blurRadius: 32,
-              spreadRadius: 4,
-            ),
-          ],
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Stack(
-          children: [
-            Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    gradient: grade.gradient,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    '${grade.code} 등급 · ${grade.label}',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                if (widget.result.imageUrl != null)
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(16),
-                    child: CachedNetworkImage(
-                      imageUrl: widget.result.imageUrl!,
-                      width: 88,
-                      height: 88,
-                      fit: BoxFit.cover,
-                      errorWidget: (context, url, error) =>
-                          Icon(Icons.card_giftcard_rounded, size: 72, color: color),
-                    ),
-                  )
-                else
-                  Icon(Icons.card_giftcard_rounded, size: 72, color: color),
-                const SizedBox(height: 12),
-                Text(
-                  widget.result.name,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  widget.result.formattedPrice,
-                  style: const TextStyle(
-                    color: AppColors.goldPrimary,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '즉시환원가 ${widget.result.formattedRefundGP}',
-                  style: TextStyle(
-                    color: AppColors.textSecondary.withValues(alpha: 0.9),
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-
-            // ── 홀로그램 광택 셰이더 오버레이 ──
-            IgnorePointer(
-              child: AnimatedBuilder(
-                animation: _shimmerController,
-                builder: (context, child) {
-                  if (_shimmerController.value <= 0) return const SizedBox.shrink();
-                  return ShaderMask(
-                    blendMode: BlendMode.srcATop,
-                    shaderCallback: (rect) {
-                      final t = _shimmerController.value;
-                      return LinearGradient(
-                        colors: const [
-                          Colors.transparent,
-                          Color(0x99FFFFFF),
-                          Color(0x66FF9DE8),
-                          Color(0x66FFD54A),
-                          Colors.transparent,
-                        ],
-                        stops: const [0.0, 0.42, 0.5, 0.58, 1.0],
-                        begin: Alignment(-1.6 + 3.2 * t, -1),
-                        end: Alignment(-0.6 + 3.2 * t, 1),
-                      ).createShader(rect);
-                    },
-                    child: Container(color: Colors.white.withValues(alpha: 0.001)),
-                  );
-                },
-              ),
+            const SizedBox(height: 6),
+            GlowMeter(progress: pity.progress, height: 6),
+            Text(
+              '${formatNumber(pity.drawsSinceTopTier)} / ${formatNumber(pity.threshold ?? 0)}회',
+              style: AppText.num(AppText.caption),
             ),
           ],
         ),
@@ -641,212 +785,70 @@ class _HighlightCardState extends State<_HighlightCard>
   }
 }
 
-/// 나머지 결과 2열 그리드에 사용되는 화이트 카드 (상단 4px 등급 컬러 라인).
-class _ResultGridCard extends StatelessWidget {
-  final DrawResult result;
+class _BottomActions extends StatelessWidget {
+  final String? exchangeLabel;
+  final bool exchanging;
+  final VoidCallback onExchange;
+  final VoidCallback onKeep;
 
-  const _ResultGridCard({required this.result});
-
-  @override
-  Widget build(BuildContext context) {
-    final color = RankColors.of(result.grade);
-
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surfaceElevated,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.surfaceBorder),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // ── 상단 4px 등급 컬러 라인 ──
-          Container(height: 4, color: color),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: color.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: color.withValues(alpha: 0.6)),
-                  ),
-                  child: Text(
-                    result.grade,
-                    style: TextStyle(
-                      color: color,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  result.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  result.formattedPrice,
-                  style: const TextStyle(
-                    color: AppColors.goldPrimary,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 색종이(Confetti) 낙하 효과.
-///
-/// 일반 S등급은 골드 dot 낙하, SSS(rainbow=true)인 경우
-/// [RainbowConfettiPainter]를 사용한 무지개 3D 컨페티 폭발로 대체된다.
-class _ConfettiOverlay extends StatefulWidget {
-  final bool rainbow;
-
-  const _ConfettiOverlay({this.rainbow = false});
-
-  @override
-  State<_ConfettiOverlay> createState() => _ConfettiOverlayState();
-}
-
-class _ConfettiOverlayState extends State<_ConfettiOverlay>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  final Random _random = Random();
-  late final List<_ConfettiDot> _dots;
-  List<ConfettiPiece3D>? _rainbowPieces;
-
-  static const List<Color> _confettiColors = [
-    AppColors.goldPrimary,
-    AppColors.goldSecondary,
-    Color(0xFFFFE082),
-  ];
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 3),
-    )..forward();
-
-    _dots = List.generate(20, (index) {
-      return _ConfettiDot(
-        startX: _random.nextDouble(),
-        delay: _random.nextDouble() * 0.3,
-        color: _confettiColors[_random.nextInt(_confettiColors.length)],
-        size: 6 + _random.nextDouble() * 6,
-      );
-    });
-
-    if (widget.rainbow) {
-      _rainbowPieces = RainbowConfettiPainter.generate(60);
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (widget.rainbow) {
-      return LayoutBuilder(
-        builder: (context, constraints) {
-          return AnimatedBuilder(
-            animation: _controller,
-            builder: (context, child) {
-              return CustomPaint(
-                size: Size(constraints.maxWidth, constraints.maxHeight),
-                painter: RainbowConfettiPainter(
-                  progress: _controller.value,
-                  pieces: _rainbowPieces!,
-                ),
-              );
-            },
-          );
-        },
-      );
-    }
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return AnimatedBuilder(
-          animation: _controller,
-          builder: (context, child) {
-            return Stack(
-              children: _dots.map((dot) {
-                final progress =
-                    ((_controller.value - dot.delay) / (1 - dot.delay)).clamp(
-                      0.0,
-                      1.0,
-                    );
-                final dy = progress * (constraints.maxHeight + 40) - 20;
-                final dx = dot.startX * constraints.maxWidth;
-
-                return Positioned(
-                  left: dx,
-                  top: dy,
-                  child: Container(
-                    width: dot.size,
-                    height: dot.size,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: dot.color.withValues(
-                        alpha: (1 - progress * 0.3).clamp(0.0, 1.0),
-                      ),
-                    ),
-                  ),
-                );
-              }).toList(),
-            );
-          },
-        );
-      },
-    );
-  }
-}
-
-class _ConfettiDot {
-  final double startX;
-  final double delay;
-  final Color color;
-  final double size;
-
-  const _ConfettiDot({
-    required this.startX,
-    required this.delay,
-    required this.color,
-    required this.size,
+  const _BottomActions({
+    required this.exchangeLabel,
+    required this.exchanging,
+    required this.onExchange,
+    required this.onKeep,
   });
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        color: AppColors.raised,
+        boxShadow: Shadows.bar,
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            Space.gutter,
+            Space.x3,
+            Space.gutter,
+            Space.x3,
+          ),
+          child: Row(
+            children: [
+              if (exchangeLabel != null) ...[
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: exchanging ? null : onExchange,
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                    ),
+                    child: exchanging
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : FittedBox(
+                            child: Text(
+                              exchangeLabel!,
+                              style: AppText.num(AppText.headline),
+                            ),
+                          ),
+                  ),
+                ),
+                const SizedBox(width: Space.x2),
+              ],
+              Expanded(
+                child: FilledButton(
+                  onPressed: exchanging ? null : onKeep,
+                  child: const Text('보관함에 보관'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

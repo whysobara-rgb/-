@@ -1,27 +1,104 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import '../../../core/theme/app_colors.dart';
+import '../../../core/domain/product_category.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
+import '../../../demo/demo_config.dart';
+import '../../../demo/ui/demo_widgets.dart';
+import '../../../shared/widgets/ui.dart';
+import '../../../shared/widgets/vault_art.dart';
 import '../../../shared/providers/auth_provider.dart';
+import '../domain/agreements.dart';
+import '../domain/social_login_result.dart';
+import '../social/social_auth_client.dart';
+import '../social/social_auth_clients.dart';
 import 'signup_page.dart';
-import 'widgets/social_login_button.dart';
+import 'terms_page.dart';
+import 'welcome_gp_page.dart';
+import 'widgets/social_button.dart';
+import 'widgets/social_consent_sheet.dart';
+import '../../../core/utils/format.dart';
 
-/// 가치가차 - 로그인 페이지
+/// 로그인. 위는 워드마크와 금고 일러스트, 아래는 소셜 로그인(있으면)과 이메일 로그인.
 ///
-/// 소셜 로그인(카카오/구글/네이버/Apple) + 이메일 로그인(더미) + 회원가입 링크(더미)
+/// 소셜 버튼은 서버 `GET /auth/providers`가 돌려주고 이 빌드에 키가 있는
+/// 제공자만 나온다. 하나도 없으면 이메일 로그인만 보인다.
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
+  /// 테스트용. 기본은 [defaultSocialClients].
+  final List<SocialAuthClient>? socialClients;
+
+  const LoginPage({super.key, this.socialClients});
 
   @override
   State<LoginPage> createState() => _LoginPageState();
 }
 
 class _LoginPageState extends State<LoginPage> {
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
+  // 체험판은 체험 계정을 미리 채워 둔다.
+  final _emailController = TextEditingController(
+    text: DemoConfig.enabled ? DemoConfig.defaultEmail : null,
+  );
+  final _passwordController = TextEditingController(
+    text: DemoConfig.enabled ? DemoConfig.defaultPassword : null,
+  );
   bool _obscurePassword = true;
-  String? _loadingProvider;
+  List<SocialAuthClient> _social = const [];
+  SocialProvider? _socialBusy;
+  _Notice? _notice;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProviders();
+  }
+
+  Future<void> _loadProviders() async {
+    final codes = await context.read<AuthProvider>().fetchSocialProviders();
+    if (!mounted) return;
+    setState(() {
+      _social = visibleSocialClients(
+        widget.socialClients ?? defaultSocialClients(),
+        codes,
+      );
+    });
+  }
+
+  Future<void> _handleSocial(SocialAuthClient client) async {
+    if (_socialBusy != null) return;
+    setState(() {
+      _socialBusy = client.provider;
+      _notice = null;
+    });
+    final auth = context.read<AuthProvider>();
+    // 로그인되면 이 화면은 메인 탭으로 바뀌므로 내비게이터를 먼저 잡아 둔다.
+    final navigator = Navigator.of(context);
+    var result = await auth.socialLogin(client, context);
+    if (result is SocialLoginNeedsConsent && mounted) {
+      final consent = await showSocialConsentSheet(
+        context,
+        provider: result.provider,
+        suggestedNickname: result.suggestedNickname,
+      );
+      if (consent == null) {
+        auth.cancelSocialSignup();
+        result = const SocialLoginCancelled();
+      } else {
+        result = await auth.completeSocialSignup(
+          consent.agreements,
+          nickname: consent.nickname,
+        );
+      }
+    }
+    if (result is SocialLoginSuccess) {
+      final welcomeGp = auth.takeWelcomeGp();
+      if (welcomeGp != null) navigator.push(WelcomeGpPage.route(welcomeGp));
+    }
+    if (!mounted) return;
+    setState(() {
+      _socialBusy = null;
+      _notice = _Notice.from(result);
+    });
+  }
 
   @override
   void dispose() {
@@ -30,93 +107,11 @@ class _LoginPageState extends State<LoginPage> {
     super.dispose();
   }
 
-  /// 소셜 로그인 실행.
-  ///
-  /// 카카오/구글/네이버/Apple의 정식 OAuth SDK는 각 개발자 콘솔에서 발급받은
-  /// 앱 키(REST API 키/클라이언트 ID)와 패키지명·SHA1 등록이 필요하며,
-  /// 이 샌드박스 환경에는 실제 키가 없어 네이티브 SDK를 직접 연동할 수 없다.
-  /// 대신 "제공자 계정으로 계속하기" 동의 화면을 거쳐 실제로 백엔드
-  /// `/auth/social-login`을 호출, 실제 계정을 생성/로그인시키는 방식으로
-  /// 종단간(End-to-End) 소셜 로그인 플로우를 구현한다.
-  /// (제공자 고유 ID는 기기에 저장되어 다음 접속부터는 같은 계정으로 연결된다.)
-  Future<void> _handleSocialLogin(_SocialProviderInfo info) async {
-    if (_loadingProvider != null) return; // 중복 탭 방지
-
-    final prefs = await SharedPreferences.getInstance();
-    final storedId = prefs.getString(info.storageKey);
-
-    if (storedId != null) {
-      // 이미 연결된 적 있는 기기 → 저장된 프로필로 바로 로그인.
-      final storedEmail = prefs.getString('${info.storageKey}_email') ?? '';
-      final storedNickname =
-          prefs.getString('${info.storageKey}_nickname') ?? '';
-      await _submitSocialLogin(
-        info,
-        providerId: storedId,
-        email: storedEmail,
-        nickname: storedNickname,
-      );
-      return;
-    }
-
-    if (!mounted) return;
-    final profile = await showModalBottomSheet<_SocialProfileInput>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: AppColors.surfaceElevated,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (sheetContext) => _SocialConsentSheet(info: info),
-    );
-    if (profile == null || !mounted) return;
-
-    final newProviderId =
-        'device_${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(99999)}';
-    await prefs.setString(info.storageKey, newProviderId);
-    await prefs.setString('${info.storageKey}_email', profile.email);
-    await prefs.setString('${info.storageKey}_nickname', profile.nickname);
-
-    await _submitSocialLogin(
-      info,
-      providerId: newProviderId,
-      email: profile.email,
-      nickname: profile.nickname,
-    );
-  }
-
-  Future<void> _submitSocialLogin(
-    _SocialProviderInfo info, {
-    required String providerId,
-    required String email,
-    required String nickname,
-  }) async {
-    setState(() => _loadingProvider = info.backendCode);
-    final auth = context.read<AuthProvider>();
-    final success = await auth.socialLogin(
-      provider: info.backendCode,
-      providerId: providerId,
-      email: email,
-      nickname: nickname,
-    );
-    if (!mounted) return;
-    setState(() => _loadingProvider = null);
-    if (!success) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(auth.errorMessage ?? '${info.label} 로그인에 실패했습니다'),
-        ),
-      );
-    }
-  }
-
   Future<void> _handleEmailLogin() async {
     final email = _emailController.text.trim();
     final password = _passwordController.text;
     if (email.isEmpty || password.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('이메일과 비밀번호를 입력해주세요')));
+      showToast(context, '이메일과 비밀번호를 입력해 주세요');
       return;
     }
 
@@ -124,555 +119,374 @@ class _LoginPageState extends State<LoginPage> {
     final success = await auth.login(email: email, password: password);
     if (!mounted) return;
     if (!success) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(auth.errorMessage ?? '로그인에 실패했습니다')),
-      );
+      showToast(context, auth.errorMessage ?? '로그인하지 못했어요');
     }
   }
 
   void _handleSignUp() {
     Navigator.of(
       context,
-    ).push(MaterialPageRoute(builder: (context) => const SignupPage()));
+    ).push(MaterialPageRoute<void>(builder: (_) => const SignupPage()));
   }
 
   @override
   Widget build(BuildContext context) {
+    final isLoading = context.watch<AuthProvider>().isLoading;
     return Scaffold(
-      backgroundColor: AppColors.scaffoldBg,
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 48),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 430),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+      body: LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: IntrinsicHeight(
+              child: AutofillGroup(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    LoginHero(
+                      height: (constraints.maxHeight * 0.3).clamp(180, 300),
+                    ),
+                    Padding(padding: Space.page, child: _form(isLoading)),
+                    const Spacer(),
+                    const _LegalFooter(),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _form(bool isLoading) {
+    final cs = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          '시계부터 아이폰까지,\n진짜 상품이 들어 있는 랜덤박스',
+          style: AppText.title1.copyWith(height: 1.38),
+        ),
+        const SizedBox(height: Space.x3),
+        const _Promises(),
+        const SizedBox(height: Space.x8),
+        if (_notice != null) ...[
+          _NoticeCard(
+            notice: _notice!,
+            onClose: () => setState(() => _notice = null),
+          ),
+          const SizedBox(height: Space.x4),
+        ],
+        if (DemoConfig.enabled) const DemoLoginHint(),
+        if (_social.isNotEmpty) ...[
+          for (final client in _social) ...[
+            SocialButton(
+              provider: client.provider,
+              // SDK 화면·동의 시트가 떠 있는 동안은 돌리지 않고, 서버를 기다릴 때만.
+              loading: _socialBusy == client.provider && isLoading,
+              onPressed: _socialBusy == null && !isLoading
+                  ? () => _handleSocial(client)
+                  : null,
+            ),
+            const SizedBox(height: Space.x2),
+          ],
+          const SizedBox(height: Space.x4),
+          Row(
+            children: [
+              const Expanded(child: Hairline()),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: Space.x3),
+                child: Text('또는 이메일로', style: AppText.caption),
+              ),
+              const Expanded(child: Hairline()),
+            ],
+          ),
+          const SizedBox(height: Space.x4),
+        ],
+        TextField(
+          controller: _emailController,
+          keyboardType: TextInputType.emailAddress,
+          autofillHints: const [AutofillHints.email],
+          textInputAction: TextInputAction.next,
+          style: AppText.body,
+          decoration: InputDecoration(
+            hintText: '이메일',
+            prefixIcon: Icon(
+              Icons.mail_outline,
+              size: 20,
+              color: cs.onSurfaceVariant,
+            ),
+          ),
+        ),
+        const SizedBox(height: Space.x2),
+        TextField(
+          controller: _passwordController,
+          obscureText: _obscurePassword,
+          autofillHints: const [AutofillHints.password],
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) => _handleEmailLogin(),
+          style: AppText.body,
+          decoration: InputDecoration(
+            hintText: '비밀번호',
+            prefixIcon: Icon(
+              Icons.lock_outline,
+              size: 20,
+              color: cs.onSurfaceVariant,
+            ),
+            suffixIcon: IconButton(
+              tooltip: _obscurePassword ? '비밀번호 보기' : '비밀번호 숨기기',
+              icon: Icon(
+                _obscurePassword
+                    ? Icons.visibility_off_outlined
+                    : Icons.visibility_outlined,
+                size: 20,
+                color: cs.onSurfaceVariant,
+              ),
+              onPressed: () =>
+                  setState(() => _obscurePassword = !_obscurePassword),
+            ),
+          ),
+        ),
+        const SizedBox(height: Space.x4),
+        PrimaryButton(
+          label: '로그인',
+          loading: isLoading && _socialBusy == null,
+          onPressed: _socialBusy == null ? _handleEmailLogin : null,
+        ),
+        const SizedBox(height: Space.x2),
+        Center(
+          child: TextButton(
+            onPressed: _handleSignUp,
+            child: Text.rich(
+              TextSpan(
                 children: [
-                  _buildLogo(),
-                  const SizedBox(height: 8),
-                  _buildSlogan(),
-                  const SizedBox(height: 36),
-                  _buildSocialButtons(),
-                  const SizedBox(height: 28),
-                  _buildDivider(),
-                  const SizedBox(height: 28),
-                  _buildEmailField(),
-                  const SizedBox(height: 12),
-                  _buildPasswordField(),
-                  const SizedBox(height: 20),
-                  _buildLoginButton(),
-                  const SizedBox(height: 16),
-                  _buildSignUpLink(),
+                  const TextSpan(text: '처음이신가요? '),
+                  TextSpan(
+                    text: '이메일로 가입하기',
+                    style: AppText.callout.copyWith(
+                      color: cs.onSurface,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ],
               ),
+              style: AppText.callout,
             ),
           ),
-        ),
-      ),
-    );
-  }
-
-  // ── 로고 & 슬로건 ────────────────────────────────────────────────
-  Widget _buildLogo() {
-    return ShaderMask(
-      shaderCallback: (bounds) => AppColors.goldGradient.createShader(bounds),
-      child: const Text(
-        'GACHIGACHA',
-        textAlign: TextAlign.center,
-        style: TextStyle(
-          fontSize: 38,
-          fontWeight: FontWeight.w900,
-          color: Colors.white,
-          letterSpacing: 0.5,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSlogan() {
-    return const Text(
-      '당신의 가치를 뽑아보세요',
-      textAlign: TextAlign.center,
-      style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
-    );
-  }
-
-  // ── 소셜 로그인 버튼 4종 (기존 디자인 유지) ─────────────────────────
-  Widget _buildSocialButtons() {
-    final anyLoading = _loadingProvider != null;
-    return Column(
-      children: [
-        SocialLoginButton(
-          label: '카카오로 시작하기',
-          backgroundColor: const Color(0xFFFEE500),
-          foregroundColor: const Color(0xFF3C1E1E),
-          icon: const Text(
-            'K',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w900,
-              color: Color(0xFF3C1E1E),
-            ),
-          ),
-          isLoading: _loadingProvider == _SocialProviderInfo.kakao.backendCode,
-          disabled: anyLoading,
-          onTap: () => _handleSocialLogin(_SocialProviderInfo.kakao),
-        ),
-        const SizedBox(height: 12),
-        SocialLoginButton(
-          label: '구글로 시작하기',
-          backgroundColor: Colors.white,
-          foregroundColor: const Color(0xFF333333),
-          border: Border.all(color: AppColors.surfaceBorder),
-          icon: const Text(
-            'G',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w900,
-              color: Color(0xFF4285F4),
-            ),
-          ),
-          isLoading: _loadingProvider == _SocialProviderInfo.google.backendCode,
-          disabled: anyLoading,
-          onTap: () => _handleSocialLogin(_SocialProviderInfo.google),
-        ),
-        const SizedBox(height: 12),
-        SocialLoginButton(
-          label: '네이버로 시작하기',
-          backgroundColor: const Color(0xFF03C75A),
-          foregroundColor: Colors.white,
-          icon: const Text(
-            'N',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w900,
-              color: Colors.white,
-            ),
-          ),
-          isLoading: _loadingProvider == _SocialProviderInfo.naver.backendCode,
-          disabled: anyLoading,
-          onTap: () => _handleSocialLogin(_SocialProviderInfo.naver),
-        ),
-        const SizedBox(height: 12),
-        SocialLoginButton(
-          label: 'Apple로 시작하기',
-          backgroundColor: const Color(0xFF1C1C1E),
-          foregroundColor: Colors.white,
-          icon: const Icon(Icons.apple, size: 22, color: Colors.white),
-          isLoading: _loadingProvider == _SocialProviderInfo.apple.backendCode,
-          disabled: anyLoading,
-          onTap: () => _handleSocialLogin(_SocialProviderInfo.apple),
         ),
       ],
     );
   }
-
-  // ── "또는" 구분선 ────────────────────────────────────────────────
-  Widget _buildDivider() {
-    return const Row(
-      children: [
-        Expanded(child: Divider(color: AppColors.surfaceBorder)),
-        Padding(
-          padding: EdgeInsets.symmetric(horizontal: 12),
-          child: Text(
-            '또는',
-            style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
-          ),
-        ),
-        Expanded(child: Divider(color: AppColors.surfaceBorder)),
-      ],
-    );
-  }
-
-  // ── 이메일 입력 필드 ─────────────────────────────────────────────
-  Widget _buildEmailField() {
-    return _buildTextField(
-      controller: _emailController,
-      hintText: '이메일',
-      prefixIcon: Icons.email_outlined,
-      obscureText: false,
-    );
-  }
-
-  // ── 비밀번호 입력 필드 ───────────────────────────────────────────
-  Widget _buildPasswordField() {
-    return _buildTextField(
-      controller: _passwordController,
-      hintText: '비밀번호',
-      prefixIcon: Icons.lock_outline,
-      obscureText: _obscurePassword,
-      suffixIcon: IconButton(
-        icon: Icon(
-          _obscurePassword
-              ? Icons.visibility_off_outlined
-              : Icons.visibility_outlined,
-          color: AppColors.textSecondary,
-          size: 20,
-        ),
-        onPressed: () {
-          setState(() => _obscurePassword = !_obscurePassword);
-        },
-      ),
-    );
-  }
-
-  Widget _buildTextField({
-    required TextEditingController controller,
-    required String hintText,
-    required IconData prefixIcon,
-    required bool obscureText,
-    Widget? suffixIcon,
-  }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surfaceElevated2,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: TextField(
-        controller: controller,
-        obscureText: obscureText,
-        style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
-        decoration: InputDecoration(
-          hintText: hintText,
-          hintStyle: const TextStyle(
-            color: AppColors.textSecondary,
-            fontSize: 14,
-          ),
-          prefixIcon: Icon(
-            prefixIcon,
-            color: AppColors.textSecondary,
-            size: 20,
-          ),
-          suffixIcon: suffixIcon,
-          border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 14,
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ── 이메일 로그인 버튼 ───────────────────────────────────────────
-  Widget _buildLoginButton() {
-    final isLoading = context.watch<AuthProvider>().isLoading;
-    return Container(
-      width: double.infinity,
-      height: 54,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        gradient: isLoading ? null : AppColors.goldGradient,
-        color: isLoading ? AppColors.surfaceBorder : null,
-      ),
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(12),
-        child: InkWell(
-          onTap: isLoading ? null : _handleEmailLogin,
-          borderRadius: BorderRadius.circular(12),
-          child: Center(
-            child: isLoading
-                ? const SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.5,
-                      color: AppColors.textSecondary,
-                    ),
-                  )
-                : const Text(
-                    '이메일로 로그인',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF1A1A1A),
-                    ),
-                  ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ── 회원가입 링크 ────────────────────────────────────────────────
-  Widget _buildSignUpLink() {
-    return Center(
-      child: TextButton(
-        onPressed: _handleSignUp,
-        child: RichText(
-          text: const TextSpan(
-            style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
-            children: [
-              TextSpan(text: '아직 계정이 없으신가요? '),
-              TextSpan(
-                text: '회원가입',
-                style: TextStyle(
-                  color: AppColors.goldPrimary,
-                  fontWeight: FontWeight.w700,
-                  decoration: TextDecoration.underline,
-                  decorationColor: AppColors.goldPrimary,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }
 
-/// 소셜 로그인 제공자 메타 정보.
-///
-/// [backendCode]는 백엔드 `AuthProvider` enum 값과 동일해야 한다.
-/// [storageKey]는 기기에 제공자 고유 ID를 저장할 때 사용하는
-/// shared_preferences 키다.
-class _SocialProviderInfo {
-  final String label;
-  final String backendCode;
-  final String storageKey;
-  final Color color;
-  final String emailDomainHint;
-
-  const _SocialProviderInfo({
-    required this.label,
-    required this.backendCode,
-    required this.storageKey,
-    required this.color,
-    required this.emailDomainHint,
-  });
-
-  static const kakao = _SocialProviderInfo(
-    label: '카카오',
-    backendCode: 'KAKAO',
-    storageKey: 'social_kakao_provider_id',
-    color: Color(0xFFFEE500),
-    emailDomainHint: '@kakao.gachigacha.com',
-  );
-
-  static const google = _SocialProviderInfo(
-    label: '구글',
-    backendCode: 'GOOGLE',
-    storageKey: 'social_google_provider_id',
-    color: Color(0xFF4285F4),
-    emailDomainHint: '@gmail.com',
-  );
-
-  static const naver = _SocialProviderInfo(
-    label: '네이버',
-    backendCode: 'NAVER',
-    storageKey: 'social_naver_provider_id',
-    color: Color(0xFF03C75A),
-    emailDomainHint: '@naver.com',
-  );
-
-  static const apple = _SocialProviderInfo(
-    label: 'Apple',
-    backendCode: 'APPLE',
-    storageKey: 'social_apple_provider_id',
-    color: Color(0xFF1C1C1E),
-    emailDomainHint: '@icloud.com',
-  );
-}
-
-/// [_SocialConsentSheet]에서 사용자가 입력한 최초 가입용 프로필.
-class _SocialProfileInput {
-  final String email;
-  final String nickname;
-
-  const _SocialProfileInput({required this.email, required this.nickname});
-}
-
-/// 소셜 로그인 최초 연결 시 노출되는 동의/프로필 확인 바텀시트.
-///
-/// 실제 카카오/구글/네이버/Apple 네이티브 SDK는 앱 키 발급 및 각 사 개발자
-/// 콘솔 등록이 필요해 이 샌드박스에서 재현할 수 없으므로, 제공자 로그인
-/// 페이지로 이동한 뒤 계정 정보(이메일/닉네임) 제공에 동의하는 절차를
-/// 동일하게 흉내낸 화면이다. 확인을 누르면 실제로 백엔드
-/// `/auth/social-login`을 호출해 정식 계정을 생성/로그인한다.
-class _SocialConsentSheet extends StatefulWidget {
-  final _SocialProviderInfo info;
-
-  const _SocialConsentSheet({required this.info});
-
-  @override
-  State<_SocialConsentSheet> createState() => _SocialConsentSheetState();
-}
-
-class _SocialConsentSheetState extends State<_SocialConsentSheet> {
-  late final TextEditingController _emailController;
-  late final TextEditingController _nicknameController;
-
-  @override
-  void initState() {
-    super.initState();
-    final suffix = Random().nextInt(9999).toString().padLeft(4, '0');
-    _emailController = TextEditingController(
-      text: 'user$suffix${widget.info.emailDomainHint}',
-    );
-    _nicknameController = TextEditingController(
-      text: '${widget.info.label}유저$suffix',
-    );
-  }
-
-  @override
-  void dispose() {
-    _emailController.dispose();
-    _nicknameController.dispose();
-    super.dispose();
-  }
-
-  void _confirm() {
-    final email = _emailController.text.trim();
-    final nickname = _nicknameController.text.trim();
-    if (email.isEmpty || nickname.isEmpty) return;
-    Navigator.of(
-      context,
-    ).pop(_SocialProfileInput(email: email, nickname: nickname));
-  }
+/// 로그인 상단: 워드마크 + 브랜드 색으로 빛나는 금고 상자 카드.
+class LoginHero extends StatelessWidget {
+  /// 일러스트 카드 높이.
+  final double height;
+  const LoginHero({super.key, this.height = 220});
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final top = MediaQuery.paddingOf(context).top;
+    // 워드마크는 화면 바탕 위에, 일러스트는 카드 안에 둔다. 어떤 테마에서도
+    // 글자가 그림 위에 겹치지 않는다.
     return Padding(
-      padding: EdgeInsets.only(
-        left: 24,
-        right: 24,
-        top: 20,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+      padding: EdgeInsets.fromLTRB(
+        Space.gutter,
+        top + Space.x5,
+        Space.gutter,
+        Space.x5,
       ),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: AppColors.surfaceBorder,
-                borderRadius: BorderRadius.circular(4),
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
-          Row(
-            children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: widget.info.color,
-                  shape: BoxShape.circle,
+          Text.rich(
+            TextSpan(
+              children: [
+                const TextSpan(text: '가치가차'),
+                TextSpan(
+                  text: '.',
+                  style: TextStyle(color: cs.primary),
                 ),
-              ),
-              const SizedBox(width: 10),
-              Text(
-                '${widget.info.label} 계정으로 계속하기',
-                style: const TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'GACHIGACHA가 아래 정보에 접근하도록 허용합니다.\n(이메일, 닉네임)',
-            style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
-          ),
-          const SizedBox(height: 20),
-          const Text(
-            '이메일',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textSecondary,
+              ],
+            ),
+            style: AppText.display.copyWith(
+              fontSize: 26,
+              fontWeight: FontWeight.w900,
+              letterSpacing: -1.1,
             ),
           ),
-          const SizedBox(height: 6),
-          TextField(
-            controller: _emailController,
-            style: const TextStyle(fontSize: 14, color: AppColors.textPrimary),
-            decoration: InputDecoration(
-              filled: true,
-              fillColor: AppColors.surfaceElevated2,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: BorderSide.none,
-              ),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 14,
-                vertical: 12,
+          const SizedBox(height: Space.x4),
+          ClipRRect(
+            borderRadius: Radii.hero,
+            child: SizedBox(
+              height: height,
+              child: BoxArt(
+                tone: cs.primary,
+                category: ProductCategory.jewel,
+                scale: 0.62,
+                centerY: 0.54,
               ),
             ),
           ),
-          const SizedBox(height: 14),
-          const Text(
-            '닉네임',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textSecondary,
+        ],
+      ),
+    );
+  }
+}
+
+/// 서비스가 실제로 지키는 세 가지(확률 공개·천장·실물 배송).
+class _Promises extends StatelessWidget {
+  const _Promises();
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    const items = [
+      (Icons.percent, '확률 공개'),
+      (Icons.shield_outlined, '천장 보장'),
+      (Icons.local_shipping_outlined, '실물 배송'),
+    ];
+    return Wrap(
+      spacing: Space.x2,
+      runSpacing: Space.x2,
+      children: [
+        for (final (icon, label) in items)
+          Container(
+            height: 28,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(
+              color: cs.surfaceContainer,
+              borderRadius: Radii.pill,
+              border: Border.all(color: cs.outlineVariant),
             ),
-          ),
-          const SizedBox(height: 6),
-          TextField(
-            controller: _nicknameController,
-            style: const TextStyle(fontSize: 14, color: AppColors.textPrimary),
-            decoration: InputDecoration(
-              filled: true,
-              fillColor: AppColors.surfaceElevated2,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: BorderSide.none,
-              ),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 14,
-                vertical: 12,
-              ),
-            ),
-          ),
-          const SizedBox(height: 24),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    side: const BorderSide(color: AppColors.surfaceBorder),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: const Text(
-                    '취소',
-                    style: TextStyle(color: AppColors.textSecondary),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 14, color: cs.primary),
+                const SizedBox(width: 5),
+                Text(
+                  label,
+                  style: AppText.caption.copyWith(
+                    color: cs.onSurface,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: _confirm,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.goldPrimary,
-                    foregroundColor: const Color(0xFF16161A),
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    elevation: 0,
-                  ),
-                  child: const Text(
-                    '동의하고 계속하기',
-                    style: TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                ),
-              ),
-            ],
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// 맨 아래 약관 링크.
+class _LegalFooter extends StatelessWidget {
+  const _LegalFooter();
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    Widget link(TermsDocument doc) => TextButton(
+      onPressed: () => Navigator.of(context).push(TermsPage.route(doc)),
+      style: TextButton.styleFrom(
+        minimumSize: const Size(0, 36),
+        padding: const EdgeInsets.symmetric(horizontal: Space.x2),
+      ),
+      child: Text(
+        doc.title,
+        style: AppText.caption.copyWith(color: cs.onSurfaceVariant),
+      ),
+    );
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: Space.x2, top: Space.x4),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            link(TermsDocument.terms),
+            Text('·', style: AppText.caption),
+            link(TermsDocument.privacyPolicy),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 소셜 로그인 결과 중 사용자에게 알려야 하는 것.
+class _Notice {
+  final String title;
+  final String message;
+  const _Notice(this.title, this.message);
+
+  static _Notice? from(SocialLoginResult result) => switch (result) {
+    SocialLoginSuccess() || SocialLoginCancelled() => null,
+    SocialLoginNeedsConsent() => null,
+    SocialLoginEmailTaken(:final existingProvider, :final existingLabel) =>
+      _Notice(
+        '이미 $existingLabel로 가입된 이메일이에요',
+        existingProvider == null || existingProvider.toUpperCase() == 'EMAIL'
+            ? '아래에서 이메일과 비밀번호로 로그인해 주세요.'
+            : '처음 가입한 $existingLabel 로그인으로 들어와 주세요.',
+      ),
+    SocialLoginUnavailable(:final provider) => _Notice(
+      '지금은 ${provider.label} 로그인을 쓸 수 없어요',
+      '잠시 후 다시 시도하거나 다른 방법으로 로그인해 주세요.',
+    ),
+    SocialLoginInvalidToken(:final provider) => _Notice(
+      '${provider.label} 로그인 정보를 확인하지 못했어요',
+      '다시 시도해 주세요. 계속되면 다른 방법으로 로그인해 주세요.',
+    ),
+    SocialLoginFailed(:final message) => _Notice('로그인하지 못했어요', message),
+  };
+}
+
+class _NoticeCard extends StatelessWidget {
+  final _Notice notice;
+  final VoidCallback onClose;
+  const _NoticeCard({required this.notice, required this.onClose});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(
+        Space.x4,
+        Space.x3,
+        Space.x1,
+        Space.x3,
+      ),
+      decoration: BoxDecoration(
+        color: cs.error.withValues(alpha: 0.08),
+        borderRadius: Radii.card,
+        border: Border.all(color: cs.error.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 1),
+            child: Icon(Icons.error_outline, size: 20, color: cs.error),
+          ),
+          const SizedBox(width: Space.x3),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(notice.title, style: AppText.bodyStrong),
+                const SizedBox(height: 2),
+                Text(keepAll(notice.message), style: AppText.caption),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: '닫기',
+            visualDensity: VisualDensity.compact,
+            onPressed: onClose,
+            icon: Icon(Icons.close, size: 18, color: cs.onSurfaceVariant),
           ),
         ],
       ),
