@@ -33,6 +33,22 @@ class TopupLimit {
 
   bool get hasLimit => monthlyLimit != null;
 
+  /// 한도를 저장한 뒤 보여줄 한 줄 안내.
+  String get savedMessage {
+    final p = pending;
+    if (p != null) {
+      final when = p.effectiveAt != null
+          ? '${formatMonthDay(p.effectiveAt!)}부터'
+          : '7일 뒤부터';
+      return p.monthlyLimit == null
+          ? '$when 한도가 해제돼요'
+          : '$when ${formatWon(p.monthlyLimit!)}으로 바뀌어요';
+    }
+    return monthlyLimit == null
+        ? '월 충전 한도를 해제했어요'
+        : '월 충전 한도를 ${formatWon(monthlyLimit!)}으로 정했어요';
+  }
+
   double get usedRatio {
     final l = monthlyLimit;
     if (l == null || l == 0) return l == 0 ? 1 : 0;

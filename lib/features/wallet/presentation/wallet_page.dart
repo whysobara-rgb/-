@@ -101,13 +101,7 @@ class _WalletPageState extends State<WalletPage> {
     final updated = await showLimitSheet(context, current);
     if (updated == null || !mounted) return;
     setState(() => _limit = updated);
-    final pending = updated.pending;
-    showToast(
-      context,
-      pending?.effectiveAt != null
-          ? '${formatMonthDay(pending!.effectiveAt!)}부터 적용돼요'
-          : '한도를 바꿨어요',
-    );
+    showToast(context, updated.savedMessage);
   }
 
   @override

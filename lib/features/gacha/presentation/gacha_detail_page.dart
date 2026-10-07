@@ -163,6 +163,8 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
     );
     if (confirmed != true || !mounted) return;
 
+    // 이전 결과의 스낵바가 연출 위에 남지 않게 닫는다.
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     final message = await Navigator.of(context).push<String>(
       PageRouteBuilder<String>(
         transitionDuration: Motion.slow,
@@ -664,6 +666,21 @@ class _DrawBar extends StatelessWidget {
     final left = remaining;
     final canSingle = !soldOut && (left == null || left >= 1);
     final canMulti = !soldOut && (left == null || left >= 11);
+    if (soldOut) {
+      return _BarFrame(
+        child: OutlinedButton(
+          onPressed: null,
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size.fromHeight(56),
+          ),
+          child: const _TwoLine(
+            title: '품절',
+            price: '준비된 수량이 모두 판매됐어요',
+            color: AppColors.inkTertiary,
+          ),
+        ),
+      );
+    }
     return DecoratedBox(
       decoration: const BoxDecoration(
         color: AppColors.bg,
@@ -689,8 +706,8 @@ class _DrawBar extends StatelessWidget {
                     padding: EdgeInsets.zero,
                   ),
                   child: _TwoLine(
-                    title: soldOut ? '품절' : '1회 뽑기',
-                    price: soldOut ? '재입고 전까지 뽑을 수 없어요' : formatGp(price),
+                    title: '1회 뽑기',
+                    price: formatGp(price),
                     color: canSingle ? AppColors.ink : AppColors.inkTertiary,
                   ),
                 ),
@@ -708,8 +725,6 @@ class _DrawBar extends StatelessWidget {
                     title: '10+1회 뽑기',
                     price: canMulti
                         ? formatGp(price * 10)
-                        : soldOut
-                        ? '품절'
                         : '남은 수량 ${formatNumber(left ?? 0)}개',
                     color: canMulti ? AppColors.onInk : AppColors.inkTertiary,
                   ),
@@ -717,6 +732,34 @@ class _DrawBar extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 하단 고정 바의 공통 테두리·여백.
+class _BarFrame extends StatelessWidget {
+  final Widget child;
+  const _BarFrame({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        color: AppColors.bg,
+        border: Border(top: BorderSide(color: AppColors.line)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            Space.gutter,
+            Space.x3,
+            Space.gutter,
+            Space.x3,
+          ),
+          child: child,
         ),
       ),
     );

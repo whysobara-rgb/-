@@ -56,6 +56,12 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
   /// ① 박스 등장.
   late final AnimationController _summon;
 
+  /// SSR 금박 낙하. 개봉 순간부터 결과로 넘어갈 때까지 계속 떨어진다.
+  late final AnimationController _leaf = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 3400),
+  );
+
   /// ②~④ 본 시퀀스. 등급이 정해진 뒤에 만든다.
   AnimationController? _sequence;
 
@@ -220,6 +226,7 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
       _lastCrackHapticT = info.localT;
     } else if (info.stage == _Stage.burst && !_burstHapticFired) {
       _burstHapticFired = true;
+      if (_grade?.hasRainbowConfetti ?? false) _leaf.forward(from: 0);
       HapticFeedback.heavyImpact();
     }
   }
@@ -294,6 +301,7 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
       _sequence?.dispose();
       _sequence = null;
       _summon.reset();
+      _leaf.reset();
     });
     _summon.forward();
   }
@@ -303,6 +311,7 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
     _holdTimer?.cancel();
     _idle.dispose();
     _summon.dispose();
+    _leaf.dispose();
     _sequence?.dispose();
     super.dispose();
   }
@@ -475,18 +484,18 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
                 ),
 
               // SSR 금박.
-              if (grade != null &&
-                  grade.hasRainbowConfetti &&
-                  (info.stage == _Stage.burst || _holding))
+              if (grade != null && grade.hasRainbowConfetti)
                 IgnorePointer(
                   child: AnimatedBuilder(
-                    animation: _idle,
-                    builder: (context, _) => CustomPaint(
-                      painter: GoldLeafPainter(
-                        progress: _holding ? 1.0 : info.localT,
-                        pieces: _leafSeeds,
-                      ),
-                    ),
+                    animation: _leaf,
+                    builder: (context, _) => _leaf.value == 0
+                        ? const SizedBox.shrink()
+                        : CustomPaint(
+                            painter: GoldLeafPainter(
+                              progress: _leaf.value,
+                              pieces: _leafSeeds,
+                            ),
+                          ),
                   ),
                 ),
             ],

@@ -81,12 +81,7 @@ class _ProfilePageState extends State<ProfilePage> {
     final updated = await showLimitSheet(context, current);
     if (updated == null || !mounted) return;
     setState(() => _limit = updated);
-    showToast(
-      context,
-      updated.pending?.effectiveAt != null
-          ? '${formatMonthDay(updated.pending!.effectiveAt!)}부터 적용돼요'
-          : '한도를 바꿨어요',
-    );
+    showToast(context, updated.savedMessage);
   }
 
   Future<void> _logout() async {

@@ -573,7 +573,7 @@ class GoldLeafPainter extends CustomPainter {
         ),
         Paint()
           ..color = p.color.withValues(
-            alpha: (1 - local * 0.4).clamp(0.0, 1.0),
+            alpha: local < 0.75 ? 1.0 : ((1 - local) / 0.25).clamp(0.0, 1.0),
           ),
       );
       canvas.restore();

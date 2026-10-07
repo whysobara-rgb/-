@@ -1,16 +1,20 @@
-# gacha_vault
+# 가치가차 (gacha_vault)
 
-A new Flutter project.
+실물 상품 랜덤박스 앱의 Flutter 클라이언트.
 
-## Getting Started
+## 실행
 
-This project is a starting point for a Flutter application.
+백엔드 주소는 빌드할 때 넣는다(기본값 `http://localhost:3000`).
 
-A few resources to get you started if this is your first Flutter project:
+```sh
+flutter pub get
+flutter run --dart-define=API_BASE_URL=http://localhost:3000
+flutter build web --release --no-web-resources-cdn --dart-define=API_BASE_URL=https://api.example.com
+```
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+## 디자인 시스템
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+- 토큰: `lib/core/theme/` — 색(`app_colors.dart`), 타입 스케일(`app_typography.dart`),
+  간격·모서리·모션(`app_spacing.dart`), 테마(`app_theme.dart`)
+- 공용 위젯: `lib/shared/widgets/` (레어도 배지, 상품 이미지, 섹션·시트·상태 뷰)
+- 숫자·금액·확률 포맷: `lib/core/utils/format.dart`
