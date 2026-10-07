@@ -5,6 +5,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/format.dart';
+import '../../../demo/demo_config.dart';
 import '../../../navigation/tab_navigator.dart';
 import '../../../shared/providers/gp_provider.dart';
 import '../../../shared/widgets/gp_badge.dart';
@@ -49,7 +50,9 @@ class _WalletPageState extends State<WalletPage> {
   /// 이 빌드의 결제창(웹이면 null).
   final PaymentCheckout? _checkout = resolveCheckout();
 
-  CheckoutMode get _mode => _checkout == null
+  CheckoutMode get _mode => DemoConfig.enabled
+      ? CheckoutMode.demo
+      : _checkout == null
       ? CheckoutMode.unavailable
       : _checkout.isSandbox
       ? CheckoutMode.sandbox
@@ -500,7 +503,15 @@ class _TopupHint extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = config;
     final (IconData, String, Color)? hint;
-    if (c != null && !c.enabled) {
+    if (mode == CheckoutMode.demo) {
+      hint = (
+        Icons.science_outlined,
+        c != null && c.firstTopupEligible
+            ? '체험 결제 · 실제로 결제되지 않아요 · 첫 충전 +${c.firstTopupBonus!.percent}%'
+            : '체험 결제 · 실제로 결제되지 않아요',
+        AppColors.text,
+      );
+    } else if (c != null && !c.enabled) {
       hint = (
         Icons.block,
         '결제가 아직 준비되지 않았어요. 잠시 후 다시 확인해 주세요.',

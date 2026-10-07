@@ -1,5 +1,7 @@
 import 'package:flutter/widgets.dart';
 import '../../../core/config/app_config.dart';
+import '../../../demo/demo_config.dart';
+import '../../../demo/ui/demo_checkout.dart';
 import '../domain/payment_models.dart';
 import 'sandbox_checkout.dart';
 import 'toss_checkout_stub.dart'
@@ -47,6 +49,8 @@ abstract class PaymentCheckout {
 /// [AppConfig.paymentSandbox]는 release에서 상수 false라 샌드박스 코드는
 /// 릴리스 번들에 들어가지 않는다.
 PaymentCheckout? resolveCheckout() {
+  // 체험판: 토스 대신 "실제로 결제되지 않아요" 확인 시트(웹에서도 열린다).
+  if (DemoConfig.enabled) return const DemoCheckout();
   if (AppConfig.paymentSandbox) return const SandboxCheckout();
   return toss.createTossCheckout();
 }

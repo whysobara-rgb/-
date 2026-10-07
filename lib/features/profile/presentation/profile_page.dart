@@ -5,6 +5,8 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/format.dart';
+import '../../../demo/demo_config.dart';
+import '../../../demo/ui/demo_widgets.dart';
 import '../../../navigation/tab_navigator.dart';
 import '../../../shared/providers/auth_provider.dart';
 import '../../../shared/providers/gp_provider.dart';
@@ -362,6 +364,8 @@ class _ProfilePageState extends State<ProfilePage> {
             const SizedBox(height: Space.x5),
             const SectionBand(),
 
+            // 체험판: 운영자 모드 체험·체험판 초기화.
+            if (DemoConfig.enabled) const DemoProfileSection(),
             if (user?.isAdmin ?? false) ...[
               const _GroupTitle('운영'),
               MenuRow(

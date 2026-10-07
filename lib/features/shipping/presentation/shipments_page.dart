@@ -5,6 +5,8 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/format.dart';
+import '../../../demo/demo_config.dart';
+import '../../../demo/ui/demo_widgets.dart';
 import '../../../shared/widgets/rarity_tag.dart';
 import '../../../shared/widgets/ui.dart';
 import '../data/shipping_repository.dart';
@@ -99,7 +101,23 @@ class _ShipmentsPageState extends State<ShipmentsPage> {
                             style: AppText.num(AppText.caption),
                           );
                         }
-                        return ShipmentCard(shipment: _items[i - 1]);
+                        final shipment = _items[i - 1];
+                        if (DemoConfig.enabled && shipment.isActive) {
+                          // 체험판: 실제 발송 대신 단계를 넘겨 보는 버튼.
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              ShipmentCard(shipment: shipment),
+                              DemoShippingSimButton(
+                                shipmentId: shipment.id,
+                                requested:
+                                    shipment.status == ShipmentStatus.requested,
+                                onChanged: _load,
+                              ),
+                            ],
+                          );
+                        }
+                        return ShipmentCard(shipment: shipment);
                       },
                     ),
             ),

@@ -16,6 +16,9 @@ enum CheckoutMode {
   /// 디버그 테스트 결제.
   sandbox,
 
+  /// 체험판(DEMO_MODE): 실제로 결제되지 않는 체험 결제.
+  demo,
+
   /// 결제창 없음(웹) → "결제는 앱에서 가능해요".
   unavailable,
 }
@@ -148,6 +151,24 @@ class _TopupSheetState extends State<TopupSheet> {
             const _AppOnlyNote(),
             const SizedBox(height: Space.x3),
           ],
+          if (widget.mode == CheckoutMode.demo) ...[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.science_outlined,
+                  size: 14,
+                  color: Color(0xFFFFC53D),
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  '체험판 결제 · 실제로 결제되지 않아요',
+                  style: AppText.caption.copyWith(color: AppColors.text),
+                ),
+              ],
+            ),
+            const SizedBox(height: Space.x2),
+          ],
           if (widget.mode == CheckoutMode.sandbox) ...[
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -171,6 +192,7 @@ class _TopupSheetState extends State<TopupSheet> {
               CheckoutMode.unavailable => '결제는 앱에서 가능해요',
               _ when selected == null => '패키지를 골라 주세요',
               CheckoutMode.sandbox => '${formatWon(selected.price)} 테스트 결제',
+              CheckoutMode.demo => '${formatWon(selected.price)} 체험 결제',
               CheckoutMode.toss => '${formatWon(selected.price)} 결제하기',
             },
             onPressed: canPay
@@ -179,7 +201,9 @@ class _TopupSheetState extends State<TopupSheet> {
           ),
           const SizedBox(height: Space.x2),
           Text(
-            '결제는 토스페이먼츠로 처리돼요. 충전한 GP는 앱 안에서만 써요.',
+            widget.mode == CheckoutMode.demo
+                ? '체험판에서는 돈이 나가지 않고 체험 GP만 들어와요.'
+                : '결제는 토스페이먼츠로 처리돼요. 충전한 GP는 앱 안에서만 써요.',
             textAlign: TextAlign.center,
             style: AppText.caption.copyWith(color: AppColors.textTertiary),
           ),

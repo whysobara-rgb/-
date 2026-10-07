@@ -4,6 +4,8 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/format.dart';
+import '../../../demo/demo_config.dart';
+import '../../../demo/ui/demo_widgets.dart';
 import '../../../shared/widgets/ui.dart';
 import '../../shipping/domain/shipment.dart';
 import '../data/admin_repository.dart';
@@ -155,6 +157,11 @@ class _AdminDashboardTabState extends State<AdminDashboardTab>
             '매출은 토스 승인(DONE) 결제만 더한 값이에요. 날짜는 한국 시간 기준이에요.',
             style: AppText.caption.copyWith(color: AppColors.textTertiary),
           ),
+          if (DemoConfig.enabled)
+            const DemoNote(
+              '체험판: 이 기기의 체험 결제·뽑기·배송만 집계해요. 실제 매출이 아니에요.',
+              padding: EdgeInsets.only(top: Space.x2),
+            ),
         ],
       ),
     );

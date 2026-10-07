@@ -6,6 +6,8 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/format.dart';
+import '../../../demo/demo_config.dart';
+import '../../../demo/ui/demo_widgets.dart';
 import '../../../shared/providers/auth_provider.dart';
 import '../../../shared/providers/gp_provider.dart';
 import '../../../shared/widgets/product_image.dart';
@@ -192,6 +194,11 @@ class _DeliveryRequestPageState extends State<DeliveryRequestPage> {
                   '배송비는 신청할 때 보유 GP에서 차감돼요. 접수한 뒤에는 주소를 바꿀 수 없으니 한 번 더 확인해 주세요.',
                   style: AppText.caption,
                 ),
+                if (DemoConfig.enabled)
+                  const DemoNote(
+                    '체험판이라 실제로 배송되지 않아요. 입력한 주소는 이 기기에만 저장돼요.',
+                    padding: EdgeInsets.only(top: Space.x2),
+                  ),
               ],
             ),
           ),
