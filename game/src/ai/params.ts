@@ -181,6 +181,12 @@ export interface DifficultyParams {
    * the waves. Same physics for everyone — only how often and how well it reads the officers.
    */
   policeAwareness: number;
+  /**
+   * (fun round contract, owner WP2; optional, add-only) Readable wind-up before a bot dash at a
+   * character, in ticks (plan: novice 0.45 s, normal 0.30 s, challenge 0.15 s). During it the
+   * bot's intent phase is 'windup'. Absent = no wind-up (today's behaviour).
+   */
+  dashWindupTicks?: number;
 }
 
 export const DIFFICULTY_PARAMS: Readonly<Record<Difficulty, DifficultyParams>> = {

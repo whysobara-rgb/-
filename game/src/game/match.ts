@@ -3,8 +3,9 @@
  * input, the fixed 60 Hz accumulator, and drives GameView, the HUD and audio from sim events.
  *
  * Frame order (integration notes):
- *   sim.step -> view.captureTick -> view.onEvents -> setBotTelegraph -> view.render(sim, alpha,
- *   frameDt, focus); view.takeHitstop() after each fed batch -> TimeScale.hitstop.
+ *   sim.step -> view.captureTick -> view.onEvents -> setBotTelegraph -> funObserve (WP5) ->
+ *   director.onEvents / handleEvents -> funHud (WP4) -> view.render(sim, alpha, frameDt, focus);
+ *   view.takeHitstop() after each fed batch -> TimeScale.hitstop.
  *
  * - Start countdown 3-2-1-출발 before the first step (the sim does not tick during it).
  * - Fixed step with at most 5 steps per frame; a hidden tab / long hitch never fast-forwards
@@ -35,6 +36,7 @@ import { RUMBLE, TimeScale, rumbleFor, type RumbleName } from './feel';
 import type { LaunchParams } from './params';
 import { pickBiggestEvent, type BiggestEvent } from './results';
 import { buildMatch, type MatchConfig } from './setup';
+import type { Moment } from '../shared/moments';
 
 export const MAX_STEPS_PER_FRAME = 5;
 /** Real-time clamp for one frame (hidden tab, debugger, long GC). */
@@ -154,7 +156,7 @@ export class MatchController {
     this.sim = new Simulation(built.setup);
     this.meId = this.sim.characterBySlot(built.humanSlot).id;
     // createBot warms the shared nav caches (10-40 ms): this runs behind the loading screen.
-    this.bots = built.bots.map((b) => createBot(this.sim, { slot: b.slot, personality: b.personality, difficulty: b.difficulty, adaptation: b.adaptation, seed: b.seed }));
+    this.bots = built.bots.map((b) => createBot(this.sim, { slot: b.slot, personality: b.personality, difficulty: b.difficulty, adaptation: b.adaptation, seed: b.seed, params: b.params }));
     this.proxy =
       svc.params.autotest && config.kind !== 'tutorial'
         ? new Bot(this.sim, { slot: 0, personality: 'hodadak', difficulty: 'challenge', seed: (config.seed ^ 0x5eed) >>> 0, humanProxy: true })
@@ -340,6 +342,7 @@ export class MatchController {
     const pingTargetIds: EntityId[] = [];
     for (const p of this.sim.state.pings) if (p.team === this.myTeam && p.targetId !== null) pingTargetIds.push(p.targetId);
     if (this.script) for (const id of this.script.focusTargets()) if (!pingTargetIds.includes(id)) pingTargetIds.push(id);
+    for (const id of this.funFocusTargets()) if (!pingTargetIds.includes(id)) pingTargetIds.push(id);
     return { charId: this.meId, grabCandidate: me && !me.grab ? this.sim.getGrabCandidate(this.meId) : null, pingTargetIds };
   }
 
@@ -366,11 +369,15 @@ export class MatchController {
       if (it) view.setBotTelegraph(sim.characterBySlot(b.slot).id, it.telegraph, it.goal);
     }
     this.observer?.observe(sim, events);
+    // Fun round: WP5 first (tracker, cues, view/director tension; before director.onEvents),
+    // then WP4 (HUD) after the existing event handling. See funObserve / funHud.
+    const moments = this.funObserve(events);
     if (events.length) {
       this.director.onEvents(events, sim);
       this.script?.onEvents(events, sim);
       this.handleEvents(events);
     }
+    this.funHud(moments);
     if (sim.state.over && this.phase === 'playing') this.beginEnding();
   }
 
@@ -711,6 +718,8 @@ export class MatchController {
     const model: HudModel = { ...m, timeLeftSec: this.phase === 'countdown' || this.phase === 'loaded' ? (this.sim.rules.timeLimit ? this.sim.rules.matchTicks / TICK_RATE : null) : m.timeLeftSec };
     const extra = this.scriptArrows();
     if (extra.length) model.arrows = [...(model.arrows ?? []), ...extra];
+    const kick = this.funArrows();
+    if (kick.length) model.arrows = [...(model.arrows ?? []), ...kick];
     if (this.phase === 'ending') {
       model.grab = null;
       model.carry = null;
@@ -737,6 +746,47 @@ export class MatchController {
   }
 
   // ------------------------------------------------------------------------------------------
+  // Fun round hooks (docs/ARCHITECTURE.md "Fun round contracts"). Day-0 no-op stubs with their
+  // call sites already in place, so each owner edits only its own method bodies (plus private
+  // fields / imports it adds on NEW lines) and never the shared lines above.
+  // ------------------------------------------------------------------------------------------
+
+  /**
+   * [WP5] Once per tick right after the sim step (and before director.onEvents): record
+   * `this.cmds` into the command log, feed MomentTracker (state, events, bot intents), then drive
+   * feel (glance / slow-mo / hit-stop via this.time), view.onMoments, view.setDecisiveLoad /
+   * setStealChance / setRunHeat / setBotWindup / showBark, director.setTension +
+   * director.onMoments. Returns this tick's moments for funHud.
+   */
+  private funObserve(events: readonly SimEvent[]): Moment[] {
+    void events;
+    return [];
+  }
+
+  /**
+   * [WP4] Once per tick after the existing event handling: moments + MomentTracker snapshot ->
+   * HUD stamps (cap 2), decisive-load prompt, swing readout, crown (Hud.setLeader), banner queue.
+   */
+  private funHud(moments: readonly Moment[]): void {
+    void moments;
+  }
+
+  /** [WP5] Extra ping-pulse ids for the view (kickoff cue: the nearest small safe, first 5 s). */
+  private funFocusTargets(): readonly EntityId[] {
+    return [];
+  }
+
+  /** [WP5] Extra off-screen arrows (kickoff arrow, only for players with < 10 finished matches). */
+  private funArrows(): OffscreenTarget[] {
+    return [];
+  }
+
+  /** [WP5] Match just ended (start of the end hold): view.playGetaway(winner), final cues. */
+  private funEnding(result: MatchResult | null): void {
+    void result;
+  }
+
+  // ------------------------------------------------------------------------------------------
   // End of match
   // ------------------------------------------------------------------------------------------
 
@@ -754,6 +804,7 @@ export class MatchController {
       if (res.winner === this.myTeam) this.svc.view.cameraKick({ zoom: 0.06 });
     }
     if (!this.isPractice && res) this.checkAchievements(res);
+    this.funEnding(res);
   }
 
   /** End right now (script finished / test hook). */

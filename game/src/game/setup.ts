@@ -9,7 +9,8 @@
  *  - tutorial = the human alone, no time limit, no early decision.
  * Seeds are deterministic: the match seed fixes every bot's seed.
  */
-import { RIVALS, type Adaptation, type Difficulty, type RivalId } from '../ai';
+import { RIVALS, type Adaptation, type Difficulty, type DifficultyParams, type RivalId } from '../ai';
+import type { CupId } from '../platform/progress';
 import { getLayout } from '../sim/layouts';
 import type { HatId, LayoutId, MatchSetup, RosterEntry, RuleConfig } from '../sim/types';
 
@@ -37,6 +38,16 @@ export interface MatchConfig {
    * unless explicitly false (?police=0); never in the tutorial.
    */
   police?: boolean | null;
+  /**
+   * (fun round contract, owner WP7; add-only) Tournament cup of this match (null / absent =
+   * not a cup match). Set by `tournamentConfig`; read by results (WP6, MatchOutcomeSummary.cup).
+   */
+  cup?: CupId | null;
+  /**
+   * (fun round contract, owner WP7; add-only) Cup-step override merged over the rival bots'
+   * `DIFFICULTY_PARAMS[difficulty]` (BotOptions.params). Never applied to the 2:2 teammate.
+   */
+  botParams?: Partial<DifficultyParams> | null;
 }
 
 export interface BotSpec {
@@ -45,6 +56,8 @@ export interface BotSpec {
   difficulty: Difficulty;
   adaptation: Adaptation | null;
   seed: number;
+  /** BotOptions.params (from MatchConfig.botParams; rival bots only). */
+  params?: Partial<DifficultyParams>;
 }
 
 export interface BuiltMatch {
@@ -80,17 +93,18 @@ export function buildMatch(cfg: MatchConfig): BuiltMatch {
   } else {
     const rival = RIVALS[cfg.rival];
     const adaptation = cfg.kind === 'tournament' ? cfg.adaptation : null;
+    const params = cfg.botParams ? { params: { ...cfg.botParams } } : {};
     if (cfg.mode === '2v2') {
       roster.push({ team: 0, isBot: true, name: 'name.ally', look: { hat: 'teamCapA', furTint: 0.2 } });
       // The teammate helps with the big hauls (doc §7) and is never weaker than 보통.
       bots.push({ slot: 1, personality: 'tongkeun', difficulty: cfg.difficulty === 'challenge' ? 'challenge' : 'normal', adaptation: null, seed: botSeed(cfg.seed, 1) });
       roster.push({ team: 1, isBot: true, name: rival.nameKey, look: { ...rival.look } });
-      bots.push({ slot: 2, personality: cfg.rival, difficulty: cfg.difficulty, adaptation, seed: botSeed(cfg.seed, 2) });
+      bots.push({ slot: 2, personality: cfg.rival, difficulty: cfg.difficulty, adaptation, seed: botSeed(cfg.seed, 2), ...params });
       roster.push({ team: 1, isBot: true, name: 'name.rivalBot', look: { hat: 'teamCapB', furTint: 0.75 } });
-      bots.push({ slot: 3, personality: cfg.rival, difficulty: cfg.difficulty, adaptation, seed: botSeed(cfg.seed, 3) });
+      bots.push({ slot: 3, personality: cfg.rival, difficulty: cfg.difficulty, adaptation, seed: botSeed(cfg.seed, 3), ...params });
     } else {
       roster.push({ team: 1, isBot: true, name: rival.nameKey, look: { ...rival.look } });
-      bots.push({ slot: 1, personality: cfg.rival, difficulty: cfg.difficulty, adaptation, seed: botSeed(cfg.seed, 1) });
+      bots.push({ slot: 1, personality: cfg.rival, difficulty: cfg.difficulty, adaptation, seed: botSeed(cfg.seed, 1), ...params });
     }
     rules = { police: cfg.police !== false };
     if (cfg.matchSeconds && cfg.matchSeconds > 0) rules.matchTicks = Math.round(cfg.matchSeconds * 60);

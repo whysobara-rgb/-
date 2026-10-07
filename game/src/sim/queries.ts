@@ -236,8 +236,9 @@ function endIfRecovered(st: MatchPointState, team: TeamId, value: number, earlyD
  * characters while free (unanchored), for each team holding it. Safes loaded in a bank are
  * settled with the bank, never on their own, so only the bank counts for them.
  *
- * Picks the largest `value`; ties broken by 'win' before 'tie', a load already dwelling in its
- * zone, more carriers, lower loot id, lower team id (deterministic).
+ * Picks the largest `value`; ties broken by a load already dwelling in that team's zone (its
+ * recovery is under way, so it beats another team merely holding the same load), then 'win'
+ * before 'tie', more carriers, lower loot id, lower team id (deterministic).
  */
 export function matchPointInfo(state: Readonly<MatchPointState>, opts: MatchPointOptions = {}): MatchPointInfo | null {
   if (state.over) return null;
@@ -280,8 +281,10 @@ function better(
   b: MatchPointInfo & { dwelling: boolean; lootId: EntityId },
 ): boolean {
   if (a.value !== b.value) return a.value > b.value;
-  if (a.kind !== b.kind) return a.kind === 'win';
+  // a recovery already under way is what happens next: it beats a mere holder's claim (a load
+  // held by one team while it dwells in the other team's zone is THAT team's match point)
   if (a.dwelling !== b.dwelling) return a.dwelling;
+  if (a.kind !== b.kind) return a.kind === 'win';
   if (a.carrierIds.length !== b.carrierIds.length) return a.carrierIds.length > b.carrierIds.length;
   if (a.lootId !== b.lootId) return a.lootId < b.lootId;
   return a.team < b.team;

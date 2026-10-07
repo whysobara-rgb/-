@@ -40,6 +40,7 @@ import { TICK_RATE } from '../sim/config';
 import type { AudioEngine } from './audio';
 import type { LoopId, SfxId } from './ids';
 import { LAND_DELAY } from './sfxStage';
+import type { Moment } from '../shared/moments';
 
 /** The subset of `Simulation` the director reads (structural, so tests can fake it). */
 export interface AudioSimView {
@@ -71,6 +72,20 @@ export interface DirectorOptions {
    * plays. Game flow passes the "show others' taunts" setting here.
    */
   tauntFilter?: ((charId: EntityId) => boolean) | null;
+}
+
+/** (fun round contract, WP8) Argument of `MatchAudioDirector.setTension`. */
+export interface TensionState {
+  /** Whose match point it is from the local team's view (`MomentTracker.snapshot().matchPoint`). */
+  matchPoint: 'ours' | 'theirs' | null;
+  /** Seconds until `state.endTick` (Infinity without a time limit). */
+  secondsLeft: number;
+  /**
+   * (add-only) The current unanswered scoring run (`MomentTracker.snapshot().run`) from the local
+   * team's view: drives the coin pitch climb (replacing the 8 s window) and the tier-2
+   * percussion layer. Absent / null = no run.
+   */
+  run?: { side: 'ours' | 'theirs'; recoveries: number; tier: 0 | 1 | 2 } | null;
 }
 
 /** Sound per taunt emote (./sfxTaunt.ts). */
@@ -315,7 +330,7 @@ export class MatchAudioDirector {
     this.whistleTokens = POLICE_AUDIO.whistleBurst;
     this.whistleRefillTick = -Infinity;
     this.targetWhistle.clear();
-    this.setTension(0);
+    this.setPoliceTension(0);
   }
 
   /** Pre-match "3, 2, 1, GO": call with 3, 2, 1, 0. */
@@ -665,10 +680,35 @@ export class MatchAudioDirector {
     }
   }
 
+  // -------------------------------------------------------------------------------------------
+  // Fun round contracts (docs/ARCHITECTURE.md "Fun round contracts"; owner WP8). Documented
+  // no-op stubs until WP8 implements them.
+  // -------------------------------------------------------------------------------------------
+
+  /**
+   * (fun round, WP8) Story beats from MomentTracker (src/game/moments.ts), once per tick, called
+   * by match.ts right AFTER setTension and BEFORE onEvents of the same tick: lead-change stings (rising for the local team, falling for the other), "막았다"
+   * sting on matchPointStopped, streak layers / record-scratch on streakBroken, taunt-punish
+   * boing, dodge whoosh, counter-dash clash. Moments are facts; never re-derive them here.
+   */
+  onMoments(moments: readonly Moment[]): void {
+    void moments;
+  }
+
+  /**
+   * (fun round, WP8) Continuous tension state, set every tick before onMoments / onEvents
+   * (idempotent): `matchPoint` ('ours' warm heartbeat / 'theirs' tense heartbeat, music ducked
+   * 3 dB; null = off), `secondsLeft` for the final-10 s ticking, `run` for the coin climb (so a
+   * recovery's coin in this tick's onEvents already knows its step).
+   */
+  setTension(t: TensionState): void {
+    void t;
+  }
+
   /** Silence every loop this director started and drop the chase layer (pause menu, leaving). */
   stop(): void {
     this.silenceLoops(new Set());
-    this.setTension(0);
+    this.setPoliceTension(0);
   }
 
   private silenceLoops(live: Set<string>): void {
@@ -797,7 +837,7 @@ export class MatchAudioDirector {
     return 0;
   }
 
-  private setTension(x: number): void {
+  private setPoliceTension(x: number): void {
     this.tension = x;
     this.sentTension = x;
     this.engine.setMusicTension(x);

@@ -75,6 +75,9 @@ export type EmoteId =
   | 'tongkeunFlex' // 통큰이: 근육 자랑
   | 'nunchiShrug'; // 눈치왕: 어깨 으쓱
 
+/** Why a taunt was cancelled early (`emoteCancel.cause`, fun round contract). */
+export type EmoteCancelCause = 'move' | 'grab' | 'dash' | 'hit';
+
 export const BASE_EMOTES: readonly EmoteId[] = ['wiggle', 'bleh', 'fanCash', 'squatBounce'];
 
 export interface EmoteState {
@@ -583,7 +586,25 @@ export type SimEvent =
       /** Nearest opponent within EMOTE.nearOpponentRadius with line of sight ("in front of a rival"), else null. */
       nearOpponentId: EntityId | null;
     }
-  | { type: 'emoteCancel'; tick: number; charId: EntityId; emoteId: EmoteId }
+  | {
+      type: 'emoteCancel';
+      tick: number;
+      charId: EntityId;
+      emoteId: EmoteId;
+      /**
+       * (fun round contract, owner WP2; add-only) Why the taunt stopped early: the raccoon moved,
+       * grabbed, dashed, or was knocked down by a hit (opposing dash or police tackle). Absent
+       * when unknown (older emitters). MomentTracker turns cause 'hit' by an opposing dash into
+       * `tauntPunished`.
+       */
+      cause?: EmoteCancelCause;
+      /**
+       * (fun round contract, owner WP2; add-only) With cause 'hit': the opposing CHARACTER whose
+       * dash knocked the taunter down (the same tick's `dashHit.attackerId`); null for a police
+       * tackle or any other hit. Absent otherwise.
+       */
+      hitBy?: EntityId | null;
+    }
   | { type: 'matchEnd'; tick: number; result: MatchResult };
 
 export type SimEventType = SimEvent['type'];

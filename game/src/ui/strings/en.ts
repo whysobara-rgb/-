@@ -617,4 +617,19 @@ export const en: Record<StringKey, string> = {
   'taunt.nope.cooling': 'Catching my breath…',
   'settings.showOthersTaunts': "Show other raccoons' taunts",
   'settings.showOthersTaunts.desc': "Off hides everyone else's taunt moves, bubbles and sounds. Yours still play.",
+  // === Fun round string blocks (docs/ARCHITECTURE.md "Fun round contracts") ===
+  // Each package adds keys ONLY between its own two markers, in ko.ts AND en.ts (same keys).
+  // Never edit another package's block or move the markers.
+  // --- [WP2] begin: taunt.bark.<BarkKey> (bot bark bubbles; one key per BARK_KEYS entry)
+  // --- [WP2] end
+  // --- [WP4] begin: hud.mp.* (hud.mp.ours / hud.mp.theirs: decisive-load prompt, also the WP3 world label), hud.moment.* (stamps; hud.moment.stealChance "빼내기 +{value}" is read by WP3)
+  // --- [WP4] end
+  // --- [WP6] begin: results.hook.*, rivalLine.* (WP6 may also reword existing results.* keys in place)
+  // --- [WP6] end
+  // --- [WP7] begin: cup.*, onboard.* (cup tabs, first-hour strip, menu "이어서 / 다음 목표" card)
+  // --- [WP7] end
+  // --- [WP8] begin: caption.<newSfxId> (captions for every new cue)
+  // --- [WP8] end
+  // --- [WP10] begin: book.*, plus hat.<newHatId>.name/.desc/.unlock for the six new hats
+  // --- [WP10] end
 };

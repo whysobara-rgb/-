@@ -96,6 +96,7 @@ import { UprootDirector, type LootPose } from './uproot';
 import { PoliceView } from './police';
 import { PoseBuffer, damp, insideRect, lerpAngle, onBankSlab, pointVelocity, toLocal, wrapAngle, type Pose2 } from './sync';
 import { TauntTracker, type TauntWorld } from './taunts';
+import type { Moment, StreakTier } from '../shared/moments';
 
 export type { ViewMode } from './camera';
 
@@ -993,6 +994,105 @@ export class GameView {
     else if (rival === 'nunchi') kind = 'sly';
     else if (rival === 'tongkeun') kind = 'grab';
     this.telegraph(charId, kind, kind === 'sly' ? 0.5 : 0.4);
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Fun round contracts (docs/ARCHITECTURE.md "Fun round contracts"; owner WP3). Documented
+  // no-op stubs until WP3 implements them; callers (src/game/feel.ts, match.ts) may call them now.
+  // All of them are presentation only (never touch the sim) and must respect reducedMotion.
+  // -------------------------------------------------------------------------------------------
+
+  /**
+   * (fun round, WP3) Big-play glance: blend the camera target toward `pos` by `weight` (clamped
+   * to 0..0.3) for `ms` milliseconds, then back. No yaw change (doc §4). No-op with reducedMotion.
+   */
+  glance(pos: Vec2, weight: number, ms: number): void {
+    void pos;
+    void weight;
+    void ms;
+  }
+
+  /**
+   * (fun round, WP3) Getaway beat during the end hold (match.ts END_HOLD_SECONDS): the winning
+   * team's van honks, puffs and pulls away 3–4 m with siren + strobe; `null` (draw) = both vans
+   * rev and stay. Call once when the match ends. Never blocks or delays rematch input.
+   */
+  playGetaway(team: TeamId | null): void {
+    void team;
+  }
+
+  /**
+   * (fun round, WP3) Decisive-load glow: pulsing rim + world label on the load
+   * (`matchPointInfo().lootIds`). `side` = whose match point from the local player's view
+   * ('ours' = string `hud.mp.ours` "이게 들어가면 끝!", 'theirs' = `hud.mp.theirs` "막아야 해!";
+   * both keys are defined by WP4); `null` (or empty ids) clears it. Only one load at a time;
+   * drawn above police markers. Safe to call every tick (idempotent).
+   */
+  setDecisiveLoad(ids: readonly EntityId[], side: 'ours' | 'theirs' | null): void {
+    void ids;
+    void side;
+  }
+
+  /**
+   * (fun round, WP3) Steal-chance marker (string `hud.moment.stealChance` "빼내기 +{value}",
+   * defined by WP4): one door glow + label at `doorPos`, fed every tick from
+   * `MomentTracker.snapshot().stealChance`. `null` clears it. At most one marker. Idempotent.
+   */
+  setStealChance(doorPos: Vec2 | null, value: number): void {
+    void doorPos;
+    void value;
+  }
+
+  /**
+   * (fun round, WP3) Results-stage poses: the rival plays its taunt when it won ('taunt') or
+   * slumps when it lost ('slump'); the player's chosen victory taunt plays on a win (`null` =
+   * none). Call after setMode('results').
+   */
+  setResultsPoses(poses: { rival: 'taunt' | 'slump'; player: EmoteId | null }): void {
+    void poses;
+  }
+
+  /**
+   * (fun round, WP3) Bot dash wind-up telegraph (crouch + spark ring at the feet), fed every tick
+   * from `BotIntent.phase === 'windup'` (+ `windupTargetId`). `null` = not winding up. Edge-
+   * detected internally, like setBotTelegraph.
+   */
+  setBotWindup(charId: EntityId, windup: { targetId: EntityId | null } | null): void {
+    void charId;
+    void windup;
+  }
+
+  /**
+   * (fun round, WP3) Bark bubble (text only) over a bot, from `BotIntent.bark` (WP2). Called once
+   * per new bark (match.ts edge-detects `BotBark.tick`). `text` is already translated
+   * (`t('taunt.bark.' + key)`, keys defined by WP2). Hidden when showOthersTaunts is false, like
+   * taunt bubbles.
+   */
+  showBark(charId: EntityId, text: string, seconds?: number): void {
+    void charId;
+    void text;
+    void seconds;
+  }
+
+  /**
+   * (fun round, WP3) Story beats from MomentTracker, once per tick (possibly []). The view owns
+   * the render-only reactions here: "!?" sweat mood (moods.ts) on the team that lost the lead
+   * (`leadTaken`: the other team) or had its run broken (`streakBroken`), the `impactAt` pulse on
+   * `bigPlay`, small flourishes on stamps. Camera glance and time scale are NOT done here (feel
+   * calls `glance`; match.ts owns TimeScale). Moments are facts; never re-derive them here.
+   */
+  onMoments(moments: readonly Moment[]): void {
+    void moments;
+  }
+
+  /**
+   * (fun round, WP3) Scoring-run heat: a subtle rim on `team`'s van while its run has a tier
+   * (`MomentTracker.snapshot().run`); `team = null` or `tier = 0` clears it. Fed every tick;
+   * idempotent.
+   */
+  setRunHeat(team: TeamId | null, tier: 0 | StreakTier): void {
+    void team;
+    void tier;
   }
 
   applySettings(s: ViewSettings): void {

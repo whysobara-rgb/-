@@ -23,7 +23,8 @@ import type { Simulation } from '../sim/sim';
 import { Bot } from './bot';
 import type { BotController, BotOptions } from './types';
 
-export type { RivalId, Difficulty, Adaptation, AdaptationKind, BotOptions, BotController, BotIntent, GoalKind } from './types';
+export type { RivalId, Difficulty, Adaptation, AdaptationKind, BotOptions, BotController, BotIntent, GoalKind, BarkKey, BotBark } from './types';
+export { BARK_KEYS } from './types';
 export { RIVALS, RIVAL_IDS, DIFFICULTIES, DIFFICULTY_PARAMS, PERSONALITY } from './params';
 export type { RivalMeta, DifficultyParams, PersonalityWeights } from './params';
 export { RivalObserver, chooseAdaptation } from './observer';

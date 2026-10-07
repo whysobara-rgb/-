@@ -292,6 +292,8 @@ export class Bot implements BotController {
       this.lapseRng = prng;
     } else {
       this.P = DIFFICULTY_PARAMS[opts.difficulty];
+      // fun round contract (WP7 cup steps): per-field override, absent = the plain difficulty
+      if (opts.params) this.P = { ...this.P, ...opts.params };
       this.W = PERSONALITY[opts.personality];
     }
     if (opts.tuning) this.P = { ...this.P, ...opts.tuning };
@@ -399,6 +401,18 @@ export class Bot implements BotController {
     // move in any direction while walking; a dash along the freest direction breaks out
     if (V.len(c.move) > 0.5 && V.len(me.vel) < 0.05 && !me.straining && !me.grab && !c.grab) this.pinnedTicks++;
     else this.pinnedTicks = 0;
+    // ... or trapped and jittering: in a crack between two loose banks the body shakes back and
+    // forth (never quite still, so the check above and the sim's stall rescue never fire) while
+    // the net displacement over 1.5 s stays within a metre — treat it as pinned too
+    if (V.len(c.move) > 0.5 && !me.grab && !c.grab && !me.straining && me.knockdownTicks <= 0) {
+      if (!this.jitterRef || V.dist(me.pos, this.jitterRef) > 1.0) {
+        this.jitterRef = { ...me.pos };
+        this.jitterTick = tick;
+      } else if (tick - this.jitterTick > 90 && this.nav.clearanceAt(me.pos.x, me.pos.y) < 0.75) {
+        this.pinnedTicks = Math.max(this.pinnedTicks, 41);
+        this.jitterRef = null;
+      }
+    } else this.jitterRef = null;
     // (never when an officer is what pins me: an empty-handed dash would only knock it over for
     // nothing — the watchdog re-plans around it instead)
     const pinCop = this.ps.onField() ? this.ps.nearest(me.pos) : null;
@@ -435,6 +449,8 @@ export class Bot implements BotController {
   }
 
   private pinnedTicks = 0;
+  private jitterRef: Vec2 | null = null;
+  private jitterTick = 0;
 
   /** The direction with the most room within ~1.2 m (8 headings), for breaking out when pinned. */
   private escapeDir(p: Vec2): Vec2 | null {

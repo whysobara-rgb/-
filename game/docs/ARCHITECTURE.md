@@ -218,6 +218,65 @@ accumulator (60 Hz) and drives GameView, Hud, AudioEngine from events.
 `tournament.ts`: 호다닥 -> 통큰이 -> 눈치왕, each best-of-3 on a fixed layout, observation-based
 adaptation between games, progress saved, hat reward per rival, draws replayed.
 
+## Fun round contracts ("한 판 더", frozen day 0)
+
+Shared interfaces for the fun round (plan: 10 work packages WP1–WP10 built in parallel). They
+exist in code as compilable, documented stubs so every package can build against them now.
+
+**Rule: add-only; owners implement; consumers never re-derive.** Nobody renames, removes or
+changes the meaning of anything below. Only the owner package fills in a stub's behaviour; other
+packages call it and never recompute match point, swing, moments, runs or records on their own.
+
+| Contract | File | Owner | Consumers |
+|---|---|---|---|
+| `matchPointInfo(state, opts?) => MatchPointInfo \| null` — `{ team, kind: 'win' \| 'tie', value, lootIds, carrierIds }`, same arithmetic as `checkEnd` (implemented + tested) | `src/sim/queries.ts` (re-exported by `src/sim/index.ts`) | WP4 | WP5 tracker, WP4 HUD, WP1 tools |
+| `swingInfo(state, team) => { toTie, toLead, remaining }` (implemented + tested) | `src/sim/queries.ts` | WP4 | WP4 HUD |
+| `Moment` (`kind: MomentKind`, `tick`, `team`, `pos?`, `score?`, `value?`, `tier?: 1 \| 2`, `ids?`, `lootKind?`), `MOMENT_KINDS`, `StreakTier` | `src/shared/moments.ts` (re-exported by `src/game/moments.ts`) | WP5 | WP3, WP4, WP8, feel |
+| `MomentTracker` — `constructor({ localTeam, localCharId, earlyDecision? })`, `observe(state, events, botIntents: BotIntentSample[]) => Moment[]` (edges), `snapshot() => MomentSnapshot` (`matchPoint`, `leader`, `run: ScoringRun`, `stealChance: StealChanceInfo`, `matchPointKind`; continuous state), `reset()` (stub: `[]` / `EMPTY_MOMENT_SNAPSHOT`) | `src/game/moments.ts` | WP5 | match.ts hooks (WP5, WP4) |
+| `emoteCancel.cause?: EmoteCancelCause` (`'move' \| 'grab' \| 'dash' \| 'hit'`), `emoteCancel.hitBy?: EntityId \| null` (dasher for a dash hit, null for a police tackle) | `src/sim/types.ts` | WP2 (also builds the sim emote step: the sim does not process `Command.emote` yet) | WP5 (`tauntPunished`), render/audio |
+| `BotIntent.phase === 'windup'` (on every wind-up tick), `BotIntent.windupTargetId?`, `BotIntent.bark?: BotBark \| null` (`{ key: BarkKey, tick }`, show once per new tick), `BarkKey`, `BARK_KEYS` | `src/ai/types.ts` | WP2 | WP5 (feeds view, `dodged`), WP3, WP8 |
+| `DifficultyParams.dashWindupTicks?` | `src/ai/params.ts` | WP2 | bots |
+| `BotOptions.params?: Partial<DifficultyParams>` (already applied by `Bot`), `MatchConfig.botParams?` / `MatchConfig.cup?` -> `BotSpec.params` (rival bots only) -> `createBot` in match.ts (wired); `lerpDifficultyParams` is WP7's to add in params.ts | `src/ai/types.ts`, `src/ai/bot.ts`, `src/game/setup.ts` | WP7 | tournament cups, WP6 (`cup`) |
+| `GameView.glance(pos, weight ≤ 0.3, ms)`, `playGetaway(team \| null)`, `setDecisiveLoad(ids, 'ours' \| 'theirs' \| null)`, `setStealChance(doorPos \| null, value)`, `setRunHeat(team \| null, tier)`, `onMoments(moments)` (moods, impact pulses), `setResultsPoses({ rival: 'taunt' \| 'slump', player: EmoteId \| null })`, `setBotWindup(charId, { targetId } \| null)`, `showBark(charId, text, seconds?)` (no-op stubs) | `src/render/view.ts` | WP3 | match.ts `funObserve` / `funEnding` (WP5); `setResultsPoses` from `toResults` (WP6) |
+| `MatchAudioDirector.onMoments(moments)`, `setTension({ matchPoint, secondsLeft, run? })` + `TensionState` (no-op stubs; the old private police `setTension(x)` is now `setPoliceTension`) | `src/audio/director.ts` | WP8 | match.ts `funObserve` (WP5) |
+| Save v2 types: `ProgressV2` (`rivals`, `records`, `globalRecords`, `cups`, `challenges`, `recent`, `onboarding`, `funnel`), `RivalRecord`, `LayoutRecord`, `GlobalRecords`, `RecordKind`, `CupId`, `RivalRecordKey`, `OnboardingStep`, `FunnelKey`, `MatchOutcomeSummary` (incl. `teamMode`), `CupProgress`, `createDefaultProgressV2()`, `CosmeticsV2Fields` (`vanPaints`, `vanPaint`, `victoryPose`) + `createDefaultCosmeticsV2()` | `src/platform/progress.ts` | WP9 | WP6, WP7, WP10 |
+| `recordMatchOutcome(summary, save?) => { newRecord: RecordKind \| null }`, `rivalRecord(rival, key \| 'all', save?)`, `cupProgress(cup, save?)`, `bumpFunnel(key, save?)` (stubs: never write, neutral values), `grantRivalReward(cosmetics, rival) => { hatNew, emoteNew }` (stub: hat only, today's behaviour) | `src/platform/progress.ts` | WP9 | WP6, WP7 (`recordTournament` calls `grantRivalReward`), WP10 |
+| 털이 수첩: `ChallengeView`, `ChallengeMatchInput`, `matchChallengeDeltas(input) => Record<id, n>` (caps applied), `nextChallenge(progress) => ChallengeView \| null` (stubs: `{}` / `null`) | `src/game/challenges.ts` | WP10 | WP6 (deltas, next-goal chip), WP7 (menu card) |
+| match.ts hooks: `funObserve(events) => Moment[]`, `funFocusTargets()`, `funArrows()`, `funEnding(result)` [WP5]; `funHud(moments)` [WP4] — call sites already in place (no-op bodies) | `src/game/match.ts` | WP5 / WP4 | — |
+| Per-package string blocks (empty, with markers) | `src/ui/strings/ko.ts`, `en.ts` | each package | — |
+
+Per-tick order in `MatchController.stepOnce` (frozen): `sim.step` -> `view.captureTick` /
+`view.onEvents` / callouts / `setBotTelegraph` -> `observer.observe` -> **`funObserve`** (WP5:
+command log, `tracker.observe`, feel glance / slow-mo / hit-stop, `view.onMoments`, the
+`set*` view calls from `tracker.snapshot()` and bot intents, `director.setTension`,
+`director.onMoments`) -> `director.onEvents` / `script.onEvents` / `handleEvents` ->
+**`funHud`** (WP4) -> end check (`beginEnding` -> **`funEnding`**, WP5: `view.playGetaway`).
+Moments are edges; anything shown *while it lasts* (glow, steal marker, run heat, heartbeat,
+crown) is fed every tick from `snapshot()`. `src/game/feel.ts` (WP5) maps moments to `glance`
+and TimeScale only; render-only reactions (moods, impact pulse) live in `view.onMoments` (WP3);
+HUD never goes through feel.
+
+Notes:
+- `SAVE_VERSION` stays 1 until WP9 lands its 1 -> 2 migration (`PROGRESS_V2_SAVE_VERSION = 2`).
+- Strings: each package adds keys only between its own `[WPn] begin` / `[WPn] end` markers at
+  the end of `src/ui/strings/ko.ts` and `en.ts`: WP2 `taunt.bark.*`; WP4 `hud.mp.*`,
+  `hud.moment.*`; WP6 `results.hook.*`, `rivalLine.*`; WP7 `cup.*`, `onboard.*`; WP8 new
+  `caption.*`; WP10 `book.*` + new `hat.*`. Cross-package keys are pinned: `hud.mp.ours`,
+  `hud.mp.theirs`, `hud.moment.stealChance` (`{value}`) are defined by WP4 and read by WP3;
+  `taunt.bark.<BarkKey>` is defined by WP2 and translated in `funObserve` (WP5).
+- Shared-file ownership: `match.ts` — WP5 and WP4 edit only their `fun*` hook bodies (plus new
+  private fields and NEW import lines); WP4 additionally owns the existing banner calls (banner
+  queue). `app.ts` — WP6 owns `toResults` / `onMatchFinished` (builds `MatchOutcomeSummary`,
+  calls `recordMatchOutcome`, `bumpFunnel`, `setResultsPoses`); WP7 owns `toMenu`,
+  `tournamentConfig`, `offerAfterTutorial` and `recordTournament` (cup filing; it reads the cup
+  itself, so WP7 never edits `onMatchFinished`). `setup.ts` — WP7. `bot.ts` — WP2 (the
+  `params` merge is already in). `save.ts` — WP9 only; WP9 never edits `app.ts`.
+  `POLICE` / `BOT_TUNING` values — WP1 only.
+- Imports in shared files: add a NEW import line instead of extending an existing one (duplicate
+  module specifiers are fine), so two packages never edit the same import line.
+- Unit tests guarding the frozen shapes: `test/sim/queries-fun.test.ts`,
+  `test/unit/fun-contracts.test.ts` (owners update the "stub" expectations when they implement).
+
 ## Police event (owner addition beyond doc v0.5)
 
 Enabled per match with `rules.police` (default false; quick match and tournament turn it on, the

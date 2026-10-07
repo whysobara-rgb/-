@@ -185,7 +185,7 @@ def step_plates() -> None:
             img = load(src).convert('RGB')
             out = downsample(img, (img.width // dpr, img.height // dpr))
             c = contrast_report(out)
-            if c < 0.12:
+            if c < 0.12 and 'title' not in src.stem:
                 print(f'  ! low contrast {c:.3f}: {lang}/{src.name} (hazy capture? check it)')
             save(out, STORE / 'plates' / lang / f'{src.stem[6:]}.png')
 
@@ -275,13 +275,13 @@ def step_capsules() -> None:
         save(place(bg, lg, (34, 26, 560, 292), align='left'), STORE / f'main_capsule_{lang}.png')
 
         # Vertical 748x896 and library 600x900: logo up top, the diorama filling the lower half.
-        bg = window(tall, (748, 896), x0=0.06, y0=0.16, h=0.74)
+        bg = window(tall, (748, 896), x0=0.09, y0=0.19, h=0.67)
         bg = vignette(side_shade(bg, 'top', 0.4, 0.12), 0.16)
-        save(place(bg, lg, (60, 46, 628, 330)), STORE / f'vertical_capsule_{lang}.png')
+        save(place(bg, lg, (60, 34, 628, 300)), STORE / f'vertical_capsule_{lang}.png')
 
-        bg = window(tall, (600, 900), x0=0.11, y0=0.13, h=0.78)
+        bg = window(tall, (600, 900), x0=0.14, y0=0.16, h=0.72)
         bg = vignette(side_shade(bg, 'top', 0.4, 0.12), 0.16)
-        save(place(bg, lg, (36, 54, 528, 300)), STORE / f'library_capsule_{lang}.png')
+        save(place(bg, lg, (36, 40, 528, 290)), STORE / f'library_capsule_{lang}.png')
 
     # Library hero 3840x1240: no logo, no text (Steam lays the library logo over it).
     hero = title_plate('hero', 'ko', 'strain')
