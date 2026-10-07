@@ -2,11 +2,13 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
 
-/// SSR 홀로 포일.
+/// SR/SSR 홀로 포일.
 ///
-/// 자식 위에 (1) 천천히 흐르는 무지개 결, (2) 빠르게 지나가는 흰 반사광,
-/// (3) 반짝이는 금박 알갱이를 얹는다. 실제 트레이딩 카드의 홀로 포일처럼
-/// 빛이 표면을 '지나가는' 느낌만 주고, 면 전체를 무지개로 칠하지 않는다.
+/// 자식 위에 (1) 천천히 흐르는 무지개 결, (2) 지나가는 흰 반사광,
+/// (3) 반짝이는 금박 별을 얹는다. 실제 트레이딩 카드의 홀로처럼 빛이
+/// 표면을 '지나가는' 느낌만 주고, 면 전체를 무지개로 칠하지 않는다.
+/// 밝은 카드 위에서도 보이도록 무지개 결은 보통 합성(srcOver)으로
+/// 아주 옅게 얹는다.
 ///
 /// 컨트롤러는 위젯마다 하나(3.6초 반복)이고 [RepaintBoundary]로 감싸
 /// 다른 영역을 다시 그리지 않는다. 화면 밖 탭·라우트에서는 TickerMode로 멈춘다.
@@ -20,7 +22,7 @@ class HoloFoil extends StatefulWidget {
   /// 기울기(-1~1). 카드 틸트와 연결하면 빛이 기울기를 따라 움직인다.
   final Offset tilt;
 
-  /// false면 정지 상태(테스트·저사양).
+  /// false면 정지 상태(테스트·목록).
   final bool animate;
 
   final int sparkles;
@@ -70,7 +72,7 @@ class _HoloFoilState extends State<HoloFoil>
     return RepaintBoundary(
       child: CustomPaint(
         foregroundPainter: HoloSheenPainter(
-          progress: _c,
+          progress: widget.animate ? _c : null,
           intensity: widget.intensity,
           borderRadius: widget.borderRadius,
           tilt: widget.tilt,
@@ -121,7 +123,7 @@ class HoloSheenPainter extends CustomPainter {
     canvas.save();
     canvas.clipRRect(borderRadius.toRRect(rect));
 
-    // (1) 무지개 결: 대각선으로 길게 늘어선 띠가 천천히 흐른다.
+    // (1) 무지개 결: 대각선 띠가 천천히 흐른다.
     final shift = (t + tilt.dx * 0.25) * 2;
     final spectrum = AppColors.holoSpectrum;
     final colors = <Color>[];
@@ -129,14 +131,13 @@ class HoloSheenPainter extends CustomPainter {
     const reps = 2;
     for (var r = 0; r < reps; r++) {
       for (var i = 0; i < spectrum.length; i++) {
-        colors.add(spectrum[i].withValues(alpha: 0.16 * intensity));
+        colors.add(spectrum[i].withValues(alpha: 0.2 * intensity));
         stops.add((r * spectrum.length + i) / (reps * spectrum.length - 1));
       }
     }
     canvas.drawRect(
       rect,
       Paint()
-        ..blendMode = BlendMode.screen
         ..shader = LinearGradient(
           begin: Alignment(-1.0 + shift, -1.0 + tilt.dy * 0.4),
           end: Alignment(1.0 + shift, 1.0 + tilt.dy * 0.4),
@@ -147,49 +148,51 @@ class HoloSheenPainter extends CustomPainter {
     );
 
     // (2) 흰 반사광: 한 바퀴에 한 번 대각선으로 지나간다.
-    final sweep = ((t * 1.0) % 1.0) * 3.2 - 1.6 + tilt.dx * 0.6;
+    final sweep = (t % 1.0) * 3.2 - 1.6 + tilt.dx * 0.6;
     canvas.drawRect(
       rect,
       Paint()
-        ..blendMode = BlendMode.plus
         ..shader = LinearGradient(
           begin: Alignment(sweep - 0.6, -1),
           end: Alignment(sweep + 0.6, 1),
           colors: [
-            const Color(0x00FFF3D0),
-            const Color(0xFFFFF3D0).withValues(alpha: 0.34 * intensity),
-            const Color(0x00FFF3D0),
+            const Color(0x00FFFFFF),
+            Colors.white.withValues(alpha: 0.5 * intensity),
+            const Color(0x00FFFFFF),
           ],
           stops: const [0.42, 0.5, 0.58],
         ).createShader(rect),
     );
 
-    // (3) 금박 알갱이: 각자 다른 박자로 깜빡인다.
+    // (3) 금박 별: 각자 다른 박자로 반짝인다(금빛 후광 + 흰 심).
     if (sparkles > 0) {
       final n = math.min(sparkles, _glitter.length);
-      final paint = Paint()..blendMode = BlendMode.plus;
+      final halo = Paint();
+      final core = Paint();
       for (var i = 0; i < n; i++) {
         final (gx, gy, phase, r) = _glitter[i];
         final s = math.sin((t * 2 + phase) * math.pi * 2);
-        final a = math.pow(math.max(0.0, s), 10).toDouble() * intensity;
-        if (a < 0.02) continue;
+        final a = math.pow(math.max(0.0, s), 8).toDouble() * intensity;
+        if (a < 0.03) continue;
         final p = Offset(gx * size.width, gy * size.height);
-        final rad = r * (size.shortestSide / 120).clamp(0.6, 1.6);
-        paint.color = Colors.white.withValues(alpha: a);
-        canvas.drawCircle(p, rad, paint);
-        // 십자 반짝임.
-        paint.color = Colors.white.withValues(alpha: a * 0.6);
-        canvas.drawRect(
-          Rect.fromCenter(center: p, width: rad * 7, height: 0.7),
-          paint,
-        );
-        canvas.drawRect(
-          Rect.fromCenter(center: p, width: 0.7, height: rad * 7),
-          paint,
-        );
+        final rad = r * (size.shortestSide / 110).clamp(0.6, 1.8);
+        halo.color = const Color(0xFFF2B01E).withValues(alpha: a * 0.55);
+        _star(canvas, p, rad * 4.2, halo);
+        core.color = Colors.white.withValues(alpha: a);
+        _star(canvas, p, rad * 2.6, core);
       }
     }
     canvas.restore();
+  }
+
+  void _star(Canvas canvas, Offset p, double s, Paint paint) {
+    final path = Path()
+      ..moveTo(p.dx, p.dy - s)
+      ..quadraticBezierTo(p.dx, p.dy, p.dx + s, p.dy)
+      ..quadraticBezierTo(p.dx, p.dy, p.dx, p.dy + s)
+      ..quadraticBezierTo(p.dx, p.dy, p.dx - s, p.dy)
+      ..quadraticBezierTo(p.dx, p.dy, p.dx, p.dy - s);
+    canvas.drawPath(path, paint);
   }
 
   @override

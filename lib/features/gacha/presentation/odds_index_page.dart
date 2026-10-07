@@ -4,11 +4,11 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/format.dart';
-import '../../../shared/widgets/product_image.dart';
 import '../../../shared/widgets/ui.dart';
 import '../data/gacha_repository.dart';
 import '../domain/gacha_models.dart';
 import 'odds_page.dart';
+import 'widgets/box_thumb.dart';
 
 /// 모든 박스의 확률 공개 화면으로 가는 목록 (MY에서 진입).
 class OddsIndexPage extends StatefulWidget {
@@ -73,14 +73,12 @@ class _OddsIndexPageState extends State<OddsIndexPage> {
                   child: Row(
                     children: [
                       SizedBox(
-                        width: 52,
-                        height: 52,
-                        child: BoxImage(
-                          url: box.imageUrl,
-                          tone: box.accent ?? AppColors.brand,
-                          category: box.category,
+                        width: 56,
+                        height: 56,
+                        child: BoxThumb(
+                          box: box,
+                          scale: 0.76,
                           borderRadius: Radii.thumb,
-                          artScale: 0.6,
                         ),
                       ),
                       const SizedBox(width: Space.x3),
@@ -88,7 +86,12 @@ class _OddsIndexPageState extends State<OddsIndexPage> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(box.title, style: AppText.bodyStrong),
+                            Text(
+                              box.title,
+                              style: AppText.bodyStrong.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                             const SizedBox(height: 2),
                             Text(
                               [

@@ -41,7 +41,7 @@ class MainNavigation extends StatelessWidget {
   }
 }
 
-/// 고정 하단 바: 아이콘 + 한글 라벨, 활성 탭만 액센트.
+/// 고정 하단 바: 흰 바 + 헤어라인. 활성 탭은 채운 아이콘(캡슐 레드) + 잉크 라벨.
 class _BottomBar extends StatelessWidget {
   final AppTab current;
   final ValueChanged<AppTab> onSelect;
@@ -49,21 +49,21 @@ class _BottomBar extends StatelessWidget {
   const _BottomBar({required this.current, required this.onSelect});
 
   static const _icons = <AppTab, (IconData, IconData)>{
-    AppTab.home: (Icons.home_outlined, Icons.home),
-    AppTab.ranking: (Icons.leaderboard_outlined, Icons.leaderboard),
-    AppTab.inventory: (Icons.inventory_2_outlined, Icons.inventory_2),
+    AppTab.home: (Icons.home_outlined, Icons.home_rounded),
+    AppTab.ranking: (Icons.leaderboard_outlined, Icons.leaderboard_rounded),
+    AppTab.inventory: (Icons.inventory_2_outlined, Icons.inventory_2_rounded),
     AppTab.wallet: (
       Icons.account_balance_wallet_outlined,
-      Icons.account_balance_wallet,
+      Icons.account_balance_wallet_rounded,
     ),
-    AppTab.my: (Icons.person_outline, Icons.person),
+    AppTab.my: (Icons.person_outline_rounded, Icons.person_rounded),
   };
 
   @override
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: const BoxDecoration(
-        color: Color(0xFF0B0B0E),
+        color: AppColors.raised,
         border: Border(top: BorderSide(color: AppColors.hairline)),
       ),
       child: SafeArea(
@@ -104,15 +104,7 @@ class _BarItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = selected ? AppColors.brand : AppColors.textTertiary;
-    final glow = selected
-        ? [
-            Shadow(
-              color: AppColors.brand.withValues(alpha: 0.6),
-              blurRadius: 12,
-            ),
-          ]
-        : null;
+    final color = selected ? AppColors.text : AppColors.textTertiary;
     return Semantics(
       selected: selected,
       button: true,
@@ -124,13 +116,14 @@ class _BarItem extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, size: 24, color: color, shadows: glow),
-            const SizedBox(height: 3),
+            Icon(icon, size: 25, color: selected ? AppColors.brand : color),
+            const SizedBox(height: 4),
             Text(
               label,
               style: AppText.micro.copyWith(
-                color: selected ? AppColors.text : AppColors.textTertiary,
-                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                color: color,
+                fontSize: 11,
+                fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
                 height: 1,
               ),
             ),

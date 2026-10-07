@@ -4,6 +4,9 @@ import '../../core/theme/app_typography.dart';
 import '../../core/utils/format.dart';
 
 /// 실재고 막대: 판매 수량 / 전체 수량. 서버 숫자만 그린다.
+///
+/// 평소에는 잉크 막대, 70% 이상 팔리면 브랜드 레드(마감 임박),
+/// 품절이면 회색.
 class StockBar extends StatelessWidget {
   final int total;
   final int sold;
@@ -27,12 +30,13 @@ class StockBar extends StatelessWidget {
     final left = (total - sold).clamp(0, total);
     final hot = !soldOut && ratio >= 0.7;
     final fill = soldOut
-        ? AppColors.textTertiary
+        ? AppColors.textDisabled
         : hot
-        ? AppColors.danger
+        ? AppColors.brand
         : AppColors.text;
     final label = soldOut ? '품절' : '남은 ${formatNumber(left)}개';
-    final pct = '${(ratio * 100).floor()}%';
+    final pct = '${(ratio * 100).floor()}% 판매';
+    final base = compact ? AppText.micro : AppText.caption;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
@@ -44,23 +48,23 @@ class StockBar extends StatelessWidget {
                 label,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: AppText.num(compact ? AppText.micro : AppText.caption)
-                    .copyWith(
-                      color: hot ? AppColors.danger : AppColors.textSecondary,
-                      fontWeight: FontWeight.w700,
-                    ),
+                style: AppText.num(base).copyWith(
+                  color: hot ? AppColors.brand : AppColors.text,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
             Text(
               compact ? pct : '${formatNumber(sold)} / ${formatNumber(total)}',
-              style: AppText.num(
-                compact ? AppText.micro : AppText.caption,
-              ).copyWith(color: AppColors.textTertiary),
+              style: AppText.num(base).copyWith(
+                color: hot ? AppColors.brand : AppColors.textSecondary,
+                fontWeight: hot ? FontWeight.w700 : FontWeight.w500,
+              ),
             ),
           ],
         ),
-        SizedBox(height: compact ? 5 : 7),
-        _Bar(ratio: ratio, color: fill, height: compact ? 3 : 4),
+        SizedBox(height: compact ? 5 : 8),
+        _Bar(ratio: ratio, color: fill, height: compact ? 4 : 6),
       ],
     );
   }
@@ -103,7 +107,8 @@ class _Bar extends StatelessWidget {
   }
 }
 
-/// 빛나는 게이지(천장 진행도). 25/50/75% 눈금과 끝점의 빛 알갱이.
+/// 천장 게이지: 금박 그라데이션 막대 + 25/50/75% 눈금 + 끝점의 흰 알갱이.
+/// 블러 없이 그라데이션만 쓴다.
 class GlowMeter extends StatelessWidget {
   final double progress;
   final Color color;
@@ -116,7 +121,7 @@ class GlowMeter extends StatelessWidget {
     required this.progress,
     this.color = AppColors.raritySSR,
     this.highlight,
-    this.height = 8,
+    this.height = 10,
     this.ticks = 4,
   });
 
@@ -124,7 +129,7 @@ class GlowMeter extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       width: double.infinity,
-      height: height + 10,
+      height: height + 8,
       child: CustomPaint(
         painter: _GlowMeterPainter(
           progress: progress.clamp(0.0, 1.0),
@@ -165,10 +170,9 @@ class _GlowMeterPainter extends CustomPainter {
       r,
     );
     canvas.drawRRect(track, Paint()..color = AppColors.high);
-    // 눈금.
     final tickPaint = Paint()
-      ..color = AppColors.canvas.withValues(alpha: 0.9)
-      ..strokeWidth = 1.5;
+      ..color = Colors.white
+      ..strokeWidth = 2;
     for (var i = 1; i < ticks; i++) {
       final x = size.width * i / ticks;
       canvas.drawLine(
@@ -180,22 +184,34 @@ class _GlowMeterPainter extends CustomPainter {
     if (progress <= 0 || size.width < barHeight) return;
     final w = (size.width * progress).clamp(barHeight, size.width);
     final fill = RRect.fromLTRBR(0, y - barHeight / 2, w, y + barHeight / 2, r);
-    // 후광.
-    canvas.drawRRect(
-      fill.inflate(1),
+    // 아래로 번지는 옅은 그림자(그라데이션).
+    final under = Rect.fromLTRB(0, y, w, y + barHeight * 1.1);
+    canvas.drawRect(
+      under,
       Paint()
-        ..color = color.withValues(alpha: 0.45)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [color.withValues(alpha: 0.28), color.withValues(alpha: 0)],
+        ).createShader(under),
     );
     canvas.drawRRect(
       fill,
       Paint()
         ..shader = LinearGradient(
-          colors: [Color.lerp(color, Colors.black, 0.25)!, color, highlight],
+          colors: [Color.lerp(color, Colors.black, 0.18)!, color, highlight],
           stops: const [0, 0.7, 1],
         ).createShader(fill.outerRect),
     );
-    // 다시 눈금(채운 면 위에 얇게).
+    // 윗변 반사.
+    canvas.drawLine(
+      Offset(barHeight / 2, y - barHeight * 0.22),
+      Offset(w - barHeight / 2, y - barHeight * 0.22),
+      Paint()
+        ..color = Colors.white.withValues(alpha: 0.45)
+        ..strokeWidth = barHeight * 0.18
+        ..strokeCap = StrokeCap.round,
+    );
     for (var i = 1; i < ticks; i++) {
       final x = size.width * i / ticks;
       if (x >= w) break;
@@ -203,20 +219,13 @@ class _GlowMeterPainter extends CustomPainter {
         Offset(x, y - barHeight / 2),
         Offset(x, y + barHeight / 2),
         Paint()
-          ..color = Colors.black.withValues(alpha: 0.25)
-          ..strokeWidth = 1,
+          ..color = Colors.white.withValues(alpha: 0.6)
+          ..strokeWidth = 1.5,
       );
     }
-    // 끝점 빛 알갱이.
     final head = Offset(w - barHeight / 2, y);
-    canvas.drawCircle(
-      head,
-      barHeight * 1.1,
-      Paint()
-        ..color = highlight.withValues(alpha: 0.55)
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, barHeight * 0.8),
-    );
-    canvas.drawCircle(head, barHeight * 0.32, Paint()..color = Colors.white);
+    canvas.drawCircle(head, barHeight * 0.62, Paint()..color = Colors.white);
+    canvas.drawCircle(head, barHeight * 0.3, Paint()..color = color);
   }
 
   @override

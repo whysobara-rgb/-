@@ -9,6 +9,7 @@ import '../../../core/network/api_client.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/theme/rarity_style.dart';
 import '../../../core/utils/format.dart';
 import '../../../navigation/tab_navigator.dart';
 import '../../../shared/providers/auth_provider.dart';
@@ -62,7 +63,11 @@ class _GachaResultPageState extends State<GachaResultPage>
     duration: const Duration(seconds: 24),
   );
 
-  late final List<GoldLeaf> _leaves = GoldLeafPainter.generate(60, seed: 7);
+  late final List<GoldLeaf> _leaves = GoldLeafPainter.generate(
+    60,
+    seed: 7,
+    palette: kConfettiOnLight,
+  );
   Offset _tilt = Offset.zero;
 
   DrawOutcome get _o => widget.outcome;
@@ -272,7 +277,7 @@ class _GachaResultPageState extends State<GachaResultPage>
                     Space.gutter,
                     0,
                   ),
-                  child: SurfaceCard(
+                  child: AppCard(
                     padding: const EdgeInsets.symmetric(
                       horizontal: Space.x4,
                       vertical: Space.x2,
@@ -329,7 +334,7 @@ class _GachaResultPageState extends State<GachaResultPage>
                             CustomPaint(
                               painter: SparkBurstPainter(
                                 age: t * 3.6 * 0.6,
-                                color: stageLight(r),
+                                color: r.color,
                                 count: RevealTimeline.sparkCount(r),
                                 origin: Offset(c.maxWidth / 2, 200),
                                 power: 0.7,
@@ -364,7 +369,8 @@ class _GachaResultPageState extends State<GachaResultPage>
   }
 }
 
-/// 대표 결과: 빛줄기 위 큰 카드(SSR 홀로·틸트) + 이름·정가·라벨 + 자랑하기.
+/// 대표 결과: 등급 색으로 물든 밝은 무대 + 빛줄기 + 큰 카드(SSR 홀로·틸트)
+/// + 이름·정가 + 자랑하기.
 class _Hero extends StatelessWidget {
   final DrawResult result;
   final String caption;
@@ -384,60 +390,50 @@ class _Hero extends StatelessWidget {
     required this.onShare,
   });
 
+  static Color _wash(Rarity r) => switch (r) {
+    Rarity.n => const Color(0xFFF1F3F6),
+    Rarity.r => const Color(0xFFE3EDFF),
+    Rarity.sr => const Color(0xFFEFE4FF),
+    Rarity.ssr => const Color(0xFFFFF0C2),
+  };
+
   @override
   Widget build(BuildContext context) {
     final r = result.rarity;
-    final light = stageLight(r);
-    const cardW = 196.0;
+    const cardW = 204.0;
     return Column(
       children: [
         SizedBox(
-          height: cardW * 1.4 + 56,
+          // 폭을 꽉 채운다(느슨한 폭이면 Stack이 카드 폭으로 줄어 배경이 기둥처럼 잘린다).
+          width: double.infinity,
+          height: cardW * 1.4 + 64,
           child: Stack(
             alignment: Alignment.center,
             children: [
+              // 바탕(등급 색 → 흰색) + 가운데 흰 빛 + 회전하는 빛줄기를 한 장의
+              // 그림으로 그리고, 매 프레임 도는 빛줄기가 카드까지 다시 그리지 않게
+              // 별도 층으로 둔다.
               Positioned.fill(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: RadialGradient(
-                      radius: 0.75,
-                      colors: [
-                        r.color.withValues(alpha: festive ? 0.28 : 0.12),
-                        Colors.transparent,
-                      ],
-                    ),
-                  ),
+                child: RepaintBoundary(
+                  child: festive
+                      ? AnimatedBuilder(
+                          animation: spin,
+                          builder: (context, _) => CustomPaint(
+                            painter: _HeroBackdropPainter(
+                              wash: _wash(r),
+                              rays: r.color,
+                              rayCount: r == Rarity.ssr ? 16 : 12,
+                              intensity: r == Rarity.ssr ? 0.75 : 0.55,
+                              rotation: spin.value * 2 * math.pi,
+                            ),
+                          ),
+                        )
+                      : CustomPaint(
+                          painter: _HeroBackdropPainter(wash: _wash(r)),
+                        ),
                 ),
               ),
-              if (festive)
-                Positioned.fill(
-                  child: ShaderMask(
-                    // 목록 위쪽 가장자리에서 빛줄기가 칼같이 잘리지 않게 흐린다.
-                    blendMode: BlendMode.dstIn,
-                    shaderCallback: (rect) => const LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.transparent,
-                        Colors.white,
-                        Colors.white,
-                        Colors.transparent,
-                      ],
-                      stops: [0, 0.22, 0.8, 1],
-                    ).createShader(rect),
-                    child: AnimatedBuilder(
-                      animation: spin,
-                      builder: (context, _) => CustomPaint(
-                        painter: LightRaysPainter(
-                          rotation: spin.value * 2 * math.pi,
-                          intensity: r == Rarity.ssr ? 0.9 : 0.7,
-                          color: light,
-                          rays: r == Rarity.ssr ? 16 : 12,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
+              CardGlow(rarity: r, width: cardW),
               GestureDetector(
                 onPanUpdate: (d) => onTilt(
                   Offset(
@@ -446,18 +442,22 @@ class _Hero extends StatelessWidget {
                   ),
                 ),
                 onPanEnd: (_) => onTilt(Offset.zero),
-                child: Transform(
-                  alignment: Alignment.center,
-                  transform: Matrix4.identity()
-                    ..setEntry(3, 2, 0.0012)
-                    ..rotateY(tilt.dx * 0.25)
-                    ..rotateX(-tilt.dy * 0.2),
-                  child: RevealCardFace(
-                    result: result,
-                    width: cardW,
-                    tilt: tilt,
-                  ),
-                ),
+                // 기울이지 않을 때는 3D 변환 없이 그린다(웹 합성 비용·잔상 방지).
+                child: tilt == Offset.zero
+                    ? RevealCardFace(result: result, width: cardW, glow: 0)
+                    : Transform(
+                        alignment: Alignment.center,
+                        transform: Matrix4.identity()
+                          ..setEntry(3, 2, 0.0012)
+                          ..rotateY(tilt.dx * 0.25)
+                          ..rotateX(-tilt.dy * 0.2),
+                        child: RevealCardFace(
+                          result: result,
+                          width: cardW,
+                          tilt: tilt,
+                          glow: 0,
+                        ),
+                      ),
               ),
             ],
           ),
@@ -471,30 +471,44 @@ class _Hero extends StatelessWidget {
               Text(
                 result.name,
                 textAlign: TextAlign.center,
-                style: AppText.title1.copyWith(fontSize: 24),
+                style: AppText.display.copyWith(fontSize: 26),
               ),
-              const SizedBox(height: 4),
-              Text(
-                result.exchangeValue > 0
-                    ? '정가 ${formatWon(result.estimatedValue)} · 전환 시 ${formatGp(result.exchangeValue)}'
-                    : '정가 ${formatWon(result.estimatedValue)}',
+              const SizedBox(height: 6),
+              Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(
+                      text: '정가 ${formatWon(result.estimatedValue)}',
+                      style: TextStyle(
+                        color: r == Rarity.n ? AppColors.text : r.ink,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    if (result.exchangeValue > 0)
+                      TextSpan(
+                        text: '  ·  전환 시 ${formatGp(result.exchangeValue)}',
+                      ),
+                  ],
+                ),
                 textAlign: TextAlign.center,
                 style: AppText.num(AppText.callout).copyWith(
-                  color: r == Rarity.n ? AppColors.textSecondary : r.light,
-                  fontWeight: FontWeight.w700,
+                  color: AppColors.textSecondary,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
               if (onShare != null) ...[
-                const SizedBox(height: Space.x3),
-                OutlinedButton.icon(
+                const SizedBox(height: Space.x4),
+                FilledButton.icon(
                   onPressed: onShare,
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(0, 38),
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(0, 40),
+                    padding: const EdgeInsets.symmetric(horizontal: 18),
                     shape: const StadiumBorder(),
-                    side: BorderSide(color: r.color.withValues(alpha: 0.6)),
-                    foregroundColor: r.light,
-                    textStyle: AppText.bodyStrong,
+                    backgroundColor: AppColors.text,
+                    foregroundColor: Colors.white,
+                    textStyle: AppText.bodyStrong.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                   icon: const Icon(Icons.ios_share_rounded, size: 17),
                   label: const Text('자랑하기'),
@@ -506,6 +520,85 @@ class _Hero extends StatelessWidget {
       ],
     );
   }
+}
+
+class _HeroBackdropPainter extends CustomPainter {
+  final Color wash;
+  final Color? rays;
+  final int rayCount;
+  final double intensity;
+  final double rotation;
+
+  _HeroBackdropPainter({
+    required this.wash,
+    this.rays,
+    this.rayCount = 12,
+    this.intensity = 0,
+    this.rotation = 0,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [wash, AppColors.canvas],
+          stops: const [0.45, 1],
+        ).createShader(rect),
+    );
+    final c = Offset(size.width / 2, size.height * 0.45);
+    final glow = size.shortestSide * 0.7;
+    canvas.drawCircle(
+      c,
+      glow,
+      Paint()
+        ..shader = RadialGradient(
+          colors: [Colors.white, Colors.white.withValues(alpha: 0)],
+        ).createShader(Rect.fromCircle(center: c, radius: glow)),
+    );
+    final r = rays;
+    if (r != null && intensity > 0) {
+      LightRaysPainter(
+        rotation: rotation,
+        intensity: intensity,
+        color: r,
+        rays: rayCount,
+        origin: size.center(Offset.zero),
+      ).paint(canvas, size);
+      // 위·아래 가장자리에서 빛줄기가 칼같이 잘리지 않게 바탕색으로 덮는다.
+      final top = Rect.fromLTWH(0, 0, size.width, 56);
+      canvas.drawRect(
+        top,
+        Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [wash, wash.withValues(alpha: 0)],
+          ).createShader(top),
+      );
+      final bottom = Rect.fromLTWH(0, size.height - 72, size.width, 72);
+      canvas.drawRect(
+        bottom,
+        Paint()
+          ..shader = const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0x00FFFFFF), AppColors.canvas],
+          ).createShader(bottom),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _HeroBackdropPainter old) =>
+      old.wash != wash ||
+      old.rays != rays ||
+      old.rotation != rotation ||
+      old.intensity != intensity;
 }
 
 class _CountsHeader extends StatelessWidget {
@@ -560,12 +653,12 @@ class _CountCell extends StatelessWidget {
   Widget build(BuildContext context) {
     final on = count > 0;
     return Container(
-      height: 52,
+      height: 56,
       decoration: BoxDecoration(
-        color: on ? rarity.tint : AppColors.surface,
+        color: on ? rarity.color.withValues(alpha: 0.1) : AppColors.surface,
         borderRadius: Radii.button,
         border: Border.all(
-          color: on ? rarity.color.withValues(alpha: 0.5) : AppColors.hairline,
+          color: on ? rarity.color.withValues(alpha: 0.45) : AppColors.hairline,
         ),
       ),
       child: Column(
@@ -574,7 +667,7 @@ class _CountCell extends StatelessWidget {
           Text(
             rarity.code,
             style: AppText.micro.copyWith(
-              color: on ? rarity.light : AppColors.textTertiary,
+              color: on ? rarity.ink : AppColors.textTertiary,
               fontWeight: FontWeight.w900,
               letterSpacing: 0.6,
             ),
@@ -584,6 +677,7 @@ class _CountCell extends StatelessWidget {
             style: AppText.num(AppText.headline).copyWith(
               color: on ? AppColors.text : AppColors.textTertiary,
               fontWeight: FontWeight.w900,
+              fontSize: 18,
               height: 1.2,
             ),
           ),
@@ -650,8 +744,8 @@ class _PityLine extends StatelessWidget {
         Space.gutter,
         0,
       ),
-      child: SurfaceCard(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      child: AppCard(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -668,7 +762,7 @@ class _PityLine extends StatelessWidget {
                       TextSpan(
                         text: '${formatNumber(remaining)}회',
                         style: AppText.num(AppText.bodyStrong).copyWith(
-                          color: AppColors.raritySSRLight,
+                          color: AppColors.raritySSRInk,
                           fontWeight: FontWeight.w800,
                         ),
                       ),
@@ -708,8 +802,8 @@ class _BottomActions extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: const BoxDecoration(
-        color: AppColors.canvas,
-        border: Border(top: BorderSide(color: AppColors.hairline)),
+        color: AppColors.raised,
+        boxShadow: Shadows.bar,
       ),
       child: SafeArea(
         top: false,

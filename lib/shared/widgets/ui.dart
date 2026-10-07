@@ -2,32 +2,22 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/utils/format.dart';
 
-/// 공통 UI 조각.
+/// 공통 UI 조각(밝은 테마 한 벌).
 ///
-/// 시트·토스트·버튼·로딩처럼 로그인(페이퍼) 화면도 함께 쓰는 위젯은
-/// 색을 [Theme]에서 읽어 두 테마에서 모두 맞게 그린다.
+/// 색은 토큰([AppColors])만 쓰고, 화면마다 카드·칩·섹션 제목을 새로 만들지
+/// 않도록 여기 모아 둔다. 2차의 위젯 이름과 생성자는 그대로 남겨서
+/// 다른 화면이 고치지 않아도 새 스타일을 받는다.
 
-/// 섹션 사이 띠. 볼트에서는 바탕보다 한 단 깊은 홈(groove).
+/// 섹션 사이 띠: 옅은 회색 면. 화면을 '묶음'으로 나누는 리듬.
 class SectionBand extends StatelessWidget {
   final double height;
   const SectionBand({super.key, this.height = 8});
 
   @override
-  Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
-      height: height,
-      decoration: BoxDecoration(
-        color: dark ? const Color(0xFF040405) : AppColors.bgSubtle,
-        border: dark
-            ? const Border.symmetric(
-                horizontal: BorderSide(color: AppColors.hairline, width: 0.5),
-              )
-            : null,
-      ),
-    );
-  }
+  Widget build(BuildContext context) =>
+      Container(height: height, color: AppColors.section);
 }
 
 /// 1px 헤어라인. [inset]만큼 좌우를 띄운다.
@@ -38,17 +28,15 @@ class Hairline extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Padding(
     padding: EdgeInsets.symmetric(horizontal: inset),
-    child: Divider(
-      height: 1,
-      thickness: 1,
-      color: Theme.of(context).dividerColor,
-    ),
+    child: const Divider(height: 1, thickness: 1, color: AppColors.hairline),
   );
 }
 
-/// 섹션 제목 + (선택) 영문 아이브로 + 우측 텍스트 액션.
+/// 섹션 제목(20/800) + (선택) 작은 라벨·부제 + 우측 "전체보기 >".
 class SectionHeader extends StatelessWidget {
   final String title;
+
+  /// 제목 위 작은 라벨(브랜드 색). 한 화면에 한두 번만.
   final String? eyebrow;
   final String? subtitle;
   final String? actionLabel;
@@ -85,11 +73,11 @@ class SectionHeader extends StatelessWidget {
               children: [
                 if (eyebrow != null) ...[
                   Text(eyebrow!, style: AppText.eyebrow),
-                  const SizedBox(height: 5),
+                  const SizedBox(height: Space.x1),
                 ],
-                Text(title, style: AppText.title2.copyWith(fontSize: 19)),
+                Text(title, style: AppText.section),
                 if (subtitle != null) ...[
-                  const SizedBox(height: 3),
+                  const SizedBox(height: 2),
                   Text(subtitle!, style: AppText.caption),
                 ],
               ],
@@ -101,19 +89,19 @@ class SectionHeader extends StatelessWidget {
               onTap: onAction,
               borderRadius: Radii.chip,
               child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+                padding: const EdgeInsets.fromLTRB(6, 4, 0, 4),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
                       actionLabel!,
-                      style: AppText.caption.copyWith(
+                      style: AppText.callout.copyWith(
                         fontWeight: FontWeight.w600,
                       ),
                     ),
                     const Icon(
-                      Icons.chevron_right,
-                      size: 16,
+                      Icons.chevron_right_rounded,
+                      size: 18,
                       color: AppColors.textSecondary,
                     ),
                   ],
@@ -140,7 +128,7 @@ class InfoRow extends StatelessWidget {
     required this.value,
     this.valueStyle,
     this.trailing,
-    this.padding = const EdgeInsets.symmetric(vertical: 7),
+    this.padding = const EdgeInsets.symmetric(vertical: 8),
   });
 
   @override
@@ -155,7 +143,11 @@ class InfoRow extends StatelessWidget {
             child: Text(
               value,
               textAlign: TextAlign.right,
-              style: valueStyle ?? AppText.num(AppText.bodyStrong),
+              style:
+                  valueStyle ??
+                  AppText.num(
+                    AppText.bodyStrong,
+                  ).copyWith(color: AppColors.text),
             ),
           ),
           if (trailing != null) ...[const SizedBox(width: 6), trailing!],
@@ -201,14 +193,20 @@ class MenuRow extends StatelessWidget {
               const SizedBox(width: Space.x3),
             ],
             Expanded(
-              child: Text(label, style: AppText.body.copyWith(color: fg)),
+              child: Text(
+                label,
+                style: AppText.body.copyWith(
+                  color: fg,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
             ),
             if (value != null)
               Text(value!, style: AppText.num(AppText.callout)),
             if (showChevron) ...[
               const SizedBox(width: 2),
               const Icon(
-                Icons.chevron_right,
+                Icons.chevron_right_rounded,
                 size: 20,
                 color: AppColors.textTertiary,
               ),
@@ -220,7 +218,8 @@ class MenuRow extends StatelessWidget {
   }
 }
 
-/// 표면 카드: 한 단 밝은 면 + 헤어라인.
+/// 채움 카드: 캔버스와 한 단 다른 옅은 면 + 헤어라인.
+/// 흰 카드에 그림자가 필요하면 [AppCard].
 class SurfaceCard extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry padding;
@@ -251,6 +250,136 @@ class SurfaceCard extends StatelessWidget {
   }
 }
 
+/// 떠 있는 흰 카드: 헤어라인 + 여러 겹의 옅은 그림자. [onTap]이 있으면
+/// 누를 수 있다.
+class AppCard extends StatelessWidget {
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+  final BorderRadius borderRadius;
+  final Color color;
+  final Color? borderColor;
+  final List<BoxShadow> shadow;
+  final VoidCallback? onTap;
+
+  const AppCard({
+    super.key,
+    required this.child,
+    this.padding = const EdgeInsets.all(Space.x4),
+    this.borderRadius = Radii.card,
+    this.color = AppColors.raised,
+    this.borderColor,
+    this.shadow = Shadows.card,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final content = Padding(padding: padding, child: child);
+    return DecoratedBox(
+      decoration: BoxDecoration(borderRadius: borderRadius, boxShadow: shadow),
+      child: Material(
+        color: color,
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
+          borderRadius: borderRadius,
+          side: BorderSide(color: borderColor ?? AppColors.hairline),
+        ),
+        child: onTap == null ? content : InkWell(onTap: onTap, child: content),
+      ),
+    );
+  }
+}
+
+/// 큰 숫자 + 작은 단위("49,000 GP", "1,700,000원"). 가격·잔액 표기용.
+class PriceText extends StatelessWidget {
+  final num amount;
+  final String unit;
+  final double size;
+  final Color? color;
+  final Color? unitColor;
+  final FontWeight weight;
+
+  const PriceText(
+    this.amount, {
+    super.key,
+    this.unit = 'GP',
+    this.size = 18,
+    this.color,
+    this.unitColor,
+    this.weight = FontWeight.w800,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = color ?? AppColors.text;
+    final won = unit == '원';
+    return Text.rich(
+      TextSpan(
+        children: [
+          TextSpan(text: formatNumber(amount)),
+          TextSpan(
+            text: won ? unit : ' $unit',
+            style: TextStyle(
+              fontSize: size * (won ? 0.72 : 0.6),
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0,
+              color: unitColor ?? (won ? c : c.withValues(alpha: 0.6)),
+            ),
+          ),
+        ],
+      ),
+      maxLines: 1,
+      style: AppText.price.copyWith(
+        fontSize: size,
+        fontWeight: weight,
+        letterSpacing: -size * 0.035,
+        color: c,
+        height: 1.1,
+      ),
+    );
+  }
+}
+
+/// 둥근 흰 아이콘 버튼(상세 헤더처럼 그림 위에 뜨는 뒤로가기 등).
+class CircleIconButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback? onPressed;
+  final String? tooltip;
+  final double size;
+
+  const CircleIconButton({
+    super.key,
+    required this.icon,
+    this.onPressed,
+    this.tooltip,
+    this.size = 40,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final button = DecoratedBox(
+      decoration: const BoxDecoration(
+        shape: BoxShape.circle,
+        boxShadow: Shadows.small,
+      ),
+      child: Material(
+        color: AppColors.raised.withValues(alpha: 0.94),
+        shape: const CircleBorder(),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onPressed,
+          child: SizedBox(
+            width: size,
+            height: size,
+            child: Icon(icon, size: size * 0.55, color: AppColors.text),
+          ),
+        ),
+      ),
+    );
+    return tooltip == null ? button : Tooltip(message: tooltip, child: button);
+  }
+}
+
 /// 로딩/오류/빈 상태.
 class LoadingView extends StatelessWidget {
   final double height;
@@ -259,13 +388,13 @@ class LoadingView extends StatelessWidget {
   @override
   Widget build(BuildContext context) => SizedBox(
     height: height,
-    child: Center(
+    child: const Center(
       child: SizedBox(
         width: 22,
         height: 22,
         child: CircularProgressIndicator(
-          strokeWidth: 2,
-          color: Theme.of(context).colorScheme.onSurface,
+          strokeWidth: 2.4,
+          color: AppColors.brand,
         ),
       ),
     ),
@@ -303,8 +432,9 @@ class ErrorView extends StatelessWidget {
               OutlinedButton(
                 onPressed: onRetry,
                 style: OutlinedButton.styleFrom(
-                  minimumSize: const Size(0, 36),
+                  minimumSize: const Size(0, 40),
                   textStyle: AppText.bodyStrong,
+                  shape: const StadiumBorder(),
                 ),
                 child: const Text('다시 시도'),
               ),
@@ -343,14 +473,13 @@ class EmptyView extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                width: 56,
-                height: 56,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
+                width: 64,
+                height: 64,
+                decoration: const BoxDecoration(
                   color: AppColors.surface,
-                  border: Border.all(color: AppColors.hairline),
+                  borderRadius: BorderRadius.all(Radius.circular(20)),
                 ),
-                child: Icon(icon, size: 24, color: AppColors.textSecondary),
+                child: Icon(icon, size: 28, color: AppColors.textTertiary),
               ),
               const SizedBox(height: Space.x4),
               Text(title, style: AppText.headline, textAlign: TextAlign.center),
@@ -374,7 +503,7 @@ class EmptyView extends StatelessWidget {
   }
 }
 
-/// 로딩 상태를 가진 꽉 찬 버튼.
+/// 로딩 상태를 가진 꽉 찬 버튼(브랜드 레드).
 class PrimaryButton extends StatelessWidget {
   final String label;
   final VoidCallback? onPressed;
@@ -393,19 +522,18 @@ class PrimaryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final button = FilledButton(
       onPressed: loading ? null : onPressed,
       style: color != null
           ? FilledButton.styleFrom(backgroundColor: color)
           : null,
       child: loading
-          ? SizedBox(
+          ? const SizedBox(
               width: 20,
               height: 20,
               child: CircularProgressIndicator(
                 strokeWidth: 2,
-                color: scheme.onSurfaceVariant,
+                color: AppColors.textSecondary,
               ),
             )
           : Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -427,7 +555,6 @@ Future<T?> showAppSheet<T>({
     isScrollControlled: isScrollControlled,
     useSafeArea: true,
     builder: (sheetContext) {
-      final theme = Theme.of(sheetContext);
       return Padding(
         padding: EdgeInsets.only(
           bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
@@ -443,9 +570,9 @@ Future<T?> showAppSheet<T>({
                 child: Container(
                   width: 36,
                   height: 4,
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.outline,
-                    borderRadius: const BorderRadius.all(Radius.circular(2)),
+                  decoration: const BoxDecoration(
+                    color: AppColors.hairlineStrong,
+                    borderRadius: BorderRadius.all(Radius.circular(2)),
                   ),
                 ),
               ),
@@ -461,15 +588,13 @@ Future<T?> showAppSheet<T>({
                     Expanded(
                       child: Text(
                         title,
-                        style: AppText.title2.copyWith(
-                          color: theme.colorScheme.onSurface,
-                        ),
+                        style: AppText.title2.copyWith(color: AppColors.text),
                       ),
                     ),
                     IconButton(
                       tooltip: '닫기',
                       onPressed: () => Navigator.of(sheetContext).pop(),
-                      icon: const Icon(Icons.close, size: 22),
+                      icon: const Icon(Icons.close_rounded, size: 22),
                     ),
                   ],
                 ),
@@ -483,7 +608,7 @@ Future<T?> showAppSheet<T>({
   );
 }
 
-/// 시트 안의 정보 묶음 바탕.
+/// 시트 안의 정보 묶음 바탕(옅은 회색 면).
 class SheetPanel extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry padding;
@@ -498,15 +623,11 @@ class SheetPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       padding: padding,
-      decoration: BoxDecoration(
-        color: dark
-            ? AppColors.canvas.withValues(alpha: 0.6)
-            : AppColors.bgSubtle,
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
         borderRadius: Radii.card,
-        border: dark ? Border.all(color: AppColors.hairline) : null,
       ),
       child: child,
     );
@@ -526,44 +647,65 @@ void showToast(BuildContext context, String message, {SnackBarAction? action}) {
     );
 }
 
-/// 필터·정렬 칩(볼트). 선택되면 오프화이트 면 + 먹색 글씨.
-class VaultChip extends StatelessWidget {
+/// 필터·정렬 칩. 선택되면 잉크 면 + 흰 글씨, 아니면 흰 면 + 헤어라인.
+class AppChip extends StatelessWidget {
   final String label;
   final bool selected;
   final VoidCallback onTap;
 
-  const VaultChip({
+  /// 라벨 앞 작은 그림(패키지 썸네일 등).
+  final Widget? leading;
+
+  const AppChip({
     super.key,
     required this.label,
     required this.selected,
     required this.onTap,
+    this.leading,
   });
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: Radii.pill,
-      child: AnimatedContainer(
-        duration: Motion.fast,
-        height: 32,
-        padding: const EdgeInsets.symmetric(horizontal: 13),
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: selected ? AppColors.text : AppColors.surface,
-          border: Border.all(
-            color: selected ? AppColors.text : AppColors.hairlineStrong,
-          ),
-          borderRadius: Radii.pill,
+    return Material(
+      color: selected ? AppColors.text : AppColors.raised,
+      shape: StadiumBorder(
+        side: BorderSide(
+          color: selected ? AppColors.text : AppColors.hairlineStrong,
         ),
-        child: Text(
-          label,
-          style: AppText.num(AppText.callout).copyWith(
-            color: selected ? AppColors.canvas : AppColors.text,
-            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          height: 34,
+          padding: EdgeInsets.only(left: leading == null ? 14 : 5, right: 14),
+          alignment: Alignment.center,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (leading != null) ...[leading!, const SizedBox(width: 6)],
+              Text(
+                label,
+                style: AppText.num(AppText.callout).copyWith(
+                  color: selected ? Colors.white : AppColors.text,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+                  height: 1,
+                ),
+              ),
+            ],
           ),
         ),
       ),
     );
   }
+}
+
+/// Deprecated: [AppChip]과 같다(2차 이름).
+class VaultChip extends AppChip {
+  const VaultChip({
+    super.key,
+    required super.label,
+    required super.selected,
+    required super.onTap,
+  });
 }

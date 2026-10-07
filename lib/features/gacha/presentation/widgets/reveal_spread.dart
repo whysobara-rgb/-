@@ -8,6 +8,7 @@ import '../../../../core/feedback/sfx.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
+import '../../../../core/theme/rarity_style.dart';
 import '../../../../core/utils/format.dart';
 import '../../domain/draw_result.dart';
 import '../../domain/reveal_timeline.dart';
@@ -392,8 +393,14 @@ class _RevealSpreadState extends State<RevealSpread>
             child: OutlinedButton(
               onPressed: () => setState(() => _focusDismissed = true),
               style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.white,
-                side: BorderSide(color: Colors.white.withValues(alpha: 0.3)),
+                foregroundColor: stageInk(widget.ordered[_last].rarity),
+                backgroundColor: Colors.white.withValues(alpha: 0.16),
+                shape: const StadiumBorder(),
+                side: BorderSide(
+                  color: stageInk(
+                    widget.ordered[_last].rarity,
+                  ).withValues(alpha: 0.4),
+                ),
               ),
               child: const Text('카드 모두 보기'),
             ),
@@ -402,6 +409,12 @@ class _RevealSpreadState extends State<RevealSpread>
         ],
         Expanded(
           child: FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.white,
+              foregroundColor: AppColors.text,
+              disabledBackgroundColor: Colors.white.withValues(alpha: 0.3),
+              shape: const StadiumBorder(),
+            ),
             onPressed: _now < _entryDone * 0.6
                 ? null
                 : anyLeft
@@ -496,7 +509,20 @@ class _RevealSpreadState extends State<RevealSpread>
         Positioned.fill(
           child: GestureDetector(
             onTap: done ? () => setState(() => _focusDismissed = true) : null,
-            child: ColoredBox(color: Colors.black.withValues(alpha: dim)),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  center: Alignment(0, center.dy / size.height * 2 - 1),
+                  radius: 1.1,
+                  colors: [
+                    r.field.center.withValues(alpha: dim),
+                    r.field.mid.withValues(alpha: dim),
+                    r.field.edge.withValues(alpha: dim),
+                  ],
+                  stops: const [0, 0.45, 1],
+                ),
+              ),
+            ),
           ),
         ),
         Positioned.fill(
@@ -543,6 +569,15 @@ class _RevealSpreadState extends State<RevealSpread>
                       ),
                     ),
                   ),
+                  if (flip > 0.5)
+                    Positioned(
+                      left: cardCenter.dx - w / 2,
+                      top: cardCenter.dy - w * 0.7,
+                      child: Opacity(
+                        opacity: ((flip - 0.5) * 2).clamp(0.0, 1.0),
+                        child: CardGlow(rarity: r, width: w),
+                      ),
+                    ),
                   Positioned(
                     left: cardCenter.dx - w / 2,
                     top: cardCenter.dy - w * 0.7,
@@ -553,6 +588,7 @@ class _RevealSpreadState extends State<RevealSpread>
                         result: result,
                         width: w,
                         tilt: sway,
+                        glow: 0,
                       ),
                       back: RevealCardBack(
                         width: w,
@@ -630,14 +666,18 @@ class _FocusCaption extends StatelessWidget {
           textAlign: TextAlign.center,
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
-          style: AppText.title1.copyWith(color: Colors.white),
+          style: AppText.title1.copyWith(
+            color: stageInk(result.rarity),
+            fontSize: 24,
+          ),
         ),
         const SizedBox(height: 4),
         Text(
           '정가 ${formatWon(result.estimatedValue)}',
-          style: AppText.num(
-            AppText.callout,
-          ).copyWith(color: result.rarity.light, fontWeight: FontWeight.w700),
+          style: AppText.num(AppText.callout).copyWith(
+            color: stageInk(result.rarity).withValues(alpha: 0.85),
+            fontWeight: FontWeight.w800,
+          ),
         ),
       ],
     );
@@ -725,8 +765,8 @@ class _SpreadHeader extends StatelessWidget {
               : '카드를 눌러 뒤집어 보세요',
           style: AppText.num(AppText.callout).copyWith(
             color: revealed || foil > 0
-                ? AppColors.text
-                : Colors.white.withValues(alpha: 0.65),
+                ? Colors.white
+                : Colors.white.withValues(alpha: 0.75),
             fontWeight: FontWeight.w600,
           ),
         ),

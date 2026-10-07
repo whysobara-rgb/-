@@ -3,6 +3,7 @@ import '../../core/domain/product_category.dart';
 import '../../core/domain/rarity.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/rarity_style.dart';
 import '../../core/utils/format.dart';
 import 'holo.dart';
 import 'product_image.dart';
@@ -10,17 +11,17 @@ import 'rarity_tag.dart';
 
 /// 레어도 프레임.
 ///
-/// N: 스틸 헤어라인 / R: 코발트 / SR: 자수정 금속 테두리 + 은은한 빛 /
-/// SSR: 금박 테두리 + 금빛 후광 + (선택) 홀로 포일.
+/// N: 깨끗한 헤어라인 / R: 블루 테두리 / SR: 퍼플 포일 테두리 + 퍼플 그림자 /
+/// SSR: 금박 테두리 + 금빛 그림자 + (선택) 홀로 포일.
 class RarityFrame extends StatelessWidget {
   final Rarity rarity;
   final Widget child;
   final double radius;
 
-  /// SSR 홀로 반사광 애니메이션.
+  /// SSR 홀로 반사광.
   final bool holo;
 
-  /// 후광 세기 배율(0이면 후광 없음).
+  /// 그림자 세기 배율(0이면 그림자 없음).
   final double glow;
 
   /// 홀로 반사광 세기(작은 카드는 낮게).
@@ -46,14 +47,11 @@ class RarityFrame extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final border = switch (rarity) {
-      Rarity.n => 1.0,
-      Rarity.r => 1.2,
-      Rarity.sr => 1.6,
-      Rarity.ssr => 2.0,
-    };
+    final border = rarity == Rarity.n
+        ? 1.0
+        : rarity.frameWidth * (radius < 10 ? 0.75 : 1);
     final outer = BorderRadius.circular(radius);
-    final inner = BorderRadius.circular(radius - border);
+    final inner = BorderRadius.circular((radius - border).clamp(0, radius));
     Widget content = ClipRRect(borderRadius: inner, child: child);
     if (rarity == Rarity.ssr && holo) {
       content = HoloFoil(
@@ -61,6 +59,7 @@ class RarityFrame extends StatelessWidget {
         intensity: holoIntensity,
         animate: holoAnimate,
         tilt: tilt,
+        sparkles: radius < 10 ? 3 : 12,
         child: content,
       );
     }
@@ -73,38 +72,16 @@ class RarityFrame extends StatelessWidget {
                 begin: Alignment(-1 + tilt.dx * 0.6, -1),
                 end: Alignment(1 + tilt.dx * 0.6, 1),
               ),
-        color: rarity == Rarity.n
-            ? AppColors.rarityN.withValues(alpha: 0.32)
-            : null,
-        boxShadow: glow <= 0 || rarity.rank < Rarity.r.rank
-            ? null
-            : [
-                BoxShadow(
-                  color: rarity.color.withValues(
-                    alpha:
-                        switch (rarity) {
-                          Rarity.ssr => 0.42,
-                          Rarity.sr => 0.32,
-                          _ => 0.16,
-                        } *
-                        glow,
-                  ),
-                  blurRadius: switch (rarity) {
-                    Rarity.ssr => 22,
-                    Rarity.sr => 16,
-                    _ => 10,
-                  },
-                  spreadRadius: rarity == Rarity.ssr ? 0.5 : 0,
-                ),
-              ],
+        color: rarity == Rarity.n ? const Color(0xFFE3E6EA) : null,
+        boxShadow: glow <= 0 ? null : rarity.glow(glow),
       ),
       child: Padding(padding: EdgeInsets.all(border), child: content),
     );
   }
 }
 
-/// 컬렉터블 카드: 레어도 프레임 안에 상품 이미지(또는 엠블럼),
-/// 좌상단 레어도 배지, 하단 이름·정보.
+/// 컬렉터블 카드: 레어도 프레임 안에 상품 사진(또는 상품 일러스트),
+/// 좌상단 레어도 배지, 하단 이름·정가·확률.
 class CollectibleCard extends StatelessWidget {
   final Rarity rarity;
   final String name;
@@ -114,7 +91,7 @@ class CollectibleCard extends StatelessWidget {
   /// 이름 아래 한 줄(정가 등).
   final String? meta;
 
-  /// 우하단 강조 수치(확률 등).
+  /// 우하단 강조 수치(확률 등). 레어도 색 알약으로 그린다.
   final String? trailing;
 
   /// 이미지 위 좌하단 라벨(보너스·천장).
@@ -141,13 +118,16 @@ class CollectibleCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final pad = dense ? 8.0 : 10.0;
+    final pad = dense ? 8.0 : 11.0;
     return RarityFrame(
       rarity: rarity,
       holo: holo,
-      radius: dense ? 12 : 14,
+      holoAnimate: false,
+      holoIntensity: 0.55,
+      radius: dense ? 12 : 16,
+      glow: dense ? 0.6 : 1,
       child: ColoredBox(
-        color: AppColors.surface,
+        color: AppColors.raised,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
@@ -165,14 +145,14 @@ class CollectibleCard extends StatelessWidget {
                     borderRadius: BorderRadius.zero,
                   ),
                   Positioned(
-                    left: pad - 2,
-                    top: pad - 2,
+                    left: pad - 3,
+                    top: pad - 3,
                     child: RarityTag(rarity, dense: dense),
                   ),
                   if (labels.isNotEmpty)
                     Positioned(
-                      left: pad - 2,
-                      bottom: pad - 2,
+                      left: pad - 3,
+                      bottom: pad - 3,
                       child: Wrap(
                         spacing: 4,
                         children: [for (final l in labels) QuietLabel(l)],
@@ -181,8 +161,14 @@ class CollectibleCard extends StatelessWidget {
                 ],
               ),
             ),
+            Container(
+              height: 1,
+              color: rarity == Rarity.n
+                  ? AppColors.hairline
+                  : rarity.color.withValues(alpha: 0.22),
+            ),
             Padding(
-              padding: EdgeInsets.fromLTRB(pad, pad - 1, pad, pad),
+              padding: EdgeInsets.fromLTRB(pad, pad - 2, pad, pad),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -197,9 +183,9 @@ class CollectibleCard extends StatelessWidget {
                     ),
                   ),
                   if (meta != null || trailing != null) ...[
-                    const SizedBox(height: 4),
+                    SizedBox(height: dense ? 4 : 6),
                     Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
                         if (meta != null)
                           Expanded(
@@ -209,26 +195,20 @@ class CollectibleCard extends StatelessWidget {
                               overflow: TextOverflow.ellipsis,
                               style:
                                   AppText.num(
-                                    dense ? AppText.micro : AppText.caption,
+                                    dense
+                                        ? AppText.caption
+                                        : AppText.bodyStrong,
                                   ).copyWith(
                                     color: AppColors.text,
-                                    fontWeight: FontWeight.w700,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: -0.4,
                                   ),
                             ),
                           )
                         else
                           const Spacer(),
                         if (trailing != null)
-                          Text(
-                            trailing!,
-                            style:
-                                AppText.num(
-                                  dense ? AppText.micro : AppText.caption,
-                                ).copyWith(
-                                  color: rarity.light,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                          ),
+                          RarityPill(rarity, trailing!, dense: dense),
                       ],
                     ),
                   ],
