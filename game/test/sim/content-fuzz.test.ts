@@ -349,7 +349,7 @@ class EventStandIn {
     const v2 = sim.layout.v2;
     this.active = !!v2 && sim.rules.events === 'on' && st.eventPlan === null && st.matchEvents.length === 0;
     const r = createRng((seed * 104729 + 7) >>> 0);
-    this.kind = r() < 0.5 ? 'moneyRain' : 'cashTruck';
+    this.kind = seed % 2 === 0 ? 'moneyRain' : 'cashTruck';
     this.start = 1800 + Math.floor(r() * 3600);
     if (!this.active) return;
     const spot = v2!.eventSpots[0] ?? { x: sim.layout.size.x / 2, y: sim.layout.size.y / 2 };

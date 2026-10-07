@@ -349,7 +349,7 @@ export class BeatLabel {
    * Pin the label's tail to world point (x, y = height, z), clamped into the safe screen box.
    * `pulse` 0..1 adds a gentle breathing scale (0 = still). Call after the camera update.
    */
-  place(x: number, h: number, z: number, camera: THREE.PerspectiveCamera, dt: number, pulse: number, liftPx = BEATS.label.liftPx): void {
+  place(x: number, h: number, z: number, camera: THREE.PerspectiveCamera, dt: number, pulse: number, liftPx: number = BEATS.label.liftPx): void {
     if (!this.key) return;
     this.sprite.visible = true;
     this.pop = Math.min(1, this.pop + Math.max(0, dt) / 0.18);
