@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>뿌리째 털어라 — Model Gallery</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #c9a8b8;
+        font-family: 'Jua', 'Noto Sans KR', sans-serif;
+      }
+      #app {
+        position: fixed;
+        inset: 0;
+      }
+      #hud {
+        position: fixed;
+        left: 12px;
+        top: 12px;
+        padding: 10px 14px;
+        border-radius: 14px;
+        background: rgba(46, 42, 54, 0.78);
+        color: #fff3de;
+        font-size: 14px;
+        line-height: 1.5;
+        max-width: 420px;
+        pointer-events: auto;
+        user-select: none;
+      }
+      #hud b {
+        color: #f6c64f;
+      }
+      #hud button {
+        font: inherit;
+        margin: 2px 2px 0 0;
+        padding: 2px 8px;
+        border-radius: 8px;
+        border: 0;
+        background: #fff3de;
+        color: #2e2a36;
+        cursor: pointer;
+      }
+      #hud button.on {
+        background: #f6c64f;
+      }
+      #hud.hidden {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="hud"></div>
+    <script type="module" src="/src/render/dev/model-gallery.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,229 @@
+/**
+ * Quick match setup (doc §12: everything open from the start, no unlock gates).
+ * Rows: 모드 (1:1 / 2:2) · 배치 (layouts + 무작위) · 상대 성향 (3 rivals + 무작위) · 난이도.
+ * One calm panel on the right (the gang keeps hanging out on the rooftop to the left), with a 3D
+ * snapshot of the chosen layout and the chosen rival's 3D portrait + habit / weak spot. Same calm
+ * system as the front door: a plain title, neutral cards, one accent (시작), a quiet dusk scrim.
+ */
+import type { LayoutDef, LayoutId } from '../../sim/types';
+import { t, tr, type TextRef } from '../i18n';
+import { h } from '../core/dom';
+import { icon } from '../core/icons';
+import { portrait, layoutPortrait } from '../core/portrait';
+import { UiScreen } from '../core/screen';
+import { button, cyclerRow, promptBar, screenHeader, stagger, type CyclerOption } from '../components/controls';
+import { LayoutMap } from '../components/layoutMap';
+import { DIFFICULTIES, MATCH_MODES, RIVAL_ORDER, type Difficulty, type MatchMode, type RivalId } from '../types';
+
+export interface QuickMatchOptions {
+  mode: MatchMode;
+  layout: LayoutId | 'random';
+  rival: RivalId | 'random';
+  difficulty: Difficulty;
+}
+
+export interface QuickLayoutChoice {
+  id: LayoutId;
+  nameKey: string;
+  descKey: string;
+  /** Full layout for the thumbnail (optional). */
+  layout?: LayoutDef | null;
+}
+
+export interface QuickMatchSetupProps {
+  layouts: readonly QuickLayoutChoice[];
+  value: QuickMatchOptions;
+  onChange?: (value: QuickMatchOptions) => void;
+  onStart: (value: QuickMatchOptions) => void;
+  onBack: () => void;
+  /** "친구랑 같이 하기": opens the local multiplayer join screen. */
+  onTogether?: () => void;
+}
+
+export class QuickMatchSetup extends UiScreen<QuickMatchSetupProps> {
+  private value: QuickMatchOptions;
+  private cards: HTMLElement | null = null;
+  private map: LayoutMap | null = null;
+
+  constructor(props: QuickMatchSetupProps) {
+    super(props, { name: 'quick' });
+    this.value = { ...props.value };
+  }
+
+  /** Current selection (also reported through onChange). */
+  getValue(): QuickMatchOptions {
+    return { ...this.value };
+  }
+
+  override update(patch: Partial<QuickMatchSetupProps>): this {
+    if (patch.value) this.value = { ...patch.value };
+    return super.update(patch);
+  }
+
+  protected override defaultFocus(): string {
+    return 'quick:start';
+  }
+
+  protected override onBack(): boolean {
+    this.leave(this.props.onBack);
+    return true;
+  }
+
+  private set<K extends keyof QuickMatchOptions>(key: K, v: QuickMatchOptions[K]): void {
+    this.value = { ...this.value, [key]: v };
+    this.props.onChange?.(this.getValue());
+    this.paintCards(true);
+  }
+
+  protected render(): void {
+    const modeOpts: CyclerOption<MatchMode>[] = MATCH_MODES.map((m) => ({ value: m, label: `mode.${m}` }));
+    const layoutOpts: CyclerOption<LayoutId | 'random'>[] = [
+      ...this.props.layouts.map((l) => ({ value: l.id as LayoutId | 'random', label: l.nameKey })),
+      { value: 'random', label: 'layout.random', art: () => icon('dice') },
+    ];
+    const rivalOpts: CyclerOption<RivalId | 'random'>[] = [
+      ...RIVAL_ORDER.map((r) => ({ value: r as RivalId | 'random', label: `rival.${r}.name` })),
+      { value: 'random', label: 'common.random', art: () => icon('dice') },
+    ];
+    const diffOpts: CyclerOption<Difficulty>[] = DIFFICULTIES.map((d) => ({ value: d, label: `difficulty.${d}` }));
+
+    const rows = h(
+      'div',
+      { class: 'uh-quick__rows' },
+      cyclerRow({
+        id: 'quick:mode',
+        label: 'quick.mode',
+        desc: `mode.${this.value.mode}.desc`,
+        icon: 'flag',
+        options: modeOpts,
+        value: this.value.mode,
+        onChange: (v) => {
+          this.set('mode', v);
+          this.rerender();
+        },
+      }),
+      cyclerRow({ id: 'quick:layout', label: 'quick.layout', icon: 'map', options: layoutOpts, value: this.value.layout, onChange: (v) => this.set('layout', v) }),
+      cyclerRow({ id: 'quick:rival', label: 'quick.opponent', icon: 'sparkle', options: rivalOpts, value: this.value.rival, onChange: (v) => this.set('rival', v) }),
+      cyclerRow({
+        id: 'quick:difficulty',
+        label: 'quick.difficulty',
+        desc: `difficulty.${this.value.difficulty}.desc`,
+        icon: 'bolt',
+        options: diffOpts,
+        value: this.value.difficulty,
+        onChange: (v) => {
+          this.set('difficulty', v);
+          this.rerender();
+        },
+      }),
+    );
+    stagger(rows);
+
+    const start = button({
+      id: 'quick:start',
+      label: 'quick.start',
+      variant: 'primary',
+      size: 'lg',
+      className: 'uh-quick__start',
+      onActivate: () => this.leave(() => this.props.onStart(this.getValue())),
+    });
+
+    this.cards = h('div', { class: 'uh-quick__cards' });
+    this.el.append(
+      h('div', { class: 'uh-quick__scrim', 'aria-hidden': 'true' }),
+      h(
+        'div',
+        { class: 'uh-frame uh-quick' },
+        screenHeader('quick.title'),
+        h(
+          'div',
+          { class: 'uh-quick__body' },
+          h('div', { class: 'uh-quick__gang', 'aria-hidden': 'true' }),
+          h(
+            'div',
+            { class: 'uh-quick__panel uh-panel' },
+            rows,
+            this.cards,
+            h(
+              'div',
+              { class: 'uh-quick__startWrap' },
+              h('p', { class: 'uh-quick__note' }, t('difficulty.note')),
+              this.props.onTogether ? button({ id: 'quick:together', label: 'quick.together', icon: 'gamepad', size: 'sm', className: 'uh-quick__together', onActivate: () => this.leave(this.props.onTogether) }) : null,
+              start,
+            ),
+          ),
+        ),
+        promptBar([
+          { action: 'adjust', label: 'prompt.adjust' },
+          { action: 'confirm', label: 'prompt.select' },
+          { action: 'back', label: 'prompt.back', onClick: () => this.leave(this.props.onBack) },
+        ]),
+      ),
+    );
+    this.paintCards(false);
+  }
+
+  protected override onDestroy(): void {
+    this.map?.destroy();
+  }
+
+  private paintCards(animate: boolean): void {
+    const box = this.cards;
+    if (!box) return;
+    const v = this.value;
+    const choice = v.layout === 'random' ? null : this.props.layouts.find((l) => l.id === v.layout) ?? null;
+
+    // Layout card: a 3D snapshot of the miniature (2D map when no renderer is around).
+    let art: HTMLElement;
+    if (choice?.layout) {
+      const snap = layoutPortrait(choice.layout, 'uh-quick__snap');
+      if (snap) art = snap;
+      else {
+        this.map?.destroy();
+        this.map = new LayoutMap(choice.layout, { compact: true });
+        art = h('div', { class: 'uh-quick__mapBox' }, this.map.el);
+        requestAnimationFrame(() => this.map?.draw());
+      }
+    } else art = h('div', { class: 'uh-quick__mystery' }, icon('dice'), h('span', null, '?'));
+    const layoutCard = h(
+      'section',
+      { class: 'uh-quick__card uh-quick__card--layout' },
+      h('div', { class: 'uh-quick__art' }, art),
+      h('div', { class: 'uh-quick__cardText' }, h('h3', { class: 'uh-quick__cardTitle' }, choice ? t(choice.nameKey) : t('quick.randomLayout')), h('p', { class: 'uh-quick__cardDesc' }, choice ? t(choice.descKey) : t('quick.randomLayout.desc'))),
+    );
+
+    const rival = v.rival;
+    const rivalCard =
+      rival === 'random'
+        ? h(
+            'section',
+            { class: 'uh-quick__card uh-quick__card--rival is-mystery' },
+            h('div', { class: 'uh-quick__face' }, portrait({ silhouette: true, rival: 'nunchi', expression: 'smug' }, 'uh-quick__portrait')),
+            h('div', { class: 'uh-quick__cardText' }, h('h3', { class: 'uh-quick__cardTitle' }, t('quick.randomRival')), h('p', { class: 'uh-quick__cardDesc' }, t('quick.randomRival.desc'))),
+          )
+        : h(
+            'section',
+            { class: `uh-quick__card uh-quick__card--rival uh-quick__card--${rival}` },
+            h('div', { class: 'uh-quick__face' }, portrait({ rival, team: 1, frame: 'bust' }, 'uh-quick__portrait')),
+            h(
+              'div',
+              { class: 'uh-quick__cardText' },
+              h('h3', { class: 'uh-quick__cardTitle' }, t(`rival.${rival}.name`), h('span', { class: 'uh-quick__rivalTitle' }, t(`rival.${rival}.title`))),
+              this.factLine('quick.habit', `rival.${rival}.personality`),
+              this.factLine('quick.weakness', `rival.${rival}.weakness`),
+            ),
+          );
+
+    // (no summary chips under the cards: the rows on the left already say mode and difficulty)
+    box.replaceChildren(layoutCard, rivalCard);
+    if (animate) {
+      box.classList.remove('is-pop');
+      void box.offsetWidth;
+      box.classList.add('is-pop');
+    }
+  }
+
+  private factLine(label: TextRef, body: TextRef): HTMLElement {
+    return h('p', { class: 'uh-quick__fact' }, h('span', { class: 'uh-quick__factLabel' }, tr(label)), h('span', null, tr(body)));
+  }
+}

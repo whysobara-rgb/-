@@ -1,0 +1,1583 @@
+/**
+ * Procedural raccoon character (~1.05 m tall, 0.45 m footprint radius).
+ *
+ * Silhouette first (doc §13): big round head with round ears, short limbs, chunky pear body,
+ * big fluffy ringed tail. Emotions read from eyes (face decal) + body pose. Team identity is
+ * never color alone (doc §13 "머리 장식 모양과 팀 문양"): every head decoration carries the
+ * wearer's team emblem SHAPE (star / crescent) in the team color, readable from the high
+ * camera at any facing: the team caps (pointy star beanie / round moon helmet), and on the
+ * reward hats a top-facing emblem (top-hat crown, beret badge, head clip) plus team-colored
+ * bands. The back emblem and the team-color scarf back it up.
+ *
+ * Frame: the model faces local +X (sim angle 0). Place with
+ *   root.position.set(sim.x, floorY, sim.y); root.rotation.y = -facing;
+ * (see placeOnSim in index.ts).
+ *
+ * Rig hierarchy (each rigid part = one merged vertex-colored mesh = one draw call):
+ *   root (view-owned transform)
+ *    └ pivot (hop / knockdown spin)
+ *       └ body (lean, squash & stretch; pivot at the feet)
+ *          ├ head ─ face decal, mask decal, dizzy stars, sweat drop
+ *          ├ armL/armR (shoulder pivots), legL/legR (hip pivots)
+ *          ├ tail1 ─ tail2 ─ tail3, scarfTail
+ *       └ speedLines
+ *    └ blob shadow, taunt sparkles
+ *
+ * Taunts (owner addition): `pose.taunt` plays one of the seven taunt animations of
+ * tauntPoses.ts on top of the regular pose (fast blend in; a taunt that stops early blends out
+ * from its last frame). Props live on the rig and stay hidden otherwise: a 3D tongue, a fan of
+ * the game's own banknotes in the right paw with notes fluttering down, gold glints on the paws
+ * and star sparkles around the feet.
+ */
+import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import type { CharacterLook, EmoteId, HatId, TeamId } from '../../sim/types';
+import { TEAM_STYLES } from '../../shared/teams';
+import { PAL } from './palette';
+import { G, PartBuilder, lathe, rng } from './geometry';
+import { matVC, matTextured, matBasic, matColor } from './materials';
+import { FACE_DECAL, banknoteTexture, faceTexture, nunchiMaskTexture, blobShadowTexture, type FaceExpression } from './textures';
+import { Highlighter, InkOutline } from './outline';
+import { neutralTauntPose, tauntPose, type TauntArm, type TauntPose } from './tauntPoses';
+
+export type RaccoonExpression =
+  | 'normal'
+  | 'blink'
+  | 'happy'
+  | 'cheer'
+  | 'strain'
+  | 'dizzy'
+  | 'sad'
+  | 'determined'
+  | 'shock'
+  | 'angry'
+  | 'panic'
+  | 'sly'
+  | 'bleh'
+  | 'cheeky'
+  | 'smug'
+  | 'proud';
+
+/** A taunt to play (owner addition): `t` seconds since it started, lasting `dur` seconds. */
+export interface RaccoonTaunt {
+  id: EmoteId;
+  t: number;
+  /** Total length (default: the taunt's nominal length). */
+  dur?: number;
+}
+
+export interface RaccoonPose {
+  /** Ground speed in m/s (walk ~5, dash ~11). */
+  speed: number;
+  grabbing: boolean;
+  /** Pulling an anchored target (unanchor in progress). */
+  straining: boolean;
+  dashing: boolean;
+  /** Carry boost (dash while holding). */
+  boosting: boolean;
+  knockedDown: boolean;
+  celebrating: boolean;
+  /** Slumped, empty-handed loss reaction (doc §13). */
+  sad: boolean;
+  /** Seconds (any monotonically increasing clock). */
+  time: number;
+  /** Optional expression override (UI scenes, results). */
+  expression?: RaccoonExpression | null;
+  /** Optional head turn relative to the body (radians, +left), e.g. to look at a target. */
+  headYaw?: number;
+  /**
+   * 0..1 how hard an uproot pull is going (unanchor progress while straining): plants the
+   * feet, then leans way back like pulling a giant radish, then trembles violently.
+   */
+  effort?: number;
+  /**
+   * Seconds since an uproot "pop" knocked this raccoon onto its bottom (undefined / < 0 =
+   * none): tumble back, sit with legs up, spring up happy (~0.85 s).
+   */
+  tumble?: number;
+  /**
+   * Taunt in progress (owner addition), or null. When it goes back to null the rig blends out
+   * from the taunt's last frame within ~0.15 s (a cancel), so callers simply stop sending it.
+   */
+  taunt?: RaccoonTaunt | null;
+}
+
+/** Length of the pop tumble (sit + spring up). */
+export const RACCOON_TUMBLE_TIME = 0.85;
+
+/**
+ * (Content 2.0, C7a) Rig attach points for held items and the coin bag. Children added here
+ * follow the animated bones; the rig never removes them (owners dispose their own objects).
+ *  - handR / handL: at the paw end of each arm; local -y continues along the arm (a hammer's
+ *    handle hangs from the grip along -y, its head axis along local x = the swing direction).
+ *  - back: behind the torso, local +y up, local -x pointing away from the back.
+ *  - footL / footR: under each paw (sole at y = -0.03), local +x forward.
+ *  - headTop: just above the head (local +y up).
+ */
+export interface RaccoonAttach {
+  readonly handR: THREE.Object3D;
+  readonly handL: THREE.Object3D;
+  readonly back: THREE.Object3D;
+  readonly footL: THREE.Object3D;
+  readonly footR: THREE.Object3D;
+  readonly headTop: THREE.Object3D;
+}
+
+/** (C7a) How an item in the right paw drives the arms. */
+export type RaccoonGrip = 'hammer' | 'plunger' | 'bottle' | 'none';
+/** (C7a) Item use phase as the rig animates it (`t` 0..1 through the phase). */
+export interface RaccoonItemPose {
+  grip: RaccoonGrip;
+  phase: 'idle' | 'windup' | 'swing' | 'recover' | 'aim';
+  t: number;
+}
+/** (C7a) One-shot hit reactions: accordion squash (hammer bonk), big squash (home run), recoil (clash / bumper boing). */
+export type RaccoonReaction = 'bonk' | 'homeRun' | 'clash' | 'boing';
+
+export interface RaccoonRig {
+  readonly root: THREE.Group;
+  /** Empty object at head-top height for name labels / ping icons. */
+  readonly labelAnchor: THREE.Object3D;
+  readonly team: TeamId | null;
+  readonly look: CharacterLook;
+  update(dt: number, pose: RaccoonPose): void;
+  setLook(look: CharacterLook): void;
+  setHighlight(color: THREE.ColorRepresentation | null): void;
+  /** Show/hide the soft contact shadow (e.g. off when the view uses only shadow maps). */
+  setBlobShadow(visible: boolean): void;
+  dispose(): void;
+  // --- Content 2.0 (C7a, add-only) ---
+  /** Attach points for held items / the coin bag. */
+  readonly attach: RaccoonAttach;
+  /** Arm pose for the held item (null = no item in paw; applied on the next update). */
+  setItemPose(p: RaccoonItemPose | null): void;
+  /** Play a one-shot hit reaction (accordion squash etc.) from the next update. */
+  react(kind: RaccoonReaction): void;
+  /** Dizzy-star halo (plunger pull) independent of knockdowns. */
+  setDizzy(on: boolean): void;
+}
+
+export const RACCOON_HEIGHT = 1.05;
+export const RACCOON_LABEL_HEIGHT = 1.32;
+
+/** Idle/neutral pose helper. */
+export function idlePose(time = 0): RaccoonPose {
+  return {
+    speed: 0,
+    grabbing: false,
+    straining: false,
+    dashing: false,
+    boosting: false,
+    knockedDown: false,
+    celebrating: false,
+    sad: false,
+    time,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Dimensions (raccoon-local, meters)
+// ---------------------------------------------------------------------------
+
+const HEAD_R = 0.29;
+const HEAD_SCALE: [number, number, number] = [1.0, 0.92, 1.08];
+const NECK: [number, number, number] = [0, 0.62, 0];
+/** Head center relative to the neck pivot. */
+const HEAD_C: [number, number, number] = [0.01, 0.13, 0];
+const SHOULDER_Y = 0.5;
+const SHOULDER_Z = 0.25;
+const HIP_Y = 0.22;
+const HIP_Z = 0.12;
+const TAIL_BASE: [number, number, number] = [-0.2, 0.24, 0.05];
+const TAIL_SEG = [0.15, 0.14, 0.14];
+
+const NEUTRAL_SCARF = '#B9A3F0';
+
+interface LookParams {
+  team: TeamId | null;
+  hat: HatId;
+  rival: 'hodadak' | 'tongkeun' | 'nunchi' | null;
+  fur: THREE.Color;
+  scarf: string;
+  scarfDark: string;
+  emblem: 'star' | 'moon' | null;
+  /** Body girth multiplier (tongkeun is chubby, hodadak slim). */
+  girth: number;
+}
+
+function lookParams(team: TeamId | null, look: CharacterLook): LookParams {
+  const tint = THREE.MathUtils.clamp(look.furTint ?? 0.5, 0, 1);
+  const fur = new THREE.Color(PAL.fur);
+  if (tint < 0.5) fur.lerp(new THREE.Color(PAL.furCool), (0.5 - tint) * 2);
+  else fur.lerp(new THREE.Color(PAL.furWarm), (tint - 0.5) * 2);
+  const style = team === null ? null : TEAM_STYLES[team];
+  const rival = look.rival ?? null;
+  return {
+    team,
+    hat: look.hat,
+    rival,
+    fur,
+    scarf: style?.color ?? NEUTRAL_SCARF,
+    scarfDark: style?.dark ?? '#7A64B8',
+    emblem: style?.emblem ?? null,
+    girth: rival === 'tongkeun' ? 1.17 : rival === 'hodadak' ? 0.95 : 1,
+  };
+}
+
+function lookKey(p: LookParams): string {
+  return [p.team ?? 'n', p.hat, p.rival ?? '-', p.fur.getHexString()].join('|');
+}
+
+// ---------------------------------------------------------------------------
+// Geometry per part (cached per look)
+// ---------------------------------------------------------------------------
+
+type PartName = 'body' | 'head' | 'armL' | 'armR' | 'legL' | 'legR' | 'tail1' | 'tail2' | 'tail3' | 'scarfTail' | 'forearm' | 'finger';
+type GeoSet = Record<PartName, THREE.BufferGeometry>;
+
+const geoSetCache = new Map<string, GeoSet>();
+
+const BODY_PROFILE: [number, number][] = [
+  [0.0, 0.13],
+  [0.17, 0.14],
+  [0.26, 0.22],
+  [0.29, 0.34],
+  [0.275, 0.46],
+  [0.23, 0.57],
+  [0.16, 0.66],
+  [0.0, 0.7],
+];
+/** Body lathe scale (x, z) per unit girth: the body is a little narrower front-to-back. */
+const BODY_SX = 0.92;
+
+/** Lathe radius of the body profile at height y. */
+function profileRadius(y: number): number {
+  const P = BODY_PROFILE;
+  if (y <= P[0][1]) return P[0][0];
+  for (let i = 1; i < P.length; i++) {
+    if (y <= P[i][1]) {
+      const t = (y - P[i - 1][1]) / (P[i][1] - P[i - 1][1]);
+      return P[i - 1][0] + (P[i][0] - P[i - 1][0]) * t;
+    }
+  }
+  return 0;
+}
+
+/**
+ * Torso surface helper for decorations that must sit ON the body whatever the girth
+ * (belly patch, chain, medallion, bib): the scaled lathe plus the cream belly ellipsoid.
+ */
+class Torso {
+  readonly bellyC: [number, number, number];
+  readonly bellyR: [number, number, number];
+  constructor(readonly girth: number) {
+    const y = 0.37;
+    // Belly patch sits 3.5 cm proud of the fur at its center for every girth (no z-fight).
+    this.bellyR = [0.17, 0.2, 0.19 * girth];
+    this.bellyC = [this.rx(y) + 0.035 - this.bellyR[0], y, 0];
+  }
+  rx(y: number): number {
+    return profileRadius(y) * BODY_SX * this.girth;
+  }
+  rz(y: number): number {
+    return profileRadius(y) * this.girth;
+  }
+  /** Distance from the body axis to the outer surface (fur or belly) at height y, angle a (0 = front). */
+  surface(y: number, a: number): number {
+    const dx = Math.cos(a);
+    const dz = Math.sin(a);
+    const rx = Math.max(1e-3, this.rx(y));
+    const rz = Math.max(1e-3, this.rz(y));
+    let r = 1 / Math.sqrt((dx / rx) ** 2 + (dz / rz) ** 2);
+    const [bx, by] = this.bellyC;
+    const [ax, ay, az] = this.bellyR;
+    const A = (dx / ax) ** 2 + (dz / az) ** 2;
+    const B = (-2 * dx * bx) / (ax * ax);
+    const C = (bx / ax) ** 2 + ((y - by) / ay) ** 2 - 1;
+    const disc = B * B - 4 * A * C;
+    if (disc >= 0) r = Math.max(r, (-B + Math.sqrt(disc)) / (2 * A));
+    return r;
+  }
+}
+
+function buildGeoSet(p: LookParams): GeoSet {
+  const key = lookKey(p);
+  const hit = geoSetCache.get(key);
+  if (hit) return hit;
+  const fur = p.fur;
+  const furDark = fur.clone().lerp(new THREE.Color(PAL.furDark), 0.55);
+  const merge = (fn: (b: PartBuilder) => void): THREE.BufferGeometry => {
+    const b = new PartBuilder();
+    fn(b);
+    const g = b.merge('vc')!;
+    b.clear();
+    return g;
+  };
+
+  // --- body ------------------------------------------------------------------
+  const body = merge((b) => {
+    const gx = p.girth;
+    const torso = new Torso(gx);
+    b.add(lathe(BODY_PROFILE, 18), { color: fur, scale: [BODY_SX * gx, 1, gx] });
+    // Cream belly patch (placed from the actual body surface, so chubby bodies keep it proud).
+    b.add(G.sphere(14, 10), { color: PAL.cream, pos: torso.bellyC, scale: torso.bellyR });
+    // Scarf ring + front knot.
+    b.add(G.torus(0.26, 8, 24), { color: p.scarf, pos: [0, 0.635, 0], rot: [Math.PI / 2, 0, 0], scale: [0.245 * gx, 0.245 * gx, 0.25] });
+    b.add(G.sphere(10, 8), { color: p.scarfDark, pos: [-0.17 * gx, 0.63, 0.12 * gx], scale: [0.075, 0.07, 0.075] });
+    // Back emblem badge (team), tilted up so the high camera sees it.
+    if (p.emblem) {
+      b.push([-0.255 * gx, 0.43, -0.02], [0, 0, -0.55]);
+      b.push(undefined, [0, -Math.PI / 2, 0]);
+      b.add(G.cyl(1, 1, 24), { color: p.scarfDark, rot: [Math.PI / 2, 0, 0], scale: [0.115, 0.04, 0.115] });
+      b.add(G.cyl(1, 1, 24), { color: '#FFFFFF', pos: [0, 0, 0.012], rot: [Math.PI / 2, 0, 0], scale: [0.1, 0.03, 0.1] });
+      if (p.emblem === 'star') b.add(G.star(5, 0.46, 0.3), { color: p.scarf, pos: [0, 0, 0.03], scale: 0.075 });
+      else b.add(G.crescent(0.3), { color: p.scarf, pos: [0.006, 0, 0.03], rot: [0, 0, Math.PI / 2], scale: 0.075 });
+      b.pop().pop();
+    }
+    // Rival extras.
+    if (p.rival === 'tongkeun') {
+      // Chunky gold bead chain from under the scarf down to a medallion on the belly; every
+      // bead sits on the actual torso surface.
+      for (let i = 0; i <= 10; i++) {
+        const a = (-0.5 + i / 10) * Math.PI * 1.1;
+        const y = 0.585 - Math.cos(a) * 0.075;
+        const r = torso.surface(y, a) + 0.018;
+        b.add(G.sphere(8, 6), {
+          color: i % 2 ? PAL.goldDark : PAL.gold,
+          pos: [Math.cos(a) * r, y, Math.sin(a) * r],
+          scale: 0.032,
+          emissive: 0.1,
+        });
+      }
+      const my = 0.47;
+      b.push([torso.surface(my, 0) + 0.018, my, 0], [0, 0, -0.25]);
+      b.add(G.cyl(1, 1, 20), { color: PAL.goldDark, rot: [0, 0, Math.PI / 2], scale: [0.075, 0.03, 0.075] });
+      b.add(G.cyl(1, 1, 20), { color: PAL.gold, pos: [0.012, 0, 0], rot: [0, 0, Math.PI / 2], scale: [0.06, 0.02, 0.06], emissive: 0.15 });
+      b.add(G.star(5, 0.45, 0.3), { color: PAL.goldLight, pos: [0.024, 0, 0], rot: [0, Math.PI / 2, 0], scale: 0.035, emissive: 0.2 });
+      b.pop();
+    }
+    if (p.rival === 'hodadak') {
+      // Racing number bib on the belly.
+      const by = 0.37;
+      const bx = torso.surface(by, 0) + 0.006;
+      b.add(G.rbox(0.03, 0.15, 0.17, 0.012), { color: '#FFFFFF', pos: [bx, by, 0], rot: [0, 0, -0.12] });
+      b.add(G.rbox(0.032, 0.035, 0.1, 0.008), { color: '#E8505B', pos: [bx + 0.004, by + 0.04, 0], rot: [0, 0, -0.12] });
+    }
+  });
+
+  // --- head ------------------------------------------------------------------
+  const head = merge((b) => {
+    b.push(HEAD_C);
+    b.add(G.sphere(24, 16), { color: fur, scale: [HEAD_R * HEAD_SCALE[0], HEAD_R * HEAD_SCALE[1], HEAD_R * HEAD_SCALE[2]] });
+    // Cheek fluff tufts (silhouette from the front).
+    for (const s of [-1, 1]) {
+      b.add(G.cone(7), { color: fur, pos: [0.02, -0.1, s * 0.275], rot: [s * 2.0, 0, 0.5], scale: [0.055, 0.085, 0.05] });
+      b.add(G.cone(7), { color: fur, pos: [-0.04, -0.05, s * 0.29], rot: [s * 1.8, 0, 0.3], scale: [0.045, 0.075, 0.04] });
+    }
+    // Ears (pushed outward so they poke out of the bigger hats).
+    const bigHat = p.hat === 'teamCapA' || p.hat === 'tongkeunHat' || p.hat === 'nunchiMask';
+    const helmet = p.hat === 'teamCapB';
+    const earZ = helmet ? 0.25 : bigHat ? 0.235 : 0.19;
+    const earTilt = helmet ? 0.82 : bigHat ? 0.62 : 0.38;
+    const earY = helmet ? 0.2 : bigHat ? 0.215 : 0.205;
+    for (const s of [-1, 1]) {
+      b.push([-0.03, earY, s * earZ], [s * earTilt, 0, 0]);
+      b.add(G.sphere(12, 9), { color: fur, scale: [0.075, 0.1, 0.1] });
+      b.add(G.sphere(10, 8), { color: furDark, pos: [0.03, -0.005, 0], scale: [0.05, 0.075, 0.07] });
+      b.add(G.sphere(8, 6), { color: PAL.earInner, pos: [0.045, -0.01, 0], scale: [0.03, 0.05, 0.045] });
+      // light rim tip
+      b.add(G.sphere(8, 6), { color: PAL.furLight, pos: [-0.005, 0.07, 0], scale: [0.06, 0.035, 0.07] });
+      b.pop();
+    }
+    // Snout + nose.
+    b.add(G.sphere(16, 12), { color: PAL.cream, pos: [0.24, -0.075, 0], scale: [0.115, 0.08, 0.105] });
+    b.add(G.sphere(10, 8), { color: PAL.nose, pos: [0.348, -0.05, 0], scale: [0.04, 0.032, 0.048] });
+    b.add(G.sphere(8, 6), { color: '#FFFFFF', pos: [0.37, -0.035, -0.012], scale: [0.012, 0.009, 0.014], emissive: 0.4 });
+    addHat(b, p);
+    b.pop();
+  });
+
+  // --- arms & legs -------------------------------------------------------------
+  const arm = (side: number): THREE.BufferGeometry =>
+    merge((b) => {
+      b.add(G.capsule(0.062, 0.12, 4, 10), { color: fur, pos: [0, -0.1, 0] });
+      b.add(G.sphere(10, 8), { color: PAL.paw, pos: [0.01, -0.2, side * 0.005], scale: [0.068, 0.062, 0.066] });
+      if (p.rival === 'hodadak') {
+        // Wrist sweatband.
+        b.add(G.cyl(1, 1, 14), { color: '#E8505B', pos: [0, -0.15, 0], scale: [0.07, 0.035, 0.07] });
+      }
+    });
+  const leg = (side: number): THREE.BufferGeometry =>
+    merge((b) => {
+      b.add(G.capsule(0.075, 0.08, 4, 10), { color: furDark, pos: [0, -0.08, 0] });
+      if (p.rival === 'hodadak') {
+        // Sneakers: chunky white shoe, red stripe, mint sole.
+        b.add(G.rbox(0.2, 0.08, 0.12, 0.035), { color: '#FFFFFF', pos: [0.04, -0.175, 0] });
+        b.add(G.rbox(0.21, 0.028, 0.125, 0.012), { color: '#8FE3C8', pos: [0.04, -0.215, 0] });
+        b.add(G.rbox(0.09, 0.03, 0.128, 0.01), { color: '#E8505B', pos: [0.02, -0.17, 0], rot: [0, 0, 0.5] });
+        b.add(G.sphere(8, 6), { color: '#E8505B', pos: [0.1, -0.15, side * 0.0], scale: [0.02, 0.02, 0.05] });
+      } else {
+        b.add(G.sphere(12, 8), { color: PAL.paw, pos: [0.035, -0.18, 0], scale: [0.105, 0.055, 0.08] });
+        // Toe beans hint.
+        b.add(G.sphere(8, 6), { color: PAL.furDark, pos: [0.12, -0.19, side * 0.0], scale: [0.03, 0.025, 0.06] });
+      }
+    });
+
+  // --- tail (3 segments, ringed) -----------------------------------------------
+  const tailSeg = (i: number): THREE.BufferGeometry =>
+    merge((b) => {
+      const len = TAIL_SEG[i];
+      const radii = [
+        [0.105, 0.12],
+        [0.125, 0.12],
+        [0.11, 0.075],
+      ][i];
+      const colors = i === 2 ? [PAL.tailLight, PAL.tailDark] : [PAL.tailLight, PAL.tailDark];
+      const tl = fur.clone().lerp(new THREE.Color(PAL.furLight), 0.35);
+      for (let k = 0; k < 2; k++) {
+        const t = (k + 0.5) / 2;
+        const r = radii[k];
+        b.add(G.sphere(14, 10), {
+          color: k === 0 ? tl : colors[1],
+          pos: [-len * t, 0, 0],
+          scale: [len * 0.62, r, r],
+        });
+      }
+      if (i === 2) b.add(G.sphere(10, 8), { color: PAL.tailDark, pos: [-len * 1.02, 0, 0], scale: [0.07, 0.065, 0.065] });
+    });
+
+  const scarfTail = merge((b) => {
+    const long = p.rival === 'nunchi' ? 1.9 : 1;
+    b.add(G.rbox(0.05, 0.17 * long, 0.075, 0.022), { color: p.scarf, pos: [-0.01, -0.075 * long, -0.02], rot: [0.25, 0, -0.35] });
+    b.add(G.rbox(0.05, 0.14 * long, 0.07, 0.022), { color: p.scarf, pos: [0.0, -0.06 * long, 0.04], rot: [-0.3, 0, -0.2] });
+    b.add(G.rbox(0.055, 0.03, 0.08, 0.012), { color: p.rival === 'nunchi' ? '#7B4FC9' : '#FFFFFF', pos: [-0.04 * long, -0.15 * long, -0.045], rot: [0.25, 0, -0.35] });
+    b.add(G.rbox(0.055, 0.03, 0.075, 0.012), { color: p.rival === 'nunchi' ? '#7B4FC9' : '#FFFFFF', pos: [-0.02 * long, -0.125 * long, 0.06], rot: [-0.3, 0, -0.2] });
+  });
+
+  // Taunt props in the look's fur: a forearm that folds up from the paw end of an arm for the
+  // double-bicep flex (근육 자랑; +y = along the forearm, origin at the elbow, a fur cap hides
+  // the arm's paw there), and the fingertip that tugs the eyelid down (메롱; +y from its base).
+  const forearm = merge((b) => {
+    b.add(G.sphere(12, 9), { color: fur, pos: [0, 0, 0], scale: 0.076 });
+    b.add(G.capsule(0.056, 0.09, 4, 10), { color: fur, pos: [0, 0.085, 0] });
+    b.add(G.sphere(10, 8), { color: PAL.paw, pos: [0, 0.178, 0], scale: [0.072, 0.068, 0.072] });
+    if (p.rival === 'hodadak') b.add(G.cyl(1, 1, 14), { color: '#E8505B', pos: [0, 0.13, 0], scale: [0.066, 0.035, 0.066] });
+  });
+  const finger = merge((b) => {
+    b.add(G.capsule(0.02, 0.06, 3, 8), { color: PAL.paw, pos: [0, 0.05, 0] });
+  });
+
+  const set: GeoSet = {
+    body,
+    head,
+    forearm,
+    finger,
+    armL: arm(-1),
+    armR: arm(1),
+    legL: leg(-1),
+    legR: leg(1),
+    tail1: tailSeg(0),
+    tail2: tailSeg(1),
+    tail3: tailSeg(2),
+    scarfTail,
+  };
+  geoSetCache.set(key, set);
+  return set;
+}
+
+/** The emblem shape itself (star / crescent), extruded along local +z, size = outer radius. */
+function addEmblemShape(b: PartBuilder, emblem: 'star' | 'moon', o: { color: string; pos?: readonly [number, number, number]; rot?: readonly [number, number, number]; size: number; emissive?: number }): void {
+  if (emblem === 'star') b.add(G.star(5, 0.46, 0.3), { color: o.color, pos: o.pos, rot: o.rot, scale: o.size, emissive: o.emissive });
+  else b.add(G.crescent(0.3), { color: o.color, pos: o.pos, rot: o.rot, scale: o.size, emissive: o.emissive });
+}
+
+/**
+ * Round team badge lying in the current frame's XZ plane, facing +Y: dark rim, white disc and
+ * the team emblem in the team color, its top pointing to local +x (topDir 1: a badge lying on
+ * top of the head reads "up" toward the face) or -x (topDir -1: a badge standing on the front
+ * of a hat, tipped forward, reads upright).
+ */
+function addTeamBadge(b: PartBuilder, team: TeamId, size: number, topDir: 1 | -1 = 1): void {
+  const st = TEAM_STYLES[team];
+  b.add(G.cyl(1, 1, 24), { color: st.dark, pos: [0, 0, 0], scale: [size, size * 0.28, size] });
+  b.add(G.cyl(1, 1, 24), { color: '#FFFFFF', pos: [0, size * 0.1, 0], scale: [size * 0.84, size * 0.2, size * 0.84] });
+  b.push([0, size * 0.22, 0], [0, (-topDir * Math.PI) / 2, 0]);
+  addEmblemShape(b, st.emblem, { color: st.color, rot: [-Math.PI / 2, 0, 0], size: size * 0.66, emissive: 0.08 });
+  b.pop();
+}
+
+/**
+ * Team emblem pin on top of the head (reward hats without a crown / no hat): a badge tipped
+ * slightly forward so the high camera reads its shape at any facing.
+ */
+function addHeadPin(b: PartBuilder, p: LookParams, x = -0.035, y = 0.262): void {
+  if (p.team === null) return;
+  b.push([x, y, 0], [0, 0, -0.22]);
+  b.add(G.cyl(1, 1, 8), { color: TEAM_STYLES[p.team].dark, pos: [0, -0.02, 0], scale: [0.025, 0.05, 0.025] });
+  b.push([0, 0.012, 0]);
+  addTeamBadge(b, p.team, 0.115);
+  b.pop();
+  b.pop();
+}
+
+/** Hats, authored relative to the head center. */
+function addHat(b: PartBuilder, p: LookParams): void {
+  const team0 = TEAM_STYLES[0];
+  const team1 = TEAM_STYLES[1];
+  const st = p.team === null ? null : TEAM_STYLES[p.team];
+  switch (p.hat) {
+    case 'teamCapA': {
+      // Pointy knitted beanie (team 0 default). Knit in the wearer's team color, and the tip
+      // emblem is always the WEARER's emblem (a moon-team raccoon in a beanie gets a crescent).
+      const col = st?.color ?? team0.color;
+      const dark = st?.dark ?? team0.dark;
+      const emblem = st?.emblem ?? 'star';
+      b.push([-0.02, 0.04, 0], [0, 0, 0.2]);
+      b.add(G.torus(0.2, 8, 26), { color: '#FFF6E8', pos: [0, 0.135, 0], rot: [Math.PI / 2, 0, 0], scale: [0.245, 0.262, 0.22] });
+      b.add(
+        lathe(
+          [
+            [0.0, 0.12],
+            [0.242, 0.13],
+            [0.235, 0.21],
+            [0.2, 0.31],
+            [0.14, 0.41],
+            [0.075, 0.5],
+            [0.025, 0.565],
+            [0.0, 0.575],
+          ],
+          18,
+        ),
+        { color: col, scale: [1, 1, 1.07] },
+      );
+      // Knit ridges.
+      for (const y of [0.24, 0.35]) {
+        const r = y < 0.3 ? 0.225 : 0.17;
+        b.add(G.torus(0.08, 5, 20), { color: dark, pos: [0, y, 0], rot: [Math.PI / 2, 0, 0], scale: [r, r * 1.07, 0.18] });
+      }
+      // Big emblem on the tip, facing up/forward.
+      b.push([0.02, 0.6, 0], [0, 0, -0.5]);
+      addEmblemShape(b, emblem, { color: PAL.gold, rot: [-Math.PI / 2, 0, 0], size: 0.105, emissive: 0.12 });
+      b.pop();
+      b.pop();
+      break;
+    }
+    case 'teamCapB': {
+      // Round helmet with a ring brim and a crest (team 1 default). The crest is the wearer's
+      // emblem (a star-team raccoon in the helmet gets a star crest).
+      const col = st?.color ?? team1.color;
+      const dark = st?.dark ?? team1.dark;
+      const emblem = st?.emblem ?? 'moon';
+      b.add(G.dome(22, 10), { color: col, pos: [-0.015, 0.145, 0], scale: [0.272, 0.215, 0.292] });
+      b.add(G.torus(0.12, 8, 30), { color: '#FFF6E8', pos: [-0.015, 0.155, 0], rot: [Math.PI / 2, 0, 0], scale: [0.29, 0.31, 0.3] });
+      // Top button.
+      b.add(G.sphere(10, 8), { color: dark, pos: [-0.015, 0.36, 0], scale: [0.04, 0.03, 0.04] });
+      // Crest standing on the front, leaning back.
+      b.push([0.15, 0.32, 0], [0, 0, 0.6]);
+      if (emblem === 'moon') addEmblemShape(b, 'moon', { color: PAL.gold, rot: [0, Math.PI / 2, Math.PI / 2], size: 0.12, emissive: 0.12 });
+      else addEmblemShape(b, 'star', { color: PAL.gold, rot: [0, Math.PI / 2, 0], size: 0.12, emissive: 0.12 });
+      b.pop();
+      break;
+    }
+    case 'hodadakBand': {
+      // Sweatband in the team color (호다닥 red without a team), white stripe, a team badge
+      // on the forehead, gold lightning bolts on the sides and flapping knot tails.
+      const band = st?.color ?? '#E8505B';
+      const knot = st?.dark ?? '#C93F4C';
+      b.push([0, 0.17, 0], [0, 0, 0.1]);
+      b.add(G.torus(0.14, 8, 28), { color: band, rot: [Math.PI / 2, 0, 0], scale: [0.236, 0.254, 0.3] });
+      b.add(G.torus(0.05, 6, 28), { color: '#FFFFFF', pos: [0, 0.0, 0], rot: [Math.PI / 2, 0, 0], scale: [0.246, 0.264, 0.3] });
+      for (const sz of [-1, 1]) {
+        b.push([-0.02, 0.0, sz * 0.262], [0, 0, 0]);
+        b.add(G.bolt(0.3), { color: PAL.gold, rot: [0, sz > 0 ? 0 : Math.PI, 0], scale: 0.06, emissive: 0.25 });
+        b.pop();
+      }
+      b.pop();
+      // Forehead plate: the team badge standing on the band (white disc + bolt without team).
+      b.push([0.235, 0.205, 0], [0, 0, 0.45 - Math.PI / 2]);
+      if (p.team !== null) addTeamBadge(b, p.team, 0.092, -1);
+      else {
+        b.add(G.cyl(1, 1, 16), { color: '#FFFFFF', scale: [0.085, 0.03, 0.085] });
+        b.push([0, 0.02, 0], [-Math.PI / 2, 0, Math.PI / 2]);
+        b.add(G.bolt(0.3), { color: PAL.gold, scale: 0.075, emissive: 0.25 });
+        b.pop();
+      }
+      b.pop();
+      b.add(G.sphere(8, 6), { color: knot, pos: [-0.235, 0.15, 0], scale: [0.04, 0.045, 0.05] });
+      b.add(G.rbox(0.03, 0.04, 0.17, 0.012), { color: band, pos: [-0.29, 0.1, -0.07], rot: [0.4, 0.5, -0.3] });
+      b.add(G.rbox(0.03, 0.04, 0.15, 0.012), { color: band, pos: [-0.29, 0.08, 0.06], rot: [-0.5, -0.4, -0.4] });
+      // Emblem pin on top so the team reads from behind as well.
+      addHeadPin(b, p, -0.06, 0.258);
+      break;
+    }
+    case 'tongkeunHat': {
+      // Big top hat, tilted jauntily: team-colored band with the team badge in front, and the
+      // team emblem inlaid on the crown top (the high camera sees the crown first).
+      const band = st?.color ?? PAL.gold;
+      b.push([-0.02, 0.2, 0], [0.12, 0, 0.1]);
+      b.add(G.cyl(1, 1, 30), { color: PAL.ink, pos: [0, 0.0, 0], scale: [0.34, 0.035, 0.34] });
+      b.add(G.cyl(0.93, 1, 30), { color: PAL.ink, pos: [0, 0.22, 0], scale: [0.225, 0.42, 0.225] });
+      b.add(G.cyl(1, 1, 30, true), { color: band, pos: [0, 0.075, 0], scale: [0.232, 0.1, 0.232], emissive: st ? 0 : 0.08 });
+      b.add(G.cyl(1, 1, 30), { color: '#3A3546', pos: [0, 0.43, 0], scale: [0.21, 0.012, 0.21] });
+      if (p.team !== null) {
+        // Crown-top emblem.
+        b.push([0, 0.437, 0]);
+        b.add(G.torus(0.08, 6, 26), { color: PAL.gold, rot: [Math.PI / 2, 0, 0], scale: [0.18, 0.18, 0.12], emissive: 0.1 });
+        b.push(undefined, [0, -Math.PI / 2, 0]);
+        addEmblemShape(b, TEAM_STYLES[p.team].emblem, { color: TEAM_STYLES[p.team].color, rot: [-Math.PI / 2, 0, 0], size: 0.15, emissive: 0.1 });
+        b.pop();
+        b.pop();
+        // Badge on the band, facing forward.
+        b.push([0.232, 0.08, 0], [0, 0, 0.2 - Math.PI / 2]);
+        addTeamBadge(b, p.team, 0.075, -1);
+        b.pop();
+      } else {
+        b.add(G.sphere(10, 8), { color: PAL.goldLight, pos: [0.225, 0.07, 0], scale: [0.03, 0.045, 0.045], emissive: 0.2 });
+      }
+      b.pop();
+      break;
+    }
+    case 'nunchiMask': {
+      // Phantom-thief look: the domino mask is a face decal (see rig); a beret in the team
+      // color (눈치왕 purple without a team) tilted on the head, team badge pinned on top and
+      // a purple feather.
+      const col = st?.color ?? '#7B4FC9';
+      const dark = st?.dark ?? '#5A3796';
+      b.push([-0.03, 0.2, -0.02], [0.2, 0, 0.12]);
+      b.add(G.dome(20, 8), { color: col, pos: [0, 0, 0], scale: [0.27, 0.1, 0.28] });
+      b.add(G.torus(0.14, 6, 26), { color: dark, pos: [0, 0.008, 0], rot: [Math.PI / 2, 0, 0], scale: [0.25, 0.26, 0.2] });
+      b.add(G.sphere(8, 6), { color: dark, pos: [0, 0.105, 0], scale: [0.03, 0.035, 0.03] });
+      if (p.team !== null) {
+        b.push([0.08, 0.09, 0.04], [0, 0, -0.3]);
+        addTeamBadge(b, p.team, 0.105);
+        b.pop();
+      }
+      b.push([-0.12, 0.06, -0.17], [0.5, 0, 0.6]);
+      b.add(G.sphere(10, 8), { color: '#7B4FC9', scale: [0.028, 0.12, 0.028] });
+      b.pop();
+      b.pop();
+      break;
+    }
+    case 'none':
+    default:
+      // No hat: the team emblem pin alone carries the team on the head.
+      addHeadPin(b, p);
+      break;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shared non-merged pieces
+// ---------------------------------------------------------------------------
+
+let faceGeo: THREE.BufferGeometry | null = null;
+let maskGeo: THREE.BufferGeometry | null = null;
+function decalGeometry(scale: number): THREE.BufferGeometry {
+  const g = new THREE.SphereGeometry(
+    HEAD_R * scale,
+    26,
+    15,
+    Math.PI - FACE_DECAL.phiLength / 2,
+    FACE_DECAL.phiLength,
+    FACE_DECAL.thetaStart,
+    FACE_DECAL.thetaLength,
+  );
+  g.scale(HEAD_SCALE[0], HEAD_SCALE[1], HEAD_SCALE[2]);
+  return g;
+}
+
+let starsGeo: THREE.BufferGeometry | null = null;
+function dizzyStarsGeometry(): THREE.BufferGeometry {
+  if (starsGeo) return starsGeo;
+  const b = new PartBuilder();
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2;
+    b.add(G.star(5, 0.45, 0.35), {
+      color: i === 1 ? '#FFFFFF' : PAL.gold,
+      pos: [Math.cos(a) * 0.3, Math.sin(a * 2) * 0.03, Math.sin(a) * 0.3],
+      rot: [-0.9, a, 0],
+      scale: 0.065,
+      emissive: 0.6,
+    });
+  }
+  starsGeo = b.merge('vc')!;
+  return starsGeo;
+}
+
+let sweatGeo: THREE.BufferGeometry | null = null;
+function sweatGeometry(): THREE.BufferGeometry {
+  if (sweatGeo) return sweatGeo;
+  const b = new PartBuilder();
+  b.add(G.sphere(12, 10), { color: '#9FE0FF', scale: [0.04, 0.045, 0.04], emissive: 0.25 });
+  b.add(G.cone(12), { color: '#9FE0FF', pos: [0, 0.05, 0], scale: [0.034, 0.06, 0.034], emissive: 0.25 });
+  b.add(G.sphere(6, 4), { color: '#FFFFFF', pos: [0.02, 0.01, 0.025], scale: 0.01, emissive: 0.6 });
+  sweatGeo = b.merge('vc')!;
+  return sweatGeo;
+}
+
+let speedGeo: THREE.BufferGeometry | null = null;
+function speedLineGeometry(): THREE.BufferGeometry {
+  if (!speedGeo) speedGeo = new THREE.BoxGeometry(1, 0.022, 0.022).translate(-0.5, 0, 0);
+  return speedGeo;
+}
+
+// --- taunt props -----------------------------------------------------------------
+
+let tongueGeo: THREE.BufferGeometry | null = null;
+/** Tongue, pivot at its root, pointing along +x. */
+function tongueGeometry(): THREE.BufferGeometry {
+  if (tongueGeo) return tongueGeo;
+  const b = new PartBuilder();
+  b.add(G.sphere(14, 10), { color: '#FF7F9C', pos: [0.085, 0, 0], scale: [0.12, 0.034, 0.085] });
+  b.add(G.sphere(10, 8), { color: '#E8607C', pos: [0.1, 0.018, 0], scale: [0.075, 0.02, 0.016] });
+  tongueGeo = b.merge('vc')!;
+  return tongueGeo;
+}
+
+const FAN_NOTES = 5;
+let fanGeo: THREE.BufferGeometry | null = null;
+
+/**
+ * A banknote readable from both sides: two single-sided planes back to back, the back one turned
+ * half a revolution so its "100" reads the right way round too (a double-sided material would
+ * show the back mirrored).
+ */
+function twoSidedNote(w: number, h: number): THREE.BufferGeometry[] {
+  const front = new THREE.PlaneGeometry(w, h);
+  const back = new THREE.PlaneGeometry(w, h).rotateY(Math.PI);
+  return [front, back];
+}
+
+/**
+ * Fan of banknotes held at the origin (the paw): notes radiate along -y, spread in the y-z plane
+ * (faces toward ±x), each a hair apart in x so they never z-fight.
+ */
+function fanGeometry(): THREE.BufferGeometry {
+  if (fanGeo) return fanGeo;
+  const parts: THREE.BufferGeometry[] = [];
+  for (let i = 0; i < FAN_NOTES; i++) {
+    const k = i / (FAN_NOTES - 1) - 0.5;
+    // Toy-sized: big enough to read from the match camera.
+    for (const g of twoSidedNote(0.46, 0.23)) {
+      g.rotateZ(-Math.PI / 2); // long side along y
+      g.translate(0, -0.23 - 0.02, 0); // grip end at the origin
+      g.rotateY(Math.PI / 2); // into the y-z plane
+      g.rotateX(k * 1.5);
+      g.translate((i - (FAN_NOTES - 1) / 2) * 0.006, 0, 0);
+      parts.push(g);
+    }
+  }
+  fanGeo = mergeGeometries(parts, false)!;
+  for (const p of parts) p.dispose();
+  return fanGeo;
+}
+
+let billGeo: THREE.BufferGeometry | null = null;
+function billGeometry(): THREE.BufferGeometry {
+  if (!billGeo) {
+    const parts = twoSidedNote(0.2, 0.1);
+    billGeo = mergeGeometries(parts, false)!;
+    for (const p of parts) p.dispose();
+  }
+  return billGeo;
+}
+
+let ringGeo: THREE.BufferGeometry | null = null;
+/** Flat ring on the ground, outer radius 1 (scaled per frame). */
+function landingRingGeometry(): THREE.BufferGeometry {
+  if (!ringGeo) ringGeo = new THREE.RingGeometry(0.66, 1, 40).rotateX(-Math.PI / 2);
+  return ringGeo;
+}
+
+let glintGeo: THREE.BufferGeometry | null = null;
+/** Crossed four-point gold glint (reads from any angle). */
+function glintGeometry(): THREE.BufferGeometry {
+  if (glintGeo) return glintGeo;
+  const b = new PartBuilder();
+  b.add(G.star(4, 0.28, 0.12, false), { color: '#FFE27A', scale: 0.1, emissive: 0.9 });
+  b.add(G.star(4, 0.28, 0.12, false), { color: '#FFF6C8', rot: [0, Math.PI / 2, 0], scale: 0.1, emissive: 0.9 });
+  b.add(G.star(4, 0.28, 0.12, false), { color: '#FFF6C8', rot: [Math.PI / 2, 0, Math.PI / 4], scale: 0.07, emissive: 0.9 });
+  glintGeo = b.merge('vc')!;
+  return glintGeo;
+}
+
+let sparkleGeo: THREE.BufferGeometry | null = null;
+function sparkleGeometry(): THREE.BufferGeometry {
+  if (sparkleGeo) return sparkleGeo;
+  const b = new PartBuilder();
+  b.add(G.star(5, 0.45, 0.35), { color: PAL.gold, scale: 1, emissive: 0.7 });
+  b.add(G.star(5, 0.45, 0.35), { color: '#FFFFFF', rot: [0, Math.PI / 2, 0], scale: 0.8, emissive: 0.7 });
+  sparkleGeo = b.merge('vc')!;
+  return sparkleGeo;
+}
+
+let blobGeo: THREE.BufferGeometry | null = null;
+function blobGeometry(): THREE.BufferGeometry {
+  if (!blobGeo) blobGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+  return blobGeo;
+}
+let blobMat: THREE.MeshBasicMaterial | null = null;
+function blobMaterial(): THREE.MeshBasicMaterial {
+  if (!blobMat) {
+    blobMat = new THREE.MeshBasicMaterial({
+      map: blobShadowTexture(),
+      transparent: true,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+      toneMapped: false,
+    });
+  }
+  return blobMat;
+}
+
+function faceMaterial(kind: FaceExpression): THREE.Material {
+  return matTextured(faceTexture(kind), { transparent: true, rim: 0.0, polygonOffset: -1 });
+}
+
+// ---------------------------------------------------------------------------
+// Rig
+// ---------------------------------------------------------------------------
+
+interface Weights {
+  move: number;
+  grab: number;
+  strain: number;
+  dash: number;
+  boost: number;
+  down: number;
+  cheer: number;
+  sad: number;
+}
+
+let rigCounter = 0;
+
+export function createRaccoon(opts: { team: TeamId | null; look: CharacterLook }): RaccoonRig {
+  const team = opts.team;
+  let look: CharacterLook = { ...opts.look };
+  let params = lookParams(team, look);
+  let geos = buildGeoSet(params);
+  const seed = ++rigCounter * 7919;
+  const rand = rng(seed);
+
+  const root = new THREE.Group();
+  root.name = 'raccoon';
+  const pivot = new THREE.Group();
+  const body = new THREE.Group();
+  root.add(pivot);
+  pivot.add(body);
+
+  const mk = (part: PartName, parent: THREE.Object3D, pos: readonly number[]): THREE.Mesh => {
+    const m = new THREE.Mesh(geos[part], matVC());
+    m.name = `raccoon:${part}`;
+    m.castShadow = true;
+    m.receiveShadow = true;
+    m.position.set(pos[0], pos[1], pos[2]);
+    parent.add(m);
+    return m;
+  };
+
+  const bodyMesh = mk('body', body, [0, 0, 0]);
+  const head = mk('head', body, NECK);
+  const armL = mk('armL', body, [0, SHOULDER_Y, -SHOULDER_Z]);
+  const armR = mk('armR', body, [0, SHOULDER_Y, SHOULDER_Z]);
+  const legL = mk('legL', body, [0, HIP_Y, -HIP_Z]);
+  const legR = mk('legR', body, [0, HIP_Y, HIP_Z]);
+  const tail1 = mk('tail1', body, TAIL_BASE);
+  const tail2 = mk('tail2', tail1, [-TAIL_SEG[0], 0, 0]);
+  const tail3 = mk('tail3', tail2, [-TAIL_SEG[1], 0, 0]);
+  const scarfTail = mk('scarfTail', body, [-0.18, 0.62, 0.12]);
+
+  // Face decal + optional mask overlay.
+  if (!faceGeo) faceGeo = decalGeometry(1.006);
+  if (!maskGeo) maskGeo = decalGeometry(1.014);
+  let faceKind: FaceExpression = 'normal';
+  const face = new THREE.Mesh(faceGeo, faceMaterial('normal'));
+  face.name = 'raccoon:face';
+  face.position.set(HEAD_C[0], HEAD_C[1], HEAD_C[2]);
+  face.userData.noOutline = true;
+  face.receiveShadow = true;
+  face.renderOrder = 1;
+  head.add(face);
+  const mask = new THREE.Mesh(maskGeo, matTextured(nunchiMaskTexture(), { transparent: true, rim: 0.3, polygonOffset: -2 }));
+  mask.name = 'raccoon:mask';
+  mask.position.copy(face.position);
+  mask.userData.noOutline = true;
+  mask.receiveShadow = true;
+  mask.renderOrder = 2;
+  head.add(mask);
+
+  // FX children.
+  const stars = new THREE.Mesh(dizzyStarsGeometry(), matVC());
+  stars.name = 'raccoon:dizzy';
+  stars.position.set(0, HEAD_C[1] + 0.36, 0);
+  stars.userData.noOutline = true;
+  stars.castShadow = false;
+  head.add(stars);
+  const sweat = new THREE.Mesh(sweatGeometry(), matVC());
+  sweat.name = 'raccoon:sweat';
+  sweat.userData.noOutline = true;
+  sweat.castShadow = false;
+  sweat.position.set(0.12, HEAD_C[1] + 0.2, -0.3);
+  head.add(sweat);
+
+  const speedLines = new THREE.Group();
+  speedLines.name = 'raccoon:speedLines';
+  const speedMat = matBasic('#FFFFFF', 0.85);
+  const lineSpecs = [
+    [0.3, -0.22],
+    [0.55, 0.26],
+    [0.8, -0.12],
+    [0.42, 0.05],
+    [0.95, 0.18],
+  ];
+  const lines = lineSpecs.map(([y, z]) => {
+    const l = new THREE.Mesh(speedLineGeometry(), speedMat);
+    l.position.set(-0.4, y, z);
+    l.userData.noOutline = true;
+    l.castShadow = false;
+    speedLines.add(l);
+    return l;
+  });
+  pivot.add(speedLines);
+
+  const blob = new THREE.Mesh(blobGeometry(), blobMaterial());
+  blob.name = 'raccoon:blob';
+  blob.scale.set(1.0, 1, 1.0);
+  blob.position.y = 0.012;
+  blob.userData.noOutline = true;
+  blob.renderOrder = -1;
+  root.add(blob);
+
+  const labelAnchor = new THREE.Object3D();
+  labelAnchor.position.y = RACCOON_LABEL_HEIGHT;
+  root.add(labelAnchor);
+
+  // --- taunt props (hidden unless a taunt shows them) ---------------------------------
+  const prop = (m: THREE.Mesh, parent: THREE.Object3D, name: string, shadow = false): THREE.Mesh => {
+    m.name = `raccoon:${name}`;
+    m.userData.noOutline = true;
+    m.castShadow = shadow;
+    m.visible = false;
+    parent.add(m);
+    return m;
+  };
+  const tongue = prop(new THREE.Mesh(tongueGeometry(), matVC()), head, 'tongue');
+  tongue.position.set(HEAD_C[0] + 0.3, HEAD_C[1] - 0.15, 0);
+  const noteMat = matTextured(banknoteTexture(), { rim: 0.3 });
+  const fanPivot = new THREE.Group();
+  fanPivot.name = 'raccoon:fanPivot';
+  fanPivot.position.set(0.01, -0.21, 0);
+  armR.add(fanPivot);
+  const fan = prop(new THREE.Mesh(fanGeometry(), noteMat), fanPivot, 'fan', true);
+  const bills = [0, 1, 2].map((i) => prop(new THREE.Mesh(billGeometry(), noteMat), pivot, `bill${i}`));
+  // Forearms that fold up from the paw end of each arm (근육 자랑), ink-outlined like the rig.
+  const forearmPivots = [armL, armR].map((a, i) => {
+    const g = new THREE.Group();
+    g.name = `raccoon:elbow${i}`;
+    g.position.set(0.01, -0.2, 0);
+    g.visible = false;
+    a.add(g);
+    return g;
+  });
+  const forearms = forearmPivots.map((g, i) => {
+    const m = new THREE.Mesh(geos.forearm, matVC());
+    m.name = `raccoon:forearm${i}`;
+    m.castShadow = true;
+    g.add(m);
+    return m;
+  });
+  // Gold glints at the fists.
+  const glints = forearmPivots.map((g, i) => {
+    const m = prop(new THREE.Mesh(glintGeometry(), matVC()), g, `glint${i}`);
+    m.position.set(0, 0.2, 0);
+    return m;
+  });
+  const sparkles = [0, 1, 2, 3, 4].map((i) => prop(new THREE.Mesh(sparkleGeometry(), matVC()), root, `sparkle${i}`));
+  // Landing ring puffing out on the ground (쭈그려 뛰기); its own material so it can fade.
+  const ringMat = new THREE.MeshBasicMaterial({ color: '#FFFFFF', transparent: true, opacity: 0, depthWrite: false, toneMapped: false });
+  const ring = prop(new THREE.Mesh(landingRingGeometry(), ringMat), root, 'landingRing');
+  ring.position.y = 0.025;
+  ring.renderOrder = -1;
+  // Muscle bumps that swell on top of the upper arms (근육 자랑), fur-colored and ink-outlined.
+  const biceps = [armL, armR].map((a, i) => {
+    const m = new THREE.Mesh(G.sphere(12, 9), matColor(`#${params.fur.getHexString()}`, 0.6));
+    m.name = `raccoon:bicep${i}`;
+    m.castShadow = true;
+    m.visible = false;
+    // Local ±z of an arm raised sideways points up: the bump sits on top of the upper arm.
+    m.position.set(0.0, -0.1, (i ? 1 : -1) * 0.045);
+    a.add(m);
+    return m;
+  });
+  // Fingertip tugging the right lower eyelid (메롱): fixed on the head, from the cheek up to the lid.
+  const finger = prop(new THREE.Mesh(geos.finger, matVC()), head, 'finger');
+  {
+    const onHead = (phi: number, th: number, k: number): THREE.Vector3 =>
+      new THREE.Vector3(
+        HEAD_C[0] - HEAD_R * k * HEAD_SCALE[0] * Math.cos(phi) * Math.sin(th),
+        HEAD_C[1] + HEAD_R * k * HEAD_SCALE[1] * Math.cos(th),
+        HEAD_C[2] + HEAD_R * k * HEAD_SCALE[2] * Math.sin(phi) * Math.sin(th),
+      );
+    // The pulled eye is the +z one (face texture: x = -FACE.eyeX), its lid just under it.
+    const lid = onHead(Math.PI - 0.37, FACE_DECAL.thetaStart + 0.72, 1.04);
+    const base = onHead(Math.PI - 0.47, FACE_DECAL.thetaStart + 0.92, 1.16);
+    finger.position.copy(base);
+    finger.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), lid.clone().sub(base).normalize());
+    finger.userData.len = lid.distanceTo(base);
+  }
+
+  // --- Content 2.0 attach points (C7a): created before the outlines so the ink / highlight
+  // passes see only the rig's own meshes (attached items manage their own look).
+  const attachPoint = (name: string, parent: THREE.Object3D, pos: readonly number[]): THREE.Group => {
+    const g = new THREE.Group();
+    g.name = `raccoon:attach:${name}`;
+    g.position.set(pos[0], pos[1], pos[2]);
+    parent.add(g);
+    return g;
+  };
+  const attach: RaccoonAttach = {
+    handR: attachPoint('handR', armR, [0.01, -0.2, 0.005]),
+    handL: attachPoint('handL', armL, [0.01, -0.2, -0.005]),
+    back: attachPoint('back', body, [-0.235, 0.4, 0]),
+    footL: attachPoint('footL', legL, [0.035, -0.205, 0]),
+    footR: attachPoint('footR', legR, [0.035, -0.205, 0]),
+    headTop: attachPoint('headTop', head, [HEAD_C[0], HEAD_C[1] + 0.33, 0]),
+  };
+
+  const highlighter = new Highlighter(root);
+  // Bold toon ink line so raccoons read at the high game camera (hidden while a colored
+  // highlight / impact flash replaces it).
+  const ink = new InkOutline(root);
+
+  // --- look application ---------------------------------------------------------
+  const applyLook = (): void => {
+    params = lookParams(team, look);
+    geos = buildGeoSet(params);
+    bodyMesh.geometry = geos.body;
+    head.geometry = geos.head;
+    armL.geometry = geos.armL;
+    armR.geometry = geos.armR;
+    legL.geometry = geos.legL;
+    legR.geometry = geos.legR;
+    tail1.geometry = geos.tail1;
+    tail2.geometry = geos.tail2;
+    tail3.geometry = geos.tail3;
+    scarfTail.geometry = geos.scarfTail;
+    for (const m of forearms) m.geometry = geos.forearm;
+    finger.geometry = geos.finger;
+    const g = params.girth;
+    armL.position.z = -SHOULDER_Z * g;
+    armR.position.z = SHOULDER_Z * g;
+    legL.position.z = -HIP_Z * Math.sqrt(g);
+    legR.position.z = HIP_Z * Math.sqrt(g);
+    tail1.position.set(TAIL_BASE[0] * g, TAIL_BASE[1], TAIL_BASE[2]);
+    scarfTail.position.set(-0.18 * g, 0.62, 0.12 * g);
+    mask.visible = look.hat === 'nunchiMask';
+    blob.scale.setScalar(0.95 * g);
+    if (biceps) for (const m of biceps) m.material = matColor(`#${params.fur.getHexString()}`, 0.6);
+    highlighter.rebuild();
+    ink.refresh();
+  };
+  applyLook();
+
+  // --- animation state -------------------------------------------------------------
+  const w: Weights = { move: 0, grab: 0, strain: 0, dash: 0, boost: 0, down: 0, cheer: 0, sad: 0 };
+  let effortW = 0;
+  // Slightly oversized head and tail: chunkier silhouette at gameplay distance.
+  head.scale.setScalar(1.1);
+  tail1.scale.setScalar(1.12);
+  let phase = rand() * Math.PI * 2;
+  let spin = 0;
+  let spinVel = 0;
+  let wasDown = false;
+  let nextBlink = 1.5 + rand() * 3;
+  let blinkUntil = -1;
+  const idleSeed = rand() * 10;
+  // Taunt blend: weight, the last evaluated taunt pose (held while blending out), its clock.
+  let tauntW = 0;
+  let tauntT = 0;
+  const tp: TauntPose = neutralTauntPose();
+  // Content 2.0 (C7a): held item arm pose, one-shot reaction, dizzy halo.
+  let itemPose: RaccoonItemPose | null = null;
+  let itemW = 0;
+  /** Smoothed right-arm swing angle of the item pose (rotation.z), so phase changes blend. */
+  let itemRz = 2.2;
+  let reaction: RaccoonReaction | null = null;
+  let reactT = 0;
+  let dizzy = false;
+  let dizzyW = 0;
+
+  const approach = (cur: number, target: number, rate: number, dt: number): number =>
+    cur + (target - cur) * (1 - Math.exp(-rate * dt));
+
+  const lerp = (a: number, b: number, k: number): number => a + (b - a) * k;
+  const blendArm = (arm: THREE.Mesh, side: number, a: TauntArm, k: number): void => {
+    arm.rotation.x = lerp(arm.rotation.x, -side * a.out, k);
+    arm.rotation.y = lerp(arm.rotation.y, side * a.inward, k);
+    arm.rotation.z = lerp(arm.rotation.z, a.fwd, k);
+    arm.position.y += a.lift * k;
+    const bulge = lerp(1, a.bulge, k);
+    arm.scale.set(bulge, lerp(1, a.stretch, k), bulge);
+  };
+  /** Blend the taunt pose over the regular pose (and drive the props). */
+  const applyTaunt = (t: number): void => {
+    const k = tauntW;
+    if (k <= 0) {
+      armL.scale.setScalar(1);
+      armR.scale.setScalar(1);
+      head.position.y = NECK[1];
+      tongue.visible = fan.visible = false;
+      for (const m of bills) m.visible = false;
+      for (const m of glints) m.visible = false;
+      for (const m of sparkles) m.visible = false;
+      for (const m of biceps) m.visible = false;
+      for (const g of forearmPivots) g.visible = false;
+      finger.visible = ring.visible = false;
+      return;
+    }
+    pivot.position.y = lerp(pivot.position.y, tp.pivotY, k);
+    pivot.rotation.y += tp.pivotYaw * k;
+    body.rotation.z = lerp(body.rotation.z, tp.lean, k);
+    body.rotation.x = lerp(body.rotation.x, tp.roll, k);
+    body.rotation.y = lerp(body.rotation.y, tp.twist, k);
+    body.position.x += tp.bodyX * k;
+    body.position.z += tp.bodyZ * k;
+    body.scale.set(lerp(body.scale.x, tp.sx, k), lerp(body.scale.y, tp.sy, k), lerp(body.scale.z, tp.sz, k));
+    for (const [leg, side, l] of [
+      [legL, -1, tp.legL],
+      [legR, 1, tp.legR],
+    ] as const) {
+      leg.rotation.z = lerp(leg.rotation.z, l.fwd, k);
+      leg.rotation.x = lerp(leg.rotation.x, -side * l.out, k);
+      leg.position.y += l.lift * k;
+    }
+    blendArm(armL, -1, tp.armL, k);
+    blendArm(armR, 1, tp.armR, k);
+    head.rotation.x = lerp(head.rotation.x, tp.headRoll, k);
+    head.rotation.y = lerp(head.rotation.y, tp.headYaw, k);
+    head.rotation.z = lerp(head.rotation.z, tp.headPitch, k);
+    head.position.y = NECK[1] + tp.neckY * k;
+    const tl = tp.tail;
+    tail1.rotation.y = lerp(tail1.rotation.y, tl[0], k);
+    tail1.rotation.z = lerp(tail1.rotation.z, tl[1], k);
+    tail2.rotation.y = lerp(tail2.rotation.y, tl[2], k);
+    tail2.rotation.z = lerp(tail2.rotation.z, tl[3], k);
+    tail3.rotation.y = lerp(tail3.rotation.y, tl[4], k);
+    tail3.rotation.z = lerp(tail3.rotation.z, tl[5], k);
+    // Props.
+    const tg = tp.tongue * k;
+    tongue.visible = tg > 0.02;
+    if (tongue.visible) {
+      tongue.scale.set(tg, Math.max(0.3, tg), tg);
+      tongue.rotation.set(0, tp.tongueWag, -0.75);
+    }
+    const fs = tp.fan * k;
+    fan.visible = fs > 0.02;
+    if (fan.visible) {
+      fan.scale.setScalar(fs);
+      fanPivot.rotation.set(0, tp.fanWave, 0.25);
+    }
+    const bl = tp.bills * k;
+    bills.forEach((m, i) => {
+      m.visible = bl > 0.05;
+      if (!m.visible) return;
+      // Notes peel off the fan and flutter down in front-right of the body.
+      const ph = (tauntT * 0.95 + i * 0.37) % 1;
+      const sway = Math.sin((tauntT + i) * 7) * 0.12;
+      m.position.set(0.18 + i * 0.08 + sway * 0.4, 1.45 - ph * 1.25, 0.55 + sway);
+      m.rotation.set(ph * 5 + i, ph * 7 + i * 2, Math.sin((tauntT + i) * 9) * 0.8);
+      m.scale.setScalar(bl * (1 - 0.3 * ph));
+    });
+    for (const [i, a] of [tp.armL, tp.armR].entries()) {
+      const s = Math.min(1, Math.max(0, (a.bulge - 1) / 0.42)) * k;
+      const m = biceps[i]!;
+      m.visible = s > 0.05;
+      if (m.visible) m.scale.set(0.07 * s, 0.085 * s, 0.07 * s);
+    }
+    // Forearms fold from straight down the arm (hidden) up to a flex beside the head.
+    const fa = tp.forearm * k;
+    forearmPivots.forEach((g, i) => {
+      g.visible = fa > 0.04;
+      if (!g.visible) return;
+      const side = i ? 1 : -1;
+      g.rotation.set(side * (Math.PI - fa * (Math.PI - 1.22)), 0, 0);
+      g.scale.setScalar(0.6 + 0.4 * Math.min(1, fa * 1.4));
+    });
+    const fg = tp.finger * k;
+    finger.visible = fg > 0.04;
+    if (finger.visible) finger.scale.set(1, (finger.userData.len as number) / 0.1 * fg, 1);
+    const rg = tp.ring * k;
+    ring.visible = rg > 0.03;
+    if (ring.visible) {
+      const ph = tp.ringPhase;
+      ring.scale.setScalar(0.4 + 0.7 * ph);
+      ringMat.opacity = 0.95 * rg * (1 - ph * ph * ph);
+    }
+    const gl = tp.glint * k;
+    glints.forEach((m, i) => {
+      m.visible = gl > 0.04;
+      if (!m.visible) return;
+      m.scale.setScalar(0.5 + gl * 1.5);
+      m.rotation.set(0, tp.glintSpin * (i ? 1 : -1), tp.glintSpin * 0.5);
+    });
+    const sk = tp.sparkle * k;
+    sparkles.forEach((m, i) => {
+      m.visible = sk > 0.04;
+      if (!m.visible) return;
+      const ph = tp.sparklePhase;
+      const a = (i / sparkles.length) * Math.PI * 2 + tp.sparkleBurst * 1.3;
+      const r = 0.35 + 0.42 * ph;
+      m.position.set(Math.cos(a) * r, 0.12 + Math.sin(Math.PI * ph) * (0.3 + (i % 2) * 0.12), Math.sin(a) * r);
+      m.rotation.set(0, t * 4 + i, 0);
+      m.scale.setScalar(sk * Math.sin(Math.PI * Math.min(1, ph * 1.15)) * (i % 2 ? 0.1 : 0.14));
+    });
+  };
+
+  const setFace = (kind: FaceExpression): void => {
+    if (kind === faceKind) return;
+    faceKind = kind;
+    face.material = faceMaterial(kind);
+  };
+
+  const update = (dt: number, pose: RaccoonPose): void => {
+    dt = Math.min(Math.max(dt, 0), 0.1);
+    const t = pose.time;
+    const rival = params.rival;
+    // Taunt: evaluate the target pose; without one, hold the last frame and blend out.
+    const taunt = pose.taunt && !pose.knockedDown ? pose.taunt : null;
+    if (taunt) {
+      tauntPose(taunt.id, taunt.t, taunt.dur, tp);
+      tauntT = taunt.t;
+    }
+    tauntW = approach(tauntW, taunt ? 1 : 0, taunt ? 26 : pose.knockedDown ? 40 : 16, dt);
+    if (dt === 0 && taunt && tauntW === 0) tauntW = 1; // a frozen first frame still shows the pose
+    if (!taunt && tauntW < 0.002) tauntW = 0;
+    const moveTarget = THREE.MathUtils.clamp(pose.speed / 5, 0, 1.6);
+    w.move = approach(w.move, moveTarget, 10, dt);
+    w.grab = approach(w.grab, pose.grabbing ? 1 : 0, 14, dt);
+    w.strain = approach(w.strain, pose.straining ? 1 : 0, 10, dt);
+    w.dash = approach(w.dash, pose.dashing ? 1 : 0, pose.dashing ? 24 : 8, dt);
+    w.boost = approach(w.boost, pose.boosting ? 1 : 0, pose.boosting ? 20 : 7, dt);
+    w.down = approach(w.down, pose.knockedDown ? 1 : 0, pose.knockedDown ? 20 : 5, dt);
+    w.cheer = approach(w.cheer, pose.celebrating ? 1 : 0, 8, dt);
+    w.sad = approach(w.sad, pose.sad ? 1 : 0, 5, dt);
+    const mv = Math.min(w.move, 1);
+    const athletic = rival === 'hodadak' ? 1 : 0;
+    effortW = approach(effortW, pose.straining ? THREE.MathUtils.clamp(pose.effort ?? 0.3, 0, 1) : 0, 9, dt);
+    // Tumble (uproot pop): 0..0.14 thrown back, ..0.55 sitting with legs up, ..0.85 spring up.
+    const tb = pose.tumble;
+    let sitW = 0;
+    let springW = 0;
+    if (tb !== undefined && tb >= 0 && tb < RACCOON_TUMBLE_TIME) {
+      if (tb < 0.14) sitW = tb / 0.14;
+      else if (tb < 0.55) sitW = 1;
+      else {
+        const k = (tb - 0.55) / (RACCOON_TUMBLE_TIME - 0.55);
+        sitW = Math.max(0, 1 - k * 2.2);
+        springW = Math.sin(Math.PI * k);
+      }
+    }
+
+    // Gait: short legs scamper (≈2.5 strides/s at walk speed).
+    phase += dt * (2.2 + pose.speed * (2.9 + athletic * 0.4));
+    const s = Math.sin(phase);
+    const c = Math.cos(phase);
+
+    // --- knockdown spin (starts fast, decays; snaps back to a full turn) -------------
+    if (pose.knockedDown && !wasDown) spinVel = 16;
+    wasDown = pose.knockedDown;
+    if (pose.knockedDown) {
+      spinVel *= Math.exp(-dt * 2.5);
+      spin += spinVel * dt;
+    } else {
+      const target = Math.round(spin / (Math.PI * 2)) * Math.PI * 2;
+      spin = approach(spin, target, 8, dt);
+      if (Math.abs(spin - target) < 1e-3) spin = 0;
+    }
+    pivot.rotation.y = spin;
+
+    // --- vertical: bob, cheer hops, knockdown sit -------------------------------------
+    const bob = Math.abs(s) * 0.045 * mv;
+    const hop = Math.max(0, Math.sin(t * 7.5)) * 0.2 * w.cheer;
+    pivot.position.y = bob + hop - 0.1 * w.down - 0.03 * w.sad - 0.2 * sitW + 0.38 * springW - 0.05 * effortW;
+
+    // --- body lean / squash ---------------------------------------------------------------
+    const breathe = Math.sin(t * 2.4 + idleSeed) * 0.015;
+    let lean = -0.08 * mv - 0.08 * athletic * (0.4 + mv); // forward lean when running
+    lean += 0.12 * w.grab * mv; // dragging: lean back
+    lean += 0.34 * w.strain; // tug of war
+    lean += 0.42 * effortW * effortW; // giant-radish lean
+    lean += 1.15 * sitW - 0.25 * springW;
+    lean -= 0.2 * w.dash;
+    lean -= 0.18 * w.boost;
+    lean += 0.55 * w.down;
+    lean -= 0.2 * w.sad;
+    body.rotation.z = lean;
+    body.rotation.x = Math.sin(phase) * 0.05 * mv * (1 - w.strain) + Math.sin(t * 40) * 0.02 * w.strain;
+    const violent = THREE.MathUtils.smoothstep(effortW, 0.75, 1);
+    const tremble = w.strain * 0.014 + violent * 0.03;
+    body.position.x = Math.sin(t * 53.0) * tremble;
+    body.position.z = Math.sin(t * 41.0 + 1.3) * tremble;
+    const stretch = 1 + 0.22 * w.dash + 0.1 * w.boost;
+    const squash = 1 - 0.15 * w.dash - 0.06 * w.boost + breathe + Math.sin(t * 15) * 0.05 * w.cheer;
+    body.scale.set(stretch, squash, 1 / Math.sqrt(stretch * squash));
+
+    // --- legs -------------------------------------------------------------------------
+    const legAmp = 0.75 * mv * (1 - w.down) * (1 - 0.6 * w.strain) * (1 - sitW);
+    const brace = 0.45 * w.strain + 0.35 * effortW;
+    const sitLegs = 1.25 * w.down + (1.45 + Math.sin(t * 22) * 0.35) * sitW;
+    legL.rotation.z = s * legAmp + brace + sitLegs;
+    legR.rotation.z = -s * legAmp + brace * 0.8 + sitLegs * 0.9;
+    legL.rotation.x = -0.12 * w.down;
+    legR.rotation.x = 0.12 * w.down;
+    // Lift the swinging foot a little.
+    legL.position.y = HIP_Y + Math.max(0, c) * 0.03 * mv;
+    legR.position.y = HIP_Y + Math.max(0, -c) * 0.03 * mv;
+
+    // --- arms -------------------------------------------------------------------------
+    const swing = -s * 0.7 * mv;
+    const free = 1 - w.grab;
+    const sadHang = w.sad;
+    for (const [arm, side, sw] of [
+      [armL, -1, swing],
+      [armR, 1, -swing],
+    ] as const) {
+      let rz = sw * free * (1 - w.down) * (1 - w.cheer);
+      let rx = side * -0.22; // slight A-pose
+      // Grab: both arms reach forward and inward.
+      rz += w.grab * (1.3 + 0.2 * w.strain);
+      rx += w.grab * side * 0.12;
+      const ry = w.grab * side * 0.42 * (1 - w.down);
+      // Dash without holding: arms swept back.
+      rz += -1.0 * w.dash * free;
+      // Cheer: arms up and waving.
+      const wave = Math.sin(t * 12 + (side > 0 ? 0 : 1.6)) * 0.35;
+      rz += w.cheer * (2.6 + wave) * free;
+      rx += w.cheer * side * -0.35;
+      // Knocked down: flail.
+      rz += w.down * (2.2 + Math.sin(t * 18 + side) * 0.5);
+      rx += w.down * side * -0.6;
+      // Tumble: arms thrown up while sitting, then a "ta-da" on the spring.
+      rz = rz * (1 - sitW) + sitW * (2.4 + Math.sin(t * 20 + side) * 0.4);
+      rz += springW * 1.4;
+      rx += (sitW + springW) * side * -0.5;
+      // Sad: limp, slightly forward.
+      rz = rz * (1 - sadHang) + sadHang * (0.12 + Math.sin(t * 1.3) * 0.03);
+      rx = rx * (1 - sadHang) + sadHang * side * -0.05;
+      arm.rotation.set(rx, ry * (1 - sadHang), rz);
+      arm.position.y = SHOULDER_Y + Math.sin(t * 53 + side) * 0.006 * w.strain;
+    }
+
+    // --- held item (C7a): the right arm carries / winds up / swings the item -------------
+    // Overrides the right arm while empty-handed and upright; grabbing loot stows the item.
+    const itemTarget = itemPose && itemPose.grip !== 'none' && !pose.knockedDown && !pose.grabbing ? 1 : 0;
+    itemW = approach(itemW, itemTarget, itemTarget ? 22 : 12, dt);
+    if (itemW > 0.002 && itemPose) {
+      const ip = itemPose;
+      const k = THREE.MathUtils.clamp(ip.t, 0, 1);
+      // Right-arm swing angle (rotation.z: 0 = hanging, PI/2 = forward, PI = overhead).
+      let rzT: number;
+      let crouch = 0;
+      let leanT = 0;
+      if (ip.grip === 'hammer') {
+        const carry = 2.25 + Math.sin(t * 2.4 + idleSeed) * 0.06 - mv * 0.15;
+        if (ip.phase === 'windup') {
+          // Anticipation: cock the hammer way back over the head, crouch, lean back.
+          const e = 1 - (1 - k) * (1 - k);
+          rzT = carry + (3.25 - carry) * e;
+          crouch = 0.09 * e;
+          leanT = 0.22 * e;
+        } else if (ip.phase === 'swing') {
+          // The bonk: overhead down to forward-low (fast out, overshoot at the end).
+          const e = k < 0.7 ? Math.pow(k / 0.7, 0.55) : 1;
+          rzT = 3.25 + (0.35 - 3.25) * e + (k > 0.7 ? Math.sin((k - 0.7) / 0.3 * Math.PI) * -0.12 : 0);
+          crouch = 0.06 * (1 - e);
+          leanT = -0.3 * e;
+        } else if (ip.phase === 'recover') {
+          const e = k * k * (3 - 2 * k);
+          rzT = 0.35 + (carry - 0.35) * e;
+          leanT = -0.3 * (1 - e);
+        } else rzT = carry;
+      } else if (ip.grip === 'plunger') {
+        rzT = ip.phase === 'aim' ? 1.62 : ip.phase === 'swing' ? 1.55 + 0.25 * Math.sin(k * Math.PI) : 1.15 + Math.sin(t * 2.2 + idleSeed) * 0.05;
+        leanT = ip.phase === 'aim' ? -0.08 : 0;
+      } else {
+        // Bottle: held up in front, a squeeze pump on use.
+        rzT = 1.25 + (ip.phase === 'swing' ? 0.35 * Math.sin(k * Math.PI) : Math.sin(t * 2.6 + idleSeed) * 0.05);
+      }
+      // Wind-up / swing angles are applied directly (they are fast); carry poses are smoothed.
+      const fast = ip.phase === 'windup' || ip.phase === 'swing';
+      itemRz = fast || itemW < 0.05 ? rzT : approach(itemRz, rzT, 18, dt);
+      armR.rotation.z = lerp(armR.rotation.z, itemRz, itemW);
+      armR.rotation.x = lerp(armR.rotation.x, 0.12, itemW);
+      armR.rotation.y = lerp(armR.rotation.y, ip.grip === 'hammer' ? -0.25 : -0.1, itemW);
+      body.rotation.z += leanT * itemW;
+      pivot.position.y -= crouch * itemW;
+      if (crouch > 0) {
+        const sq = 1 - crouch * 1.4 * itemW;
+        body.scale.y *= sq;
+        body.scale.x /= Math.sqrt(sq);
+      }
+    }
+
+    // --- head ------------------------------------------------------------------------
+    const look = pose.headYaw ?? Math.sin(t * 0.37 + idleSeed) * 0.25 * (1 - mv) * (1 - w.grab) * (1 - w.sad);
+    head.rotation.y = look * (1 - w.down);
+    head.rotation.z = -0.38 * w.sad + 0.12 * w.strain - 0.1 * w.dash + Math.sin(t * 15) * 0.06 * w.cheer + bob * 1.2;
+    head.rotation.x = Math.sin(t * 9) * 0.05 * w.down + Math.sin(phase * 0.5) * 0.04 * mv;
+
+    // --- tail ------------------------------------------------------------------------
+    const wagSpeed = 2.2 + 9 * w.cheer + 3 * mv;
+    const wagAmp = 0.22 + 0.25 * w.cheer + 0.12 * mv - 0.15 * w.sad;
+    const droop = w.sad * 0.75 - 0.25 * w.dash;
+    tail1.rotation.set(0, 0.35 + Math.sin(t * wagSpeed) * wagAmp, -0.42 + droop * 0.7);
+    tail2.rotation.set(0.1, Math.sin(t * wagSpeed - 0.7) * wagAmp * 0.8, -0.45 + droop * 0.5);
+    tail3.rotation.set(0.15, Math.sin(t * wagSpeed - 1.4) * wagAmp * 0.6, -0.55 + droop * 0.3);
+
+    // --- scarf tails flap -----------------------------------------------------------------
+    scarfTail.rotation.z = 0.25 + mv * 0.7 + w.dash * 0.6 + Math.sin(t * (6 + mv * 10)) * 0.12 * (0.3 + mv);
+    scarfTail.rotation.x = Math.sin(t * 4.3) * 0.1;
+
+    // --- taunt blend over the regular pose -------------------------------------------------
+    applyTaunt(t);
+
+    // --- hit reaction (C7a): accordion squash that springs back ----------------------------
+    pivot.scale.set(1, 1, 1);
+    if (reaction) {
+      reactT += dt;
+      const big = reaction === 'homeRun';
+      const dur = reaction === 'bonk' || big ? 0.75 : 0.4;
+      if (reactT >= dur) reaction = null;
+      else if (reaction === 'bonk' || big) {
+        // Slam flat in ~70 ms (a toy accordion), then a wobbly elastic rebound.
+        const depth = big ? 0.62 : 0.5;
+        const sy =
+          reactT < 0.07 ? 1 - depth * (reactT / 0.07) : 1 - depth * Math.exp(-(reactT - 0.07) * 7) * Math.cos((reactT - 0.07) * 19);
+        const sxz = 1 / Math.sqrt(Math.max(0.3, sy));
+        pivot.scale.set(sxz, Math.max(0.3, sy), sxz);
+      } else {
+        // Recoil: a quick lean back and stretch.
+        const k = reactT / dur;
+        const env = Math.sin(Math.PI * k) * (1 - k);
+        body.rotation.z += (reaction === 'clash' ? 0.5 : 0.35) * env;
+        pivot.scale.set(1 - 0.12 * env, 1 + 0.16 * env, 1 - 0.12 * env);
+      }
+    }
+
+    // --- FX children ----------------------------------------------------------------------
+    dizzyW = approach(dizzyW, dizzy ? 1 : 0, dizzy ? 18 : 6, dt);
+    const starW = Math.max(w.down, dizzyW);
+    stars.visible = starW > 0.05;
+    if (stars.visible) {
+      stars.rotation.y = t * (6 + 4 * dizzyW);
+      stars.scale.setScalar(Math.min(1, starW * 1.4) * (1 + 0.25 * dizzyW));
+      stars.position.y = HEAD_C[1] + 0.36 + Math.sin(t * 5) * 0.02;
+    }
+    // (Strain sweat is a view emote now; the head drop stays for the carry boost.)
+    sweat.visible = w.boost > 0.5;
+    if (sweat.visible) {
+      const k = (t * 1.5) % 1;
+      sweat.position.set(0.12, HEAD_C[1] + 0.22 - k * 0.12, -0.31);
+      sweat.scale.setScalar(w.boost * (1 - k * 0.3));
+    }
+    const lineW = Math.max(w.dash, w.boost * 0.8, tp.speed * tauntW);
+    speedLines.visible = lineW > 0.05;
+    if (speedLines.visible) {
+      lines.forEach((l, i) => {
+        const k = (t * 5 + i * 0.37) % 1;
+        l.position.x = -0.3 - k * 0.5;
+        l.scale.set((0.35 + 0.35 * (1 - k)) * lineW, 1, 1);
+      });
+    }
+
+    // --- expression ---------------------------------------------------------------------
+    let kind: FaceExpression;
+    const override = pose.expression ?? null;
+    if (tauntW > 0.45 && !pose.knockedDown) kind = tp.face;
+    else if (override) kind = override;
+    else if (pose.knockedDown || w.down > 0.6 || dizzyW > 0.5) kind = 'dizzy';
+    else if (sitW > 0.4) kind = 'shock';
+    else if (springW > 0.05) kind = 'happy';
+    else if (pose.celebrating) kind = 'cheer';
+    else if (pose.sad) kind = 'sad';
+    else if (pose.straining) kind = effortW < 0.38 ? 'determined' : 'strain';
+    else if (pose.boosting) kind = 'strain';
+    else if (pose.dashing) kind = 'happy';
+    else kind = rival === 'nunchi' ? 'sly' : 'normal';
+    // Blinking for open-eyed faces.
+    if (kind === 'normal' || kind === 'sly') {
+      if (t >= nextBlink) {
+        blinkUntil = t + 0.13;
+        nextBlink = t + 2 + rand() * 3.5;
+      }
+      if (t < blinkUntil) kind = kind === 'sly' ? 'slyBlink' : 'blink';
+    }
+    if (nextBlink - t > 10) nextBlink = t + 2; // clock jumped backwards
+    setFace(kind);
+  };
+
+  update(0, idlePose(0));
+
+  return {
+    root,
+    labelAnchor,
+    team,
+    get look() {
+      return look;
+    },
+    update,
+    setLook(next: CharacterLook) {
+      look = { ...next };
+      applyLook();
+    },
+    setHighlight(color) {
+      highlighter.set(color);
+      ink.setVisible(color === null || color === undefined);
+    },
+    setBlobShadow(visible: boolean) {
+      blob.visible = visible;
+    },
+    attach,
+    setItemPose(p: RaccoonItemPose | null) {
+      itemPose = p;
+    },
+    react(kind: RaccoonReaction) {
+      reaction = kind;
+      reactT = 0;
+    },
+    setDizzy(on: boolean) {
+      dizzy = on;
+    },
+    dispose() {
+      highlighter.dispose();
+      ink.dispose();
+      root.removeFromParent();
+      // Geometries/materials are shared caches; only the landing ring's fading material is ours.
+      ringMat.dispose();
+    },
+  };
+}
+
+/** Free cached raccoon geometry (full teardown only). */
+export function disposeRaccoonCache(): void {
+  for (const set of geoSetCache.values()) for (const g of Object.values(set)) g.dispose();
+  geoSetCache.clear();
+  faceGeo?.dispose();
+  maskGeo?.dispose();
+  starsGeo?.dispose();
+  sweatGeo?.dispose();
+  speedGeo?.dispose();
+  blobGeo?.dispose();
+  blobMat?.dispose();
+  tongueGeo?.dispose();
+  fanGeo?.dispose();
+  billGeo?.dispose();
+  glintGeo?.dispose();
+  ringGeo?.dispose();
+  sparkleGeo?.dispose();
+  faceGeo = maskGeo = starsGeo = sweatGeo = speedGeo = blobGeo = null;
+  tongueGeo = fanGeo = billGeo = glintGeo = sparkleGeo = ringGeo = null;
+  blobMat = null;
+}

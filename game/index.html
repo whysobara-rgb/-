@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' data: blob:; worker-src 'self' blob:; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="description" content="뿌리째 털어라 — 작은 금고 챙기는 사이, 친구는 은행째 가져왔다." />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <title>뿌리째 털어라</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #150f2b;
+        color: #fff3de;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-tap-highlight-color: transparent;
+        overscroll-behavior: none;
+      }
+      #app {
+        position: fixed;
+        inset: 0;
+        overflow: hidden;
+        background: #150f2b;
+      }
+      #stage {
+        position: absolute;
+        inset: 0;
+      }
+      #stage canvas {
+        display: block;
+        outline: none;
+      }
+      /* Shown until the UI layer takes over (pure CSS, no fonts or JS needed). Cream paper like
+         the boot splash (C10) and the Electron window background, so the first frame never flashes. */
+      #boot-splash {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        background: #fff6e6;
+        color: #2a2131;
+        z-index: 10;
+      }
+      #boot-splash .ring {
+        width: 64px;
+        height: 64px;
+        border-radius: 50%;
+        border: 8px solid rgba(42, 33, 49, 0.14);
+        border-top-color: #ff5a4e;
+        animation: uh-boot-spin 0.9s linear infinite;
+      }
+      #boot-splash .msg {
+        display: none;
+        font: 600 18px/1.5 system-ui, sans-serif;
+        text-align: center;
+        max-width: 28rem;
+        padding: 0 1.5rem;
+      }
+      #boot-splash[data-failed='1'] .ring {
+        display: none;
+      }
+      #boot-splash[data-failed='1'] .msg {
+        display: block;
+      }
+      @keyframes uh-boot-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #boot-splash .ring {
+          animation-duration: 3s;
+        }
+      }
+      .uh-fatal {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        display: grid;
+        place-items: center;
+        background: rgba(21, 15, 43, 0.86);
+        font: 500 16px/1.5 system-ui, sans-serif;
+      }
+      .uh-fatal__card {
+        max-width: 30rem;
+        padding: 24px 28px;
+        border-radius: 20px;
+        background: #fff3de;
+        color: #2e2442;
+        border: 4px solid #2e2442;
+        text-align: center;
+      }
+      .uh-fatal__card h1 {
+        margin: 0 0 8px;
+        font-size: 24px;
+      }
+      .uh-fatal__msg {
+        font-size: 13px;
+        opacity: 0.7;
+        word-break: break-word;
+      }
+      .uh-fatal__buttons {
+        display: flex;
+        gap: 12px;
+        justify-content: center;
+        margin-top: 16px;
+      }
+      .uh-fatal__buttons button {
+        font: inherit;
+        font-weight: 700;
+        padding: 10px 20px;
+        border-radius: 999px;
+        border: 3px solid #2e2442;
+        background: #ffd66b;
+        color: #2e2442;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"><div id="stage"></div></div>
+    <div id="boot-splash" aria-busy="true">
+      <div class="ring" aria-hidden="true"></div>
+      <p class="msg">게임을 시작하지 못했어요. 다시 실행해 주세요.<br />The game could not start. Please restart it.</p>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

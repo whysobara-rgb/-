@@ -1,0 +1,14 @@
+// Windows x64 depot: the electron-builder win-unpacked folder + steam_appid.txt.
+"DepotBuildConfig"
+{
+	"DepotID" "481"
+	"ContentRoot" "../release/steam/content/windows/"
+	"FileMapping"
+	{
+		"LocalPath" "*"
+		"DepotPath" "."
+		"recursive" "1"
+	}
+	"FileExclusion" "*.pdb"
+	"FileExclusion" "*.lib"
+}

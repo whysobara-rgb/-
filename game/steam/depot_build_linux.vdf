@@ -1,0 +1,13 @@
+// Linux x64 depot (also used by Steam Deck): the electron-builder linux-unpacked folder + steam_appid.txt.
+"DepotBuildConfig"
+{
+	"DepotID" "482"
+	"ContentRoot" "../release/steam/content/linux/"
+	"FileMapping"
+	{
+		"LocalPath" "*"
+		"DepotPath" "."
+		"recursive" "1"
+	}
+	"FileExclusion" "*.pdb"
+}

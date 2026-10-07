@@ -1,0 +1,795 @@
+/**
+ * Procedural sound-effect recipes: one per SfxId, each with 2-4 discrete variations plus small
+ * continuous jitter so repeated sounds never machine-gun. Style: cute, punchy, cartoony
+ * (ART_DIRECTION: toy-box materials, layered feedback, musical SFX in the song's key).
+ *
+ * A recipe schedules nodes into `v.out` starting at `v.t` and returns its duration (s).
+ * Levels are matched per family with `gain` (measured offline; see dev/audio-gallery.html).
+ */
+import { DEFAULT_RULES, TICK_RATE } from '../sim/config';
+import { ahr, creakBuffer, noise, partials, perc, route, scrapeBuffer, sub, tone, type Partial } from './dsp';
+import type { SfxId } from './ids';
+import { brass, glock, marimba, timpani, crash, snare, kick } from './instruments';
+import { playJingle } from './jingles';
+import { jitter, rint, rrange } from './rng';
+import { POLICE_RECIPES } from './sfxPolice';
+import { coin, crackles, pn, pnMidi, thump, type SfxRecipe } from './sfxkit';
+import { STAGE_RECIPES } from './sfxStage';
+import { TAUNT_RECIPES } from './sfxTaunt';
+import { ITEM_RECIPES } from './sfxItems'; // [C9]
+import { PROP_RECIPES } from './sfxProps'; // [C9]
+import { TENSION_RECIPES } from './sfxTension'; // [F8]
+import { midiToHz, scaleNote } from './theory';
+
+export type { SfxRecipe, SfxVoice } from './sfxkit';
+
+/** Recovery dwell (doc §8: 1.5 s). The recoverStart riser lasts exactly this long. */
+export const RECOVERY_SECONDS = DEFAULT_RULES.recoveryTicks / TICK_RATE;
+/**
+ * scoreSmall: level lift (dB) per combo step 0..6. The climbing coins measure softer the higher
+ * they go (-2.2 LU by step 6 unlifted); this table, measured offline, makes each step ~0.4 LU
+ * bigger than the last while step 6 stays under a large-safe recovery.
+ */
+export const CLIMB_LIFT_DB = [0, 0.3, 0.9, 1.8, 2.5, 3.3, 4.0] as const;
+
+/** Ping figures (pentatonic degrees): two per meaning, chosen at random. */
+const PING_RISING = [
+  [9, 12],
+  [9, 10, 12],
+] as const;
+const PING_FALLING = [
+  [12, 9],
+  [12, 11, 9],
+] as const;
+
+const twinkleNotes = [
+  [10, 12, 11, 13, 12],
+  [12, 10, 13, 11, 14],
+  [11, 13, 10, 12, 10],
+] as const;
+
+// ---------------------------------------------------------------------------------------------
+
+export const SFX_RECIPES: Record<SfxId, SfxRecipe> = {
+  // ---- hands & bodies --------------------------------------------------------------------------
+  grab: {
+    bus: 'sfx', variants: 4, gain: 0.89, maxVoices: 6, minInterval: 0.03, priority: 4, length: 0.4,
+    play(v) {
+      const p = v.pitch * jitter(v.rnd, 0.04);
+      const base = [150, 172, 196, 136][v.variant] * p;
+      // Soft "clunk": rounded low knock + a dull overtone + a short paw-pad click.
+      tone(v, { freq: [[0, base * 1.7], [0.045, base]], amp: perc(0.002, 0.55, 0.12) });
+      tone(v, { type: 'triangle', freq: [[0, base * 4.2], [0.03, base * 3.1]], amp: perc(0.001, 0.16, 0.05) });
+      noise(v, { color: 'white', filters: [{ type: 'bandpass', freq: 1500 * p, q: 1.3 }], amp: perc(0.0008, 0.3, 0.025) });
+      if (v.variant % 2) tone(v, { freq: [[0, base * 6], [0.02, base * 7.5]], amp: perc(0.001, 0.05, 0.03), at: 0.012 });
+      return 0.2;
+    },
+  },
+  release: {
+    bus: 'sfx', variants: 3, gain: 1.24, maxVoices: 6, minInterval: 0.03, priority: 3, length: 0.3,
+    play(v) {
+      const p = v.pitch * jitter(v.rnd, 0.05);
+      const base = [330, 370, 300][v.variant] * p;
+      // Light "pop-off": small upward blip + puff.
+      tone(v, { freq: [[0, base], [0.06, base * 1.4]], amp: perc(0.004, 0.32, 0.09) });
+      noise(v, { color: 'pink', filters: [{ type: 'lowpass', freq: 1900 * p }], amp: perc(0.002, 0.2, 0.05) });
+      return 0.16;
+    },
+  },
+  dash: {
+    bus: 'sfx', variants: 4, gain: 1.77, maxVoices: 4, minInterval: 0.05, priority: 4, length: 0.6,
+    play(v) {
+      const p = v.pitch * jitter(v.rnd, 0.05);
+      const dur = [0.28, 0.32, 0.25, 0.3][v.variant] * jitter(v.rnd, 0.06);
+      const peakF = [2400, 2800, 2100, 2600][v.variant] * p;
+      // Whoosh: band-passed noise sweeping up then settling.
+      noise(v, {
+        color: 'pink',
+        filters: [{ type: 'bandpass', freq: [[0, 380 * p], [dur * 0.38, peakF], [dur, 700 * p]], q: 1.4 }],
+        amp: [[0, 0], [dur * 0.32, 0.65], [dur, 0]],
+      });
+      noise(v, {
+        color: 'white',
+        filters: [{ type: 'highpass', freq: 3500 }],
+        amp: [[0, 0], [dur * 0.3, 0.07], [dur * 0.8, 0]],
+      });
+      // Cartoon "zip" on half the variations.
+      if (v.variant === 1 || v.variant === 3) {
+        tone(v, { type: 'triangle', freq: [[0, 260 * p], [dur * 0.7, 780 * p]], amp: [[0, 0], [0.02, 0.07], [dur * 0.8, 0]] });
+      }
+      return dur + 0.05;
+    },
+  },
+  dashHit: {
+    bus: 'sfx', variants: 4, gain: 0.64, maxVoices: 4, minInterval: 0.05, priority: 7, length: 0.6, reverb: 0.12,
+    play(v) {
+      const p = v.pitch * jitter(v.rnd, 0.04);
+      const b = [520, 420, 620, 470][v.variant] * p;
+      // Bonk: hollow wooden knock with a fast pitch drop.
+      tone(v, { type: 'triangle', freq: [[0, b], [0.09, b * 0.45]], amp: perc(0.002, 0.55, 0.16) });
+      tone(v, { freq: [[0, b * 0.5], [0.12, b * 0.25]], amp: perc(0.002, 0.55, 0.2) });
+      noise(v, { color: 'white', filters: [{ type: 'bandpass', freq: 950, q: 1 }], amp: perc(0.0008, 0.45, 0.025) });
+      // Squeak: rubber-toy chirp with a quick wobble, contour varies per variation.
+      const contours = [
+        [[0, 1300], [0.06, 2100], [0.14, 1800]],
+        [[0, 1700], [0.1, 2350]],
+        [[0, 2200], [0.05, 1500], [0.12, 1900]],
+        [[0, 1500], [0.04, 1900], [0.08, 1600], [0.13, 2200]],
+      ] as const;
+      const squeak = (at: number, scale: number): void => {
+        tone(v, {
+          type: 'triangle',
+          freq: contours[v.variant].map(([t, f]) => [t, f * p * scale] as const),
+          amp: [[0, 0], [0.012, 0.2], [0.1, 0.15], [0.16, 0]],
+          vib: { rate: 28, cents: 45 },
+          at,
+        });
+      };
+      squeak(v.variant === 1 ? 0.06 : 0.035, 1);
+      // Variation 3: a second, higher squeak (the victim's surprised "eek-eek").
+      if (v.variant === 3) squeak(0.2, 1.18);
+      return v.variant === 3 ? 0.4 : 0.25;
+    },
+  },
+  bump: {
+    bus: 'sfx', variants: 4, gain: 1.38, maxVoices: 4, minInterval: 0.06, priority: 2, length: 0.3,
+    play(v) {
+      const p = v.pitch * jitter(v.rnd, 0.05);
+      const b = [300, 262, 340, 282][v.variant] * p;
+      tone(v, { type: 'triangle', freq: [[0, b], [0.07, b * 0.6]], amp: perc(0.002, 0.45, 0.11) });
+      noise(v, { color: 'pink', filters: [{ type: 'lowpass', freq: 1300 }], amp: perc(0.001, 0.3, 0.04) });
+      return 0.15;
+    },
+  },
+  knockdown: {
+    bus: 'sfx', variants: 3, gain: 0.59, maxVoices: 3, minInterval: 0.08, priority: 7, length: 1.6, reverb: 0.25,
+    play(v) {
+      const p = v.pitch * jitter(v.rnd, 0.03);
+      // Thud of the body hitting the ground.
+      thump(v, 0, 125 * p, 55 * p, 0.6, 0.25);
+      // Boing: a spring whose wobble dies away.
+      const ctx = v.ctx;
+      const t = v.t + 0.03;
+      const osc = ctx.createOscillator();
+      osc.frequency.setValueAtTime(260 * p, t);
+      osc.frequency.exponentialRampToValueAtTime(165 * p, t + 0.6);
+      const lfo = ctx.createOscillator();
+      lfo.frequency.setValueAtTime([13, 15, 11][v.variant], t);
+      const depth = ctx.createGain();
+      depth.gain.setValueAtTime(95 * p, t);
+      depth.gain.exponentialRampToValueAtTime(4, t + 0.6);
+      lfo.connect(depth);
+      depth.connect(osc.frequency);
+      const g = ctx.createGain();
+      g.gain.value = 0;
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.32, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.62);
+      osc.connect(g);
+      g.connect(v.out);
+      osc.start(t);
+      lfo.start(t);
+      osc.stop(t + 0.65);
+      lfo.stop(t + 0.65);
+      // Twinkle: "seeing stars" circling (alternating pan).
+      const notes = twinkleNotes[v.variant];
+      notes.forEach((deg, i) => {
+        glock(v, 0.24 + i * 0.085, pnMidi(v, deg), 0.2, 0.55 - i * 0.06, i % 2 ? 0.45 : -0.45);
+      });
+      return 1.3;
+    },
+  },
+  footstep: {
+    bus: 'sfx', variants: 4, gain: 1.35, maxVoices: 8, minInterval: 0.025, priority: 0, length: 0.15,
+    play(v) {
+      // Soft paws: a muffled tap, cheap (1-2 sources) because there are many of them.
+      const lp = [700, 950, 820, 1100][v.variant] * jitter(v.rnd, 0.12) * v.pitch;
+      noise(v, { color: 'pink', filters: [{ type: 'lowpass', freq: lp, q: 0.9 }], amp: perc(0.004, v.variant % 2 ? 0.75 : 0.45, 0.05) });
+      if (v.variant % 2 === 0) tone(v, { freq: [[0, 150 * v.pitch], [0.04, 95 * v.pitch]], amp: perc(0.003, 0.18, 0.06) });
+      return 0.08;
+    },
+  },
+  eject: {
+    bus: 'sfx', variants: 3, gain: 0.95, maxVoices: 3, minInterval: 0.05, priority: 5, length: 0.7, reverb: 0.15,
+    play(v) {
+      const p = v.pitch * jitter(v.rnd, 0.04);
+      // "퐁!": cork pop + rising bubble + a little spring.
+      noise(v, { color: 'white', filters: [{ type: 'highpass', freq: 1600 }], amp: perc(0.0005, 0.35, 0.018) });
+      tone(v, { freq: [[0, 380 * p], [0.07, 1150 * p]], amp: perc(0.003, 0.45, 0.12) });
+      tone(v, { type: 'triangle', freq: [[0, 760 * p], [0.07, 2300 * p]], amp: perc(0.003, 0.08, 0.08) });
+      const sp = [620, 700, 560][v.variant] * p;
+      tone(v, { freq: sp, amp: perc(0.005, 0.16, 0.32), vib: { rate: 17, cents: [[0, 160], [0.3, 10]] }, at: 0.08 });
+      return 0.45;
+    },
+  },
+
+  // ---- loot physics ------------------------------------------------------------------------------
+  strain: {
+    bus: 'sfx', variants: 3, gain: 0.62, maxVoices: 3, minInterval: 0.2, priority: 3, length: 1.2,
+    play(v) {
+      const p = v.pitch * jitter(v.rnd, 0.05);
+      const dur = [0.9, 0.75, 1.05][v.variant];
+      // Rising creak: stick-slip pulses speeding up + rising resonance, with a low groan.
+      noise(v, {
+        buffer: creakBuffer(v.ctx),
+        rate: [[0, 0.6 * p], [dur, 1.55 * p]],
+        filters: [{ type: 'bandpass', freq: [[0, 600 * p], [dur, 1300 * p]], q: 1.6 }],
+        amp: [[0, 0], [0.08, 0.6], [dur * 0.85, 0.75], [dur + 0.08, 0]],
+      });
+      tone(v, {
+        type: 'sawtooth',
+        freq: [[0, 68 * p], [dur, 96 * p]],
+        filter: { type: 'lowpass', freq: 420, q: 2 },
+        amp: [[0, 0], [0.12, 0.06], [dur, 0.08], [dur + 0.1, 0]],
+      });
+      return dur + 0.12;
+    },
+  },
+  unanchorSafe: {
+    bus: 'sfx', variants: 3, gain: 1.13, maxVoices: 3, minInterval: 0.06, priority: 6, length: 0.9, reverb: 0.2,
+    play(v) {
+      // The safe's uproot "POP!" (src/render/uproot.ts): the roots tear, the safe pops out like a
+      // cork with a bloop, dirt bursts. Pass pitch = size (large safe ~0.85). The landing thud is
+      // 'uprootLand', played by the director when the hop comes down.
+      const p = v.pitch * jitter(v.rnd, 0.04);
+      let at = 0.02;
+      if (v.variant === 2) {
+        // Ratchet ticks of the bolt turning before it pops.
+        for (let i = 0; i < 3; i++) noise(v, { color: 'white', filters: [{ type: 'bandpass', freq: 3200, q: 4 }], amp: perc(0.0005, 0.2, 0.012), at: i * 0.035 });
+        at = 0.11;
+      }
+      // Roots tearing ("뿌드득"): a front-loaded burst of fibre snaps around the pop.
+      crackles(v, 12 + rint(v.rnd, 6), Math.max(0, at - 0.03), at + 0.14, { fLo: 800, fHi: 3200, ampLo: 0.1, ampHi: 0.3, durLo: 0.003, durHi: 0.018, skew: 1.8, panWidth: 0.35 });
+      // POP: cork transient, an upward bloop and the body of the box.
+      // (The bloop starts a hair after the click: "k-bloop", and the layers don't stack peaks.)
+      noise(v, { color: 'white', filters: [{ type: 'highpass', freq: 1800 }], amp: perc(0.0008, 0.3, 0.014), at });
+      tone(v, { freq: [[0, 240 * p], [0.065, 780 * p]], amp: perc(0.002, 0.5, 0.11), at: at + 0.008 });
+      tone(v, { type: 'triangle', freq: [[0, 480 * p], [0.065, 1560 * p]], amp: perc(0.002, 0.06, 0.07), at: at + 0.008 });
+      thump(v, at, 170 * p, 75 * p, 0.3, 0.15);
+      // Dirt burst.
+      noise(v, { color: 'pink', filters: [{ type: 'lowpass', freq: 1500 }], amp: perc(0.002, 0.28, 0.09), at });
+      // Metal clink of the freed bolt.
+      const metal: Partial[] = [
+        [1, 0.12, 0.35],
+        [2.32, 0.07, 0.22],
+        [4.1, 0.045, 0.12],
+        [6.6, 0.025, 0.07],
+      ];
+      partials(v, [1480, 1720, 1300][v.variant] * p, metal, { at: at + 0.05 });
+      if (v.variant === 1) tone(v, { freq: 540 * p, amp: perc(0.004, 0.1, 0.25), vib: { rate: 19, cents: [[0, 140], [0.25, 10]] }, at: at + 0.05 });
+      return at + 0.45;
+    },
+  },
+  unanchorBank: {
+    bus: 'sfx', variants: 3, gain: 0.5, maxVoices: 2, minInterval: 0.3, priority: 10, length: 3.6, reverb: 0.3,
+    duck: { db: -9, hold: 2.2 },
+    duckAmbience: { db: -6, hold: 1.2 },
+    play(v) {
+      const p = v.pitch * jitter(v.rnd, 0.03);
+      // The biggest sound in the game — the bank's "뿌리째" pop (src/render/uproot.ts): the
+      // foundation cracks, the whole building pops out with a giant bloop, a sub-bass drop rides
+      // the hop, roots rip in long tears, the ground groans. The landing slam is 'bankLand'.
+      // 1. Crack transient.
+      noise(v, { color: 'white', filters: [{ type: 'bandpass', freq: 2600, q: 0.7 }], amp: perc(0.0008, 0.75, 0.05) });
+      noise(v, { color: 'pink', filters: [{ type: 'lowpass', freq: 1400 }], amp: perc(0.002, 0.7, 0.28) });
+      // 2. POP: a giant upward bloop.
+      tone(v, { freq: [[0, 95 * p], [0.09, 300 * p]], amp: perc(0.003, 0.55, 0.2) });
+      tone(v, { type: 'triangle', freq: [[0, 190 * p], [0.09, 600 * p]], amp: perc(0.003, 0.1, 0.12) });
+      // 3. Sub-bass drop under the hop + an upper thump laptops can play.
+      tone(v, { freq: [[0, 120 * p], [0.12, 70 * p], [1.1, 26 * p]], amp: [[0, 0], [0.01, 0.85], [0.5, 0.55], [1.25, 0]] });
+      tone(v, { freq: [[0, 175 * p], [0.3, 72 * p]], amp: perc(0.003, 0.35, 0.4) });
+      // 4. The building flies up and comes down: a low air whoosh over the hop.
+      noise(v, { color: 'pink', filters: [{ type: 'bandpass', freq: [[0, 200], [0.3, 650], [0.6, 260]], q: 1 }], amp: [[0, 0], [0.25, 0.2], [0.6, 0]] });
+      // 5. Rumble (ground giving way) and grinding.
+      noise(v, {
+        color: 'brown',
+        filters: [{ type: 'lowpass', freq: [[0, 200], [2.2, 110]], q: 0.8 }],
+        amp: [[0, 0], [0.15, 0.45], [0.7, 0.4], [2.4, 0]],
+      });
+      noise(v, {
+        buffer: scrapeBuffer(v.ctx),
+        rate: 0.45 * p,
+        filters: [{ type: 'bandpass', freq: 380, q: 1.1 }],
+        amp: [[0, 0], [0.12, 0], [0.45, 0.26], [2.2, 0]],
+      });
+      // 6. Roots tearing: front-loaded snaps, ripping sweeps and a fibrous groan.
+      crackles(v, 46, 0.0, 1.6, { fLo: 650, fHi: 3400, ampLo: 0.12, ampHi: 0.42, durLo: 0.004, durHi: 0.028, skew: 1.7, panWidth: 0.55 });
+      const rips = [
+        [0.06, 0.3],
+        [0.38, 0.26],
+        [0.8, 0.34],
+      ] as const;
+      for (const [at, d] of rips) {
+        const g = v.ctx.createGain();
+        g.gain.value = 0;
+        // Ripping texture: square-wave amplitude chatter on a rising band of noise.
+        const am = v.ctx.createOscillator();
+        am.type = 'square';
+        am.frequency.setValueAtTime(rrange(v.rnd, 32, 55), v.t + at);
+        const amDepth = v.ctx.createGain();
+        amDepth.gain.value = 0.5;
+        am.connect(amDepth);
+        amDepth.connect(g.gain);
+        const ripOut = v.ctx.createGain();
+        ripOut.gain.value = 0;
+        ripOut.gain.setValueAtTime(0, v.t + at);
+        ripOut.gain.linearRampToValueAtTime(0.32, v.t + at + 0.03);
+        ripOut.gain.exponentialRampToValueAtTime(0.0001, v.t + at + d);
+        g.connect(ripOut);
+        route(v.ctx, ripOut, v.out, (v.rnd() * 2 - 1) * 0.4);
+        noise(v, {
+          color: 'white',
+          filters: [{ type: 'bandpass', freq: [[0, 450], [d, 1700]], q: 2.2 }],
+          amp: [[0, 0.5], [d, 0.5]],
+          at,
+          dest: g,
+        });
+        am.start(v.t + at);
+        am.stop(v.t + at + d + 0.02);
+      }
+      noise(v, {
+        buffer: creakBuffer(v.ctx),
+        rate: [[0, 0.42 * p], [1.4, 0.7 * p]],
+        filters: [{ type: 'bandpass', freq: [[0, 380], [1.4, 520]], q: 2.5 }],
+        amp: [[0, 0], [0.08, 0.42], [1.0, 0.3], [1.6, 0]],
+      });
+      // 7. Debris settling.
+      crackles(v, 9, 1.0, 2.7, { fLo: 2200, fHi: 5200, ampLo: 0.04, ampHi: 0.11, durLo: 0.008, durHi: 0.02, panWidth: 0.7 });
+      // Variation: an extra late "second snap" on two of the three.
+      if (v.variant > 0) {
+        const at = v.variant === 1 ? 0.42 : 0.9;
+        noise(v, { color: 'white', filters: [{ type: 'bandpass', freq: 1900, q: 1 }], amp: perc(0.0008, 0.38, 0.04), at });
+        tone(v, { freq: [[0, 120 * p], [0.25, 50 * p]], amp: perc(0.003, 0.3, 0.35), at });
+      }
+      return 3.2;
+    },
+  },
+  fenceBreak: {
+    bus: 'sfx', variants: 3, gain: 1.29, maxVoices: 3, minInterval: 0.1, priority: 8, length: 1.8, reverb: 0.25,
+    play(v) {
+      const p = v.pitch * jitter(v.rnd, 0.04);
+      const metalMix = [0.35, 1, 0.65][v.variant];
+      const woodMix = [1, 0.45, 0.8][v.variant];
+      // Impact.
+      noise(v, { color: 'white', filters: [{ type: 'bandpass', freq: 1250, q: 0.8 }], amp: perc(0.0008, 0.7, 0.12) });
+      noise(v, { color: 'brown', filters: [{ type: 'lowpass', freq: 520 }], amp: perc(0.002, 0.6, 0.22) });
+      // Wood: a few short resonant modes (planks splintering).
+      for (const f of [212, 468, 830]) tone(v, { freq: f * p * jitter(v.rnd, 0.05), amp: perc(0.002, 0.26 * woodMix, rrange(v.rnd, 0.12, 0.22)) });
+      crackles(v, 14, 0.0, 0.25, { fLo: 900, fHi: 3000, ampLo: 0.12 * woodMix, ampHi: 0.3 * woodMix, durLo: 0.005, durHi: 0.02, skew: 1.5 });
+      // Metal: an inharmonic clang.
+      partials(
+        v,
+        380 * p,
+        [
+          [1, 0.17, 0.9],
+          [2.71, 0.12, 0.6],
+          [5.12, 0.08, 0.35],
+          [8.3, 0.05, 0.2],
+        ],
+        { gain: metalMix },
+      );
+      // Clatter of bits landing.
+      const n = 6 + rint(v.rnd, 3);
+      for (let i = 0; i < n; i++) {
+        const at = 0.07 + Math.pow(v.rnd(), 1.3) * 0.5;
+        const amp = 0.24 * (1 - at);
+        const pan = (v.rnd() * 2 - 1) * 0.5;
+        if (v.rnd() < metalMix / (metalMix + woodMix)) {
+          tone(v, { freq: rrange(v.rnd, 2000, 3800) * p, amp: perc(0.0008, amp * 0.6, 0.08), at, pan });
+        } else {
+          tone(v, { type: 'triangle', freq: [[0, rrange(v.rnd, 350, 700) * p], [0.04, rrange(v.rnd, 250, 400) * p]], amp: perc(0.001, amp, 0.06), at, pan });
+        }
+      }
+      return 1.1;
+    },
+  },
+  safeLoad: {
+    bus: 'sfx', variants: 3, gain: 0.57, maxVoices: 3, minInterval: 0.05, priority: 5, length: 0.8, reverb: 0.15,
+    play(v) {
+      const p = v.pitch * jitter(v.rnd, 0.04);
+      // Heavy thunk onto the floor + small metal clank, then a soft rising chime ("+ value").
+      thump(v, 0, 140 * p, 62 * p, 0.65, 0.25);
+      partials(v, [620, 700, 560][v.variant] * p, [[1, 0.14, 0.15], [2.4, 0.08, 0.1], [3.9, 0.05, 0.06]]);
+      marimba(v, 0.09, pnMidi(v, 5), 0.1, 0.4);
+      marimba(v, 0.165, pnMidi(v, [7, 8, 7][v.variant]), 0.1, 0.45);
+      return 0.6;
+    },
+  },
+  safeUnload: {
+    bus: 'sfx', variants: 3, gain: 0.78, maxVoices: 3, minInterval: 0.05, priority: 6, length: 0.9, reverb: 0.15,
+    play(v) {
+      const p = v.pitch * jitter(v.rnd, 0.04);
+      // Short slide-out scrape, drop thunk, then a falling chime ("- value").
+      noise(v, {
+        buffer: scrapeBuffer(v.ctx),
+        rate: 1.1,
+        filters: [{ type: 'bandpass', freq: [[0, 900], [0.14, 600]], q: 1.2 }],
+        amp: [[0, 0], [0.02, 0.35], [0.14, 0]],
+      });
+      thump(v, 0.12, 120 * p, 58 * p, 0.55, 0.22);
+      marimba(v, 0.2, pnMidi(v, [8, 7, 8][v.variant]), 0.1, 0.42);
+      marimba(v, 0.28, pnMidi(v, 5), 0.1, 0.38);
+      return 0.7;
+    },
+  },
+
+  // ---- recovery & scoring -------------------------------------------------------------------------
+  recoverStart: {
+    bus: 'sfx', variants: 2, gain: 0.5, maxVoices: 6, minInterval: 0.05, priority: 6, length: RECOVERY_SECONDS + 0.4,
+    duckAmbience: { db: -4, hold: RECOVERY_SECONDS },
+    play(v) {
+      const D = RECOVERY_SECONDS;
+      const root = pnMidi(v, v.variant === 0 ? 0 : 2);
+      const f0 = midiToHz(root);
+      // Riser that lasts exactly the recovery dwell: tone climbing an octave, tremolo speeding up.
+      const g = v.ctx.createGain();
+      g.gain.value = 1;
+      // The pitch stays on the scale; only the tremolo rates and the noise sweep are jittered.
+      const trem = v.ctx.createOscillator();
+      trem.frequency.setValueAtTime(rrange(v.rnd, 4.5, 5.5), v.t);
+      trem.frequency.exponentialRampToValueAtTime(rrange(v.rnd, 16.5, 19.5), v.t + D);
+      const tremDepth = v.ctx.createGain();
+      tremDepth.gain.value = 0.35;
+      trem.connect(tremDepth);
+      tremDepth.connect(g.gain);
+      g.connect(v.out);
+      trem.start(v.t);
+      trem.stop(v.t + D + 0.05);
+      const body = sub(v, g);
+      const amp = [[0, 0], [0.06, 0.1], [D * 0.92, 0.22], [D, 0]] as const;
+      tone(body, { type: 'triangle', freq: [[0, f0], [D, f0 * 2]], amp });
+      tone(body, { freq: [[0, f0 * 1.5], [D, f0 * 3]], amp: amp.map(([t, a]) => [t, a * 0.35] as const) });
+      noise(v, {
+        color: 'white',
+        filters: [{ type: 'bandpass', freq: [[0, 900], [D, 5200 * jitter(v.rnd, 0.1)]], q: 1.5 }],
+        amp: [[0, 0], [D * 0.95, 0.09], [D + 0.02, 0]],
+      });
+      return D + 0.05;
+    },
+  },
+  recoverCancel: {
+    bus: 'sfx', variants: 2, gain: 0.98, maxVoices: 3, minInterval: 0.08, priority: 6, length: 0.7,
+    play(v) {
+      const p = v.pitch * jitter(v.rnd, 0.03);
+      // Deflating "wah-wahh" (not mocking: short and soft).
+      if (v.variant === 0) {
+        tone(v, { type: 'triangle', freq: [[0, 620 * p], [0.35, 290 * p]], amp: perc(0.01, 0.34, 0.38), vib: { rate: 9, cents: 45 } });
+        tone(v, { type: 'square', freq: [[0, 310 * p], [0.35, 145 * p]], amp: perc(0.01, 0.06, 0.34), filter: { type: 'lowpass', freq: 1100 } });
+      } else {
+        tone(v, { type: 'triangle', freq: [[0, 560 * p], [0.12, 520 * p]], amp: perc(0.008, 0.3, 0.14) });
+        tone(v, { type: 'triangle', freq: [[0, 470 * p], [0.3, 300 * p]], amp: perc(0.008, 0.32, 0.34), vib: { rate: 8, cents: 40 }, at: 0.14 });
+      }
+      noise(v, { color: 'pink', filters: [{ type: 'lowpass', freq: 800 }], amp: perc(0.002, 0.18, 0.06) });
+      return 0.5;
+    },
+  },
+  scoreSmall: {
+    bus: 'sfx', variants: 4, gain: 0.56, maxVoices: 4, minInterval: 0.04, priority: 8, length: 1.6, reverb: 0.3, global: true,
+    duckAmbience: { db: -8, hold: 0.9 },
+    play(v) {
+      // Coin cascade in key ("tli-li-ling"), climbing with the combo step (ART_DIRECTION §1):
+      // every consecutive recovery starts one scale degree higher and adds a coin (up to 3).
+      const pats = [
+        [0, 1, 3],
+        [0, 2, 3],
+        [1, 0, 3],
+        [0, 1, 2, 3],
+      ] as const;
+      const more = Math.max(0, Math.min(3, v.step));
+      const pat = [...pats[v.variant], ...Array.from({ length: more }, (_, i) => 4 + i)];
+      // Higher coins read softer, so the climb is lifted a little each step and, from the third
+      // consecutive recovery, an octave-lower coin under the top one adds weight: every step of
+      // the combo sounds bigger than the last (ART_DIRECTION §1-2).
+      const climb = Math.max(0, Math.min(6, v.step));
+      const lift = Math.pow(10, CLIMB_LIFT_DB[climb] / 20);
+      let at = 0;
+      pat.forEach((d, i) => {
+        const last = i === pat.length - 1;
+        coin(v, at, pn(v, 8 + d), (last ? 0.34 : 0.2) * lift, last ? 0.6 : 0.12, last ? 0 : (i % 2 ? 0.2 : -0.2));
+        if (last && climb >= 3) coin(v, at + 0.008, pn(v, 8 + d - 5), 0.1 * lift * Math.min(1, (climb - 2) / 2), 0.45, 0, true);
+        at += 0.045;
+      });
+      for (let k = 0; k < 3; k++) {
+        tone(v, { freq: rrange(v.rnd, 5200, 7600), amp: perc(0.001, 0.035, 0.04), at: at + k * 0.05, pan: (v.rnd() * 2 - 1) * 0.5 });
+      }
+      return at + 0.65;
+    },
+  },
+  scoreLarge: {
+    bus: 'sfx', variants: 3, gain: 0.61, maxVoices: 3, minInterval: 0.06, priority: 8, length: 1.8, reverb: 0.3, global: true,
+    duckAmbience: { db: -8, hold: 1.2 },
+    play(v) {
+      const p = v.pitch;
+      // Cash register "ka-ching": drawer clunk + ratchet, struck bell, coin rattle, confirm arpeggio.
+      thump(v, 0, 110 * p, 70 * p, 0.55, 0.16);
+      for (let i = 0; i < 3; i++) {
+        noise(v, { color: 'white', filters: [{ type: 'bandpass', freq: 3000, q: 3 }], amp: perc(0.0005, 0.28 - i * 0.06, 0.012), at: i * 0.024 });
+      }
+      const bellF = pn(v, [13, 12, 14][v.variant]);
+      partials(
+        v,
+        bellF,
+        [
+          [1, 0.3, 1.1],
+          [2.41, 0.14, 0.6],
+          [3.98, 0.09, 0.35],
+          [5.92, 0.05, 0.2],
+        ],
+        { at: 0.08 },
+      );
+      crackles(v, 10, 0.1, 0.5, { fLo: 3000, fHi: 6500, ampLo: 0.05, ampHi: 0.12, durLo: 0.01, durHi: 0.025, panWidth: 0.5 });
+      marimba(v, 0.16, pnMidi(v, 7), 0.1, 0.35);
+      marimba(v, 0.25, pnMidi(v, 9), 0.1, 0.4);
+      marimba(v, 0.34, pnMidi(v, 10), 0.2, 0.45);
+      return 1.3;
+    },
+  },
+  scoreBank: {
+    bus: 'sfx', variants: 2, gain: 0.61, maxVoices: 2, minInterval: 0.2, priority: 10, length: 3.6, reverb: 0.35, global: true,
+    duck: { db: -10, hold: 2.4 },
+    duckAmbience: { db: -10, hold: 3 },
+    play(v) {
+      const k = v.key;
+      // Fanfare (original motif) on soft brass with a timpani hit and a cymbal.
+      const motifs = [
+        // [offset s, semitones above key, dur, vel]
+        [[0, 7, 0.11, 0.8], [0.12, 12, 0.11, 0.85], [0.24, 16, 0.11, 0.9], [0.36, 19, 0.9, 1]],
+        [[0, 4, 0.09, 0.8], [0.1, 7, 0.09, 0.8], [0.2, 12, 0.09, 0.85], [0.3, 14, 0.12, 0.9], [0.44, 16, 0.85, 1]],
+      ] as const;
+      const motif = motifs[v.variant];
+      for (const [at, st, dur, vel] of motif) brass(v, at, k + st, dur, vel);
+      const hit = motif[motif.length - 1][0];
+      for (const st of [0, 4, 7]) brass(v, hit, k + st, 0.9, 0.55);
+      brass(v, hit, k - 12, 0.9, 0.6);
+      timpani(v, hit, k - 24 + 5, 1, 0.8);
+      timpani(v, 0, k - 24 + 12, 0.3, 0.45);
+      crash(v, hit, 0, 1, 0.8);
+      snare(v, hit - 0.12, 0, 0.1, 0.35);
+      snare(v, hit - 0.06, 0, 0.1, 0.45);
+      kick(v, hit, 0, 0.2, 0.6);
+      // Sparkle glissando up the pentatonic.
+      for (let i = 0; i < 9; i++) glock(v, hit + i * 0.035, scaleNote(k, 8 + i), 0.1, 0.35, (i / 8) * 1.2 - 0.6);
+      // Coin shower: many coins, thinning out, spread across the stereo field.
+      const n = 26;
+      for (let i = 0; i < n; i++) {
+        const at = hit + 0.1 + Math.pow(i / n, 1.4) * 1.9 + v.rnd() * 0.04;
+        // The shower climbs with the combo too.
+        const f = midiToHz(scaleNote(k, 10 + Math.max(0, Math.min(3, v.step)) + rint(v.rnd, 6)));
+        coin(v, at, f * jitter(v.rnd, 0.01), rrange(v.rnd, 0.09, 0.18) * (1 - (0.5 * i) / n), rrange(v.rnd, 0.12, 0.3), (v.rnd() * 2 - 1) * 0.75, true);
+      }
+      return hit + 2.4;
+    },
+  },
+
+  // ---- match signals ------------------------------------------------------------------------------
+  siren: {
+    bus: 'sfx', variants: 3, gain: 0.64, maxVoices: 1, minInterval: 0.5, priority: 9, length: 2.6, reverb: 0.2, global: true,
+    play(v) {
+      const D = 2.1;
+      const filter = { type: 'lowpass' as const, freq: 2400, q: 0.7 };
+      let freq: readonly (readonly [number, number])[];
+      if (v.variant === 1) {
+        // "Whoop-whoop" then a wail. (The two-tone belongs to the police cars' own siren, so the
+        // getaway signal stays in the wail family and never clashes with an arriving car.)
+        freq = [[0, 520], [0.42, 1250], [0.5, 560], [0.92, 1250], [1.0, 560], [1.5, 1320], [2.05, 600]];
+      } else if (v.variant === 2) {
+        freq = [[0, 540], [0.7, 1320], [1.1, 1250], [1.45, 1340], [2.05, 600]];
+      } else {
+        freq = [[0, 520], [0.85, 1350], [2.0, 560]];
+      }
+      const amp = [[0, 0], [0.12, 0.26], [D - 0.35, 0.24], [D, 0]] as const;
+      // Rounded toy siren: triangle body + a filtered square for bite.
+      tone(v, { type: 'triangle', freq, amp, vib: { rate: 7, cents: 14 } });
+      tone(v, { type: 'square', freq, amp: amp.map(([t, a]) => [t, a * 0.28] as const), filter, vib: { rate: 7, cents: 14 } });
+      return D;
+    },
+  },
+  countdownBeep: {
+    bus: 'sfx', variants: 2, gain: 0.37, maxVoices: 2, minInterval: 0.1, priority: 8, length: 0.5, global: true, holdVariant: 2.5,
+    play(v) {
+      // A5 (the 3rd of F major); pass pitch 2 for the final "GO" beep. Variation 1 adds a soft
+      // octave partial (rounder bell); holdVariant keeps one timbre for a whole countdown.
+      const f = midiToHz(v.key + 16) * v.pitch;
+      const len = v.pitch > 1.5 ? 0.32 : 0.14;
+      tone(v, { type: 'square', freq: f, amp: ahr(0.004, 0.13, len, 0.06, 0.85), filter: { type: 'lowpass', freq: 3200 } });
+      tone(v, { freq: f, amp: ahr(0.004, 0.3, len, 0.06, 0.85) });
+      if (v.variant === 1) tone(v, { freq: f * 2, amp: ahr(0.004, 0.05, len, 0.05, 0.8) });
+      return len + 0.08;
+    },
+  },
+  whistleStart: {
+    bus: 'sfx', variants: 2, gain: 0.62, maxVoices: 1, minInterval: 0.3, priority: 9, length: 1.3, reverb: 0.25, global: true,
+    play(v) {
+      // Referee whistle: "tweet-tweeeet". The pea rattles the pitch at ~45 Hz.
+      const blasts = v.variant === 0
+        ? [[0, 0.16], [0.24, 0.62]]
+        : [[0, 0.12], [0.18, 0.12], [0.36, 0.55]];
+      const f0 = [3050, 2900][v.variant] * v.pitch;
+      for (const [at, d] of blasts) {
+        const amp = ahr(0.015, 0.22, d - 0.04, 0.035, 0.9);
+        tone(v, { freq: [[0, f0 * 0.97], [0.03, f0]], amp, vib: { rate: 46, cents: 70 }, at });
+        tone(v, { freq: f0 * 2, amp: ahr(0.015, 0.03, d - 0.04, 0.035, 0.9), vib: { rate: 46, cents: 70 }, at });
+        noise(v, { color: 'white', filters: [{ type: 'bandpass', freq: f0, q: 5 }], amp: ahr(0.01, 0.06, d - 0.03, 0.03, 0.8), at });
+      }
+      const last = blasts[blasts.length - 1];
+      return last[0] + last[1] + 0.05;
+    },
+  },
+  hornEnd: {
+    bus: 'sfx', variants: 2, gain: 1.98, maxVoices: 1, minInterval: 0.3, priority: 9, length: 1.9, reverb: 0.25, global: true,
+    play(v) {
+      // Getaway-van honk: "빵빵-빠앙" in a major third, slight droop at the end.
+      const honks = v.variant === 0
+        ? [[0, 0.15], [0.21, 0.15], [0.46, 0.85]]
+        : [[0, 0.22], [0.32, 0.9]];
+      const filter = { type: 'lowpass' as const, freq: 2300, q: 0.8 };
+      for (const [at, d] of honks) {
+        for (const f of [415, 523]) {
+          const fr = f * v.pitch;
+          const freq = [[0, fr * 0.97], [0.025, fr], [d, fr], [d + 0.06, fr * 0.95]] as const;
+          tone(v, { type: 'sawtooth', freq, amp: ahr(0.012, 0.075, d, 0.06, 0.95), filter, at });
+          tone(v, { type: 'square', freq: freq.map(([t, x]) => [t, x / 2] as const), amp: ahr(0.012, 0.045, d, 0.06, 0.95), filter: { type: 'lowpass', freq: 900 }, at });
+        }
+      }
+      const last = honks[honks.length - 1];
+      return last[0] + last[1] + 0.1;
+    },
+  },
+  victory: {
+    bus: 'music', variants: 3, gain: 0.93, maxVoices: 1, minInterval: 0.5, priority: 10, length: 4.6, global: true,
+    duck: { db: -40, hold: 3.6 },
+    play: (v) => playJingle(v, 'victory', v.key, v.variant),
+  },
+  defeat: {
+    bus: 'music', variants: 2, gain: 0.89, maxVoices: 1, minInterval: 0.5, priority: 10, length: 4.6, global: true,
+    duck: { db: -40, hold: 3.6 },
+    play: (v) => playJingle(v, 'defeat', v.key, v.variant),
+  },
+  draw: {
+    bus: 'music', variants: 2, gain: 0.93, maxVoices: 1, minInterval: 0.5, priority: 10, length: 3.8, global: true,
+    duck: { db: -40, hold: 3 },
+    play: (v) => playJingle(v, 'draw', v.key, v.variant),
+  },
+  ping: {
+    bus: 'sfx', variants: 2, gain: 0.92, maxVoices: 3, minInterval: 0.08, priority: 6, length: 1.2,
+    play(v) {
+      // Bright "pip-pip" call-out with a short echo. The variation is the meaning (0 = "grab
+      // together": rising, 1 = every other ping: falling); each meaning has two figures picked
+      // at random, plus timing / velocity / echo jitter, so repeated pings never sound stamped.
+      const ctx = v.ctx;
+      const delay = ctx.createDelay(1);
+      delay.delayTime.value = rrange(v.rnd, 0.115, 0.14);
+      const fb = ctx.createGain();
+      fb.gain.value = rrange(v.rnd, 0.28, 0.34);
+      const damp = ctx.createBiquadFilter();
+      damp.type = 'lowpass';
+      damp.frequency.value = 3500;
+      const wet = ctx.createGain();
+      wet.gain.value = 0.5;
+      delay.connect(damp);
+      damp.connect(fb);
+      fb.connect(delay);
+      damp.connect(wet);
+      wet.connect(v.out);
+      const bus = ctx.createGain();
+      bus.connect(v.out);
+      bus.connect(delay);
+      const sv = sub(v, bus);
+      const figures = v.variant === 0 ? PING_RISING : PING_FALLING;
+      const fig = figures[v.rnd() < 0.5 ? 0 : 1];
+      const shift = Math.round(12 * Math.log2(v.pitch > 0 ? v.pitch : 1));
+      // Three-note figures are a touch quicker and softer so both figures match in loudness.
+      const gap = (fig.length === 2 ? 0.075 : 0.06) * jitter(v.rnd, 0.08);
+      const soft = fig.length === 2 ? 1 : 0.88;
+      fig.forEach((deg, k) => {
+        const vel = (k === fig.length - 1 ? 0.6 : 0.55) * soft * jitter(v.rnd, 0.06);
+        marimba(sv, k * gap, scaleNote(v.key, deg) + shift, 0.1, vel);
+      });
+      return 0.9;
+    },
+  },
+
+  // ---- UI -------------------------------------------------------------------------------------------
+  uiMove: {
+    bus: 'ui', variants: 3, gain: 1.23, maxVoices: 3, minInterval: 0.025, priority: 3, length: 0.4, global: true,
+    play(v) {
+      marimba(v, 0, pnMidi(v, [7, 8, 9][v.variant]), 0.05, 0.4);
+      return 0.25;
+    },
+  },
+  uiConfirm: {
+    bus: 'ui', variants: 2, gain: 1.11, maxVoices: 3, minInterval: 0.04, priority: 4, length: 0.7, global: true,
+    play(v) {
+      const [a, b] = v.variant === 0 ? [7, 10] : [8, 10];
+      marimba(v, 0, pnMidi(v, a), 0.05, 0.45);
+      marimba(v, 0.06, pnMidi(v, b), 0.1, 0.55);
+      tone(v, { freq: pn(v, b + 5), amp: perc(0.001, 0.05, 0.12), at: 0.06 });
+      return 0.45;
+    },
+  },
+  uiBack: {
+    bus: 'ui', variants: 2, gain: 1.11, maxVoices: 3, minInterval: 0.04, priority: 4, length: 0.6, global: true,
+    play(v) {
+      const [a, b] = v.variant === 0 ? [8, 5] : [7, 4];
+      marimba(v, 0, pnMidi(v, a), 0.05, 0.4);
+      marimba(v, 0.065, pnMidi(v, b), 0.1, 0.42);
+      return 0.45;
+    },
+  },
+  uiError: {
+    bus: 'ui', variants: 2, gain: 1.48, maxVoices: 2, minInterval: 0.08, priority: 4, length: 0.5, global: true,
+    play(v) {
+      // Gentle muted "bup-bup", not a harsh buzzer.
+      const f = midiToHz(v.key - 5 + (v.variant ? -1 : 0));
+      for (const at of [0, 0.1]) {
+        tone(v, { type: 'square', freq: [[0, f * 1.04], [0.05, f]], amp: perc(0.003, 0.14, 0.08), filter: { type: 'lowpass', freq: 900 }, at });
+        tone(v, { freq: f, amp: perc(0.003, 0.25, 0.09), at });
+      }
+      return 0.25;
+    },
+  },
+  uiTab: {
+    bus: 'ui', variants: 2, gain: 1.39, maxVoices: 2, minInterval: 0.03, priority: 3, length: 0.4, global: true,
+    play(v) {
+      // Page flip: woody tick + a higher blip.
+      tone(v, { type: 'triangle', freq: [[0, 1250], [0.01, 1150]], amp: perc(0.0008, 0.22, 0.04) });
+      marimba(v, 0.03, pnMidi(v, v.variant ? 11 : 10), 0.05, 0.35);
+      return 0.3;
+    },
+  },
+  uiAdjust: {
+    bus: 'ui', variants: 2, gain: 1.79, maxVoices: 3, minInterval: 0.035, priority: 2, length: 0.2, global: true,
+    play(v) {
+      // Tiny tick; pitch option follows the slider value.
+      const f = pn(v, 7 + v.variant);
+      tone(v, { type: 'triangle', freq: f, amp: perc(0.001, 0.25, 0.05) });
+      return 0.08;
+    },
+  },
+  popup: {
+    bus: 'ui', variants: 3, gain: 1.25, maxVoices: 3, minInterval: 0.04, priority: 3, length: 0.4, global: true,
+    play(v) {
+      const p = v.pitch * jitter(v.rnd, 0.03);
+      const [a, b] = [[380, 950], [420, 1050], [340, 880]][v.variant];
+      // Bubbly "bloop".
+      tone(v, { freq: [[0, a * p], [0.07, b * p]], amp: perc(0.004, 0.38, 0.13) });
+      tone(v, { type: 'triangle', freq: [[0, a * 2 * p], [0.07, b * 2 * p]], amp: perc(0.004, 0.05, 0.08) });
+      return 0.2;
+    },
+  },
+
+  // ---- presentation (./sfxStage.ts) and police (./sfxPolice.ts) ---------------------------------
+  ...STAGE_RECIPES,
+  ...POLICE_RECIPES,
+  ...TAUNT_RECIPES,
+  // [C9] Content 2.0: items (./sfxItems.ts), coins / props / breakables (./sfxProps.ts)
+  ...ITEM_RECIPES,
+  ...PROP_RECIPES,
+  // [F8] tension audio (./sfxTension.ts)
+  ...TENSION_RECIPES,
+};
+
+/**
+ * Picks variation indices without immediate repeats. Recipes with `holdVariant` keep the
+ * previous variation while they are retriggered within that many seconds (pass `now`).
+ */
+export class VariantPicker {
+  private last = new Map<SfxId, { k: number; at: number }>();
+  next(id: SfxId, rnd: () => number, now = Number.NaN): number {
+    const r = SFX_RECIPES[id];
+    const n = r.variants;
+    if (n <= 1) return 0;
+    const prev = this.last.get(id);
+    if (prev && r.holdVariant !== undefined) {
+      const since = now - prev.at;
+      if (since >= 0 && since < r.holdVariant) {
+        prev.at = now;
+        return prev.k;
+      }
+    }
+    let k = Math.floor(rnd() * n);
+    if (prev && k === prev.k) k = (k + 1 + Math.floor(rnd() * (n - 1))) % n;
+    this.last.set(id, { k, at: now });
+    return k;
+  }
+}

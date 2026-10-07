@@ -1,0 +1,132 @@
+{
+  "name": "uproot-heist",
+  "productName": "뿌리째 털어라",
+  "version": "0.5.0",
+  "description": "뿌리째 털어라 — 두 은행 점수 대전 (Uproot Heist)",
+  "private": true,
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "e2e": "playwright test",
+    "electron:start": "electron .",
+    "electron:selftest": "electron . --selftest",
+    "dist:dir": "npm run build && electron-builder --dir --publish never",
+    "dist:linux": "npm run build && electron-builder --linux dir AppImage --publish never",
+    "dist:win": "npm run build && electron-builder --win dir zip --publish never",
+    "dist:steam": "node tools/package-steam.mjs"
+  },
+  "build": {
+    "appId": "com.uproot.heist",
+    "productName": "뿌리째 털어라",
+    "executableName": "UprootHeist",
+    "artifactName": "UprootHeist-${version}-${os}-${arch}.${ext}",
+    "copyright": "Copyright © 2026 Uproot Heist team",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json",
+      "!**/node_modules/three/**",
+      "!**/node_modules/@fontsource/**",
+      "!**/node_modules/@types/**",
+      "!**/node_modules/undici-types/**",
+      "!**/node_modules/steamworks.js/dist/win64/*.lib",
+      "!**/node_modules/steamworks.js/{README.md,*.d.ts}"
+    ],
+    "extraResources": [
+      {
+        "from": "LICENSES/THIRD_PARTY_NOTICES.txt",
+        "to": "THIRD_PARTY_NOTICES.txt"
+      },
+      {
+        "from": "docs/PLAYER_README.md",
+        "to": "README.md"
+      }
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "**/node_modules/steamworks.js/**"
+    ],
+    "npmRebuild": false,
+    "nodeGypRebuild": false,
+    "buildDependenciesFromSource": false,
+    "electronLanguages": [
+      "ko",
+      "en-US",
+      "en-GB"
+    ],
+    "linux": {
+      "target": [
+        "dir",
+        "AppImage"
+      ],
+      "category": "Game",
+      "synopsis": "Uproot Heist - drag whole banks to your getaway van",
+      "icon": "build/icons",
+      "files": [
+        "dist/**/*",
+        "electron/**/*",
+        "package.json",
+        "!**/node_modules/steamworks.js/dist/{win64,osx}/**"
+      ]
+    },
+    "win": {
+      "target": [
+        "dir",
+        "zip"
+      ],
+      "signAndEditExecutable": false,
+      "icon": "build/icon.ico",
+      "files": [
+        "dist/**/*",
+        "electron/**/*",
+        "package.json",
+        "!**/node_modules/steamworks.js/dist/{linux64,osx}/**"
+      ]
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.games",
+      "identity": null,
+      "hardenedRuntime": false,
+      "icon": "build/icons/1024x1024.png",
+      "files": [
+        "dist/**/*",
+        "electron/**/*",
+        "package.json",
+        "!**/node_modules/steamworks.js/dist/{win64,linux64}/**"
+      ]
+    },
+    "dmg": {
+      "sign": false
+    },
+    "publish": null
+  },
+  "dependencies": {
+    "@fontsource/jua": "^5.3.0",
+    "@fontsource/noto-sans-kr": "^5.3.0",
+    "steamworks.js": "^0.4.0",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.1",
+    "@types/node": "^26.6.4",
+    "@types/three": "^0.186.0",
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.3",
+    "vitest": "^5.0.3"
+  }
+}

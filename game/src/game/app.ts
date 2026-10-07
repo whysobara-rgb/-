@@ -1,0 +1,1790 @@
+/**
+ * App flow state machine (docs/ARCHITECTURE.md "Game flow"):
+ *
+ *   Title -> MainMenu -> { 연습 (tutorial)
+ *                        | 빠른 대전 setup -> LayoutPreview -> Match -> Results -> 재대결 / 메뉴
+ *                        | 라이벌 대회 -> TournamentScreen -> LayoutPreview -> Match -> Results
+ *                              -> SeriesIntermission -> next game ...
+ *                        | 옷장 | 설정 | 종료 }
+ *
+ * - One GameView lives for the whole session: the title scene is the live backdrop behind the
+ *   menus, matches load into it behind a LoadingScreen, results stage the raccoons at the van.
+ * - Input: exactly one consumer per context — InputManager.pollMenu() for menus / pause /
+ *   results, pollMatch() (inside MatchController, once per sim tick) during play.
+ * - Back is consistent: every screen's back returns to the screen it came from; leaving a
+ *   match in progress always asks first (PauseMenu confirm dialogs).
+ */
+import { RIVALS, type ObservationSummary, type RivalId } from '../ai';
+import { UI_SOUND_SFX, isSfxId, type AudioEngine, type SfxId } from '../audio';
+import { Simulation, policeEntriesFor } from '../sim';
+import { MATCH_LAYOUT_IDS, getLayout } from '../sim/layouts';
+import type { HatId, LayoutDef, LayoutId, RosterEntry } from '../sim/types';
+import type { GameView } from '../render';
+import { type InputManager } from '../platform/input';
+import { LocalInputRouter, isPadDevice, padIndexOf, type LocalDeviceId, type LobbyFrame } from '../platform/localInput';
+import { LocalJoinScreen, type JoinDeviceHint, type JoinPlayerView, type LocalJoinProps, type TogetherOptions } from '../ui/screens/LocalJoinScreen';
+import { pickHighlights } from './localStats';
+import { allReady, allowedModes, emptyLobby, lobbyStep, lobbyStyle, localSetupFromLobby, resolveMode, setReady, setTeam, type LobbyState } from './local';
+import { applyMatchStats, unlockHat, newHats, type SaveManager } from '../platform/save';
+import { cloneSettings, type Settings } from '../platform/settings';
+import { HideoutScene, MenuStage, PreviewScene, TitleScene, TournamentScene, WardrobeScene, type HideoutFraming, type MenuCue, type MenuScene } from '../menu3d';
+import { isDesktopBuild, isFullscreen, quitApp, setFullscreen } from '../platform/native';
+import { unlockAchievement } from '../platform/steam';
+import { summarizeMatchStats } from '../platform/progress';
+import type { MatchAction } from '../platform/bindings';
+import {
+  ConfirmDialog,
+  LayoutPreview,
+  LoadingScreen,
+  MainMenu,
+  PauseMenu,
+  QuickMatchSetup,
+  ResultsScreen,
+  SeriesIntermission,
+  SettingsScreen,
+  TitleScreen,
+  TournamentScreen,
+  WardrobeScreen,
+  irisWipe,
+  navRouter,
+  setPortraitProvider,
+  setLanguage,
+  setUiSoundHandler,
+  uiSound,
+  type Hud,
+  type MainMenuItem,
+  type QuickMatchOptions,
+  type ResultsScreenProps,
+  type Toasts,
+  type UiRoot,
+  type UiScreen,
+  type UiSettings,
+  type BindingRow,
+  type UiSoundKind,
+  type UiSoundOptions,
+  type WipeShape,
+} from '../ui';
+import { CreditsScreen } from '../ui/screens/CreditsScreen';
+import { BootSplash } from '../ui/screens/BootSplash';
+import { vanWipe, type MainMenuProps, type NextGoalView } from '../ui/screens/MainMenu';
+import { t as tFront } from '../ui/i18n';
+import { bumpFunnel, setLastQuick } from '../platform/progress';
+import { getNative } from '../platform/native';
+import { tournamentAchievements, wardrobeAchievement } from './achievements';
+import { MatchController, type MatchSummary } from './match';
+import type { LaunchParams } from './params';
+import { toResultEventView } from './results';
+import { mixSeed, type MatchConfig } from './setup';
+import {
+  cloneProgress,
+  isComplete,
+  isSelectable,
+  nextGameNumber,
+  recordGame,
+  rivalCards,
+  seriesAdaptation,
+  seriesLayout,
+  startSeries,
+  type GameOutcome,
+  type GameRecord,
+} from './tournament';
+import { TutorialDirector } from './tutorial';
+
+export type AppState =
+  | 'boot'
+  | 'title'
+  | 'menu'
+  | 'quickSetup'
+  /** 같이 하기 (local multiplayer) join screen: per-device input. */
+  | 'together'
+  | 'tournament'
+  | 'wardrobe'
+  | 'settings'
+  | 'loading'
+  | 'preview'
+  | 'match'
+  | 'paused'
+  | 'results'
+  | 'intermission'
+  | 'tutorialOffer'
+  | 'error'
+  /** C10 first-run boot splash (menu input + the title scene warming behind it). */
+  | 'splash';
+
+export interface AppDeps {
+  ui: UiRoot;
+  view: GameView;
+  hud: Hud;
+  toasts: Toasts;
+  input: InputManager;
+  audio: AudioEngine;
+  save: SaveManager;
+  params: LaunchParams;
+  version: string;
+  /** Persist + apply a settings change everywhere (view, audio, input, UI). */
+  applySettings: (s: Settings, changed: keyof Settings | null) => void;
+  log: (level: 'info' | 'warn' | 'error', msg: string) => void;
+  /** Non-fatal error overlay ("다시 시도" runs `retry`). */
+  reportError: (err: unknown, context: string, retry?: () => void) => void;
+}
+
+interface LaunchOpts {
+  preview: boolean;
+  /** Back from the preview. */
+  back?: () => void;
+  context?: string | { key: string; params?: Record<string, string | number> } | null;
+}
+
+/** Preview hold before the in-world countdown (ms); confirm skips it. */
+const PREVIEW_HOLD_MS = 3400;
+
+/** UI sounds beyond the six base kinds, voiced with existing SFX (pitch / volume shaped). */
+const UI_EXTRA_SFX: Readonly<Record<Exclude<UiSoundKind, keyof typeof UI_SOUND_SFX>, { id: SfxId; volume: number; pitch: number }>> = {
+  pop: { id: 'popup', volume: 0.7, pitch: 1 },
+  whoosh: { id: 'tackleWhoosh', volume: 0.4, pitch: 1.25 },
+  stamp: { id: 'bump', volume: 0.75, pitch: 0.85 },
+  coin: { id: 'scoreSmall', volume: 0.4, pitch: 1.3 },
+  tick: { id: 'countdownBeep', volume: 0.3, pitch: 1.5 },
+  sparkle: { id: 'popup', volume: 0.45, pitch: 1.6 },
+};
+
+/** 3D menu scene cues -> existing SFX (kept quiet: they loop under the menu music). */
+const MENU_CUE_SFX: Readonly<Record<MenuCue, { id: string; volume: number; pitch?: number }>> = {
+  pop: { id: 'unanchorBank', volume: 0.32 },
+  thud: { id: 'bankLand', volume: 0.3 },
+  strain: { id: 'bankRumble', volume: 0.18 },
+  cheer: { id: 'popup', volume: 0.3, pitch: 1.2 },
+  sparkle: { id: 'popup', volume: 0.35, pitch: 1.6 },
+  boing: { id: 'policeStun', volume: 0.3, pitch: 1.2 },
+  whoosh: { id: 'tackleWhoosh', volume: 0.3, pitch: 1.2 },
+  stamp: { id: 'bump', volume: 0.5, pitch: 0.9 },
+  tick: { id: 'countdownBeep', volume: 0.25, pitch: 1.4 },
+};
+
+const nextFrame = (): Promise<void> => new Promise((r) => requestAnimationFrame(() => r()));
+
+export class App {
+  private stateValue: AppState = 'boot';
+  private screen: UiScreen<object> | null = null;
+  private overlay: UiScreen<object> | null = null;
+  private loading: LoadingScreen | null = null;
+  private match: MatchController | null = null;
+  private lastSummary: MatchSummary | null = null;
+  private lastRecord: GameRecord | null = null;
+  private titleSim: Simulation;
+  private sceneTime = 0;
+  private frameNo = 0;
+  private seedCounter = 0;
+  private readonly baseSeed: number;
+  private quickOpts: QuickMatchOptions = { mode: '1v1', layout: 'plaza', rival: 'hodadak', difficulty: 'normal' };
+  private drawStreak = 0;
+  private firstRunAsked = false;
+  private previewTimer = 0;
+  /** Starts the match from the layout preview (re-armed when the player comes back). */
+  private previewGo: (() => void) | null = null;
+  /** The window lost focus / the tab is hidden: nothing may start on its own. */
+  private awayValue = false;
+  private settingsReturn: (() => void) | null = null;
+  private transitionToken = 0;
+  /** Live 3D menus (null when WebGL for a second context failed: GameView backdrop fallback). */
+  private stage: MenuStage | null = null;
+  // --- 같이 하기 (local multiplayer) ---
+  private localRouter: LocalInputRouter | null = null;
+  private lobby: LobbyState = emptyLobby();
+  private lobbyPhase: 'join' | 'options' = 'join';
+  private lobbyNotice: string | null = null;
+  private lobbyPads = '';
+  private togetherOpts: TogetherOptions = { layout: 'random', mode: '2v2', difficulty: 'normal' };
+
+  constructor(private readonly d: AppDeps) {
+    this.baseSeed = d.params.seed ?? (Math.floor(Math.random() * 0xffffffff) >>> 0);
+    if (d.params.mode) this.quickOpts.mode = d.params.mode;
+    if (d.params.layout && d.params.layout !== 'tutorial') this.quickOpts.layout = d.params.layout;
+    if (d.params.rival) this.quickOpts.rival = d.params.rival;
+    if (d.params.difficulty) this.quickOpts.difficulty = d.params.difficulty;
+    this.titleSim = this.buildTitleSim();
+    setUiSoundHandler((kind, o) => this.playUiSound(kind, o));
+    this.createStage();
+  }
+
+  private playUiSound(kind: UiSoundKind, o?: UiSoundOptions): void {
+    const base = (UI_SOUND_SFX as Readonly<Record<string, SfxId>>)[kind];
+    if (base) {
+      this.d.audio.play(base, { pitch: o?.pitch, volume: o?.volume });
+      return;
+    }
+    const x = UI_EXTRA_SFX[kind as keyof typeof UI_EXTRA_SFX];
+    if (!x) return;
+    this.d.audio.play(x.id, { pitch: x.pitch * (o?.pitch ?? 1), volume: x.volume * (o?.volume ?? 1) });
+  }
+
+  /** Second WebGL context for the live 3D menus + the portrait snapshots (both optional). */
+  private createStage(): void {
+    const s = this.d.save.data.settings;
+    try {
+      const stage = new MenuStage(this.d.ui.container, this.d.ui.el, {
+        quality: this.d.params.quality ?? s.quality,
+        reducedMotion: s.reducedMotion,
+        renderEvery: this.d.params.renderEvery,
+      });
+      this.stage = stage;
+      const pc = stage.portraits;
+      setPortraitProvider({
+        raccoon: (spec) => pc.raccoon(spec),
+        object: (kind) => pc.object(kind),
+        layout: (layout: LayoutDef) => pc.layout(layout),
+      });
+    } catch (err) {
+      this.stage = null;
+      this.d.log('warn', `[app] 3D menus unavailable, using the plaza backdrop: ${String(err)}`);
+    }
+  }
+
+  /**
+   * Make a 3D menu scene current. Reuses the current scene when it is already of that class
+   * (`reuse`), else builds one with `make`. Returns null without the stage (fallback backdrop).
+   */
+  private scene3d<T extends MenuScene>(ctor: new (...args: never[]) => T, make: () => T, reuse = true): T | null {
+    const st = this.stage;
+    if (!st) return null;
+    const cur = st.scene;
+    if (reuse && cur instanceof ctor) return cur;
+    try {
+      const scene = st.setScene(make());
+      scene.onCue = (c) => this.playCue(c);
+      return scene;
+    } catch (err) {
+      this.d.log('warn', `[app] 3D menu scene failed: ${String(err)}`);
+      st.setScene(null);
+      return null;
+    }
+  }
+
+  /** Menus no longer own the screen (loading, match, results): GameView draws again. */
+  private hideStage(): void {
+    this.stage?.setScene(null);
+  }
+
+  private playCue(c: MenuCue): void {
+    const m = MENU_CUE_SFX[c];
+    if (!m || !isSfxId(m.id)) return;
+    this.d.audio.play(m.id, { volume: m.volume, pitch: m.pitch });
+  }
+
+  private hideout(framing: HideoutFraming): HideoutScene | null {
+    const hat = this.d.save.data.cosmetics.equipped;
+    const sc = this.scene3d(HideoutScene, () => new HideoutScene({ hat, framing }));
+    sc?.setFraming(framing);
+    return sc;
+  }
+
+  /** Screen change behind an iris wipe (the hole shaped like an emblem / raccoon head). */
+  private wipeTo(fn: () => void, shape: WipeShape = 'raccoon'): void {
+    const token = this.transitionToken;
+    try {
+      irisWipe().run(() => {
+        if (token === this.transitionToken) fn();
+      }, shape);
+    } catch {
+      fn();
+    }
+  }
+
+  /** Menu 3D stats (test hook). */
+  menuStats(): ReturnType<MenuStage['stats']> | null {
+    return this.stage ? this.stage.stats() : null;
+  }
+
+  get state(): AppState {
+    return this.stateValue;
+  }
+
+  get currentMatch(): MatchController | null {
+    return this.match;
+  }
+
+  get settings(): Readonly<Settings> {
+    return this.d.save.data.settings;
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // Boot
+  // ------------------------------------------------------------------------------------------
+
+  /** Title backdrop: the plaza with a few idle raccoons by the first bank. */
+  private buildTitleSim(): Simulation {
+    const layout = getLayout('plaza');
+    const hat = this.d.save.data.cosmetics.equipped;
+    const roster: RosterEntry[] = [
+      { team: 0, isBot: false, name: 'name.you', look: { hat, furTint: 0.5 } },
+      { team: 0, isBot: true, name: 'name.ally', look: { hat: 'teamCapA', furTint: 0.2 } },
+      { team: 1, isBot: true, name: RIVALS.tongkeun.nameKey, look: { ...RIVALS.tongkeun.look } },
+      { team: 1, isBot: true, name: RIVALS.hodadak.nameKey, look: { ...RIVALS.hodadak.look } },
+    ];
+    const sim = new Simulation({ layout, roster, seed: 1 });
+    // Title only (never a match): gather the cast in front of a bank door.
+    const bank = sim.state.loot.find((l) => l.kind === 'bank');
+    if (bank) {
+      const front = { x: bank.pos.x - Math.sin(bank.angle) * 4.6, y: bank.pos.y + Math.cos(bank.angle) * 4.6 };
+      const spots = [
+        { x: -1.6, y: 0.4 },
+        { x: -0.4, y: 1.1 },
+        { x: 0.9, y: 0.2 },
+        { x: 2.0, y: 1.0 },
+      ];
+      const placed: { x: number; y: number }[] = [];
+      sim.state.characters.forEach((c, i) => {
+        const s = spots[i]!;
+        // First free spot near the planned one, away from the others already placed.
+        for (let r = 0; r < 4; r += 0.5) {
+          let done = false;
+          for (let k = 0; k < 8 && !done; k++) {
+            const a = (k / 8) * Math.PI * 2;
+            const p = { x: front.x + s.x + Math.cos(a) * r, y: front.y + s.y + Math.sin(a) * r };
+            if (!sim.isFree(p, 0.55) || placed.some((q) => Math.hypot(q.x - p.x, q.y - p.y) < 1.1)) continue;
+            sim.debug.teleport(c.id, p, Math.atan2(bank.pos.y - p.y, bank.pos.x - p.x) + (i - 1.5) * 0.35);
+            placed.push(p);
+            done = true;
+          }
+          if (done) break;
+        }
+      });
+    }
+    return sim;
+  }
+
+  /** Called once fonts / save / view are ready. */
+  start(): void {
+    const p = this.d.params;
+    this.d.view.load(this.titleSim);
+    this.d.view.setMode('title');
+    if (p.flow === 'tutorial') {
+      this.startTutorial();
+      return;
+    }
+    if (p.flow === 'quick') {
+      this.startQuick({ ...this.quickOpts }, p.skipIntro ? false : true);
+      return;
+    }
+    if (p.flow === 'tournament') {
+      this.toTournament();
+      return;
+    }
+    if (p.skipIntro) this.toMenu();
+    else this.bootSplashThenTitle();
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // Per frame
+  // ------------------------------------------------------------------------------------------
+
+  frame(dt: number): void {
+    this.frameNo++;
+    const st = this.stateValue;
+    const m = this.match;
+    if (m && (st === 'match' || st === 'paused')) {
+      if (st === 'paused') this.pollMenu();
+      else if (m.state !== 'playing' && m.state !== 'countdown') this.d.input.pollMenu();
+      // A pause-menu press may have left the match (menu / forfeit / restart) this very frame.
+      if (this.match === m) m.frame(dt);
+      return;
+    }
+    if (st === 'match' || st === 'loading' || st === 'boot') {
+      // Match between phases / loading: keep the view alive. The menu consumer is drained every
+      // frame here (presses discarded) so the input module only ever sees a long poll gap on a
+      // real hitch — which then keeps its presses (see main.ts reactivateAfterMs).
+      this.d.input.pollMenu();
+      if (this.match) this.match.frame(dt);
+      return;
+    }
+    // Menus, preview, results, intermission: menu input + the scene behind them.
+    if (st === 'together') this.pollTogether();
+    else this.pollMenu();
+    this.renderScene(dt);
+  }
+
+  private pollMenu(): void {
+    let nav = this.d.input.pollMenu();
+    // Local match paused: keyboard player B's grab / dash keys confirm / back out as well.
+    if (this.stateValue === 'paused' && this.match?.isLocal && this.localRouter) {
+      const b = this.localRouter.pauseMenuFrame();
+      if (b.confirm) nav = { ...nav, confirm: true };
+      if (b.back) nav = { ...nav, back: true };
+    }
+    if (this.stateValue === 'paused' && nav.pause && !this.overlay) {
+      // Esc / Start closes the pause menu only when the pause menu itself has focus. With its
+      // own confirm dialog (restart / leave) on top, the same press backs out of the dialog.
+      if (this.screen instanceof PauseMenu && navRouter.top() === this.screen) {
+        this.resumeMatch();
+        return;
+      }
+      if (!nav.back) nav = { ...nav, back: true };
+    }
+    this.d.ui.handleNav(nav);
+  }
+
+  private renderScene(dt: number): void {
+    if (this.stage?.active) {
+      // The 3D menu owns the screen: GameView is paused (not drawn) meanwhile.
+      this.sceneTime = 0;
+      this.stage.frame(dt);
+      return;
+    }
+    const every = this.d.params.renderEvery;
+    this.sceneTime += dt;
+    if (every > 1 && this.frameNo % every !== 0) return;
+    const m = this.match;
+    if (m && (this.stateValue === 'preview' || this.stateValue === 'results' || this.stateValue === 'intermission' || this.stateValue === 'tutorialOffer')) {
+      this.d.view.render(m.sim, 1, Math.min(0.1, this.sceneTime), m.focus());
+    } else {
+      this.d.view.render(this.titleSim, 1, Math.min(0.1, this.sceneTime), null);
+    }
+    this.sceneTime = 0;
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // Screen helpers
+  // ------------------------------------------------------------------------------------------
+
+  private setState(s: AppState): void {
+    const prev = this.stateValue;
+    this.stateValue = s;
+    document.documentElement.dataset.appState = s;
+    // Leaving live play for a menu (pause, results, intermission...): hand input to the menu
+    // consumer right now, not on the next frame. Otherwise a press made between the screen
+    // appearing and that frame (one slow frame can take a second on software GL) would land
+    // before the consumer switch and be dropped as stale.
+    if (prev === 'match' && s !== 'match') this.d.input.pollMenu();
+  }
+
+  private show<T extends UiScreen<object>>(screen: T, state: AppState): T {
+    this.closeOverlay();
+    const prev = this.screen;
+    this.screen = screen;
+    this.setState(state);
+    screen.show();
+    if (prev && prev !== screen) prev.destroy();
+    return screen;
+  }
+
+  private clearScreen(): void {
+    this.closeOverlay();
+    this.screen?.destroy();
+    this.screen = null;
+  }
+
+  private closeOverlay(): void {
+    this.overlay?.destroy();
+    this.overlay = null;
+  }
+
+  private toSceneTitle(): void {
+    const v = this.d.view;
+    if (this.match) this.disposeMatch();
+    this.d.hud.hide();
+    this.d.hud.reset();
+    v.load(this.titleSim);
+    v.setMode('title');
+    this.d.audio.playMusic('title');
+  }
+
+  private disposeMatch(): void {
+    this.match?.dispose();
+    this.match = null;
+    window.clearTimeout(this.previewTimer);
+    this.previewGo = null;
+  }
+
+  private nextSeed(): number {
+    this.seedCounter++;
+    return mixSeed(this.baseSeed, this.seedCounter);
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // Title / menu
+  // ------------------------------------------------------------------------------------------
+
+  toTitle(): void {
+    this.frontMenuAudio(null);
+    if (this.match) this.toSceneTitle();
+    this.d.audio.playMusic('title');
+    this.scene3d(TitleScene, () => new TitleScene({ hat: this.d.save.data.cosmetics.equipped }));
+    this.show(new TitleScreen({ version: this.d.version, onStart: () => this.wipeTo(() => this.toMenu(), 'raccoon') }), 'title');
+  }
+
+  toMenu(focus?: MainMenuItem): void {
+    if (this.match || this.d.view.mode !== 'title') this.toSceneTitle();
+    this.d.audio.playMusic('title');
+    // C10 front door: props (player chip, 게임 시작 + its caption, next goal) come from
+    // frontDoorProps(); on first launch 게임 시작 itself leads to the practice (no modal).
+    const props = this.frontDoorProps(focus);
+    const first = props.initialFocus ?? 'play';
+    const hide = this.hideout('front');
+    hide?.setFocus(first === 'together' ? 'quickMatch' : first);
+    this.frontMenuAudio(first);
+    const menu = new MainMenu({
+      ...props,
+      onSelect: (item) => this.onMenuSelect(item),
+      onFocusItem: (item) => {
+        hide?.setFocus(item === 'together' ? 'quickMatch' : item);
+        this.frontMenuAudio(item);
+      },
+      onBack: () => this.wipeTo(() => this.toTitle(), 'raccoon'),
+    });
+    this.show(menu, 'menu');
+  }
+
+  private onMenuSelect(item: MainMenuItem): void {
+    this.frontMenuAudio(null);
+    switch (item) {
+      case 'play':
+        this.frontPlay();
+        break;
+      case 'goal':
+        this.frontGoal();
+        break;
+      case 'credits':
+        this.wipeTo(() => this.frontCredits(), 'star');
+        break;
+      case 'practice':
+        this.startTutorial();
+        break;
+      case 'quickMatch':
+        this.toQuickSetup();
+        break;
+      case 'together':
+        this.toTogether();
+        break;
+      case 'tournament':
+        this.wipeTo(() => this.toTournament(), 'star');
+        break;
+      case 'wardrobe':
+        this.wipeTo(() => this.toWardrobe(), 'moon');
+        break;
+      case 'settings':
+        this.toSettings(() => this.toMenu('settings'));
+        break;
+      case 'quit':
+        this.confirmQuit();
+        break;
+    }
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // C10 front door: boot splash, props, 게임 시작 ceremony, next goal, credits, menu audio
+  // ------------------------------------------------------------------------------------------
+
+  /** Front-door next-goal line hidden for this session (its small "x"). */
+  private frontGoalHidden = false;
+
+  /**
+   * First run: the boot splash (paw-stamp thunk, wordmark, photosensitivity note) while the
+   * title scene renders hidden behind it to warm its shaders; any key skips it. Later runs go
+   * straight to the title.
+   */
+  private bootSplashThenTitle(): void {
+    let seen = false;
+    try {
+      seen = window.localStorage.getItem('uh.bootSplashSeen') === '1';
+    } catch {
+      seen = false;
+    }
+    const data = this.d.save.data;
+    if (seen || data.stats.matches > 0 || data.tutorialDone) {
+      this.toTitle();
+      return;
+    }
+    try {
+      window.localStorage.setItem('uh.bootSplashSeen', '1');
+    } catch {
+      // private window / blocked storage: the splash simply shows again next time
+    }
+    // Warm the title scene behind the opaque splash (stage.frame runs in renderScene while
+    // state is 'title'-like; the splash itself sits in the dialogs layer above it).
+    this.scene3d(TitleScene, () => new TitleScene({ hat: data.cosmetics.equipped }));
+    this.setState('splash');
+    let done = false;
+    const splash = new BootSplash({
+      onThunk: () => {
+        // Browsers block audio before a gesture; Electron allows it (autoplayPolicy).
+        if (getNative()) this.d.audio.play('bankLand', { volume: 0.55, pitch: 0.8 });
+      },
+      onDone: () => {
+        if (done) return;
+        done = true;
+        splash.destroy();
+        this.toTitle();
+      },
+    });
+    this.closeOverlay();
+    this.overlay = splash;
+    splash.show();
+  }
+
+  /**
+   * Quick-match setup 게임 시작 uses: the saved last quick match (F9 lastQuick), else the one
+   * started this session (if the save could not take it), else 1:1 / random map / random rival.
+   */
+  private frontQuickOpts(): QuickMatchOptions {
+    const lq = this.d.save.data.lastQuick;
+    if (lq) return { mode: lq.mode, layout: lq.layout, rival: lq.rival, difficulty: lq.difficulty };
+    if (this.frontSessionQuick) return { ...this.frontSessionQuick };
+    return { mode: '1v1', layout: 'random', rival: 'random', difficulty: 'normal' };
+  }
+
+  /** The last quick setup started this session (fallback when the save cannot store lastQuick). */
+  private frontSessionQuick: QuickMatchOptions | null = null;
+
+  /**
+   * Remember a quick-match setup the player started (quick-match board or 게임 시작) as F9
+   * lastQuick, so 게임 시작 replays it next session too. Item / event toggles already saved are
+   * kept (the board does not have them yet; C8 adds them).
+   */
+  private frontRememberQuick(o: QuickMatchOptions): void {
+    this.frontSessionQuick = { ...o };
+    try {
+      const prev = this.d.save.data.lastQuick;
+      setLastQuick({ mode: o.mode, layout: o.layout, rival: o.rival, difficulty: o.difficulty, items: prev?.items ?? 'on', events: prev?.events ?? 'on' });
+    } catch {
+      // older save shape: the session fallback above still works
+    }
+  }
+
+  private frontFirstRun(): boolean {
+    const data = this.d.save.data;
+    return !data.tutorialDone && data.stats.matches === 0;
+  }
+
+  /** Everything the front door shows (C10, calm pass). */
+  private frontDoorProps(focus?: MainMenuItem): Omit<MainMenuProps, 'onSelect'> {
+    const data = this.d.save.data;
+    const fresh = this.frontFirstRun();
+    const rivals: RivalId[] = ['hodadak', 'tongkeun', 'nunchi'];
+    const beatenSet = new Set<RivalId>(data.tournament.beaten);
+    const cups = (data as { cups?: Partial<Record<string, RivalId[]>> }).cups;
+    if (cups) for (const list of Object.values(cups)) for (const r of list ?? []) beatenSet.add(r);
+    const beaten = rivals.filter((r) => beatenSet.has(r));
+    const badges: MainMenuProps['badges'] = {};
+    if (newHats(data.cosmetics).length) badges.wardrobe = 'common.new';
+    // caption under 게임 시작: what one press starts
+    const q = this.frontQuickOpts();
+    const mapName = q.layout === 'random' ? tFront('front.play.map.random') : tFront(getLayout(q.layout).nameKey);
+    const playSub = fresh ? 'front.play.sub.first' : { key: 'front.play.sub.quick', params: { mode: tFront(`mode.${q.mode}`), map: mapName } };
+    // A fresh save's next goal is the practice, which 게임 시작 already starts: no second line.
+    const goal = this.frontGoalHidden || fresh ? null : this.frontNextGoal();
+    return {
+      showQuit: isDesktopBuild(),
+      hat: data.cosmetics.equipped,
+      team: 0,
+      badges,
+      initialFocus: focus ?? 'play',
+      firstRun: fresh,
+      playSub,
+      player: { hat: data.cosmetics.equipped, team: 0, rank: `front.player.rank.${beaten.length}` },
+      nextGoal: goal,
+      onDismissGoal: () => (this.frontGoalHidden = true),
+      // backdrop blur / desaturation cost GPU time: skipped at low quality
+      softBackdrop: (this.d.params.quality ?? data.settings.quality) !== 'low',
+    };
+  }
+
+  /**
+   * "이어서 / 다음 목표" (v1 fallback until F7's nextGoal() lands): series in progress -> the
+   * practice for a fresh save -> the next rival's hat. Null when there is nothing to suggest.
+   */
+  private frontNextGoal(): NextGoalView | null {
+    const data = this.d.save.data;
+    const s = data.tournament.series;
+    const name = (r: RivalId): string => tFront(RIVALS[r].nameKey);
+    if (s) {
+      return {
+        id: `series:${s.rival}`,
+        kind: 'series',
+        label: 'front.goal.continue',
+        title: { key: 'front.goal.series', params: { rival: name(s.rival) } },
+        icon: 'trophy',
+      };
+    }
+    if (!data.tutorialDone) return { id: 'practice', kind: 'practice', title: 'front.goal.practice', icon: 'practice' };
+    const next = (['hodadak', 'tongkeun', 'nunchi'] as RivalId[]).find((r) => !data.tournament.beaten.includes(r));
+    if (next) return { id: `rival:${next}`, kind: 'tournament', title: { key: 'front.goal.rival', params: { rival: name(next) } }, icon: 'hat' };
+    return null;
+  }
+
+  private frontGoal(): void {
+    const goal = this.frontNextGoal();
+    const s = this.d.save.data.tournament.series;
+    if (goal?.kind === 'series' && s) {
+      this.startTournamentGame(s.rival, true);
+      return;
+    }
+    if (goal?.kind === 'practice') {
+      this.startTutorial();
+      return;
+    }
+    const rival = goal?.id.startsWith('rival:') ? (goal.id.slice(6) as RivalId) : undefined;
+    this.wipeTo(() => this.toTournament(rival), 'star');
+  }
+
+  /**
+   * 게임 시작: one press. The lead bonks the big red button with the 뿅망치, the gang ziplines off
+   * the roof, the van wipe covers the screen and the quick match (last setup) loads behind it.
+   * First launch: the practice instead.
+   */
+  private frontPlay(): void {
+    try {
+      bumpFunnel('playPressed');
+    } catch {
+      // funnel counters are optional (local playtest stats only)
+    }
+    const fresh = this.frontFirstRun();
+    const go = (): void => {
+      if (fresh) this.startTutorial();
+      else {
+        const o = this.frontQuickOpts();
+        this.quickOpts = { ...o };
+        this.frontRememberQuick(o);
+        this.startQuick(o, true);
+      }
+    };
+    const hide = this.stage?.scene instanceof HideoutScene ? this.stage.scene : null;
+    this.d.audio.play('popup', { volume: 0.55, pitch: 0.75 });
+    const wait = hide ? hide.playCeremony() : 0;
+    const token = this.transitionToken;
+    window.setTimeout(() => {
+      if (token !== this.transitionToken || this.stateValue !== 'menu') return;
+      vanWipe(go);
+    }, Math.round(wait * 1000));
+  }
+
+  /** Credits from the front door (back returns to the front door, credits focused). */
+  private frontCredits(): void {
+    this.hideout('right')?.setFocus('credits');
+    this.show(new CreditsScreen({ version: this.d.version, onBack: () => this.wipeTo(() => this.toMenu('credits'), 'star') }), 'settings');
+  }
+
+  /**
+   * Front-door music: the title song heard "from the rooftop" (low-pass) while browsing; focusing
+   * 게임 시작 opens it up and raises the intensity. null = leaving the front door (restore).
+   */
+  private frontMenuAudio(item: MainMenuItem | null): void {
+    const a = this.d.audio;
+    if (item === null) {
+      a.setMuffled(false);
+      a.setMusicIntensity(0.5);
+      return;
+    }
+    const hot = item === 'play';
+    a.setMuffled(!hot);
+    a.setMusicIntensity(hot ? 1 : 0.4);
+  }
+
+  private confirmQuit(): void {
+    const menu = this.screen;
+    this.overlay = new ConfirmDialog({
+      titleKey: 'menu.quitConfirm.title',
+      bodyKey: 'menu.quitConfirm.body',
+      confirmKey: 'menu.quitConfirm.ok',
+      danger: true,
+      onConfirm: () => {
+        this.closeOverlay();
+        this.d.save.flush();
+        quitApp();
+        menu?.rearm();
+      },
+      onCancel: () => {
+        this.closeOverlay();
+        menu?.rearm();
+      },
+    });
+    this.overlay.show();
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // Quick match
+  // ------------------------------------------------------------------------------------------
+
+  toQuickSetup(): void {
+    this.hideout('left')?.setFocus('quickMatch');
+    const layouts = MATCH_LAYOUT_IDS.map((id) => {
+      const l = getLayout(id);
+      return { id, nameKey: l.nameKey, descKey: l.descKey, layout: l };
+    });
+    this.show(
+      new QuickMatchSetup({
+        layouts,
+        value: { ...this.quickOpts },
+        onChange: (v) => (this.quickOpts = { ...v }),
+        onStart: (v) => {
+          this.quickOpts = { ...v };
+          this.frontRememberQuick(v); // C10: 게임 시작 replays the last quick match (F9 lastQuick)
+          this.startQuick(v, true);
+        },
+        onBack: () => this.toMenu('quickMatch'),
+        onTogether: () => this.toTogether(),
+      }),
+      'quickSetup',
+    );
+  }
+
+  private resolveQuick(o: QuickMatchOptions): MatchConfig {
+    const seed = this.nextSeed();
+    const layoutId: LayoutId = o.layout === 'random' ? MATCH_LAYOUT_IDS[seed % MATCH_LAYOUT_IDS.length]! : o.layout;
+    const rivals: RivalId[] = ['hodadak', 'tongkeun', 'nunchi'];
+    const rival: RivalId = o.rival === 'random' ? rivals[(seed >>> 8) % 3]! : o.rival;
+    return {
+      kind: 'quick',
+      layoutId,
+      mode: o.mode,
+      rival,
+      difficulty: o.difficulty,
+      adaptation: null,
+      seed,
+      humanHat: this.d.save.data.cosmetics.equipped,
+      matchSeconds: this.d.params.matchSeconds,
+      police: this.d.params.police,
+    };
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // 같이 하기 (local multiplayer): join screen -> local match
+  // ------------------------------------------------------------------------------------------
+
+  /** The per-device input router (created on first use; follows the saved bindings). */
+  private localInput(): LocalInputRouter {
+    if (!this.localRouter) this.localRouter = new LocalInputRouter({ bindings: this.settings.bindings });
+    else this.localRouter.setBindings(this.settings.bindings);
+    return this.localRouter;
+  }
+
+  /** Test / debug view of the lobby. */
+  get lobbyState(): Readonly<LobbyState> {
+    return this.lobby;
+  }
+
+  /** Open the join screen (players who were in stay in, un-readied). */
+  toTogether(): void {
+    const r = this.localInput();
+    r.flush(); // the press that opened this screen does not also join
+    this.hideout('left')?.setFocus('quickMatch');
+    this.lobby = { players: this.lobby.players.map((p) => ({ ...p, ready: false })) };
+    r.enterOwner = this.lobby.players.some((p) => p.device === 'kbB') ? 'kbB' : 'kbA';
+    this.lobbyPhase = 'join';
+    this.lobbyNotice = null;
+    this.lobbyPads = r.connectedPads().join(',');
+    this.show(new LocalJoinScreen(this.togetherProps()), 'together');
+  }
+
+  private keyCap(code: string | undefined): string {
+    if (!code) return '?';
+    const named: Record<string, string> = { Space: 'Space', Period: '.', Slash: '/', Comma: ',', Semicolon: ';', Quote: "'", ShiftLeft: 'Shift', ShiftRight: 'Shift', Enter: 'Enter', Escape: 'Esc', Backspace: '⌫', ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→' };
+    if (named[code]) return named[code]!;
+    if (/^Key[A-Z]$/.test(code)) return code.slice(3);
+    if (/^Digit\d$/.test(code)) return code.slice(5);
+    if (/^Numpad\d$/.test(code)) return `Num ${code.slice(6)}`;
+    if (/^Mouse\d$/.test(code)) return code === 'Mouse0' ? 'L-Click' : code === 'Mouse2' ? 'R-Click' : code;
+    return code;
+  }
+
+  private deviceKeys(device: LocalDeviceId): { grab: string; dash: string } {
+    if (isPadDevice(device)) return { grab: 'A', dash: 'B' };
+    const ks = this.localInput().keySets[device as 'kbA' | 'kbB'];
+    const firstKey = (codes: readonly string[]): string | undefined => codes.find((c) => !c.startsWith('Mouse'));
+    return { grab: this.keyCap(firstKey(ks.grab)), dash: this.keyCap(firstKey(ks.dash)) };
+  }
+
+  private deviceLabel(device: LocalDeviceId): LocalJoinProps['players'][number]['device'] {
+    const pi = padIndexOf(device);
+    if (pi !== null) return { key: 'together.device.pad', params: { n: pi + 1 } };
+    return device === 'kbA' ? 'together.device.kbA' : 'together.device.kbB';
+  }
+
+  private togetherProps(): LocalJoinProps {
+    const lobby = this.lobby;
+    const players: JoinPlayerView[] = lobby.players.map((p) => ({
+      index: p.index,
+      team: p.team,
+      ready: p.ready,
+      device: this.deviceLabel(p.device),
+      keys: this.deviceKeys(p.device),
+      hat: p.index === 0 ? this.d.save.data.cosmetics.equipped : (['teamCapA', 'teamCapB', 'none', 'teamCapA'] as HatId[])[p.index] ?? 'none',
+    }));
+    const joined = new Set(lobby.players.map((p) => p.device));
+    const hints: JoinDeviceHint[] = [
+      { id: 'kbA', label: 'together.device.kbA', key: this.deviceKeys('kbA').grab, joined: joined.has('kbA') },
+      { id: 'kbB', label: 'together.device.kbB', key: this.deviceKeys('kbB').grab, joined: joined.has('kbB') },
+    ];
+    const pads = this.localInput().connectedPads();
+    if (!pads.length) hints.push({ id: 'pad', label: 'together.device.anyPad', key: 'A', joined: false });
+    for (const i of pads) hints.push({ id: `pad:${i}`, label: { key: 'together.device.pad', params: { n: i + 1 } }, key: 'A', joined: joined.has(`pad:${i}`) });
+    const modes = allowedModes(lobby);
+    this.togetherOpts = { ...this.togetherOpts, mode: resolveMode(lobby, this.togetherOpts.mode) };
+    return {
+      layouts: MATCH_LAYOUT_IDS.map((id) => {
+        const l = getLayout(id);
+        return { id, nameKey: l.nameKey, descKey: l.descKey, layout: l };
+      }),
+      value: { ...this.togetherOpts },
+      players,
+      hints,
+      phase: this.lobbyPhase,
+      style: lobbyStyle(lobby),
+      modes,
+      notice: this.lobbyNotice,
+      onChange: (v) => {
+        this.togetherOpts = { ...v };
+        this.refreshTogether();
+      },
+      onStart: () => this.startTogether(),
+      onBack: () => this.leaveTogether(),
+      onJoinDevice: (id) => {
+        if (id === 'kbA' || id === 'kbB' || isPadDevice(id)) this.lobbyPress(id as LocalDeviceId, 'confirm');
+      },
+      onTeam: (index, team) => {
+        const p = this.lobby.players.find((x) => x.index === index);
+        if (!p) return;
+        const next = setTeam(this.lobby, p.device, team);
+        this.lobbyNotice = next === this.lobby ? 'together.full' : null;
+        this.lobby = next;
+        this.refreshTogether();
+      },
+      onReady: (index) => {
+        const p = this.lobby.players.find((x) => x.index === index);
+        if (!p) return;
+        this.lobby = setReady(this.lobby, p.device, !p.ready);
+        this.afterLobbyChange();
+      },
+      onReopen: () => this.reopenLobby(null),
+    };
+  }
+
+  private refreshTogether(): void {
+    if (this.stateValue !== 'together' || !(this.screen instanceof LocalJoinScreen)) return;
+    this.screen.update(this.togetherProps());
+  }
+
+  /** Lobby changed: everyone ready -> match options; otherwise back to joining. */
+  private afterLobbyChange(): void {
+    // Enter is player A's confirm while A is alone on the keyboard, player B's once B has joined.
+    this.localInput().enterOwner = this.lobby.players.some((p) => p.device === 'kbB') ? 'kbB' : 'kbA';
+    const ready = allReady(this.lobby);
+    const was = this.lobbyPhase;
+    this.lobbyPhase = ready ? 'options' : 'join';
+    this.refreshTogether();
+    if (this.lobbyPhase === 'options' && was !== 'options' && this.screen instanceof LocalJoinScreen) {
+      this.screen.focusStart();
+      this.playUiSound('sparkle');
+    }
+  }
+
+  /** Back to joining from the options (that device's player — or everyone — un-readies). */
+  private reopenLobby(device: LocalDeviceId | null): void {
+    this.lobby = device ? setReady(this.lobby, device, false) : { players: this.lobby.players.map((p) => ({ ...p, ready: false })) };
+    this.lobbyPhase = 'join';
+    this.refreshTogether();
+  }
+
+  private lobbyPress(device: LocalDeviceId, action: 'confirm' | 'back' | 'left' | 'right'): void {
+    const r = lobbyStep(this.lobby, device, action);
+    this.lobbyNotice = null;
+    switch (r.event) {
+      case 'exit':
+        this.leaveTogether();
+        return;
+      case 'joined':
+        this.playUiSound('pop', { pitch: 1 + 0.12 * (r.state.players.find((p) => p.device === device)?.index ?? 0) });
+        break;
+      case 'ready':
+        this.playUiSound('stamp');
+        break;
+      case 'left':
+      case 'unready':
+        this.playUiSound('back');
+        break;
+      case 'team':
+        this.playUiSound('adjust');
+        break;
+      case 'blocked':
+        this.playUiSound('error');
+        this.lobbyNotice = 'together.full';
+        break;
+      default:
+        return;
+    }
+    this.lobby = r.state;
+    this.afterLobbyChange();
+  }
+
+  /** Per frame on the join screen: every device's presses (menu input is drained, not used). */
+  private pollTogether(): void {
+    this.d.input.pollMenu();
+    const r = this.localInput();
+    const scr = this.screen instanceof LocalJoinScreen ? this.screen : null;
+    if (!scr || scr.isLeaving) {
+      r.pollLobby();
+      return;
+    }
+    for (const { device, frame } of r.pollLobby()) {
+      if (this.stateValue !== 'together') break;
+      if (this.lobbyPhase === 'join') this.lobbyJoinFrame(device, frame);
+      else this.lobbyOptionsFrame(scr, device, frame);
+    }
+    const pads = r.connectedPads().join(',');
+    if (pads !== this.lobbyPads) {
+      this.lobbyPads = pads;
+      // A pad that went away leaves the lobby.
+      const live = new Set(r.connectedPads().map((i) => `pad:${i}`));
+      const gone = this.lobby.players.filter((p) => isPadDevice(p.device) && !live.has(p.device));
+      if (gone.length) {
+        this.lobby = { players: this.lobby.players.filter((p) => !gone.includes(p)) };
+        this.afterLobbyChange();
+      } else this.refreshTogether();
+    }
+  }
+
+  private lobbyJoinFrame(device: LocalDeviceId, f: LobbyFrame): void {
+    if (f.confirm) this.lobbyPress(device, 'confirm');
+    else if (f.back) this.lobbyPress(device, 'back');
+    else if (f.left) this.lobbyPress(device, 'left');
+    else if (f.right) this.lobbyPress(device, 'right');
+  }
+
+  private lobbyOptionsFrame(scr: LocalJoinScreen, device: LocalDeviceId, f: LobbyFrame): void {
+    const inLobby = this.lobby.players.some((p) => p.device === device);
+    if (!inLobby) {
+      // A newcomer joins: the options close again until they are ready too.
+      if (f.confirm) this.lobbyPress(device, 'confirm');
+      return;
+    }
+    if (f.back) {
+      this.playUiSound('back');
+      this.reopenLobby(device);
+      return;
+    }
+    if (f.up) this.d.ui.handleNav('navUp');
+    if (f.down) this.d.ui.handleNav('navDown');
+    if (f.left) this.d.ui.handleNav('navLeft');
+    if (f.right) this.d.ui.handleNav('navRight');
+    if (f.confirm || f.start) this.d.ui.handleNav('confirm');
+    void scr;
+  }
+
+  private leaveTogether(): void {
+    this.lobby = emptyLobby();
+    this.lobbyPhase = 'join';
+    this.toMenu('together');
+  }
+
+  private startTogether(): void {
+    if (!this.lobby.players.length) return;
+    const seed = this.nextSeed();
+    const o = this.togetherOpts;
+    const layoutId: LayoutId = o.layout === 'random' ? MATCH_LAYOUT_IDS[seed % MATCH_LAYOUT_IDS.length]! : o.layout;
+    const rivals: RivalId[] = ['hodadak', 'tongkeun', 'nunchi'];
+    const cfg: MatchConfig = {
+      kind: 'quick',
+      layoutId,
+      mode: resolveMode(this.lobby, o.mode),
+      rival: rivals[(seed >>> 8) % 3]!,
+      difficulty: o.difficulty,
+      adaptation: null,
+      seed,
+      humanHat: this.d.save.data.cosmetics.equipped,
+      matchSeconds: this.d.params.matchSeconds,
+      police: this.d.params.police,
+      local: localSetupFromLobby(this.lobby),
+    };
+    void this.launch(cfg, { preview: true, back: () => this.toTogether(), context: 'mode.together' });
+  }
+
+  startQuick(o: QuickMatchOptions, preview: boolean): void {
+    const cfg = this.resolveQuick(o);
+    void this.launch(cfg, { preview, back: () => this.toQuickSetup(), context: 'mode.quickMatch' });
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // Tutorial
+  // ------------------------------------------------------------------------------------------
+
+  startTutorial(): void {
+    const cfg: MatchConfig = {
+      kind: 'tutorial',
+      layoutId: 'tutorial',
+      mode: '1v1',
+      rival: 'hodadak',
+      difficulty: 'novice',
+      adaptation: null,
+      seed: this.nextSeed(),
+      humanHat: this.d.save.data.cosmetics.equipped,
+    };
+    void this.launch(cfg, { preview: false });
+  }
+
+  private markTutorialDone(): void {
+    if (!this.d.save.data.tutorialDone) this.d.save.update((s) => (s.tutorialDone = true), { immediate: true });
+  }
+
+  private offerAfterTutorial(): void {
+    this.setState('tutorialOffer');
+    this.closeOverlay();
+    this.overlay = new ConfirmDialog({
+      titleKey: 'tutorial.offer.title',
+      bodyKey: 'tutorial.offer.body',
+      confirmKey: 'tutorial.offer.match',
+      cancelKey: 'tutorial.offer.menu',
+      defaultFocus: 'confirm',
+      onConfirm: () => {
+        this.closeOverlay();
+        const cfg: MatchConfig = {
+          kind: 'quick',
+          layoutId: 'plaza',
+          mode: '1v1',
+          rival: 'hodadak',
+          difficulty: 'novice',
+          adaptation: null,
+          seed: this.nextSeed(),
+          humanHat: this.d.save.data.cosmetics.equipped,
+          matchSeconds: this.d.params.matchSeconds,
+          // The onboarding match right after the practice (doc §3) keeps to what the practice
+          // taught: no police unless forced with ?police=1.
+          police: this.d.params.police === true,
+        };
+        this.quickOpts = { mode: '1v1', layout: 'plaza', rival: 'hodadak', difficulty: 'novice' };
+        void this.launch(cfg, { preview: true, back: () => this.toMenu(), context: 'mode.quickMatch' });
+      },
+      onCancel: () => {
+        this.closeOverlay();
+        this.toMenu();
+      },
+    });
+    this.overlay.show();
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // Tournament
+  // ------------------------------------------------------------------------------------------
+
+  toTournament(focus?: RivalId): void {
+    if (this.match) this.toSceneTitle();
+    this.d.audio.playMusic('title');
+    const p = this.d.save.data.tournament;
+    const cards = rivalCards(p).map((c) => ({
+      rival: c.rival,
+      state: c.state,
+      playerWins: c.playerWins,
+      rivalWins: c.rivalWins,
+      layoutNameKey: c.layoutNameKey,
+      rewardHat: c.rewardHat,
+      rewardOwned: this.d.save.data.cosmetics.unlocked.includes(c.rewardHat),
+    }));
+    const stage3d = this.scene3d(
+      TournamentScene,
+      () => new TournamentScene({ rivals: cards.map((c) => ({ rival: c.rival, state: c.state })), focus: focus ?? null }),
+      false,
+    );
+    const screen: TournamentScreen = this.show(
+      new TournamentScreen({
+        rivals: cards,
+        complete: isComplete(p),
+        initialFocus: focus,
+        onFocusRival: (r) => stage3d?.setFocus(r),
+        onSelect: (r) => {
+          if (!isSelectable(this.d.save.data.tournament, r) && !(this.d.save.data.tournament.series?.rival === r)) {
+            uiSound('error');
+            this.d.toasts.show({ title: 'tournament.lockedPick', icon: 'lock', durationMs: 2000 });
+            screen.rearm();
+            return;
+          }
+          const cur = this.d.save.data.tournament.series;
+          if (cur && cur.rival !== r && cur.wins + cur.losses + cur.draws > 0) {
+            // Switching rivals abandons the series in progress: ask first.
+            this.overlay = new ConfirmDialog({
+              titleKey: 'tournament.abandon.title',
+              bodyKey: 'tournament.abandon.body',
+              params: { rival: RIVALS[cur.rival].nameKey },
+              confirmKey: 'tournament.abandon.ok',
+              danger: true,
+              onConfirm: () => {
+                this.closeOverlay();
+                this.startTournamentGame(r, true);
+              },
+              onCancel: () => {
+                this.closeOverlay();
+                screen.rearm();
+              },
+            });
+            this.overlay.show();
+            return;
+          }
+          this.startTournamentGame(r, true);
+        },
+        onBack: () => this.wipeTo(() => this.toMenu('tournament'), 'raccoon'),
+      }),
+      'tournament',
+    );
+  }
+
+  private tournamentConfig(rival: RivalId): MatchConfig {
+    const prog = cloneProgress(this.d.save.data.tournament);
+    const s = startSeries(prog, rival);
+    this.d.save.update((d) => (d.tournament = prog), { immediate: true });
+    return {
+      kind: 'tournament',
+      layoutId: (s.layoutId ?? seriesLayout(rival)) as LayoutId,
+      mode: '1v1',
+      rival,
+      difficulty: this.d.params.difficulty ?? 'normal',
+      adaptation: seriesAdaptation(s),
+      seed: mixSeed(this.baseSeed ^ 0x7a11, (['hodadak', 'tongkeun', 'nunchi'].indexOf(rival) + 1) * 1000 + s.gameIndex + this.seedCounter++),
+      humanHat: this.d.save.data.cosmetics.equipped,
+      matchSeconds: this.d.params.matchSeconds,
+      police: this.d.params.police,
+    };
+  }
+
+  private startTournamentGame(rival: RivalId, preview: boolean): void {
+    const cfg = this.tournamentConfig(rival);
+    const s = this.d.save.data.tournament.series!;
+    void this.launch(cfg, {
+      preview,
+      back: () => this.toTournament(rival),
+      context: { key: 'series.game', params: { n: nextGameNumber(s) } },
+    });
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // Wardrobe / settings
+  // ------------------------------------------------------------------------------------------
+
+  toWardrobe(): void {
+    const data = this.d.save.data;
+    const fresh = new Set(newHats(data.cosmetics));
+    const hats = (['none', 'teamCapA', 'teamCapB', 'hodadakBand', 'tongkeunHat', 'nunchiMask'] as HatId[]).map((id) => ({ id, unlocked: data.cosmetics.unlocked.includes(id), isNew: fresh.has(id) }));
+    // Viewing the wardrobe clears the NEW badges.
+    if (fresh.size) this.d.save.update((s) => (s.cosmetics.seen = [...s.cosmetics.unlocked]));
+    const room = this.scene3d(WardrobeScene, () => new WardrobeScene({ hat: data.cosmetics.equipped, team: 0 }), false);
+    const screen: WardrobeScreen = this.show(
+      new WardrobeScreen({
+        hats,
+        equipped: data.cosmetics.equipped,
+        team: 0,
+        onEquip: (hat) => {
+          if (!this.d.save.data.cosmetics.unlocked.includes(hat)) {
+            uiSound('error');
+            return;
+          }
+          this.d.save.update((s) => (s.cosmetics.equipped = hat));
+          screen.update({ equipped: hat });
+          room?.showHat(hat, true);
+          room?.celebrate();
+          for (const id of wardrobeAchievement(hat)) unlockAchievement(id);
+          this.titleSim.state.characters[0]!.look.hat = hat;
+          if (!this.stage) this.d.view.load(this.titleSim);
+        },
+        onPreviewHat: (hat, unlocked) => room?.showHat(hat, unlocked),
+        onBack: () => this.wipeTo(() => this.toMenu('wardrobe'), 'raccoon'),
+      }),
+      'wardrobe',
+    );
+  }
+
+  private uiSettings(): UiSettings {
+    const s = this.settings;
+    return {
+      language: s.language,
+      grabMode: s.grabMode,
+      showTutorialHints: s.showTutorialHints,
+      volumes: { ...s.volumes },
+      subtitles: s.subtitles,
+      // Browser builds cannot start fullscreen without a gesture: show the real state there.
+      fullscreen: isDesktopBuild() ? s.fullscreen : isFullscreen(),
+      quality: s.quality,
+      screenShake: s.screenShake,
+      reducedMotion: s.reducedMotion,
+      uiScale: s.uiScale,
+      vibration: s.vibration,
+      showOthersTaunts: s.showOthersTaunts,
+    };
+  }
+
+  private bindingRows(): BindingRow[] {
+    return this.d.input.bindingRows().map((r) => ({ action: r.action, keyboard: r.keyboard, gamepad: r.gamepad }));
+  }
+
+  /** Settings screen; `back` returns to wherever it was opened from (menu or pause). */
+  toSettings(back: () => void, initialFocus?: string): void {
+    this.settingsReturn = back;
+    const screen = new SettingsScreen({
+      initialFocus,
+      settings: this.uiSettings(),
+      bindings: this.bindingRows(),
+      showFullscreen: true,
+      showVibration: true,
+      onChange: (key, value) => {
+        const next = cloneSettings(this.settings);
+        (next as unknown as Record<string, unknown>)[key] = value;
+        if (key === 'language') setLanguage(value as Settings['language']);
+        this.d.applySettings(next, key as keyof Settings);
+        if (key === 'quality' || key === 'reducedMotion') this.stage?.applySettings({ quality: this.d.params.quality ?? next.quality, reducedMotion: next.reducedMotion });
+        if (key === 'fullscreen') setFullscreen(value === true);
+        this.match?.applySettings(next);
+      },
+      onRebind: async (action, device) => {
+        const code = await this.d.input.startRebind(action as MatchAction, device);
+        if (!code) return null;
+        const next = cloneSettings(this.settings);
+        next.bindings = this.d.input.getBindings();
+        this.d.applySettings(next, 'bindings');
+        return { bindings: this.bindingRows() };
+      },
+      onResetBindings: () => {
+        this.d.input.resetBindings();
+        const next = cloneSettings(this.settings);
+        next.bindings = this.d.input.getBindings();
+        this.d.applySettings(next, 'bindings');
+        return this.bindingRows();
+      },
+      onCredits: () => this.toCredits(),
+      onBack: () => {
+        const r = this.settingsReturn;
+        this.settingsReturn = null;
+        this.d.save.flush();
+        if (r) r();
+        else this.toMenu('settings');
+      },
+    });
+    if (this.stateValue === 'paused') {
+      // Over the pause menu: the pause menu is hidden, not destroyed.
+      this.overlay?.destroy();
+      this.overlay = screen;
+      this.screen?.hide();
+      screen.show();
+      return;
+    }
+    this.hideout('right')?.setFocus('settings');
+    this.show(screen, 'settings');
+  }
+
+  /** Credits + third-party licenses (from Settings); back returns to Settings (same origin). */
+  private toCredits(): void {
+    const back = this.settingsReturn ?? (() => this.toMenu('settings'));
+    const screen = new CreditsScreen({ version: this.d.version, onBack: () => this.toSettings(back, 'set:credits') });
+    if (this.stateValue === 'paused') {
+      this.overlay?.destroy();
+      this.overlay = screen;
+      screen.show();
+      return;
+    }
+    this.show(screen, 'settings');
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // Match lifecycle
+  // ------------------------------------------------------------------------------------------
+
+  private async launch(cfg: MatchConfig, opts: LaunchOpts): Promise<void> {
+    const token = ++this.transitionToken;
+    this.clearScreen();
+    this.disposeMatch();
+    this.d.hud.hide();
+    this.setState('loading');
+    this.loading?.destroy();
+    this.loading = new LoadingScreen({ progress: null });
+    this.loading.show();
+    this.hideStage();
+    this.d.audio.playMusic('none');
+    await nextFrame();
+    await nextFrame();
+    if (token !== this.transitionToken) return;
+    let ctl: MatchController | null = null;
+    try {
+      ctl = new MatchController(
+        {
+          view: this.d.view,
+          hud: this.d.hud,
+          input: this.d.input,
+          audio: this.d.audio,
+          toasts: this.d.toasts,
+          settings: () => this.settings,
+          params: this.d.params,
+          log: (m) => this.d.log('warn', m),
+          local: cfg.local ? this.localInput() : null,
+        },
+        cfg,
+        {
+          onPauseRequest: () => this.openPause(),
+          onFinished: (s) => this.onMatchFinished(s),
+        },
+      );
+      this.loading?.setProgress(0.6);
+      await nextFrame();
+      if (token !== this.transitionToken) {
+        ctl.dispose();
+        return;
+      }
+      ctl.load();
+      // Warm GameView (shaders, scenery) behind the loading screen: with the 3D menus owning the
+      // screen it has not drawn since boot, and the preview below uses the menu stage.
+      if (this.stage) this.d.view.render(ctl.sim, 1, 0, ctl.focus());
+      if (cfg.kind === 'tutorial') {
+        ctl.attachScript(new TutorialDirector(ctl.sim, ctl.meId, this.d.hud, { autopilot: this.d.params.autotest }));
+      }
+    } catch (err) {
+      ctl?.dispose();
+      if (token === this.transitionToken) {
+        this.loading?.destroy();
+        this.loading = null;
+        this.d.reportError(err, 'match load', () => void this.launch(cfg, opts));
+      }
+      return;
+    }
+    if (token !== this.transitionToken) {
+      ctl.dispose();
+      return;
+    }
+    this.loading?.destroy();
+    this.loading = null;
+    this.match = ctl;
+    this.lastSummary = null;
+    if (opts.preview) this.showPreview(ctl, opts);
+    else {
+      this.beginMatch();
+      // Loaded while the player was away (alt-tab, hidden tab): hold at the countdown.
+      if (this.awayValue) this.openPause();
+    }
+  }
+
+  private showPreview(ctl: MatchController, opts: LaunchOpts): void {
+    const sim = ctl.sim;
+    const st = sim.state;
+    const member = (c: (typeof st.characters)[number]) => ({
+      name: c.id === ctl.meId ? 'name.you' : c.name,
+      rival: c.look.rival ?? null,
+      hat: c.look.hat,
+      isYou: c.id === ctl.meId,
+    });
+    const team = (t: 0 | 1) => ({ members: st.characters.filter((c) => c.team === t).map(member) });
+    const go = (): void => {
+      window.clearTimeout(this.previewTimer);
+      if (this.stateValue === 'preview' && this.match === ctl) this.beginMatch();
+    };
+    const police = sim.rules.police === true;
+    const pscene = this.scene3d(PreviewScene, () => new PreviewScene({ layout: sim.layout, police, policeEntries: police ? policeEntriesFor(sim.layout) : [], myTeam: ctl.myTeam }), false);
+    const preview = new LayoutPreview({
+      layout: sim.layout,
+      context: opts.context ?? null,
+      myTeam: ctl.myTeam,
+      teams: [team(0), team(1)],
+      holdMs: 0,
+      autoStartMs: this.d.params.skipIntro ? 300 : PREVIEW_HOLD_MS,
+      police,
+      onDone: go,
+      onSkip: go,
+      onBack: opts.back
+        ? () => {
+            window.clearTimeout(this.previewTimer);
+            this.disposeMatch();
+            this.hideStage();
+            opts.back!();
+          }
+        : undefined,
+    });
+    this.show(preview, 'preview');
+    // The miniature frames itself between the title card and the team cards, and its price
+    // tags keep clear of them.
+    pscene?.setSafeArea(() => preview.safeArea());
+    this.stage?.labels.setAvoid(() => preview.keepOut());
+    this.d.view.setMode('preview');
+    this.previewGo = go;
+    this.armPreview();
+  }
+
+  /** (Re)start the preview's auto-start timer — never while the player is away. */
+  private armPreview(): void {
+    window.clearTimeout(this.previewTimer);
+    if (this.stateValue !== 'preview' || !this.previewGo || this.awayValue) return;
+    this.previewTimer = window.setTimeout(this.previewGo, this.d.params.skipIntro ? 300 : PREVIEW_HOLD_MS);
+  }
+
+  private beginMatch(): void {
+    const m = this.match;
+    if (!m) return;
+    this.clearScreen();
+    this.hideStage();
+    this.setState('match');
+    // Local match: presses that started it (and keys still held) do not reach the players.
+    if (m.isLocal) this.localRouter?.flush();
+    m.beginCountdown();
+  }
+
+  private openPause(): void {
+    const m = this.match;
+    if (!m || this.stateValue !== 'match') return;
+    m.pause();
+    this.setState('paused');
+    const tut = m.isPractice;
+    // Rival series: a started game can't be thrown away — no restart, and leaving forfeits it
+    // (recorded as a loss, progress saved) so best-of-3 pressure holds.
+    const tour = m.config.kind === 'tournament';
+    const forfeits = tour && m.sim.state.tick > 0 && !m.sim.state.over;
+    const pause = new PauseMenu({
+      onResume: () => this.resumeMatch(),
+      onSettings: () => this.toSettings(() => this.reopenPause()),
+      onRestart: () => {
+        const cfg = m.config;
+        void this.launch({ ...cfg }, { preview: false });
+      },
+      onMenu: () => {
+        if (tut) this.markTutorialDone();
+        if (tour) {
+          const rival = m.config.rival;
+          if (forfeits) this.recordTournament(rival, 'loss', m.observer ? m.observer.summary() : null);
+          this.toTournament(rival);
+          return;
+        }
+        if (m.isLocal) {
+          this.toTogether();
+          return;
+        }
+        this.toMenu(tut ? 'practice' : undefined);
+      },
+      confirmDestructive: !tut,
+      menuConfirmBody: forfeits ? 'tournament.forfeit.body' : null,
+      showRestart: !tut && !tour,
+      context: tut ? 'mode.practice' : m.config.kind === 'tournament' ? 'mode.tournament' : m.isLocal ? 'mode.together' : 'mode.quickMatch',
+      grabMode: this.settings.grabMode,
+    });
+    this.closeOverlay();
+    this.screen?.destroy();
+    this.screen = pause;
+    pause.show();
+  }
+
+  private reopenPause(): void {
+    this.closeOverlay();
+    if (this.screen && this.stateValue === 'paused') {
+      this.screen.show();
+      return;
+    }
+  }
+
+  resumeMatch(): void {
+    const m = this.match;
+    if (!m) return;
+    this.clearScreen();
+    this.setState('match');
+    m.resume();
+  }
+
+  /**
+   * Pause from outside (pad disconnect, or the player went away): a running match or its 3-2-1
+   * countdown opens the pause menu, and the layout preview stops counting down to the start
+   * (confirm still starts it).
+   */
+  requestPause(): void {
+    const m = this.match;
+    if (this.stateValue === 'match' && m && (m.state === 'playing' || m.state === 'countdown')) this.openPause();
+    else if (this.stateValue === 'preview') window.clearTimeout(this.previewTimer);
+  }
+
+  /**
+   * Window focus / tab visibility (desktop alt-tab, minimise, hidden tab). While away nothing
+   * starts on its own: the preview holds, a match that finishes loading waits paused at its
+   * countdown, and a running match pauses. Coming back re-arms the preview timer only.
+   */
+  setAway(away: boolean): void {
+    if (this.awayValue === away) return;
+    this.awayValue = away;
+    if (away) this.requestPause();
+    else this.armPreview();
+  }
+
+  private onMatchFinished(summary: MatchSummary): void {
+    this.lastSummary = summary;
+    const cfg = summary.config;
+    if (cfg.kind === 'tutorial') {
+      this.markTutorialDone();
+      this.offerAfterTutorial();
+      return;
+    }
+    // Stats (doc §12: real records only).
+    const sim = this.match!.sim;
+    try {
+      // Local multiplayer: the save owner is P1 (their team's result).
+      const st = summarizeMatchStats({ events: sim.eventLog, result: summary.result, humanTeam: this.match!.myTeam });
+      this.d.save.update((d) => (d.stats = applyMatchStats(d.stats, st)));
+    } catch (err) {
+      this.d.log('warn', `[app] stats update failed: ${String(err)}`);
+    }
+    let record: GameRecord | null = null;
+    if (cfg.kind === 'tournament') {
+      const outcome = summary.outcome === 'win' ? 'win' : summary.outcome === 'lose' ? 'loss' : 'draw';
+      record = this.recordTournament(cfg.rival, outcome, summary.observation);
+    }
+    this.lastRecord = record;
+    this.toResults(summary, record);
+  }
+
+  /** Record one series game (finished, or forfeited from the pause menu) and save at once. */
+  private recordTournament(rival: RivalId, outcome: GameOutcome, observation: ObservationSummary | null): GameRecord | null {
+    const prog = cloneProgress(this.d.save.data.tournament);
+    if (!prog.series || prog.series.rival !== rival) return null;
+    const rec = recordGame(prog, outcome, observation, this.drawStreak, (m) => this.d.log('warn', m));
+    this.drawStreak = rec.drawStreak;
+    if (rec.seriesState !== 'ongoing') this.drawStreak = 0;
+    let hatNew = false;
+    this.d.save.update(
+      (d) => {
+        d.tournament = prog;
+        if (rec.rewardHat) hatNew = unlockHat(d.cosmetics, rec.rewardHat);
+      },
+      { immediate: true },
+    );
+    if (rec.rewardHat && hatNew) this.d.toasts.hatUnlocked(rec.rewardHat);
+    for (const id of tournamentAchievements(prog.beaten)) unlockAchievement(id);
+    return rec;
+  }
+
+  private toResults(summary: MatchSummary, record: GameRecord | null): void {
+    const m = this.match;
+    if (!m) return;
+    this.d.hud.hide();
+    this.hideStage();
+    this.d.view.setResultsFraming(0.19);
+    this.d.view.setMode('results');
+    window.setTimeout(() => {
+      if (this.stateValue === 'results') this.d.audio.playMusic('results');
+    }, 2600);
+    const cfg = summary.config;
+    const props: ResultsScreenProps = {
+      outcome: summary.outcome,
+      // P1's real team (co-op on the moon side, or versus with P1 moved right).
+      myTeam: m.myTeam,
+      scores: summary.result.scores,
+      teamLabels: cfg.mode === '1v1' && !cfg.local ? [null, RIVALS[cfg.rival].nameKey] : undefined,
+      reason: summary.result.reason,
+      biggestEvent: toResultEventView(summary.biggest),
+      actions: { rematch: true },
+      playerHat: cfg.humanHat,
+      rival: cfg.rival,
+      onRematch: () => this.rematch(),
+      onMenu: () => this.wipeTo(() => (cfg.local ? this.toTogether() : this.toMenu()), 'raccoon'),
+    };
+    if (cfg.local && m.seats.length > 1) {
+      props.local = {
+        style: cfg.local.style,
+        winner: summary.result.winner,
+        players: m.seats.map((s) => ({ index: s.index, team: s.team, hat: m.sim.getCharacter(s.charId)?.look.hat ?? 'none' })),
+        highlights: pickHighlights(summary.players ?? []),
+      };
+    }
+    if (cfg.kind === 'tournament' && record) {
+      props.series = {
+        rival: record.rival,
+        playerWins: record.playerWins,
+        rivalWins: record.rivalWins,
+        gameNumber: record.gameNumber,
+        state: record.seriesState,
+      };
+      props.reward = record.rewardHat ? { hat: record.rewardHat } : null;
+      if (record.seriesState === 'ongoing') {
+        props.actions = { next: true };
+        props.onNext = () => this.wipeTo(() => this.toIntermission(record), 'star');
+      } else if (record.seriesState === 'won') {
+        // The next press goes to the ladder (next rival), not to another game of this series.
+        props.actions = { next: true };
+        props.nextLabel = isComplete(this.d.save.data.tournament) ? 'results.toLadder' : 'results.nextRival';
+        props.onNext = () => this.wipeTo(() => this.toTournament(this.nextRivalFocus(record.rival)), 'star');
+      } else {
+        // A lost series retries that rival only (doc §12).
+        props.actions = { rematch: true };
+        props.onRematch = () => this.startTournamentGame(record.rival, true);
+      }
+      props.onMenu = () => this.wipeTo(() => this.toTournament(record.rival), 'star');
+    }
+    this.show(new ResultsScreen(props), 'results');
+  }
+
+  private nextRivalFocus(beaten: RivalId): RivalId {
+    const order: RivalId[] = ['hodadak', 'tongkeun', 'nunchi'];
+    const i = order.indexOf(beaten);
+    return order[Math.min(order.length - 1, i + 1)]!;
+  }
+
+  /** One press: same setup, fresh seed, straight into the countdown. */
+  rematch(): void {
+    const s = this.lastSummary;
+    if (!s) {
+      this.toMenu();
+      return;
+    }
+    const cfg: MatchConfig = { ...s.config, seed: this.nextSeed(), humanHat: this.d.save.data.cosmetics.equipped };
+    void this.launch(cfg, { preview: false });
+  }
+
+  private toIntermission(rec: GameRecord): void {
+    const series = this.d.save.data.tournament.series;
+    if (!series) {
+      this.toTournament(rec.rival);
+      return;
+    }
+    const adaptation = seriesAdaptation(series);
+    const cards = rivalCards(this.d.save.data.tournament).map((c) => ({ rival: c.rival, state: c.state }));
+    this.scene3d(TournamentScene, () => new TournamentScene({ rivals: cards, focus: rec.rival, closeup: rec.rival }), false);
+    this.show(
+      new SeriesIntermission({
+        rival: rec.rival,
+        gameNumber: nextGameNumber(series),
+        playerWins: series.wins,
+        rivalWins: series.losses,
+        layoutNameKey: getLayout((series.layoutId ?? seriesLayout(rec.rival)) as LayoutId).nameKey,
+        adaptation: adaptation ? { kind: adaptation.kind, line: { key: adaptation.lineKey, params: adaptation.lineParams } } : null,
+        afterDraw: rec.afterDraw,
+        myTeam: 0,
+        onContinue: () => this.startTournamentGame(rec.rival, false),
+        onQuit: () => this.toTournament(rec.rival),
+      }),
+      'intermission',
+    );
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // Error recovery
+  // ------------------------------------------------------------------------------------------
+
+  /** "메뉴로" from the error overlay: drop whatever was running and go to the main menu. */
+  recoverToMenu(): void {
+    try {
+      this.loading?.destroy();
+      this.loading = null;
+      this.transitionToken++;
+      this.disposeMatch();
+      this.toMenu();
+    } catch (err) {
+      this.d.log('error', `[app] recoverToMenu failed: ${String(err)}`);
+    }
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // Test hooks
+  // ------------------------------------------------------------------------------------------
+
+  debugState(): Record<string, unknown> {
+    const m = this.match;
+    return {
+      app: this.stateValue,
+      screen: this.screen ? this.screen.el.className : null,
+      overlay: this.overlay ? this.overlay.el.className : null,
+      match: m ? m.debugInfo() : null,
+      config: m ? { ...m.config } : null,
+      summary: this.lastSummary
+        ? { outcome: this.lastSummary.outcome, result: this.lastSummary.result, biggest: this.lastSummary.biggest }
+        : null,
+      record: this.lastRecord,
+      tournament: this.d.save.data.tournament,
+      tutorialDone: this.d.save.data.tutorialDone,
+      menu3d: this.stage ? this.stage.stats() : null,
+      tutorialBeat: m && m.scriptRef && 'currentBeat' in m.scriptRef ? (m.scriptRef as TutorialDirector).currentBeat : null,
+    };
+  }
+}

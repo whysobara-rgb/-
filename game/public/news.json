@@ -1,0 +1,47 @@
+{
+  "about": "Front-door news strip (C10). Bundled with the game and read offline; never fetched. Update notes must be true of the build: each note shows only when its 'requires' gate is true of what a quick match really runs (game flow checks buildMatch + mergeRules per rotation map): 'v2' = Content 2.0 rules on a rotation map, 'items' = supply drops on one, 'props:a,b' = all those uprootables placed on v2 maps, 'layout:<id>' = that map is in the rotation, null = always. 'version' drives the NEW mark (shown for notes newer than the player's lastSeenVersion).",
+  "notes": [
+    {
+      "id": "frontDoor",
+      "version": "0.6.0",
+      "requires": null,
+      "ko": "새 정문 개장: 게임 시작 한 번이면 지난번 빠른 대전 설정 그대로 출발해요",
+      "en": "New front door: one press on Play starts a match with your last Quick Match setup"
+    },
+    {
+      "id": "coins",
+      "version": "0.6.0",
+      "requires": "v2",
+      "ko": "동전과 주머니 등장: 주운 동전은 우리 차 앞에 쏟아부어야 점수가 돼요",
+      "en": "Coins and bags: scooped coins only count once you pour them out at your van"
+    },
+    {
+      "id": "hammer",
+      "version": "0.6.0",
+      "requires": "items",
+      "ko": "보급 풍선에 뿅망치가 실려 와요. 빈손일 때 돌진 버튼으로 휘둘러요",
+      "en": "Supply balloons now drop squeaky hammers. Swing one with dash while your paws are free"
+    },
+    {
+      "id": "uprootables",
+      "version": "0.6.0",
+      "requires": "props:atm,piggy,moneyTree",
+      "ko": "새로 뽑을 것들: 동전 ATM, 대왕 돼지저금통, 돈나무",
+      "en": "New things to uproot: the coin ATM, the giant piggy bank and the money tree"
+    },
+    {
+      "id": "yard",
+      "version": "0.6.0",
+      "requires": "layout:yard",
+      "ko": "뚝딱 공사장 개장! 크레인 고양이를 조심하세요",
+      "en": "Construction Yard is open. Watch out for the crane cat"
+    },
+    {
+      "id": "funpark",
+      "version": "0.6.0",
+      "requires": "layout:funpark",
+      "ko": "반짝 놀이공원 개장: 찻잔 타고 슝, 관람차 금고는 아래에서만 잡혀요",
+      "en": "Night Funpark is open: ride the teacups, and grab the Ferris-wheel safes at the bottom"
+    }
+  ]
+}
