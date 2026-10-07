@@ -88,7 +88,7 @@ export const sirenGapFill = (i: number): number => 0.5 * smoothstep(0.8, 1, i);
 
 /** Relative loudness of each loop at intensity 1 (loudness-matched offline). */
 export const LOOP_GAIN: Readonly<Record<LoopId, number>> = {
-  drag: 0.6,
+  drag: 0.57,
   bankRumble: 0.52,
   strain: 0.55,
   sirenLoop: 0.5,
@@ -97,7 +97,7 @@ export const LOOP_GAIN: Readonly<Record<LoopId, number>> = {
 };
 
 /** Drag level smoothing (s): a gentle start, a slower let-go (no sputter at the speed gate). */
-export const DRAG_ATTACK_TAU = 0.07;
+export const DRAG_ATTACK_TAU = 0.09;
 export const DRAG_RELEASE_TAU = 0.14;
 
 /**
@@ -115,7 +115,7 @@ export function dragParams(i: number, p = 1): { rate: number; bumps: number; thr
   const heavy = Math.min(1.25, 1 / p);
   return {
     rate: (0.82 + 0.4 * i) * sp,
-    bumps: i > 0 ? 0.42 * Math.pow(i, 0.75) : 0,
+    bumps: i > 0 ? 0.42 * Math.pow(i, 0.7) : 0,
     thrum: i > 0 ? 0.3 * heavy * Math.pow(i, 0.85) : 0,
     thrumHz: (190 + 130 * i) * sp,
     toneHz: (1500 + 600 * i) * Math.sqrt(sp),
@@ -125,12 +125,12 @@ export function dragParams(i: number, p = 1): { rate: number; bumps: number; thr
 /** The bank rumble's settings at intensity i (bank speed). */
 export function bankParams(i: number): { rumble: number; rumbleHz: number; sub: number; rate: number; heave: number; heaveHz: number; groan: number } {
   return {
-    rumble: 0.28 * Math.pow(i, 0.85),
+    rumble: 0.3 * Math.pow(i, 0.85),
     rumbleHz: 110 + 170 * i,
     sub: 0.2 * i,
     rate: 0.9 + 0.3 * i,
     // A slow bank's thunks are softer than a fast one's (they would stick out of the quiet body).
-    heave: i > 0 ? 0.56 * Math.pow(i, 1.35) : 0,
+    heave: i > 0 ? 0.46 * Math.pow(i, 1.35) : 0,
     heaveHz: 480 + 420 * i,
     // The groan plays at rate 1 (in key at every speed); only its level follows the speed.
     groan: i > 0 ? 0.4 * Math.pow(i, 0.9) : 0,

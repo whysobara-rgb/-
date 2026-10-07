@@ -864,7 +864,7 @@ function tamePeaks(d: Float32Array, sr: number, crestDb: number): void {
 }
 
 /**
- * One period of a harmonic tone with a soft "oh" vowel (harmonics weighted around 340 Hz).
+ * One period of a harmonic tone with a soft "oh" vowel (harmonics weighted around 300 Hz).
  * Schroeder phases spread the harmonics' peaks over the period: the same spectrum with a far
  * lower crest (a smooth hum rather than a buzzy pulse train).
  */
@@ -874,7 +874,7 @@ function groanCycle(f0: number, n = 2048): Float32Array {
   const H = Math.max(1, Math.ceil(700 / f0) - 1);
   for (let h = 1; h * f0 < 700; h++) {
     const f = h * f0;
-    const formant = Math.exp(-Math.pow(Math.log2(f / 340), 2) / (2 * 0.6 * 0.6));
+    const formant = Math.exp(-Math.pow(Math.log2(f / 300), 2) / (2 * 0.6 * 0.6));
     const a = (0.25 + formant) / h;
     const phase = (Math.PI * h * (h - 1)) / H;
     for (let i = 0; i < n; i++) c[i] += a * Math.sin((2 * Math.PI * h * i) / n + phase);
@@ -953,7 +953,9 @@ export function groanBuffer(ctx: BaseAudioContext): AudioBuffer {
           const u = i / n;
           const bend = Math.sin(Math.PI * u);
           inc = (f0 * (1 + 0.035 * bend) * (1 + 0.006 * Math.sin((2 * Math.PI * vib * i) / sr)) * N) / sr;
-          env = 0.46 * bend * Math.sqrt(bend);
+          // A broad swell (quick soft rise, long plateau, soft fall): the same energy as a peaky
+          // sin^1.5 swell with a ~2 dB lower peak.
+          env = 0.46 * Math.sqrt(bend);
         }
         ph += inc;
         if (ph >= N) ph -= N;

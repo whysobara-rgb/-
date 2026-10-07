@@ -46,8 +46,6 @@ const WALK = 5;
 const AXIS_RACE = 1.6;
 /** Anticipation slack (m) on the reaction-delayed "in reach" check of an opponent. */
 const NOTICE_SLACK = 0.1;
-const ANTICIPATE_HOLD = Number((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env.C6_ANT_HOLD ?? 1);
-const ANTICIPATE_FREE = Number((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env.C6_ANT_FREE ?? 0);
 /** Hammer swing worth on anchored loot (uproot progress per hit, content-plan §5.2). */
 function hammerProgress(l: Readonly<LootState>): number {
   if (l.variant === 'atm') return ITEMS.hammer.progress.largeSafe;
@@ -248,10 +246,15 @@ export class ItemGoals implements GoalProvider {
     }
     g.phase = 'chase';
     if (swingBusy(me)) return still();
-    const tgt = V.add(o.last.pos, V.scale(o.last.vel, Math.min(0.6, V.dist(me.pos, o.last.pos) / 8) * view.P.leadQuality));
+    // (the sighting is reaction-delayed: steer at where it has moved since, as far as the bot's lead
+    // quality carries it, plus a little ahead — a person chasing someone runs at where they're going)
+    const stale = Math.min(0.8, (view.P.reactionDelay + o.age) / TICK_RATE) * view.P.leadQuality;
+    const ahead = stale + Math.min(0.6, V.dist(me.pos, o.last.pos) / 8) * view.P.leadQuality;
+    const tgt = V.add(o.last.pos, V.scale(o.last.vel, ahead));
     const d = V.dist(me.pos, tgt);
-    // close: keep at swing distance and face it (the overlay swings)
-    if (d < 1.7) return { ...still(), aim: V.sub(o.last.pos, me.pos) };
+    // close to a target that is (nearly) standing: keep at swing distance and face it (the overlay
+    // swings); one on the move is kept up with
+    if (d < 1.7 && V.len(o.last.vel) < 1) return { ...still(), aim: V.sub(tgt, me.pos) };
     if (d < 6 && view.nav.segmentClear(me.pos, tgt, 'walk', 0)) return { ...move(V.norm(V.sub(tgt, me.pos))), aim: null };
     const m = view.moveTo(tgt, 'walk', 0.8);
     return move(m.move);
@@ -348,7 +351,7 @@ export class ItemGoals implements GoalProvider {
   private foeInReach(view: BotView, kind: string): EntityId | null {
     for (const o of view.opponents()) {
       if (!o.visible || !o.last || o.last.knockedDown || o.last.protectedNow) continue;
-      if (!noticedInReach(view, o.last.pos, o.last.vel, kind as 'hammer', ANTICIPATE_HOLD)) continue;
+      if (!noticedInReach(view, o.last.pos, o.last.vel, kind as 'hammer')) continue;
       const now = currentSighting(view, o.id);
       if (!now) continue;
       if (reachesBody(view, leadPoint(now.pos, now.vel, view.P.leadQuality), CHARACTER.radius, kind as 'hammer')) return o.id;
@@ -386,7 +389,7 @@ export class ItemGoals implements GoalProvider {
       // (an opponent swinging a hammer at me too: get mine in first)
       const armed = o.last.item === 'hammer' || o.last.item === 'goldHammer';
       if (!target && !carrying && bag < 30 && !armed) continue;
-      if (!noticedInReach(view, o.last.pos, o.last.vel, k, ANTICIPATE_FREE)) continue;
+      if (!noticedInReach(view, o.last.pos, o.last.vel, k)) continue;
       const now = currentSighting(view, o.id);
       if (!now) continue;
       const p = leadPoint(now.pos, now.vel, view.P.leadQuality);
@@ -429,11 +432,8 @@ export class ItemGoals implements GoalProvider {
  * notices "they're in range" with their reaction time, then swings at where they are now. Distance
  * only (the current sighting checks line of sight); a small anticipation slack.
  */
-function noticedInReach(view: BotView, pos: Vec2, vel: Vec2, kind: 'hammer' | 'goldHammer', anticipate = 0): boolean {
-  // (anticipate: carry the delayed sighting forward along its motion, scaled by lead quality —
-  // someone charging straight in is seen coming; a juke inside the reaction time still fools it)
-  const ahead = (anticipate * view.P.reactionDelay * view.P.leadQuality) / TICK_RATE;
-  const p = leadPoint(V.add(pos, V.scale(vel, ahead)), vel, view.P.leadQuality);
+function noticedInReach(view: BotView, pos: Vec2, vel: Vec2, kind: 'hammer' | 'goldHammer'): boolean {
+  const p = leadPoint(pos, vel, view.P.leadQuality);
   return V.dist(view.me().pos, p) - CHARACTER.radius <= hammerGeom(kind).reach + LUNGE_BONUS + NOTICE_SLACK;
 }
 
