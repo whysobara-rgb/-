@@ -96,6 +96,13 @@ export interface HudContentModel {
   bag: HudBag | null;
   deposit: HudDepositRing | null;
   labels: readonly ContentLabelModel[];
+  /**
+   * I'm knocked down right now. The bag only ever shrinks by a deposit (never while down) or a
+   * knockdown spill, so this tells the two apart when the bag drops (no "쏟았다!" for a spill).
+   */
+  downed: boolean;
+  /** My team's confirmed score (a deposit raises it by the bag; a spill never does). */
+  teamScore: number;
 }
 
 /** Minimap: a supply-drop pad (static per match). */

@@ -467,5 +467,7 @@ export function contentFromSim(sim: SimView, me: CharacterState, project: Projec
     bag: bagFromState(me),
     deposit: depositRingFromState(me, project),
     labels: project ? contentLabelsFromSim(sim, me, project, o) : [],
+    downed: me.knockdownTicks > 0,
+    teamScore: sim.state.scores[me.team] ?? 0,
   };
 }

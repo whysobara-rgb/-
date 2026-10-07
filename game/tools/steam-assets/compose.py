@@ -199,7 +199,7 @@ SCREENSHOTS = [
     ('01_match_start', 'shot_01_start_a'),
     ('02_bank_uproot', 'shot_02_uproot_a'),
     ('03_interior_steal', 'shot_03_steal_c'),
-    ('04_police_tackle', 'shot_04_police_b'),
+    ('04_police_chase', 'shot_04_police_b'),
     ('05_fence_bust', 'shot_05_fence_a'),
     ('06_final_countdown', 'shot_06_final_b'),
     ('07_results_biggest_event', 'shot_07_results_a'),

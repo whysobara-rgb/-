@@ -9,12 +9,51 @@ import { t } from '../i18n';
 import { animateEl, h, setClass, setText } from '../core/dom';
 import { fmtScore } from '../core/format';
 import { bagGlyph } from './contentIcons';
-import type { HudBag } from './contentTypes';
+import type { HudBag, HudContentModel } from './contentTypes';
 
 /** How long the "쏟았다!" / "와르르!" beat stays after the bag empties (ms). */
 const OUTRO_MS = 900;
 
 type BagState = 'carry' | 'full' | 'deposit' | 'done' | 'spill';
+
+/**
+ * Why the bag shrank this frame (ContentHud derives it from the sim: knockdown + team score);
+ * null = it didn't. A deposit reads "쏟았다!"; a spill shakes and reads "와르르! -N".
+ */
+export type BagDrop = 'deposit' | 'spill' | null;
+
+/**
+ * Pure per-frame classifier (no DOM). The sim empties a bag only two ways: a deposit (whole bag ->
+ * my team's score; never while knocked down) or a knockdown spill (never raises a score). So a
+ * drop while standing is a deposit; a drop while down is a spill, unless the bag went in just
+ * before the knockdown within one frame (timer was running and my team's score rose by at least
+ * what left the bag).
+ */
+export class BagDropTracker {
+  private prevValue = 0;
+  private prevScore: number | null = null;
+  private prevDepositing = false;
+
+  update(c: Pick<HudContentModel, 'bag' | 'downed' | 'teamScore'> | null): BagDrop {
+    const value = c?.bag ? Math.max(0, Math.round(c.bag.value)) : 0;
+    const prevValue = this.prevValue;
+    const prevScore = this.prevScore;
+    const wasDepositing = this.prevDepositing;
+    this.prevValue = value;
+    this.prevScore = c ? c.teamScore : null;
+    this.prevDepositing = !!c?.bag && c.bag.deposit !== null;
+    if (!c || value >= prevValue) return null;
+    if (!c.downed) return 'deposit';
+    const gain = prevScore === null ? 0 : c.teamScore - prevScore;
+    return wasDepositing && gain >= prevValue - value ? 'deposit' : 'spill';
+  }
+
+  reset(): void {
+    this.prevValue = 0;
+    this.prevScore = null;
+    this.prevDepositing = false;
+  }
+}
 
 export class BagChip {
   readonly el: HTMLElement;
@@ -45,16 +84,22 @@ export class BagChip {
     this.el.hidden = true;
   }
 
-  update(b: HudBag | null, now: number = performance.now()): void {
+  /**
+   * `drop`: why the bag shrank (from the sim, see ContentHud.bagDrop). Omitted (direct callers
+   * without sim context) = a drop counts as a deposit only when the timer was running and nearly
+   * done, else a spill.
+   */
+  update(b: HudBag | null, now: number = performance.now(), drop?: BagDrop): void {
     const value = b ? Math.max(0, Math.round(b.value)) : 0;
     const prev = this.cValue;
     if (value !== prev) {
       this.cValue = value;
       if (value < prev) {
-        // emptied into the score (deposit timer was running) or knocked loose (spill)
-        const deposited = value === 0 && this.lastDeposit !== null && this.lastDeposit >= 0.5;
-        if (deposited) this.beginOutro('done', now);
-        else this.spill(prev - value, value === 0, now);
+        // emptied into the score (deposit) or knocked loose (spill): never guess "쏟았다!" for a spill
+        const deposited = drop !== undefined ? drop === 'deposit' : value === 0 && this.lastDeposit !== null && this.lastDeposit >= 0.5;
+        if (deposited) {
+          if (value === 0) this.beginOutro('done', now);
+        } else this.spill(prev - value, value === 0, now);
       } else {
         this.bump(value - prev, prev === 0);
       }

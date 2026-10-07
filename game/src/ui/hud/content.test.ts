@@ -8,6 +8,9 @@ import { Simulation, type Command, type MatchSetup, type RuleConfig } from '../.
 import { COINS, ITEMS, ITEM_FOREVER, PROP_SPECS, TICK_RATE } from '../../sim/config';
 import { LAYOUTS } from '../../sim/layouts';
 import { contentFromSim, grabFromState, hudModelFromSim, itemSlotFromState, type SimView } from './adapters';
+import { BagDropTracker } from './BagChip';
+import { knockDown } from '../../sim/actions';
+import type { SimContext } from '../../sim/context';
 import { ko } from '../strings/ko';
 import { en } from '../strings/en';
 
@@ -87,6 +90,39 @@ describe('[C8] content HUD adapters', () => {
     expect(hudModelFromSim(sim, { meId: me.id, myTeam: 0, project }).content?.bag).toBeNull();
   });
 
+  it('bag drop: a real deposit reads as a deposit, a knockdown spill mid-timer never does', () => {
+    const ctxOf = (x: Simulation): SimContext => (x as unknown as { ctx: SimContext }).ctx;
+    const run = (spillAt: number | null) => {
+      const sim = v2();
+      const me = sim.state.characters[0]!;
+      const zone = sim.layout.zones.find((z) => z.team === me.team)!;
+      sim.debug.teleport(me.id, zone.center, 0);
+      sim.step([idle, idle]);
+      const tr = new BagDropTracker();
+      me.bag = 10; // the reviewer's case: a 10 bag spills whole (spillMin 10)
+      const drops: string[] = [];
+      for (let i = 0; i < COINS.depositTicks + 10; i++) {
+        if (spillAt !== null && (me.depositTicks ?? 0) === spillAt) knockDown(ctxOf(sim), 0, 3, 0, 'dash', sim.state.characters[1]!.id);
+        sim.step([idle, idle]);
+        const d = tr.update(contentFromSim(sim, me, project));
+        if (d) drops.push(d);
+      }
+      return { drops, score: sim.state.scores[me.team], bag: me.bag };
+    };
+    expect(run(null)).toEqual({ drops: ['deposit'], score: 10, bag: 0 });
+    // knocked down in the second half of the timer (progress >= 0.5): spill, not "쏟았다!"
+    const late = Math.ceil(COINS.depositTicks * 0.8);
+    expect(run(late)).toEqual({ drops: ['spill'], score: 0, bag: 0 });
+    // partial spill of a bigger bag while standing still is impossible (no knockdown, no drop); a
+    // knockdown with the same-frame score unchanged is a spill even when the timer had been running
+    const tr = new BagDropTracker();
+    tr.update({ bag: { value: 120, cap: COINS.bagCap, deposit: 0.9 }, downed: false, teamScore: 50 });
+    expect(tr.update({ bag: { value: 110, cap: COINS.bagCap, deposit: null }, downed: true, teamScore: 50 })).toBe('spill');
+    tr.update({ bag: { value: 110, cap: COINS.bagCap, deposit: 0.9 }, downed: false, teamScore: 50 });
+    // deposit then knocked down within one rendered frame (fast-forward): the score rose by the bag
+    expect(tr.update({ bag: null, downed: true, teamScore: 160 })).toBe('deposit');
+  });
+
   it('props are tagged by name + coins (proximity only) instead of a safe value tag', () => {
     const sim = v2();
     const me = sim.state.characters[0]!;
@@ -148,5 +184,7 @@ describe('[C8] content HUD adapters', () => {
     for (const k of keys) expect((en as Record<string, string>)[k], k).toBeTruthy();
     for (const kind of Object.keys(ITEMS.specs)) for (const f of ['name', 'verb', 'hint']) expect(ko[`hud.content.item.${kind}.${f}` as keyof typeof ko], `${kind}.${f}`).toBeTruthy();
     for (const v of Object.keys(PROP_SPECS)) expect(ko[`hud.content.prop.${v}` as keyof typeof ko], v).toBeTruthy();
+    // English counts can be 1 (ATM 10-3-3-3 coins, a chipped money tree): no "{n} coins" plurals
+    for (const k of keys.filter((k) => k.startsWith('hud.content.tag.'))) expect((en as Record<string, string>)[k], k).not.toMatch(/\{n\} [a-z]+s\b/);
   });
 });

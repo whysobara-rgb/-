@@ -10,6 +10,7 @@ import { animateEl, h, setText } from '../core/dom';
 import { clamp01, fmtScore } from '../core/format';
 import { coinGlyph } from './contentIcons';
 import type { HudDepositRing } from './contentTypes';
+import type { BagDrop } from './BagChip';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const R = 40;
@@ -62,9 +63,14 @@ export class DepositRing {
     setText(this.labelEl, t('hud.content.deposit'));
   }
 
-  update(d: HudDepositRing | null): void {
+  /**
+   * `drop`: why my bag shrank this frame (ContentHud.bagDrop). The success pop plays only when the
+   * coins really went in ('deposit'); a spill, a knockdown or stepping out of the zone just
+   * vanishes. Omitted (no sim context): pop when the timer was nearly done.
+   */
+  update(d: HudDepositRing | null, drop?: BagDrop): void {
     if (!d || !Number.isFinite(d.x) || !Number.isFinite(d.y)) {
-      if (!this.el.hidden) this.finish(this.last >= 0.5);
+      if (!this.el.hidden) this.finish(drop !== undefined ? drop === 'deposit' : this.last >= 0.5);
       return;
     }
     if (this.el.hidden) {

@@ -18,7 +18,7 @@ import type { ItemKind } from '../../sim/types';
 import { onLanguageChange } from '../i18n';
 import { markItemSeen } from '../../platform/progress';
 import { ItemSlot } from './ItemSlot';
-import { BagChip } from './BagChip';
+import { BagChip, BagDropTracker } from './BagChip';
 import { DepositRing } from './DepositRing';
 import { PropLabels } from './PropLabels';
 import type { HudContentModel } from './contentTypes';
@@ -50,6 +50,7 @@ export class ContentHud {
   readonly item: ItemSlot;
   readonly bag: BagChip;
   readonly deposit: DepositRing;
+  private readonly bagDrops = new BagDropTracker();
   readonly tags: PropLabels;
   private sightings: ItemSightingFn = defaultSightings;
   /** Per match: kind -> tagged this match. */
@@ -81,14 +82,16 @@ export class ContentHud {
   }
 
   update(c: HudContentModel | null, now: number = performance.now()): void {
+    const drop = this.bagDrops.update(c);
     this.item.update(c?.item ?? null);
-    this.bag.update(c?.bag ?? null, now);
-    this.deposit.update(c?.deposit ?? null);
+    this.bag.update(c?.bag ?? null, now, drop);
+    this.deposit.update(c?.deposit ?? null, drop);
     this.tags.update(c?.labels, this.allowItem);
   }
 
   /** New match: clear everything and the per-match sighting memo. */
   reset(): void {
+    this.bagDrops.reset();
     this.tagged.clear();
     this.item.clear(false);
     this.bag.reset();

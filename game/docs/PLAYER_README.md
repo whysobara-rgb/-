@@ -123,6 +123,12 @@
 - 메모리 4 GB 이상(권장 8 GB), 저장 공간 약 500 MB
 - 내장 그래픽에서는 품질 "낮음"을 권장해요.
 
+## 9. 크레딧과 라이선스
+
+설정 → 게임 → **크레딧**에서 만든 도구와 글꼴을 볼 수 있고, **라이선스 보기**에서 게임에 들어간
+외부 소프트웨어와 글꼴(three.js, Electron, steamworks.js, Jua, Noto Sans KR 등)의 라이선스 전문을
+읽을 수 있어요. 같은 내용이 게임 폴더의 `resources/THIRD_PARTY_NOTICES.txt`에도 들어 있어요.
+
 ---
 
 # Uproot Heist (뿌리째 털어라) — Player Guide
@@ -253,3 +259,10 @@ The store page will carry the final values.
 - **A GPU with WebGL2 support** (minimum Intel HD 620 class, recommended GTX 1050 / RX 560 or better)
 - 4 GB RAM (8 GB recommended), about 500 MB of disk space
 - On integrated graphics, the Low quality setting is recommended.
+
+## 9. Credits and licenses
+
+Settings → Game → **Credits** lists the tools and fonts the game is made with, and **Licenses**
+shows the full license texts of the third-party software and fonts inside it (three.js, Electron,
+steamworks.js, Jua, Noto Sans KR and more). The same text ships in the game folder as
+`resources/THIRD_PARTY_NOTICES.txt`.

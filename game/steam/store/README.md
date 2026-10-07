@@ -39,7 +39,7 @@ do not sink into the sky.
 - App icons for the builds live in `build/icon.png`, `build/icon.ico`, `build/icons/*`.
 
 Screenshot order (both languages): 01 match start · 02 whole-bank uproot · 03 steal out of a
-moving bank · 04 police chase / tackle · 05 fence bust · 06 final 30 s (getaway police wave) ·
+moving bank · 04 police chase · 05 fence bust · 06 final 30 s (getaway police wave) ·
 07 results with the biggest event · 08 rival tournament (counter line before the next game) ·
 09 3D layout preview.
 
