@@ -21,6 +21,9 @@ import { MATCH_LAYOUT_IDS, getLayout } from '../sim/layouts';
 import type { HatId, LayoutDef, LayoutId, RosterEntry } from '../sim/types';
 import type { GameView } from '../render';
 import { type InputManager } from '../platform/input';
+import { LocalInputRouter, isPadDevice, padIndexOf, type LocalDeviceId, type LobbyFrame } from '../platform/localInput';
+import { LocalJoinScreen, type JoinDeviceHint, type JoinPlayerView, type LocalJoinProps, type TogetherOptions } from '../ui/screens/LocalJoinScreen';
+import { allReady, allowedModes, emptyLobby, lobbyStep, lobbyStyle, localSetupFromLobby, resolveMode, setReady, setTeam, type LobbyState } from './local';
 import { applyMatchStats, unlockHat, newHats, type SaveManager } from '../platform/save';
 import { cloneSettings, type Settings } from '../platform/settings';
 import { HideoutScene, MenuStage, PreviewScene, TitleScene, TournamentScene, WardrobeScene, type HideoutFraming, type MenuCue, type MenuScene } from '../menu3d';
@@ -91,6 +94,8 @@ export type AppState =
   | 'title'
   | 'menu'
   | 'quickSetup'
+  /** 같이 하기 (local multiplayer) join screen: per-device input. */
+  | 'together'
   | 'tournament'
   | 'wardrobe'
   | 'settings'
@@ -182,6 +187,13 @@ export class App {
   private transitionToken = 0;
   /** Live 3D menus (null when WebGL for a second context failed: GameView backdrop fallback). */
   private stage: MenuStage | null = null;
+  // --- 같이 하기 (local multiplayer) ---
+  private localRouter: LocalInputRouter | null = null;
+  private lobby: LobbyState = emptyLobby();
+  private lobbyPhase: 'join' | 'options' = 'join';
+  private lobbyNotice: string | null = null;
+  private lobbyPads = '';
+  private togetherOpts: TogetherOptions = { layout: 'random', mode: '2v2', difficulty: 'normal' };
 
   constructor(private readonly d: AppDeps) {
     this.baseSeed = d.params.seed ?? (Math.floor(Math.random() * 0xffffffff) >>> 0);
@@ -385,7 +397,8 @@ export class App {
       return;
     }
     // Menus, preview, results, intermission: menu input + the scene behind them.
-    this.pollMenu();
+    if (st === 'together') this.pollTogether();
+    else this.pollMenu();
     this.renderScene(dt);
   }
 
@@ -500,13 +513,13 @@ export class App {
     const props = this.frontDoorProps(focus);
     const first = props.initialFocus ?? 'play';
     const hide = this.hideout('front');
-    hide?.setFocus(first);
+    hide?.setFocus(first === 'together' ? 'quickMatch' : first);
     this.frontMenuAudio(first);
     const menu = new MainMenu({
       ...props,
       onSelect: (item) => this.onMenuSelect(item),
       onFocusItem: (item) => {
-        hide?.setFocus(item);
+        hide?.setFocus(item === 'together' ? 'quickMatch' : item);
         this.frontMenuAudio(item);
       },
       onBack: () => this.wipeTo(() => this.toTitle(), 'raccoon'),
@@ -531,6 +544,9 @@ export class App {
         break;
       case 'quickMatch':
         this.toQuickSetup();
+        break;
+      case 'together':
+        this.toTogether();
         break;
       case 'tournament':
         this.wipeTo(() => this.toTournament(), 'star');
@@ -798,6 +814,7 @@ export class App {
           this.startQuick(v, true);
         },
         onBack: () => this.toMenu('quickMatch'),
+        onTogether: () => this.toTogether(),
       }),
       'quickSetup',
     );
@@ -820,6 +837,254 @@ export class App {
       matchSeconds: this.d.params.matchSeconds,
       police: this.d.params.police,
     };
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // 같이 하기 (local multiplayer): join screen -> local match
+  // ------------------------------------------------------------------------------------------
+
+  /** The per-device input router (created on first use; follows the saved bindings). */
+  private localInput(): LocalInputRouter {
+    if (!this.localRouter) this.localRouter = new LocalInputRouter({ bindings: this.settings.bindings });
+    else this.localRouter.setBindings(this.settings.bindings);
+    return this.localRouter;
+  }
+
+  /** Test / debug view of the lobby. */
+  get lobbyState(): Readonly<LobbyState> {
+    return this.lobby;
+  }
+
+  /** Open the join screen (players who were in stay in, un-readied). */
+  toTogether(): void {
+    const r = this.localInput();
+    r.flush(); // the press that opened this screen does not also join
+    this.hideout('left')?.setFocus('quickMatch');
+    this.lobby = { players: this.lobby.players.map((p) => ({ ...p, ready: false })) };
+    this.lobbyPhase = 'join';
+    this.lobbyNotice = null;
+    this.lobbyPads = r.connectedPads().join(',');
+    this.show(new LocalJoinScreen(this.togetherProps()), 'together');
+  }
+
+  private keyCap(code: string | undefined): string {
+    if (!code) return '?';
+    const named: Record<string, string> = { Space: 'Space', Period: '.', Slash: '/', Comma: ',', Semicolon: ';', Quote: "'", ShiftLeft: 'Shift', ShiftRight: 'Shift', Enter: 'Enter', Escape: 'Esc', Backspace: '⌫', ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→' };
+    if (named[code]) return named[code]!;
+    if (/^Key[A-Z]$/.test(code)) return code.slice(3);
+    if (/^Digit\d$/.test(code)) return code.slice(5);
+    if (/^Numpad\d$/.test(code)) return `Num ${code.slice(6)}`;
+    if (/^Mouse\d$/.test(code)) return code === 'Mouse0' ? 'L-Click' : code === 'Mouse2' ? 'R-Click' : code;
+    return code;
+  }
+
+  private deviceKeys(device: LocalDeviceId): { grab: string; dash: string } {
+    if (isPadDevice(device)) return { grab: 'A', dash: 'B' };
+    const ks = this.localInput().keySets[device as 'kbA' | 'kbB'];
+    const firstKey = (codes: readonly string[]): string | undefined => codes.find((c) => !c.startsWith('Mouse'));
+    return { grab: this.keyCap(firstKey(ks.grab)), dash: this.keyCap(firstKey(ks.dash)) };
+  }
+
+  private deviceLabel(device: LocalDeviceId): LocalJoinProps['players'][number]['device'] {
+    const pi = padIndexOf(device);
+    if (pi !== null) return { key: 'together.device.pad', params: { n: pi + 1 } };
+    return device === 'kbA' ? 'together.device.kbA' : 'together.device.kbB';
+  }
+
+  private togetherProps(): LocalJoinProps {
+    const lobby = this.lobby;
+    const players: JoinPlayerView[] = lobby.players.map((p) => ({
+      index: p.index,
+      team: p.team,
+      ready: p.ready,
+      device: this.deviceLabel(p.device),
+      keys: this.deviceKeys(p.device),
+      hat: p.index === 0 ? this.d.save.data.cosmetics.equipped : (['teamCapA', 'teamCapB', 'none', 'teamCapA'] as HatId[])[p.index] ?? 'none',
+    }));
+    const joined = new Set(lobby.players.map((p) => p.device));
+    const hints: JoinDeviceHint[] = [
+      { id: 'kbA', label: 'together.device.kbA', key: this.deviceKeys('kbA').grab, joined: joined.has('kbA') },
+      { id: 'kbB', label: 'together.device.kbB', key: this.deviceKeys('kbB').grab, joined: joined.has('kbB') },
+    ];
+    const pads = this.localInput().connectedPads();
+    if (!pads.length) hints.push({ id: 'pad', label: 'together.device.anyPad', key: 'A', joined: false });
+    for (const i of pads) hints.push({ id: `pad:${i}`, label: { key: 'together.device.pad', params: { n: i + 1 } }, key: 'A', joined: joined.has(`pad:${i}`) });
+    const modes = allowedModes(lobby);
+    this.togetherOpts = { ...this.togetherOpts, mode: resolveMode(lobby, this.togetherOpts.mode) };
+    return {
+      layouts: MATCH_LAYOUT_IDS.map((id) => {
+        const l = getLayout(id);
+        return { id, nameKey: l.nameKey, descKey: l.descKey, layout: l };
+      }),
+      value: { ...this.togetherOpts },
+      players,
+      hints,
+      phase: this.lobbyPhase,
+      style: lobbyStyle(lobby),
+      modes,
+      notice: this.lobbyNotice,
+      onChange: (v) => {
+        this.togetherOpts = { ...v };
+        this.refreshTogether();
+      },
+      onStart: () => this.startTogether(),
+      onBack: () => this.leaveTogether(),
+      onJoinDevice: (id) => {
+        if (id === 'kbA' || id === 'kbB' || isPadDevice(id)) this.lobbyPress(id as LocalDeviceId, 'confirm');
+      },
+      onTeam: (index, team) => {
+        const p = this.lobby.players.find((x) => x.index === index);
+        if (!p) return;
+        const next = setTeam(this.lobby, p.device, team);
+        this.lobbyNotice = next === this.lobby ? 'together.full' : null;
+        this.lobby = next;
+        this.refreshTogether();
+      },
+      onReady: (index) => {
+        const p = this.lobby.players.find((x) => x.index === index);
+        if (!p) return;
+        this.lobby = setReady(this.lobby, p.device, !p.ready);
+        this.afterLobbyChange();
+      },
+      onReopen: () => this.reopenLobby(null),
+    };
+  }
+
+  private refreshTogether(): void {
+    if (this.stateValue !== 'together' || !(this.screen instanceof LocalJoinScreen)) return;
+    this.screen.update(this.togetherProps());
+  }
+
+  /** Lobby changed: everyone ready -> match options; otherwise back to joining. */
+  private afterLobbyChange(): void {
+    const ready = allReady(this.lobby);
+    const was = this.lobbyPhase;
+    this.lobbyPhase = ready ? 'options' : 'join';
+    this.refreshTogether();
+    if (this.lobbyPhase === 'options' && was !== 'options' && this.screen instanceof LocalJoinScreen) {
+      this.screen.focusStart();
+      this.playUiSound('sparkle');
+    }
+  }
+
+  /** Back to joining from the options (that device's player — or everyone — un-readies). */
+  private reopenLobby(device: LocalDeviceId | null): void {
+    this.lobby = device ? setReady(this.lobby, device, false) : { players: this.lobby.players.map((p) => ({ ...p, ready: false })) };
+    this.lobbyPhase = 'join';
+    this.refreshTogether();
+  }
+
+  private lobbyPress(device: LocalDeviceId, action: 'confirm' | 'back' | 'left' | 'right'): void {
+    const r = lobbyStep(this.lobby, device, action);
+    this.lobbyNotice = null;
+    switch (r.event) {
+      case 'exit':
+        this.leaveTogether();
+        return;
+      case 'joined':
+        this.playUiSound('pop', { pitch: 1 + 0.12 * (r.state.players.find((p) => p.device === device)?.index ?? 0) });
+        break;
+      case 'ready':
+        this.playUiSound('stamp');
+        break;
+      case 'left':
+      case 'unready':
+        this.playUiSound('back');
+        break;
+      case 'team':
+        this.playUiSound('adjust');
+        break;
+      case 'blocked':
+        this.playUiSound('error');
+        this.lobbyNotice = 'together.full';
+        break;
+      default:
+        return;
+    }
+    this.lobby = r.state;
+    this.afterLobbyChange();
+  }
+
+  /** Per frame on the join screen: every device's presses (menu input is drained, not used). */
+  private pollTogether(): void {
+    this.d.input.pollMenu();
+    const r = this.localInput();
+    const scr = this.screen instanceof LocalJoinScreen ? this.screen : null;
+    if (!scr || scr.isLeaving) {
+      r.pollLobby();
+      return;
+    }
+    for (const { device, frame } of r.pollLobby()) {
+      if (this.stateValue !== 'together') break;
+      if (this.lobbyPhase === 'join') this.lobbyJoinFrame(device, frame);
+      else this.lobbyOptionsFrame(scr, device, frame);
+    }
+    const pads = r.connectedPads().join(',');
+    if (pads !== this.lobbyPads) {
+      this.lobbyPads = pads;
+      // A pad that went away leaves the lobby.
+      const live = new Set(r.connectedPads().map((i) => `pad:${i}`));
+      const gone = this.lobby.players.filter((p) => isPadDevice(p.device) && !live.has(p.device));
+      if (gone.length) {
+        this.lobby = { players: this.lobby.players.filter((p) => !gone.includes(p)) };
+        this.afterLobbyChange();
+      } else this.refreshTogether();
+    }
+  }
+
+  private lobbyJoinFrame(device: LocalDeviceId, f: LobbyFrame): void {
+    if (f.confirm) this.lobbyPress(device, 'confirm');
+    else if (f.back) this.lobbyPress(device, 'back');
+    else if (f.left) this.lobbyPress(device, 'left');
+    else if (f.right) this.lobbyPress(device, 'right');
+  }
+
+  private lobbyOptionsFrame(scr: LocalJoinScreen, device: LocalDeviceId, f: LobbyFrame): void {
+    const inLobby = this.lobby.players.some((p) => p.device === device);
+    if (!inLobby) {
+      // A newcomer joins: the options close again until they are ready too.
+      if (f.confirm) this.lobbyPress(device, 'confirm');
+      return;
+    }
+    if (f.back) {
+      this.playUiSound('back');
+      this.reopenLobby(device);
+      return;
+    }
+    if (f.up) this.d.ui.handleNav('navUp');
+    if (f.down) this.d.ui.handleNav('navDown');
+    if (f.left) this.d.ui.handleNav('navLeft');
+    if (f.right) this.d.ui.handleNav('navRight');
+    if (f.confirm || f.start) this.d.ui.handleNav('confirm');
+    void scr;
+  }
+
+  private leaveTogether(): void {
+    this.lobby = emptyLobby();
+    this.lobbyPhase = 'join';
+    this.toMenu('together');
+  }
+
+  private startTogether(): void {
+    if (!this.lobby.players.length) return;
+    const seed = this.nextSeed();
+    const o = this.togetherOpts;
+    const layoutId: LayoutId = o.layout === 'random' ? MATCH_LAYOUT_IDS[seed % MATCH_LAYOUT_IDS.length]! : o.layout;
+    const rivals: RivalId[] = ['hodadak', 'tongkeun', 'nunchi'];
+    const cfg: MatchConfig = {
+      kind: 'quick',
+      layoutId,
+      mode: resolveMode(this.lobby, o.mode),
+      rival: rivals[(seed >>> 8) % 3]!,
+      difficulty: o.difficulty,
+      adaptation: null,
+      seed,
+      humanHat: this.d.save.data.cosmetics.equipped,
+      matchSeconds: this.d.params.matchSeconds,
+      police: this.d.params.police,
+      local: localSetupFromLobby(this.lobby),
+    };
+    void this.launch(cfg, { preview: true, back: () => this.toTogether(), context: 'mode.together' });
   }
 
   startQuick(o: QuickMatchOptions, preview: boolean): void {
@@ -1133,6 +1398,7 @@ export class App {
           settings: () => this.settings,
           params: this.d.params,
           log: (m) => this.d.log('warn', m),
+          local: cfg.local ? this.localInput() : null,
         },
         cfg,
         {
@@ -1236,6 +1502,8 @@ export class App {
     this.clearScreen();
     this.hideStage();
     this.setState('match');
+    // Local match: presses that started it (and keys still held) do not reach the players.
+    if (m.isLocal) this.localRouter?.flush();
     m.beginCountdown();
   }
 
@@ -1264,12 +1532,16 @@ export class App {
           this.toTournament(rival);
           return;
         }
+        if (m.isLocal) {
+          this.toTogether();
+          return;
+        }
         this.toMenu(tut ? 'practice' : undefined);
       },
       confirmDestructive: !tut,
       menuConfirmBody: forfeits ? 'tournament.forfeit.body' : null,
       showRestart: !tut && !tour,
-      context: tut ? 'mode.practice' : m.config.kind === 'tournament' ? 'mode.tournament' : 'mode.quickMatch',
+      context: tut ? 'mode.practice' : m.config.kind === 'tournament' ? 'mode.tournament' : m.isLocal ? 'mode.together' : 'mode.quickMatch',
       grabMode: this.settings.grabMode,
     });
     this.closeOverlay();
@@ -1328,7 +1600,8 @@ export class App {
     // Stats (doc §12: real records only).
     const sim = this.match!.sim;
     try {
-      const st = summarizeMatchStats({ events: sim.eventLog, result: summary.result, humanTeam: 0 });
+      // Local multiplayer: the save owner is P1 (their team's result).
+      const st = summarizeMatchStats({ events: sim.eventLog, result: summary.result, humanTeam: this.match!.myTeam });
       this.d.save.update((d) => (d.stats = applyMatchStats(d.stats, st)));
     } catch (err) {
       this.d.log('warn', `[app] stats update failed: ${String(err)}`);
@@ -1384,7 +1657,7 @@ export class App {
       playerHat: cfg.humanHat,
       rival: cfg.rival,
       onRematch: () => this.rematch(),
-      onMenu: () => this.wipeTo(() => this.toMenu(), 'raccoon'),
+      onMenu: () => this.wipeTo(() => (cfg.local ? this.toTogether() : this.toMenu()), 'raccoon'),
     };
     if (cfg.kind === 'tournament' && record) {
       props.series = {

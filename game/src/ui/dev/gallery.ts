@@ -244,6 +244,7 @@ async function main(): Promise<void> {
       const routeOf: Record<MainMenuItem, string> = {
         practice: 'hud-practice',
         quickMatch: 'quick',
+        together: 'quick',
         tournament: 'tournament',
         wardrobe: 'wardrobe',
         settings: 'settings-game',

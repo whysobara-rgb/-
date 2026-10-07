@@ -16,10 +16,7 @@ import type { MatchMode } from './setup';
 export const MAX_LOCAL_PLAYERS = 4;
 export const MAX_HUMANS_PER_TEAM = 2;
 
-/** P1..P4 colours (ring, tag, chip, offscreen arrow). Distinct from both team colours' hue families and readable on the map. */
-export const PLAYER_COLORS: readonly string[] = ['#ff7a3d', '#3db8ff', '#9be04a', '#c77dff'];
-/** Darker partner shade for outlines / text on light chips. */
-export const PLAYER_INK: readonly string[] = ['#a8410f', '#0d6aa0', '#4f8a14', '#7337a8'];
+export { PLAYER_COLORS, PLAYER_INK, playerTag } from '../shared/players';
 
 export type LocalStyle = 'versus' | 'coop';
 
@@ -148,9 +145,4 @@ export interface LocalMatchSetup {
 export function localSetupFromLobby(s: LobbyState): LocalMatchSetup {
   const seats = [...s.players].sort((a, b) => a.index - b.index).map((p) => ({ device: p.device, index: p.index, team: p.team }));
   return { seats, style: lobbyStyle(s) };
-}
-
-/** Readable player tag. */
-export function playerTag(index: number): string {
-  return `P${index + 1}`;
 }

@@ -36,6 +36,8 @@ export interface QuickMatchSetupProps {
   onChange?: (value: QuickMatchOptions) => void;
   onStart: (value: QuickMatchOptions) => void;
   onBack: () => void;
+  /** "친구랑 같이 하기": opens the local multiplayer join screen. */
+  onTogether?: () => void;
 }
 
 export class QuickMatchSetup extends UiScreen<QuickMatchSetupProps> {
@@ -142,7 +144,13 @@ export class QuickMatchSetup extends UiScreen<QuickMatchSetupProps> {
             { class: 'uh-quick__panel uh-panel' },
             rows,
             this.cards,
-            h('div', { class: 'uh-quick__startWrap' }, h('p', { class: 'uh-quick__note' }, t('difficulty.note')), start),
+            h(
+              'div',
+              { class: 'uh-quick__startWrap' },
+              h('p', { class: 'uh-quick__note' }, t('difficulty.note')),
+              this.props.onTogether ? button({ id: 'quick:together', label: 'quick.together', icon: 'gamepad', size: 'sm', className: 'uh-quick__together', onActivate: () => this.leave(this.props.onTogether) }) : null,
+              start,
+            ),
           ),
         ),
         promptBar([

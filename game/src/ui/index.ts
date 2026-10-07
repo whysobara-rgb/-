@@ -86,6 +86,8 @@ export type { TitleScreenProps } from './screens/TitleScreen';
 export { MainMenu } from './screens/MainMenu';
 export type { MainMenuProps, MainMenuItem } from './screens/MainMenu';
 export { QuickMatchSetup } from './screens/QuickMatchSetup';
+export { LocalJoinScreen } from './screens/LocalJoinScreen';
+export type { LocalJoinProps, TogetherOptions, JoinPlayerView, JoinDeviceHint } from './screens/LocalJoinScreen';
 export type { QuickMatchSetupProps, QuickMatchOptions, QuickLayoutChoice } from './screens/QuickMatchSetup';
 export { LayoutPreview, layoutTotalValue } from './screens/LayoutPreview';
 export type { LayoutPreviewProps, PreviewTeam, PreviewMember } from './screens/LayoutPreview';

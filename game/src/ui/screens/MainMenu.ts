@@ -31,7 +31,7 @@ import { playerChip, type PlayerChipModel } from '../components/PlayerCard';
 import { nextGoalLine, type NextGoalView } from '../components/NextGoalCard';
 import { logoLockup } from './TitleScreen';
 
-export type MainMenuItem = 'play' | 'practice' | 'quickMatch' | 'tournament' | 'wardrobe' | 'settings' | 'credits' | 'quit' | 'goal';
+export type MainMenuItem = 'play' | 'practice' | 'quickMatch' | 'together' | 'tournament' | 'wardrobe' | 'settings' | 'credits' | 'quit' | 'goal';
 
 export type { PlayerChipModel } from '../components/PlayerCard';
 export type { NextGoalView, NextGoalKind } from '../components/NextGoalCard';
@@ -68,12 +68,13 @@ export interface MainMenuProps {
   softBackdrop?: boolean;
 }
 
-type ListId = 'quickMatch' | 'practice' | 'tournament' | 'wardrobe' | 'settings' | 'credits' | 'quit';
+type ListId = 'quickMatch' | 'together' | 'practice' | 'tournament' | 'wardrobe' | 'settings' | 'credits' | 'quit';
 
 /** The quiet list, in two groups: ways to play, then the rest. */
 const LIST: readonly (readonly { id: ListId; label: string }[])[] = [
   [
     { id: 'quickMatch', label: 'menu.quickMatch' },
+    { id: 'together', label: 'menu.together' },
     { id: 'practice', label: 'menu.practice' },
     { id: 'tournament', label: 'menu.tournament' },
   ],
@@ -90,6 +91,7 @@ const DESC: Record<string, string> = {
   play: 'front.play.desc',
   change: 'front.play.change.desc',
   quickMatch: 'menu.quickMatch.desc',
+  together: 'menu.together.desc',
   tournament: 'menu.tournament.desc',
   practice: 'menu.practice.desc',
   wardrobe: 'menu.wardrobe.desc',
