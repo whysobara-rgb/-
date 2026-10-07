@@ -1,17 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import '../../../core/constants/rank_colors.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
+import '../../../core/utils/format.dart';
 import '../../../shared/providers/auth_provider.dart';
 import '../../../shared/providers/gp_provider.dart';
+import '../../../shared/widgets/product_image.dart';
+import '../../../shared/widgets/rarity_tag.dart';
+import '../../../shared/widgets/ui.dart';
+import '../data/inventory_repository.dart';
 import '../domain/inventory_item.dart';
 
-/// 가치가차 - 배송 신청 화면.
-///
-/// 보관함(박스) 탭에서 상품을 선택한 뒤 "배송요청" 버튼을 눌렀을 때 이동하는 화면.
-/// 배송지 정보를 입력하고 GP로 배송비를 결제하는 흐름을 담당한다.
-/// 화이트+골드 테마를 그대로 적용한다.
+/// 배송 신청. 배송비(3,000 GP)는 서버가 보유 GP에서 차감한다.
 class DeliveryRequestPage extends StatefulWidget {
   final List<InventoryItem> items;
 
@@ -22,538 +25,196 @@ class DeliveryRequestPage extends StatefulWidget {
 }
 
 class _DeliveryRequestPageState extends State<DeliveryRequestPage> {
-  // 백엔드 ShippingService.DELIVERY_FEE(3000 GP)와 동일한 고정 배송비.
+  /// 백엔드 ShippingService.DELIVERY_FEE와 같은 값.
   static const int _deliveryFee = 3000;
+  static const _repository = InventoryRepository();
 
-  final ApiClient _apiClient = const ApiClient();
-
-  final _recipientController = TextEditingController();
-  final _phoneController = TextEditingController();
-  final _postalCodeController = TextEditingController();
-  final _addressController = TextEditingController();
-  final _detailAddressController = TextEditingController();
-  final _notesController = TextEditingController();
-
-  bool _isSubmitting = false;
+  final _name = TextEditingController();
+  final _phone = TextEditingController();
+  final _address = TextEditingController();
+  final _addressDetail = TextEditingController();
+  final _notes = TextEditingController();
+  bool _submitting = false;
 
   @override
   void dispose() {
-    _recipientController.dispose();
-    _phoneController.dispose();
-    _postalCodeController.dispose();
-    _addressController.dispose();
-    _detailAddressController.dispose();
-    _notesController.dispose();
+    for (final c in [_name, _phone, _address, _addressDetail, _notes]) {
+      c.dispose();
+    }
     super.dispose();
   }
 
-  String _formatWon(int value) {
-    final str = value.toString();
-    final buffer = StringBuffer();
-    for (int i = 0; i < str.length; i++) {
-      final posFromEnd = str.length - i;
-      buffer.write(str[i]);
-      if (posFromEnd > 1 && posFromEnd % 3 == 1) buffer.write(',');
+  String? _validate() {
+    if (_name.text.trim().isEmpty) return '받는 분 이름을 입력해 주세요';
+    if (!RegExp(r'^[0-9-]{9,20}$').hasMatch(_phone.text.trim())) {
+      return '연락처를 숫자로 입력해 주세요';
     }
-    return buffer.toString();
-  }
-
-  // ── 주소 검색 (더미) ─────────────────────────────────────────────
-  void _openAddressSearch() {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(const SnackBar(content: Text('주소 검색 기능은 추후 연동 예정')));
-  }
-
-  void _showWarning(String message) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
+    if (_address.text.trim().isEmpty) return '주소를 입력해 주세요';
+    return null;
   }
 
   Future<void> _submit() async {
-    if (_isSubmitting) return;
-    if (_recipientController.text.trim().isEmpty) {
-      _showWarning('받는 사람을 입력해주세요');
+    final problem = _validate();
+    if (problem != null) {
+      showToast(context, problem);
       return;
     }
-    if (_phoneController.text.trim().isEmpty) {
-      _showWarning('연락처를 입력해주세요');
-      return;
-    }
-    if (_addressController.text.trim().isEmpty) {
-      _showWarning('주소를 입력해주세요');
-      return;
-    }
-
-    // 우편번호/상세주소는 백엔드 DTO에 별도 필드가 없으므로 기본 주소에 합쳐 전송한다.
-    final fullAddress = [
-      _addressController.text.trim(),
-      _detailAddressController.text.trim(),
-    ].where((s) => s.isNotEmpty).join(' ');
-
-    setState(() => _isSubmitting = true);
+    setState(() => _submitting = true);
     try {
-      await _apiClient.post(
-        '/shipping-requests',
-        body: {
-          'recipientName': _recipientController.text.trim(),
-          'phone': _phoneController.text.trim(),
-          'address': fullAddress,
-          if (_notesController.text.trim().isNotEmpty)
-            'notes': _notesController.text.trim(),
-          'inventoryItemIds': widget.items
-              .map((item) => item.numericId)
-              .toList(),
-        },
+      await _repository.requestShipping(
+        recipientName: _name.text.trim(),
+        phone: _phone.text.trim(),
+        address: [
+          _address.text.trim(),
+          _addressDetail.text.trim(),
+        ].where((s) => s.isNotEmpty).join(' '),
+        notes: _notes.text.trim(),
+        inventoryItemIds: widget.items.map((i) => i.id).toList(),
       );
-
-      // 배송비(GP) 차감이 서버에서 이루어졌으므로 최신 잔액을 다시 조회한다.
-      if (mounted) {
-        await context.read<AuthProvider>().refreshProfile();
-      }
-
       if (!mounted) return;
-      showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (dialogContext) {
-          return AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-            title: const Text(
-              '배송 신청 완료',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-            content: const Text("배송 신청이 완료되었습니다!\n상품이 '배송요청' 상태로 변경됩니다."),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.of(dialogContext).pop();
-                  Navigator.of(context).pop(true);
-                },
-                child: const Text(
-                  '확인',
-                  style: TextStyle(
-                    color: AppColors.goldSecondary,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ],
-          );
-        },
-      );
+      await context.read<AuthProvider>().refreshProfile();
+      if (!mounted) return;
+      final messenger = ScaffoldMessenger.of(context);
+      Navigator.of(context).pop(true);
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(content: Text('배송 신청을 접수했어요')));
     } on ApiException catch (e) {
-      if (!mounted) return;
-      _showWarning(e.message);
-    } catch (_) {
-      if (!mounted) return;
-      _showWarning('배송 신청 중 오류가 발생했습니다');
+      if (mounted) showToast(context, e.displayMessage);
     } finally {
-      if (mounted) setState(() => _isSubmitting = false);
+      if (mounted) setState(() => _submitting = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final items = widget.items;
-    final previewItems = items.take(3).toList();
-    final extraCount = items.length - previewItems.length;
-    final totalValue = items.fold<int>(0, (sum, item) => sum + item.price);
-    final gpBalance = context.watch<GpProvider>().formattedBalance;
+    final balance = context.watch<GpProvider>().balance;
+    final enough = balance >= _deliveryFee;
 
     return Scaffold(
-      backgroundColor: AppColors.scaffoldBg,
-      appBar: AppBar(
-        backgroundColor: AppColors.scaffoldBg,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: AppColors.textPrimary),
-        title: const Text(
-          '배송 신청',
-          style: TextStyle(
-            color: AppColors.textPrimary,
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
+      appBar: AppBar(titleSpacing: 0, title: const Text('배송 신청')),
+      body: ListView(
+        padding: const EdgeInsets.only(bottom: Space.x8),
+        children: [
+          SectionHeader(
+            title: '신청 상품 ${items.length}개',
+            padding: const EdgeInsets.fromLTRB(
+              Space.gutter,
+              Space.x3,
+              Space.gutter,
+              Space.x2,
+            ),
           ),
-        ),
-      ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildProductSummaryCard(
-                      previewItems,
-                      extraCount,
-                      items.length,
-                      totalValue,
+          for (var i = 0; i < items.length; i++) ...[
+            if (i > 0) const Hairline(inset: Space.gutter),
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: Space.gutter,
+                vertical: 10,
+              ),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 48,
+                    height: 48,
+                    child: ProductImage(url: items[i].imageUrl),
+                  ),
+                  const SizedBox(width: Space.x3),
+                  RarityTag(items[i].rarity, dense: true),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      items[i].name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.bodyStrong,
                     ),
-                    const SizedBox(height: 16),
-                    _buildAddressCard(),
-                    const SizedBox(height: 16),
-                    _buildNotesCard(),
-                    const SizedBox(height: 16),
-                    _buildFeeCard(gpBalance),
+                  ),
+                  Text(
+                    formatWon(items[i].estimatedValue),
+                    style: AppText.num(AppText.caption),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: Space.x4),
+          const SectionBand(),
+          const SectionHeader(title: '받는 곳'),
+          Padding(
+            padding: Space.page,
+            child: Column(
+              children: [
+                _Field(controller: _name, label: '받는 분', hint: '이름'),
+                _Field(
+                  controller: _phone,
+                  label: '연락처',
+                  hint: '010-0000-0000',
+                  keyboard: TextInputType.phone,
+                  formatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'[0-9-]')),
                   ],
                 ),
-              ),
+                _Field(controller: _address, label: '주소', hint: '도로명 또는 지번 주소'),
+                _Field(
+                  controller: _addressDetail,
+                  label: '상세 주소',
+                  hint: '동·호수 (선택)',
+                ),
+                _Field(
+                  controller: _notes,
+                  label: '요청사항',
+                  hint: '문 앞에 놓아 주세요 (선택)',
+                ),
+              ],
             ),
-            _buildBottomButton(),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _sectionCard({required Widget title, required Widget child}) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceElevated,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.surfaceBorder),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
           ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [title, const SizedBox(height: 14), child],
-      ),
-    );
-  }
-
-  Widget _plainTitle(String text) {
-    return Text(
-      text,
-      style: const TextStyle(
-        color: AppColors.textPrimary,
-        fontSize: 16,
-        fontWeight: FontWeight.w700,
-      ),
-    );
-  }
-
-  // ── [1] 신청 상품 요약 카드 ──────────────────────────────────────
-  Widget _buildProductSummaryCard(
-    List<InventoryItem> previewItems,
-    int extraCount,
-    int totalCount,
-    int totalValue,
-  ) {
-    return _sectionCard(
-      title: _plainTitle('신청 상품 $totalCount개'),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (final item in previewItems)
-                Expanded(child: _PreviewChip(item: item)),
-              if (extraCount > 0)
-                Padding(
-                  padding: const EdgeInsets.only(left: 6, top: 4),
-                  child: Text(
-                    '+$extraCount개 더',
-                    style: const TextStyle(
-                      color: AppColors.goldSecondary,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                    ),
+          const SizedBox(height: Space.x2),
+          const SectionBand(),
+          const SectionHeader(title: '배송비'),
+          Padding(
+            padding: Space.page,
+            child: Column(
+              children: [
+                InfoRow(label: '배송비', value: formatGp(_deliveryFee)),
+                InfoRow(label: '보유', value: formatGp(balance)),
+                const Hairline(),
+                InfoRow(
+                  label: '신청 후 보유',
+                  value: enough ? formatGp(balance - _deliveryFee) : 'GP 부족',
+                  valueStyle: AppText.num(AppText.bodyStrong).copyWith(
+                    color: enough ? AppColors.ink : AppColors.negative,
                   ),
                 ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Container(height: 1, color: AppColors.surfaceBorder),
-          const SizedBox(height: 12),
-          Text(
-            '총 예상 가치: ${_formatWon(totalValue)}원',
-            style: const TextStyle(
-              color: AppColors.goldPrimary,
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
+                const SizedBox(height: Space.x3),
+                Text(
+                  '배송비는 신청할 때 보유 GP에서 차감돼요. 접수한 뒤에는 주소를 바꿀 수 없으니 한 번 더 확인해 주세요.',
+                  style: AppText.caption,
+                ),
+              ],
             ),
           ),
         ],
       ),
-    );
-  }
-
-  // ── [2] 배송지 입력 카드 ──────────────────────────────────────────
-  Widget _buildAddressCard() {
-    return _sectionCard(
-      title: _plainTitle('배송지 정보'),
-      child: Column(
-        children: [
-          _buildTextField(
-            controller: _recipientController,
-            hintText: '받는 사람',
-            icon: Icons.person_outline_rounded,
-          ),
-          const SizedBox(height: 10),
-          _buildTextField(
-            controller: _phoneController,
-            hintText: '연락처',
-            icon: Icons.phone_outlined,
-            keyboardType: TextInputType.number,
-          ),
-          const SizedBox(height: 10),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Expanded(
-                child: _buildTextField(
-                  controller: _postalCodeController,
-                  hintText: '우편번호',
-                  icon: Icons.markunread_mailbox_outlined,
-                  keyboardType: TextInputType.number,
-                ),
-              ),
-              const SizedBox(width: 8),
-              SizedBox(
-                height: 46,
-                child: OutlinedButton(
-                  onPressed: _openAddressSearch,
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.goldSecondary,
-                    side: const BorderSide(color: AppColors.goldSecondary),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    padding: const EdgeInsets.symmetric(horizontal: 14),
-                  ),
-                  child: const Text(
-                    '주소 검색',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          _buildTextField(
-            controller: _addressController,
-            hintText: '기본 주소',
-            icon: Icons.location_on_outlined,
-          ),
-          const SizedBox(height: 10),
-          _buildTextField(
-            controller: _detailAddressController,
-            hintText: '상세 주소',
-            icon: Icons.home_outlined,
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── [3] 배송 요청사항 카드 ────────────────────────────────────────
-  Widget _buildNotesCard() {
-    return _sectionCard(
-      title: Row(
-        children: [
-          _plainTitle('배송 요청사항'),
-          const SizedBox(width: 6),
-          const Text(
-            '(선택)',
-            style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
-          ),
-        ],
-      ),
-      child: Container(
-        decoration: BoxDecoration(
-          color: AppColors.surfaceElevated2,
-          borderRadius: BorderRadius.circular(12),
+      bottomNavigationBar: DecoratedBox(
+        decoration: const BoxDecoration(
+          color: AppColors.bg,
+          border: Border(top: BorderSide(color: AppColors.line)),
         ),
-        child: TextField(
-          controller: _notesController,
-          maxLines: 4,
-          style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
-          decoration: const InputDecoration(
-            hintText: '배송 시 요청사항을 입력해주세요',
-            hintStyle: TextStyle(color: AppColors.textSecondary, fontSize: 13),
-            border: InputBorder.none,
-            contentPadding: EdgeInsets.all(14),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ── [4] 배송비 안내 카드 ──────────────────────────────────────────
-  Widget _buildFeeCard(String gpBalance) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceElevated,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.surfaceBorder),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Text(
-                '배송비',
-                style: TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const Spacer(),
-              const Text(
-                '$_deliveryFee GP',
-                style: TextStyle(
-                  color: AppColors.goldPrimary,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            '배송비는 보유 GP에서 자동 차감됩니다.',
-            style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
-          ),
-          const SizedBox(height: 12),
-          Container(height: 1, color: AppColors.surfaceBorder),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              const Text(
-                '현재 보유 GP',
-                style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
-              ),
-              const Spacer(),
-              Text(
-                '$gpBalance GP',
-                style: const TextStyle(
-                  color: AppColors.goldPrimary,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          const Text(
-            "※ 배송 신청 후 '상품 준비중' 단계까지만 취소 가능합니다.",
-            style: TextStyle(color: AppColors.badgeSpecial, fontSize: 11),
-          ),
-          const SizedBox(height: 4),
-          const Text(
-            '※ 배송 신청 접수 후에는 배송지 주소를 변경할 수 없습니다.',
-            style: TextStyle(color: AppColors.badgeSpecial, fontSize: 11),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTextField({
-    required TextEditingController controller,
-    required String hintText,
-    required IconData icon,
-    TextInputType? keyboardType,
-  }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surfaceElevated2,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: TextField(
-        controller: controller,
-        keyboardType: keyboardType,
-        style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
-        decoration: InputDecoration(
-          hintText: hintText,
-          hintStyle: const TextStyle(
-            color: AppColors.textSecondary,
-            fontSize: 14,
-          ),
-          prefixIcon: Icon(icon, color: AppColors.textSecondary, size: 20),
-          border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 14,
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ── [5] 하단 고정 버튼 ────────────────────────────────────────────
-  Widget _buildBottomButton() {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceShell,
-        border: const Border(
-          top: BorderSide(color: AppColors.surfaceBorder, width: 1),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 12,
-            offset: const Offset(0, -3),
-          ),
-        ],
-      ),
-      child: Container(
-        width: double.infinity,
-        height: 56,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(14),
-          gradient: AppColors.goldGradient,
-        ),
-        child: Material(
-          color: Colors.transparent,
-          borderRadius: BorderRadius.circular(14),
-          child: InkWell(
-            onTap: _isSubmitting ? null : _submit,
-            borderRadius: BorderRadius.circular(14),
-            child: Center(
-              child: _isSubmitting
-                  ? const SizedBox(
-                      width: 24,
-                      height: 24,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2.5,
-                        color: Color(0xFF16161A),
-                      ),
-                    )
-                  : const Text(
-                      '배송 신청하기',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF16161A),
-                      ),
-                    ),
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              Space.gutter,
+              Space.x3,
+              Space.gutter,
+              Space.x3,
+            ),
+            child: PrimaryButton(
+              label: enough ? '${formatGp(_deliveryFee)} 내고 배송 신청' : 'GP가 부족해요',
+              loading: _submitting,
+              onPressed: enough ? _submit : null,
             ),
           ),
         ),
@@ -562,52 +223,42 @@ class _DeliveryRequestPageState extends State<DeliveryRequestPage> {
   }
 }
 
-/// 상품 요약 카드에 표시되는 개별 상품 미리보기 칩(가로 배치, 최대 3개).
-class _PreviewChip extends StatelessWidget {
-  final InventoryItem item;
+class _Field extends StatelessWidget {
+  final TextEditingController controller;
+  final String label;
+  final String hint;
+  final TextInputType? keyboard;
+  final List<TextInputFormatter>? formatters;
 
-  const _PreviewChip({required this.item});
+  const _Field({
+    required this.controller,
+    required this.label,
+    required this.hint,
+    this.keyboard,
+    this.formatters,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final color = RankColors.of(item.grade);
-    return Container(
-      margin: const EdgeInsets.only(right: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceElevated,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.surfaceBorder),
-      ),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Space.x3),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-            decoration: BoxDecoration(
-              color: color,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Text(
-              item.grade,
-              style: const TextStyle(
-                color: Color(0xFF16161A),
-                fontSize: 9,
-                fontWeight: FontWeight.w800,
-              ),
+          Text(
+            label,
+            style: AppText.caption.copyWith(
+              color: AppColors.ink,
+              fontWeight: FontWeight.w600,
             ),
           ),
           const SizedBox(height: 6),
-          Text(
-            item.name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-            ),
+          TextField(
+            controller: controller,
+            keyboardType: keyboard,
+            inputFormatters: formatters,
+            style: AppText.body,
+            decoration: InputDecoration(hintText: hint),
           ),
         ],
       ),

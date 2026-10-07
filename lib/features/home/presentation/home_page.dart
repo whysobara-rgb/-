@@ -2,206 +2,269 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/theme/app_colors.dart';
-import '../../../shared/providers/auth_provider.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
+import '../../../navigation/tab_navigator.dart';
 import '../../../shared/widgets/gp_badge.dart';
+import '../../../shared/widgets/ui.dart';
+import '../../gacha/data/gacha_repository.dart';
+import '../../gacha/domain/gacha_models.dart';
 import '../../gacha/presentation/gacha_detail_page.dart';
-import '../data/capsule_box_repository.dart';
-import '../domain/capsule_box.dart';
-import '../domain/capsule_category.dart';
-import 'widgets/capsule_box_card.dart';
-import 'widgets/home_banner_carousel.dart';
-import 'widgets/quick_menu_row.dart';
+import '../../rewards/presentation/attendance_card.dart';
+import 'widgets/box_card.dart';
+import 'widgets/featured_box.dart';
 
-/// 가치가차 - 홈 탭 메인 화면.
+/// 홈.
 ///
-/// "Claymorphism & Pastel 3D" 컨셉 - 크림 화이트 배경 위에 부드러운
-/// 클레이 3D 그래픽과 소프트 드롭 섀도우를 사용해 아기자기하고 친근한
-/// 캐주얼 가챠 앱의 아이덴티티를 구성한다.
-/// 랜덤박스 목록은 백엔드 GET /gachas에서 실시간으로 가져온다.
+/// 대표 박스 1개 → 출석체크 → 전체 박스 그리드 → 확률·한도 안내 순.
+/// 서버가 주는 정보만 보여준다(가짜 당첨 티커·카운트다운 없음).
 class HomePage extends StatefulWidget {
-  /// "충전" 탭으로 이동하기 위한 콜백. [MainNavigation]에서 전달되며,
-  /// [GachaDetailPage]에서 잔액 부족 시 충전 탭으로 넘어갈 때 사용된다.
-  final VoidCallback onGoToWallet;
-
-  const HomePage({super.key, required this.onGoToWallet});
+  const HomePage({super.key});
 
   @override
   State<HomePage> createState() => _HomePageState();
 }
 
+enum _Sort {
+  recommended('추천순'),
+  priceLow('낮은 가격순'),
+  priceHigh('높은 가격순');
+
+  const _Sort(this.label);
+  final String label;
+}
+
 class _HomePageState extends State<HomePage> {
-  final _repository = const CapsuleBoxRepository();
+  static const _repository = GachaRepository();
 
-  final CapsuleCategory _selectedCategory = CapsuleCategory.recommend;
-
-  List<CapsuleBox> _boxes = [];
-  bool _isLoading = true;
+  List<GachaSummary> _boxes = const [];
+  bool _loading = true;
   String? _error;
+  _Sort _sort = _Sort.recommended;
+  int _refreshToken = 0;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadBoxes());
+    _load();
   }
 
-  Future<void> _loadBoxes() async {
+  Future<void> _load() async {
     setState(() {
-      _isLoading = true;
+      _loading = _boxes.isEmpty;
       _error = null;
+      _refreshToken++;
     });
     try {
-      final boxes = await _repository.getByCategory(_selectedCategory);
+      final boxes = await _repository.list();
       if (!mounted) return;
       setState(() {
         _boxes = boxes;
-        _isLoading = false;
+        _loading = false;
       });
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.message;
-        _isLoading = false;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _error = '랜덤박스 목록을 불러오지 못했습니다';
-        _isLoading = false;
+        _error = e.displayMessage;
+        _loading = false;
       });
     }
   }
 
-  void _openDetail(CapsuleBox box) {
-    Navigator.of(context)
-        .push(
-          MaterialPageRoute(
-            builder: (context) => GachaDetailPage(
-              box: box,
-              onGoToWallet: widget.onGoToWallet,
-            ),
-          ),
-        )
-        .then((_) {
-          // 뽑기 후 돌아오면 잔액이 바뀌었을 수 있으므로 프로필을 새로고침한다.
-          if (mounted) context.read<AuthProvider>().refreshProfile();
-        });
+  GachaSummary? get _featured {
+    if (_boxes.isEmpty) return null;
+    return _boxes.firstWhere(
+      (b) => b.badgeLabel?.toUpperCase() == 'SPECIAL',
+      orElse: () => _boxes.first,
+    );
+  }
+
+  List<GachaSummary> get _sorted {
+    final list = [..._boxes];
+    switch (_sort) {
+      case _Sort.recommended:
+        break;
+      case _Sort.priceLow:
+        list.sort((a, b) => a.price.compareTo(b.price));
+      case _Sort.priceHigh:
+        list.sort((a, b) => b.price.compareTo(a.price));
+    }
+    return list;
+  }
+
+  void _open(GachaSummary box) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => GachaDetailPage(gacha: box)),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    // AuthProvider는 다른 화면에서 갱신 시 GpBadge 등에 반영되도록 watch.
-    context.watch<AuthProvider>();
+    // 홈 탭을 다시 누르면 출석 상태를 새로 고친다.
+    final homeRevision = context.select<TabNavigator, int>(
+      (t) => t.revisionOf(AppTab.home),
+    );
+    final featured = _featured;
 
     return Scaffold(
-      backgroundColor: AppColors.scaffoldBg,
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        titleSpacing: 16,
-        title: const _ClayLogo(),
-        actions: [
-          const GpBadge(),
-          _NotificationIconButton(onTap: () {}),
-          IconButton(
-            onPressed: () {},
-            icon: const Icon(
-              Icons.search_rounded,
-              color: AppColors.textPrimary,
-            ),
+      appBar: AppBar(title: const _Wordmark(), actions: const [GpBadge()]),
+      body: RefreshIndicator(
+        color: AppColors.ink,
+        onRefresh: _load,
+        child: CustomScrollView(
+          slivers: [
+            if (_loading)
+              const SliverToBoxAdapter(child: LoadingView(height: 480))
+            else if (_error != null && _boxes.isEmpty)
+              SliverToBoxAdapter(
+                child: ErrorView(message: _error!, onRetry: _load, height: 480),
+              )
+            else ...[
+              if (featured != null)
+                SliverToBoxAdapter(
+                  child: FeaturedBox(
+                    box: featured,
+                    onTap: () => _open(featured),
+                  ),
+                ),
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    Space.gutter,
+                    0,
+                    Space.gutter,
+                    Space.x6,
+                  ),
+                  child: AttendanceCard(
+                    refreshToken: _refreshToken + homeRevision,
+                  ),
+                ),
+              ),
+              const SliverToBoxAdapter(child: SectionBand()),
+              SliverToBoxAdapter(
+                child: SectionHeader(
+                  title: '전체 박스',
+                  subtitle: '${_boxes.length}개',
+                ),
+              ),
+              SliverToBoxAdapter(
+                child: _SortBar(
+                  value: _sort,
+                  onChanged: (s) => setState(() => _sort = s),
+                ),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(
+                  Space.gutter,
+                  Space.x4,
+                  Space.gutter,
+                  Space.x8,
+                ),
+                sliver: SliverGrid(
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    crossAxisSpacing: Space.x3,
+                    mainAxisSpacing: Space.x6,
+                    childAspectRatio: 0.68,
+                  ),
+                  delegate: SliverChildBuilderDelegate((context, i) {
+                    final box = _sorted[i];
+                    return BoxCard(box: box, onTap: () => _open(box));
+                  }, childCount: _boxes.length),
+                ),
+              ),
+              const SliverToBoxAdapter(child: _TrustFooter()),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 워드마크: 잉크색 한글 로고타입 + 액센트 점 하나.
+class _Wordmark extends StatelessWidget {
+  const _Wordmark();
+
+  @override
+  Widget build(BuildContext context) {
+    return Text.rich(
+      const TextSpan(
+        children: [
+          TextSpan(text: '가치가차'),
+          TextSpan(
+            text: '.',
+            style: TextStyle(color: AppColors.accent),
           ),
-          const SizedBox(width: 4),
         ],
       ),
-      body: SafeArea(
-        child: RefreshIndicator(
-          onRefresh: _loadBoxes,
-          child: CustomScrollView(
-            slivers: [
-              const SliverToBoxAdapter(child: SizedBox(height: 4)),
+      style: AppText.title2.copyWith(
+        fontSize: 21,
+        fontWeight: FontWeight.w800,
+        letterSpacing: -0.9,
+      ),
+    );
+  }
+}
 
-              // ── 메인 럭키 PICK 배너 (오가닉 멀티그라데이션 + 3D 캐릭터) ──
-              const SliverToBoxAdapter(child: HomeBannerCarousel()),
-              const SliverToBoxAdapter(child: SizedBox(height: 22)),
+class _SortBar extends StatelessWidget {
+  final _Sort value;
+  final ValueChanged<_Sort> onChanged;
 
-              // ── 퀵메뉴 (클레이 3D 원형 아이콘 5개) ──
-              const SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16),
-                  child: QuickMenuRow(),
-                ),
-              ),
-              const SliverToBoxAdapter(child: SizedBox(height: 26)),
+  const _SortBar({required this.value, required this.onChanged});
 
-              // ── 캡슐(랜덤박스) 카드 그리드 (화이트 라운드 카드 + 리본뱃지) ──
-              if (_isLoading)
-                const SliverToBoxAdapter(
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(vertical: 60),
-                    child: Center(
-                      child: CircularProgressIndicator(
-                        color: AppColors.primary,
-                      ),
-                    ),
-                  ),
-                )
-              else if (_error != null)
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 40,
-                    ),
-                    child: Column(
-                      children: [
-                        Text(
-                          _error!,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: AppColors.textSecondary,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        TextButton(
-                          onPressed: _loadBoxes,
-                          child: const Text('다시 시도'),
-                        ),
-                      ],
-                    ),
-                  ),
-                )
-              else if (_boxes.isEmpty)
-                const SliverToBoxAdapter(
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(vertical: 60),
-                    child: Center(
-                      child: Text(
-                        '표시할 랜덤박스가 없습니다',
-                        style: TextStyle(color: AppColors.textSecondary),
-                      ),
-                    ),
-                  ),
-                )
-              else
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                  sliver: SliverGrid(
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 2,
-                          mainAxisSpacing: 14,
-                          crossAxisSpacing: 14,
-                          mainAxisExtent: 232,
-                        ),
-                    delegate: SliverChildBuilderDelegate((context, index) {
-                      final box = _boxes[index];
-                      return CapsuleBoxCard(
-                        key: ValueKey(box.id),
-                        box: box,
-                        onTap: () => _openDetail(box),
-                      );
-                    }, childCount: _boxes.length),
-                  ),
-                ),
-            ],
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: Space.page,
+      child: Row(
+        children: [
+          for (final s in _Sort.values) ...[
+            _Chip(
+              label: s.label,
+              selected: s == value,
+              onTap: () => onChanged(s),
+            ),
+            const SizedBox(width: 6),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _Chip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _Chip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: const BorderRadius.all(Radius.circular(16)),
+      child: AnimatedContainer(
+        duration: Motion.fast,
+        height: 32,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: selected ? AppColors.ink : AppColors.bg,
+          border: Border.all(color: selected ? AppColors.ink : AppColors.line),
+          borderRadius: const BorderRadius.all(Radius.circular(16)),
+        ),
+        child: Text(
+          label,
+          style: AppText.callout.copyWith(
+            color: selected ? AppColors.onInk : AppColors.ink,
+            fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
           ),
         ),
       ),
@@ -209,78 +272,42 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
-/// 클레이모피즘 스타일 GACHIGACHA 로고.
-/// 오렌지→바이올렛 그라데이션 워드마크 + 우측 상단 반짝이는 스파클 효과.
-class _ClayLogo extends StatelessWidget {
-  const _ClayLogo();
+/// 하단 안내: 확률 공개와 충전 한도로 가는 길을 항상 둔다.
+class _TrustFooter extends StatelessWidget {
+  const _TrustFooter();
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        ShaderMask(
-          shaderCallback: (bounds) => AppColors.logoGradient.createShader(
-            Rect.fromLTWH(0, 0, bounds.width, bounds.height),
-          ),
-          child: const Text(
-            'GACHIGACHA',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 22,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 0.2,
-            ),
-          ),
-        ),
-        Positioned(
-          top: -4,
-          right: -14,
-          child: ShaderMask(
-            shaderCallback: (bounds) => AppColors.logoGradient.createShader(
-              Rect.fromLTWH(0, 0, bounds.width, bounds.height),
-            ),
-            child: const Icon(
-              Icons.auto_awesome_rounded,
-              color: Colors.white,
-              size: 16,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// 알림(종) 아이콘 + 우측 상단 빨간 뱃지 닷.
-class _NotificationIconButton extends StatelessWidget {
-  final VoidCallback onTap;
-
-  const _NotificationIconButton({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return IconButton(
-      onPressed: onTap,
-      icon: Stack(
-        clipBehavior: Clip.none,
+    return Container(
+      color: AppColors.bgSubtle,
+      padding: const EdgeInsets.fromLTRB(
+        Space.gutter,
+        Space.x6,
+        Space.gutter,
+        Space.x8,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(
-            Icons.notifications_none_rounded,
-            color: AppColors.textPrimary,
+          Text('알고 뽑으세요', style: AppText.bodyStrong),
+          const SizedBox(height: Space.x2),
+          Text(
+            '모든 박스의 등급별·상품별 확률과 천장 규칙은 박스 상세의 '
+            '‘확률 및 구성 정보’에서 볼 수 있어요.',
+            style: AppText.caption,
           ),
-          Positioned(
-            top: -1,
-            right: -1,
-            child: Container(
-              width: 8,
-              height: 8,
-              decoration: BoxDecoration(
-                color: AppColors.error,
-                shape: BoxShape.circle,
-                border: Border.all(color: AppColors.scaffoldBg, width: 1.5),
-              ),
+          const SizedBox(height: Space.x1),
+          Text('한 달에 충전할 수 있는 금액을 직접 정해 둘 수 있어요.', style: AppText.caption),
+          const SizedBox(height: Space.x3),
+          OutlinedButton(
+            onPressed: () =>
+                context.read<TabNavigator>().goTo(context, AppTab.wallet),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(0, 36),
+              backgroundColor: AppColors.bg,
+              textStyle: AppText.callout.copyWith(fontWeight: FontWeight.w600),
             ),
+            child: const Text('월 충전 한도 설정'),
           ),
         ],
       ),
