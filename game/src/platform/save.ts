@@ -238,7 +238,11 @@ export const FUNNEL_KEYS: readonly FunnelKey[] = [
 
 export interface FunnelCounters {
   counts: Record<FunnelKey, number>;
-  /** Matches finished in the current session (reset on sessionStarted). */
+  /**
+   * Matches finished in the current session. Reset when a session starts: the app-wide manager's
+   * first load (`getSaveManager`, SaveManagerOptions.countSession) counts 'sessionStarted' and
+   * zeroes this, so game flow never bumps 'sessionStarted' itself.
+   */
   matchesThisSession: number;
   /** Distinct local calendar days with at least one finished match. */
   playDays: number;
@@ -476,6 +480,16 @@ export const MAX_CHALLENGE_IDS = 96;
 export const MAX_SUMMARY_CHALLENGES = 8;
 export const MAX_MILESTONES = 32;
 export const MAX_VAN_PAINTS = 32;
+/**
+ * Caps on v1 fields, tightened in v2 so the true worst case (every list at its cap) fits the
+ * 64 KB budget: 12 achievement ids exist (64 leaves room for future ones); an adaptation line is
+ * `adapt.<rival>.<kind>.<n>` with at most one param (`choke` = a choke nameKey, <= 29 chars).
+ */
+export const MAX_ACHIEVEMENTS = 64;
+export const MAX_ADAPT_LINE_KEY = 64;
+export const MAX_ADAPT_PARAMS = 4;
+export const MAX_ADAPT_PARAM_KEY = 32;
+export const MAX_ADAPT_PARAM_VALUE = 64;
 /** Epoch ms upper bound (year ~5138): keeps wall-clock stamps finite and sane. */
 const MAX_EPOCH_MS = 1e14;
 
@@ -526,12 +540,14 @@ function sanitizeAdaptation(raw: unknown): SeriesAdaptation | null {
   if (!isRecord(raw)) return null;
   const kind = raw.kind;
   if (typeof kind !== 'string' || !(ADAPTATION_KINDS as readonly string[]).includes(kind)) return null;
-  if (typeof raw.lineKey !== 'string' || !raw.lineKey || raw.lineKey.length > 128) return null;
+  if (typeof raw.lineKey !== 'string' || !raw.lineKey || raw.lineKey.length > MAX_ADAPT_LINE_KEY) return null;
   const out: SeriesAdaptation = { kind: kind as SeriesAdaptation['kind'], lineKey: raw.lineKey };
   if (typeof raw.chokepointId === 'string' && raw.chokepointId.length <= 64) out.chokepointId = raw.chokepointId;
   if (isRecord(raw.lineParams)) {
     const params: Record<string, string> = {};
-    for (const [k, v] of Object.entries(raw.lineParams).slice(0, 16)) if (typeof v === 'string' && k.length <= 64 && v.length <= 256) params[k] = v;
+    for (const [k, v] of Object.entries(raw.lineParams).slice(0, MAX_ADAPT_PARAMS)) {
+      if (typeof v === 'string' && k.length <= MAX_ADAPT_PARAM_KEY && v.length <= MAX_ADAPT_PARAM_VALUE) params[k] = v;
+    }
     out.lineParams = params;
   }
   return out;
@@ -792,7 +808,7 @@ export function sanitizeSaveData(raw: unknown, defaults: SaveData = createDefaul
   }
 
   const achievements = Array.isArray(src.achievements)
-    ? [...new Set(src.achievements.filter((a): a is string => typeof a === 'string' && ACH_RE.test(a)))].slice(0, 256)
+    ? [...new Set(src.achievements.filter((a): a is string => typeof a === 'string' && ACH_RE.test(a)))].slice(0, MAX_ACHIEVEMENTS)
     : [];
 
   const cups = sanitizeCups(src.cups);
@@ -1081,6 +1097,13 @@ export interface SaveManagerOptions {
   defaults?: () => SaveData;
   /** Flush on pagehide / beforeunload / hidden (browser only). Default true. */
   flushOnHide?: boolean;
+  /**
+   * Treat this manager's first load as the start of a play session: count funnel
+   * 'sessionStarted', zero `funnel.matchesThisSession`, and write that right away (so a second
+   * `load()` in the same boot reads it back instead of losing it). Later loads of the same
+   * manager do not count again. Default false; `getSaveManager()` (the app-wide manager) sets it.
+   */
+  countSession?: boolean;
 }
 
 export class SaveManager {
@@ -1094,6 +1117,8 @@ export class SaveManager {
   private readonly debounceMs: number;
   private readonly retryMs: number;
   private readonly makeDefaults: () => SaveData;
+  private readonly countSession: boolean;
+  private sessionCounted = false;
 
   constructor(
     readonly backend: SaveBackend = detectSaveBackend(),
@@ -1102,6 +1127,7 @@ export class SaveManager {
     this.debounceMs = opts.debounceMs ?? 600;
     this.retryMs = opts.retryMs ?? 5000;
     this.makeDefaults = opts.defaults ?? (() => createDefaultSaveData());
+    this.countSession = opts.countSession === true;
     this.current = this.makeDefaults();
     if (opts.flushOnHide !== false) this.installHideFlush();
   }
@@ -1164,8 +1190,19 @@ export class SaveManager {
       this.current = defaults;
     }
     this.isLoaded = true;
-    // Persist repairs right away so the main slot is valid again; migrations can wait.
-    if (report.source === 'backup' || report.recoveredFromCorruption) {
+    // Session start (funnel 'sessionStarted' + matches-this-session reset), once per manager.
+    let sessionStarted = false;
+    if (this.countSession && !this.sessionCounted) {
+      this.sessionCounted = true;
+      sessionStarted = true;
+      const f = this.current.funnel;
+      f.counts.sessionStarted = Math.min(MAX_COUNT, f.counts.sessionStarted + 1);
+      f.matchesThisSession = 0;
+    }
+    // Persist repairs (and a session start) right away so the main slot is valid again and a
+    // reload in the same boot keeps them; migrations alone can wait. A newer-version save is
+    // never overwritten just for the session count (it rides along with the next real write).
+    if (report.source === 'backup' || report.recoveredFromCorruption || (sessionStarted && !report.newerVersion)) {
       this.isDirty = true;
       this.flush();
     } else if (report.migrated) {
@@ -1301,7 +1338,7 @@ let shared: SaveManager | null = null;
 /** The app-wide save manager (created and loaded on first use). */
 export function getSaveManager(): SaveManager {
   if (!shared) {
-    shared = new SaveManager();
+    shared = new SaveManager(undefined, { countSession: true });
     shared.load();
   }
   return shared;

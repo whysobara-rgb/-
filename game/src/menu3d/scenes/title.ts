@@ -2,7 +2,9 @@
  * Title: a dusk plaza diorama floating in the sky. The raccoon gang heaves on a rope tied to
  * the bank like pulling a giant radish — the bank trembles, its roots strain, dust puffs —
  * then POP: the bank hops out of the ground, the gang tumbles onto their bottoms, springs up
- * and cheers while coins and confetti fly. The bank settles back and the loop restarts (~7.4 s).
+ * and cheers while a few coins and confetti fly. The bank settles back and the loop restarts
+ * (~7.4 s). Kept gentle on purpose: no screen shake and a plain gradient sky (no sunburst, no
+ * clouds), so the logo above the diorama has clean sky around it.
  */
 import * as THREE from 'three';
 import type { HatId } from '../../sim/types';
@@ -51,7 +53,7 @@ export class TitleScene extends MenuScene {
   constructor(o: TitleSceneOptions) {
     super({
       sky: ['#2F86E0', '#86CCFF', '#FFD08A'],
-      skyStyle: { rays: '#FFF4CF', rayStrength: 0.32, rayCount: 13, rayCenterY: -0.02, clouds: '#FFF6E6', cloudY: [0.05, 0.15], stars: 0 },
+      skyStyle: { rays: null, clouds: null, stars: 0 },
       fog: '#FFD7A8',
       shadowRadius: 13,
     });
@@ -213,17 +215,16 @@ export class TitleScene extends MenuScene {
       this.popped = true;
       this.bank.setUprooted(true);
       if (!rm) {
-        this.fx.dust(BANK_POS, { count: 28, spread: 4.6, size: 0.95, up: 2.6 });
-        this.fx.ring({ x: BANK_POS.x, y: 0.06, z: BANK_POS.z }, { radius: 7.5, color: '#FFF1D6', duration: 0.75 });
-        this.fx.chunks({ x: BANK_POS.x - 3.6, y: 0.4, z: BANK_POS.z + 1.2 }, { count: 22, power: 1.2 });
-        this.fx.coins({ x: BANK_POS.x, y: 3.4, z: BANK_POS.z + 1 }, { count: 20, power: 1.15 });
-        this.shake(1);
+        this.fx.dust(BANK_POS, { count: 18, spread: 4.2, size: 0.85, up: 2.2 });
+        this.fx.ring({ x: BANK_POS.x, y: 0.06, z: BANK_POS.z }, { radius: 6.5, color: '#FFF1D6', duration: 0.75 });
+        this.fx.chunks({ x: BANK_POS.x - 3.6, y: 0.4, z: BANK_POS.z + 1.2 }, { count: 12, power: 1.0 });
+        this.fx.coins({ x: BANK_POS.x, y: 3.4, z: BANK_POS.z + 1 }, { count: 10, power: 1.0 });
       }
       this.cue('pop');
     }
     if (this.popped && !this.cheered && lt >= POP_AT + 1.0) {
       this.cheered = true;
-      if (!rm) this.fx.confetti({ x: -2, y: 4.8, z: 2 }, { count: 80, power: 1.15 });
+      if (!rm) this.fx.confetti({ x: -2, y: 4.8, z: 2 }, { count: 36, power: 1.0 });
       this.cue('cheer');
     }
     if (this.popped && !this.settled && lt >= SETTLE_AT + 0.45) {
@@ -281,12 +282,13 @@ export class TitleScene extends MenuScene {
     this.van.update(dt);
     this.lights.twinkle(rm ? 0 : t);
 
-    // --- camera: slow drift, push in during the heave --------------------------------------------
-    const sway = rm ? 0.12 : 0.12 + Math.sin(t * 0.17) * 0.16;
-    const push = effort * 1.6;
-    const r = 25 - push;
-    this.camPos.set(Math.sin(sway) * r, 7.4 - push * 0.2, Math.cos(sway) * r);
-    this.camLook.set(-0.3, 4.9 - push * 0.15, 0);
+    // --- camera: a slow drift and a small push during the heave; the diorama sits low in the
+    // frame so the logo has the sky to itself ------------------------------------------------------
+    const sway = rm ? 0.12 : 0.12 + Math.sin(t * 0.12) * 0.1;
+    const push = effort * 0.8;
+    const r = 28 - push;
+    this.camPos.set(Math.sin(sway) * r, 7.6 - push * 0.2, Math.cos(sway) * r);
+    this.camLook.set(-0.3, 5.0 - push * 0.15, 0);
   }
 
   protected override onDispose(): void {

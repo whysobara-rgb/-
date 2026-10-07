@@ -2,15 +2,15 @@
  * Main menu: the gang's cozy rooftop hideout at dusk — party lights, crates, a water tower, a
  * striped awning over a stolen big safe used as the snack table, the city glowing below.
  *
- * The gang reacts to the highlighted menu item:
- *   빠른 대전 → dash pose (running in place, speed lines)
+ * On the front door ('front' framing) the scene stays calm: the gang idles slowly in the right
+ * half of the screen and only 게임 시작 gets a reaction (the lead lifts the 뿅망치). Other screens
+ * over the hideout re-frame the camera to keep the gang visible beside their panel, and the gang
+ * still acts out what they are about:
+ *   빠른 대전 → dash pose (running in place)
  *   라이벌 대회 → rival silhouettes pop up behind the parapet
- *   옷장 → the lead tries on hats in front of a mirror (pop + sparkle)
- *   연습 → stretching
- *   설정 → tinkering at the safe with a wrench (sparks)
- *   종료 → everyone waves bye
- * Other screens over the hideout (quick match, settings) re-frame the camera to keep the gang
- * visible beside the panel.
+ *   옷장 → the lead tries on hats in front of a mirror
+ *   설정 → tinkering at the safe with a wrench
+ *   크레딧 → a wave
  */
 import * as THREE from 'three';
 import type { HatId } from '../../sim/types';
@@ -18,30 +18,21 @@ import { createSafe, type SafeRig } from '../../render/models';
 import { MenuScene, damp, easeOutBack } from '../scene';
 import { Puppet, type Act } from '../puppet';
 import { POP, PropBuilder, addCrate, addGift, ball, cyl, disposeProp, glowDisc, disposeOwnedMesh, mirrorGlass, rng, roundBox, stringLights, wrench, type StringLights } from '../kit';
-import { bigRedButton, disposeRope, marqueeSign, marqueeTexture, rope, setRope, squeakyHammer, type BigButton, type MarqueeSign } from '../kit';
+import { bigRedButton, disposeRope, rope, setRope, squeakyHammer, type BigButton } from '../kit';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 export type HideoutFocus = 'practice' | 'quickMatch' | 'tournament' | 'wardrobe' | 'settings' | 'quit' | 'play' | 'credits' | 'goal' | null;
 /**
  * Camera framing: 'menu' (list on the left), 'left' (panel on the right), 'center', and
- * 'front' (the front door: marquee top-left, the gang centre-left, the right ~40% kept clear for
- * the player card / 게임 시작 / mode cards; portrait screens get a taller variant).
+ * 'front' (the front door: a close, low view of the gang and the snack-table safe in the right
+ * half, the left ~45% kept quiet for the logo / 게임 시작 / list; portrait screens get a taller
+ * variant with the gang above the column).
  */
 export type HideoutFraming = 'menu' | 'left' | 'right' | 'center' | 'front';
 
 export interface HideoutOptions {
   hat: HatId;
   framing?: HideoutFraming;
-  /** Marquee wordmark + ribbon (defaults to the Korean title and the English name). */
-  marquee?: { title: string; sub: string };
-}
-
-/** Normalised screen rectangle (0..1 of the viewport, y down). */
-export interface ScreenRect {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
 }
 
 const TRY_HATS: HatId[] = ['teamCapA', 'tongkeunHat', 'hodadakBand', 'nunchiMask', 'teamCapB'];
@@ -51,10 +42,12 @@ const FRAMES: Record<HideoutFraming, { pos: [number, number, number]; look: [num
   left: { pos: [4.4, 4.4, 12.6], look: [5.6, 1.2, 0] },
   right: { pos: [-1.0, 5.0, 13.0], look: [0.4, 1.6, -0.4] },
   center: { pos: [1.2, 5.6, 15.5], look: [1.6, 1.7, -0.6] },
-  front: { pos: [2.2, 5.0, 17.0], look: [3.9, 3.0, -1.2] },
+  front: { pos: [0.4, 3.4, 12.4], look: [1.0, 1.25, -0.6] },
 };
-/** Front door on portrait screens (fov keeps the 16:9 width): marquee on top, gang below it. */
-const FRONT_TALL = { pos: [-0.6, 5.4, 7.2] as [number, number, number], look: [-1.2, -2.2, -4.75] as [number, number, number] };
+/** Front door on portrait screens (fov keeps the 16:9 width): the gang above the column. */
+const FRONT_TALL = { pos: [2.8, 4.2, 10.5] as [number, number, number], look: [2.8, -0.6, -0.5] as [number, number, number] };
+/** Idle pace on the front door (the gang breathes slower there than on the busier screens). */
+const FRONT_PACE = 0.7;
 
 /** Play-press ceremony timeline (seconds). */
 const CER = { slam: 0.3, zipStart: 0.5, zipDur: 0.62, stagger: 0.09, coverAt: 0.82 } as const;
@@ -80,8 +73,6 @@ export class HideoutScene extends MenuScene {
   private readonly props: THREE.Object3D[] = [];
   private readonly glows: THREE.Mesh[] = [];
   private readonly mirror: THREE.Mesh;
-  private readonly marquee: MarqueeSign;
-  private readonly hangSafe: SafeRig;
   private readonly hammer: THREE.Group;
   private readonly button: BigButton;
   private readonly zipRope: THREE.Mesh;
@@ -97,11 +88,16 @@ export class HideoutScene extends MenuScene {
   private hatTimer = 0;
   private sparkTimer = 0;
   private focusT = 0;
+  /** Idle clock: runs slower on the front door (FRONT_PACE). */
+  private idleT = 0;
+  /** Smoothed hammer-arm angle. */
+  private armZ = 0.3;
 
   constructor(o: HideoutOptions) {
     super({
-      sky: ['#2D63C4', '#FF9F7E', '#FFD48A'],
-      skyStyle: { rays: '#FFE7B0', rayStrength: 0.22, rayCount: 16, rayCenterY: 0.0, clouds: '#FFE4D6', cloudY: [0.14, 0.3], stars: 0.5 },
+      // Calm dusk: a slightly softer gradient, no sunburst, a few clouds high up, faint stars.
+      sky: ['#3F68B8', '#F2A386', '#F8D39C'],
+      skyStyle: { rays: null, clouds: '#FFE4D6', cloudY: [0.2, 0.32], cloudDensity: 0.22, stars: 0.3 },
       hemi: ['#D6E2FF', '#FFD2B4'],
       shadowRadius: 10,
     });
@@ -262,7 +258,8 @@ export class HideoutScene extends MenuScene {
     this.cityWindows.name = 'menu3d:windows';
     this.cityWindows.userData.noBatch = true;
     this.scene.add(this.cityWindows);
-    this.scene.fog = new THREE.Fog('#F4AE8E', 26, 78);
+    // Haze the city a little more so the rooftop reads first (a soft depth-of-field feel).
+    this.scene.fog = new THREE.Fog('#F2B79A', 20, 66);
 
     // --- live props: the safe table, string lights, glows -----------------------------------------
     this.safe = createSafe('largeSafe');
@@ -326,25 +323,7 @@ export class HideoutScene extends MenuScene {
     } else this.scene.add(this.hammer);
     this.crewHome.push(...this.crew.map((p) => p.holder.position.clone()));
 
-    // --- front door: rooftop marquee, GO button on the snack safe, zipline, the lead's 뿅망치 -----
-    const mq = o.marquee ?? { title: '뿌리째 털어라', sub: 'UPROOT HEIST' };
-    this.marquee = marqueeSign(marqueeTexture(mq.title, mq.sub), { legHeight: 3.2 });
-    this.marquee.group.position.set(-1.9, 0, -4.75);
-    this.marquee.group.rotation.y = 0.12;
-    this.scene.add(this.marquee.group);
-    this.batcher.add(this.marquee.group);
-    this.hangSafe = createSafe('smallSafe');
-    this.hangSafe.setAnchored(false);
-    this.hangSafe.root.scale.setScalar(0.8);
-    this.hangSafe.root.position.set(0, -1.15, 0);
-    this.marquee.safePivot.add(this.hangSafe.root);
-    for (const sx of [-0.16, 0.16]) {
-      const ch = rope(POP.steelDark, 0.025);
-      setRope(ch, new THREE.Vector3(sx, -0.62, 0), new THREE.Vector3(sx * 1.6, 0, 0));
-      this.marquee.safePivot.add(ch);
-      this.props.push(ch);
-    }
-    this.batcher.add(this.hangSafe.root);
+    // --- front door: GO button on the snack safe, zipline, the lead's 뿅망치 --------------------------
     this.button = bigRedButton(0.4);
     this.button.group.position.copy(BUTTON_AT);
     this.button.group.rotation.y = -0.25;
@@ -382,7 +361,7 @@ export class HideoutScene extends MenuScene {
 
   /**
    * 게임 시작 ceremony: the lead hops to the snack-table safe and bonks the big red button with the
-   * 뿅망치, the bulbs flash, then the gang ziplines off the roof. Returns the seconds until the
+   * 뿅망치, then the gang ziplines off the roof. Returns the seconds until the
    * screen should be covered by the van wipe (reduced motion: a cut, no zipline).
    */
   playCeremony(): number {
@@ -393,34 +372,12 @@ export class HideoutScene extends MenuScene {
     return this.reducedMotion ? 0.12 : CER.coverAt;
   }
 
-  /** On-screen rectangle of the marquee face (0..1 of the viewport); null when off-screen. */
-  marqueeScreenRect(): ScreenRect | null {
-    const face = this.marquee.face;
-    face.updateWorldMatrix(true, false);
-    const g = face.geometry as THREE.PlaneGeometry;
-    g.computeBoundingBox();
-    const bb = g.boundingBox!;
-    let x0 = Infinity;
-    let y0 = Infinity;
-    let x1 = -Infinity;
-    let y1 = -Infinity;
-    const v = new THREE.Vector3();
-    for (const x of [bb.min.x, bb.max.x])
-      for (const y of [bb.min.y, bb.max.y]) {
-        v.set(x, y, 0).applyMatrix4(face.matrixWorld).project(this.camera);
-        const sx = (v.x + 1) / 2;
-        const sy = (1 - v.y) / 2;
-        x0 = Math.min(x0, sx);
-        x1 = Math.max(x1, sx);
-        y0 = Math.min(y0, sy);
-        y1 = Math.max(y1, sy);
-      }
-    if (!Number.isFinite(x0) || x1 < 0 || x0 > 1 || y1 < 0 || y0 > 1) return null;
-    return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
-  }
-
-  /** The highlighted main-menu item (null = idle). */
+  /**
+   * The highlighted main-menu item (null = idle). On the front door only 게임 시작 gets a
+   * reaction (the lead lifts the 뿅망치); every other item leaves the gang idling.
+   */
   setFocus(f: HideoutFocus): void {
+    if (this.framing === 'front' && f !== 'play') f = null;
     if (f === this.focus) return;
     const prev = this.focus;
     this.focus = f;
@@ -436,8 +393,7 @@ export class HideoutScene extends MenuScene {
     });
     if (showRivals) this.cue('boing');
     this.wrench.visible = f === 'settings';
-    if (f === 'play' && prev !== 'play') this.cue('tick', 0.7);
-    if (f && f !== prev && !this.reducedMotion) this.lead.hop(f === 'play' ? 0.4 : 0.28);
+    if (f && f !== prev && f !== 'play' && !this.reducedMotion) this.lead.hop(0.28);
   }
 
   setFraming(fr: HideoutFraming): void {
@@ -465,10 +421,15 @@ export class HideoutScene extends MenuScene {
     const f = this.focus;
     const front = this.framing === 'front';
     const cer = this.cerT;
+    // Idle clock: slower on the front door (the play ceremony runs at full speed).
+    const pace = front && cer === null ? FRONT_PACE : 1;
+    const idt = dt * pace;
+    this.idleT += idt;
+    const it = this.idleT;
     // The hero carries the 뿅망치 on the front door (the wrench replaces it while tinkering).
     this.hammer.visible = (front || cer !== null) && f !== 'settings';
     const leadAct: Act =
-      f === 'quickMatch' ? 'dash' : f === 'practice' ? 'stretch' : f === 'wardrobe' ? 'tryHat' : f === 'settings' ? 'tinker' : f === 'quit' ? 'wave' : f === 'play' ? 'hop' : f === 'credits' ? 'wave' : f === 'goal' ? 'cheer' : 'idle';
+      f === 'quickMatch' ? 'dash' : f === 'practice' ? 'stretch' : f === 'wardrobe' ? 'tryHat' : f === 'settings' ? 'tinker' : f === 'quit' ? 'wave' : f === 'credits' ? 'wave' : f === 'goal' ? 'cheer' : 'idle';
     this.lead.setAct(cer !== null ? 'cheer' : leadAct);
     this.lead.headYaw = f === 'tournament' ? 0.9 : null;
     // Body turns: toward the safe to tinker, the mirror for hats, half around for the rivals.
@@ -476,9 +437,9 @@ export class HideoutScene extends MenuScene {
     const yawGoal = cer !== null ? faceCam - 1.2 : f === 'settings' ? 0.55 : f === 'wardrobe' ? faceCam - 0.9 : f === 'tournament' ? faceCam + 1.1 : faceCam + 0.25;
     this.lead.holder.rotation.y += (yawGoal - this.lead.holder.rotation.y) * damp(rm ? 40 : 7, dt);
     this.lead.expression = f === 'tournament' ? 'shock' : cer !== null ? 'happy' : null;
-    const crewAct: Act = f === 'quickMatch' || f === 'play' ? 'hop' : f === 'practice' ? 'stretch' : f === 'quit' || f === 'credits' ? 'wave' : 'idle';
+    const crewAct: Act = f === 'quickMatch' ? 'hop' : f === 'practice' ? 'stretch' : f === 'quit' || f === 'credits' ? 'wave' : 'idle';
     this.crew.forEach((p, i) => {
-      p.setAct(cer !== null ? 'cheer' : i === 0 && f !== 'quit' && f !== 'practice' && f !== 'credits' ? (f === 'quickMatch' || f === 'play' ? 'cheer' : 'idle') : crewAct);
+      p.setAct(cer !== null ? 'cheer' : i === 0 && f !== 'quit' && f !== 'practice' && f !== 'credits' ? (f === 'quickMatch' ? 'cheer' : 'idle') : crewAct);
       p.headYaw = f === 'tournament' ? 1.2 : f === 'settings' ? -0.6 : null;
       p.expression = f === 'tournament' ? 'shock' : null;
     });
@@ -510,31 +471,27 @@ export class HideoutScene extends MenuScene {
       const p = this.lead.holder.position;
       this.fx.dust({ x: p.x - 0.3, y: 0.05, z: p.z - 0.2 }, { count: 2, spread: 0.25, size: 0.22 });
     }
-    // 게임 시작 focused: the hero shoulders the hammer and the GO button glints now and then
-    if (f === 'play' && !rm && cer === null) {
-      this.sparkTimer -= dt;
-      if (this.sparkTimer <= 0) {
-        this.sparkTimer = 0.9 + Math.random() * 0.5;
-        this.fx.sparkle({ x: BUTTON_AT.x, y: BUTTON_AT.y + 0.35, z: BUTTON_AT.z }, { count: 5, radius: 0.3, color: '#FFF1B8' });
-      }
-    }
-
-    this.lead.update(dt, t, rm);
-    for (const p of this.crew) p.update(dt, t, rm);
+    this.lead.update(idt, it, rm);
+    for (const p of this.crew) p.update(idt, it, rm);
     this.rivals.forEach((p, i) => {
       p.setAct(i === 0 ? 'hop' : i === 1 ? 'flex' : 'smug');
-      p.update(dt, t, rm);
+      p.update(idt, it, rm);
     });
-    // Hammer pose (after the rig update: the arm override wins): resting on the shoulder, raised
-    // high while 게임 시작 is focused, swung down on the slam.
+    // Hammer pose (after the rig update: the arm override wins): resting on the shoulder, lifted
+    // while 게임 시작 is focused (the front door's one reaction), swung down on the slam.
     const arm = this.lead.rightPaw;
     if (arm && this.hammer.visible) {
       const raised = (f === 'play' && cer === null) || cer !== null;
-      let z = 0.3 + (rm ? 0 : Math.sin(t * 2.1) * 0.05);
-      if (raised) z = 2.95 + (rm ? 0 : Math.sin(t * 7) * 0.08);
+      let z = 0.3 + (rm ? 0 : Math.sin(it * 2.1) * 0.05);
+      if (raised) z = 2.95 + (rm ? 0 : Math.sin(it * 2.6) * 0.05);
       if (cer !== null) {
         const k = cer / CER.slam;
         z = k < 1 ? 2.5 + k * 0.8 : Math.max(1.05, 3.3 - (cer - CER.slam) * 22);
+        this.armZ = z;
+      } else {
+        // lift / lower the hammer smoothly (no snap when 게임 시작 gains or loses focus)
+        this.armZ += (z - this.armZ) * damp(rm ? 60 : 9, dt);
+        z = this.armZ;
       }
       arm.rotation.set(raised ? -0.15 : 0.1, 0, z);
       // raised: the hammer extends past the paw; resting: held upright beside the shoulder
@@ -548,12 +505,7 @@ export class HideoutScene extends MenuScene {
     }
     this.updateCeremony(dt);
     this.safe.update(dt);
-    this.lights.twinkle(rm ? 0 : t);
-    // marquee: bulb chase, the hanging safe swings on its chains
-    const flash = cer !== null && cer >= CER.slam ? Math.max(0, 1 - (cer - CER.slam) * 2.2) : 0;
-    this.marquee.update(t, rm, flash);
-    this.marquee.safePivot.rotation.z = rm ? 0 : Math.sin(t * 1.7) * 0.2 + Math.sin(t * 0.63) * 0.05;
-    this.hangSafe.update(dt);
+    this.lights.twinkle(rm ? 0 : it * 0.6);
 
     // camera: framing + a small push toward the rivals
     const fr = this.frameFor(this.framing);
@@ -565,7 +517,7 @@ export class HideoutScene extends MenuScene {
     this.lastFraming = this.framing;
     const k = snap ? 1 : damp(rm ? 30 : 3.2, dt);
     const lift = f === 'tournament' ? 0.6 : 0;
-    const breathe = rm ? 0 : Math.sin(t * 0.3) * 0.12;
+    const breathe = rm ? 0 : Math.sin(it * 0.3) * (front ? 0.08 : 0.12);
     this.camPos.lerp(new THREE.Vector3(fr.pos[0] + breathe, fr.pos[1] + lift, fr.pos[2] - lift * 0.6), k);
     this.camLook.lerp(new THREE.Vector3(fr.look[0], fr.look[1] + lift * 0.9, fr.look[2] - lift * 1.6), k);
     void easeOutBack;
@@ -632,8 +584,6 @@ export class HideoutScene extends MenuScene {
     disposeProp(this.wrench);
     disposeProp(this.hammer);
     this.button.dispose();
-    this.hangSafe.dispose();
-    this.marquee.dispose();
     disposeRope(this.zipRope);
     disposeProp(this.zipPole);
     for (const g of this.glows) disposeOwnedMesh(g);

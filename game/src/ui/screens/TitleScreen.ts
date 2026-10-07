@@ -1,7 +1,10 @@
 /**
- * Title: the logo SLAMS in over the live 3D diorama (overshoot + squash, letters jiggle in one by
- * one, dangling roots grow), the "UPROOT HEIST" ribbon flips in, and a bobbing "아무 키나
- * 누르세요" sticker waits. Any nav action, any key frame (MenuNav.any) or a click starts.
+ * Title: the logo settles in over the live 3D diorama (letters drop in once, the roots grow
+ * under "뿌리째"), and a quiet "아무 키나 누르세요" breathes underneath. Nothing else sits on the
+ * sky. Any nav action, any key frame (MenuNav.any) or a click starts.
+ *
+ * `logoLockup` is the one game logo: the title shows it large (two stacked words), the front
+ * door shows it compact on one line.
  */
 import { t } from '../i18n';
 import { h, svgFromMarkup } from '../core/dom';
@@ -36,10 +39,44 @@ const ROOTS_SVG = `<svg viewBox="0 0 600 130" xmlns="http://www.w3.org/2000/svg"
   <g fill="#9C6440" stroke="#2A2131" stroke-width="4.5"><circle cx="48" cy="34" r="8"/><circle cx="196" cy="30" r="6"/><circle cx="372" cy="34" r="7"/><circle cx="556" cy="30" r="6"/></g>
 </svg>`;
 
-/** Little sparkle stars around the logo (static SVG, CSS twinkles them). */
-const SPARK = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 1.5l2.6 7.9 7.9 2.6-7.9 2.6L12 22.5l-2.6-7.9L1.5 12l7.9-2.6z" fill="#FFF6E6" stroke="#2A2131" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
+/** Hand-set letter tilts (small: the logo leans, it does not wobble). */
+const TILT = [-4, 2.5, -2, 3.5, -3, 2];
 
-const TILT = [-7, 4, -3, 6, -5, 3];
+export interface LogoOptions {
+  /** One line, front-door size (default: two stacked words, title size). */
+  compact?: boolean;
+  /** Letters drop in once (title). Default false. */
+  animate?: boolean;
+  cls?: string;
+}
+
+/** The game logo: "뿌리째" in sun yellow with roots hanging from it, "털어라" in cream, "UPROOT HEIST" under it. */
+export function logoLockup(o: LogoOptions = {}): HTMLElement {
+  const word = (text: string, tone: 'sun' | 'cream', delay0: number, seed: number): HTMLElement =>
+    h(
+      'span',
+      { class: `uh-logo__word uh-logo__word--${tone}` },
+      Array.from(text).map((ch, i) => h('span', { class: 'uh-logo__char', style: { '--d': `${delay0 + i * 70}ms`, '--tilt': `${TILT[(i + seed) % TILT.length]}deg` } }, ch)),
+    );
+  const title = t('game.title');
+  const [first, ...rest] = title.split(' ');
+  const second = rest.join(' ');
+  return h(
+    'div',
+    {
+      class: ['uh-logo', o.compact ? 'uh-logo--compact' : '', o.animate ? 'is-animated' : '', Math.max(first.length, second.length) <= 4 ? 'uh-logo--short' : '', o.cls ?? ''],
+      role: 'img',
+      'aria-label': `${title} (${t('game.titleEn')})`,
+    },
+    h(
+      'div',
+      { class: 'uh-logo__mark' },
+      h('span', { class: 'uh-logo__line uh-logo__line--a' }, word(first, 'sun', 200, 0), svgFromMarkup(ROOTS_SVG, 'uh-logo__roots uh-deco')),
+      second ? h('span', { class: 'uh-logo__line uh-logo__line--b' }, word(second, 'cream', 420, 3)) : null,
+    ),
+    h('div', { class: 'uh-logo__sub', 'aria-hidden': 'true' }, t('game.titleEn')),
+  );
+}
 
 export class TitleScreen extends UiScreen<TitleScreenProps> {
   constructor(props: TitleScreenProps) {
@@ -51,31 +88,12 @@ export class TitleScreen extends UiScreen<TitleScreenProps> {
   }
 
   protected render(): void {
-    const word = (text: string, tone: 'sun' | 'cream', delay0: number, seed: number): HTMLElement =>
-      h(
-        'span',
-        { class: `uh-logo__word uh-logo__word--${tone}` },
-        Array.from(text).map((ch, i) =>
-          h('span', { class: 'uh-logo__char', style: { '--d': `${delay0 + i * 85}ms`, '--tilt': `${TILT[(i + seed) % TILT.length]}deg`, '--k': String(i) } }, ch),
-        ),
-      );
-    const title = t('game.title');
-    const [first, ...rest] = title.split(' ');
-    const logo = h(
-      'div',
-      // Short titles (Korean: 3 + 3 syllables) get bigger letters so both languages fill the sky.
-      { class: ['uh-logo', Math.max(first.length, rest.join(' ').length) <= 4 ? 'uh-logo--short' : ''], role: 'img', 'aria-label': title },
-      h('div', { class: 'uh-logo__line uh-logo__line--a' }, word(first, 'sun', 260, 0), svgFromMarkup(ROOTS_SVG, 'uh-logo__roots uh-deco')),
-      h('div', { class: 'uh-logo__line uh-logo__line--b' }, word(rest.join(' '), 'cream', 560, 3)),
-      h('div', { class: 'uh-logo__ribbon' }, h('span', null, t('game.titleEn'))),
-      [0, 1, 2, 3].map((i) => h('span', { class: `uh-logo__spark uh-logo__spark--${i} uh-deco` }, svgFromMarkup(SPARK))),
-    );
     this.el.append(
       h(
         'div',
         { class: 'uh-frame uh-title' },
-        h('div', { class: 'uh-title__center' }, logo, h('p', { class: 'uh-title__tagline' }, t('game.tagline'))),
-        h('div', { class: 'uh-title__press' }, h('span', { class: 'uh-title__pressPaw' }, icon('paw')), h('span', { class: 'uh-title__pressText' }, t('title.pressAny'))),
+        h('div', { class: 'uh-title__center' }, logoLockup({ animate: true })),
+        h('div', { class: 'uh-title__press' }, h('span', { class: 'uh-title__pressPaw', 'aria-hidden': 'true' }, icon('paw')), h('span', { class: 'uh-title__pressText' }, t('title.pressAny'))),
         this.props.version ? h('div', { class: 'uh-title__version' }, t('title.version', { version: this.props.version })) : null,
       ),
     );

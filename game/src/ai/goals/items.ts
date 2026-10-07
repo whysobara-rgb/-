@@ -90,9 +90,11 @@ export class ItemGoals implements GoalProvider {
         const worth = itemWorth(it.kind, left - t);
         if (worth <= 0) continue;
         let w = wHammer * (0.45 + 0.55 * skill);
-        // an opponent clearly closer (and empty-pocketed) gets it first — the golden one is
-        // always worth the race
-        if (it.kind !== 'goldHammer') {
+        // an opponent clearly closer (and empty-pocketed) gets it first — the golden one and the
+        // axis pad's drops are always worth the race
+        const pad = it.padId !== null ? sim.layout.v2?.itemPads.find((p) => p.id === it.padId) : undefined;
+        const axis = pad !== undefined && pad.twin === null;
+        if (it.kind !== 'goldHammer' && !axis) {
           for (const o of opps) {
             const od = V.dist(o.last!.pos, it.pos) * 1.1 + (o.age / TICK_RATE) * 2.5;
             if (od + 2.5 < walk) {
@@ -145,6 +147,21 @@ export class ItemGoals implements GoalProvider {
       const uproot = l.variant ? (l.variant === 'atm' ? 3 : 2.5) : l.kind === 'bank' ? 3 : l.kind === 'largeSafe' ? 2 : 1;
       let value = Math.min(prog, 1 - l.unanchorProgress) * uproot * 25 + (l.variant === 'atm' ? 30 : l.variant === 'moneyTree' ? 50 : 0);
       if (l.kind === 'bank') value *= 1 + 0.4 * ((view.W.bank ?? 1) - 0.6);
+      const t = walk / WALK + 0.7;
+      const u = (value / t) * urgency;
+      if (!best || u > best.u) best = { u, l, pos: l.pos, value, t };
+    }
+    // the 돼지저금통 the other team handled last: two cracks a swing — bust it open (잭팟, the coins
+    // burst out around me) rather than let them roll it home
+    for (const l of st.loot) {
+      if (l.variant !== 'piggy' || !inPlayLoot(l) || (l.innerValue ?? 0) <= 0) continue;
+      if (l.grabbedBy.some((id) => st.characters[id - 1]?.team === view.team)) continue;
+      const lastOpp = l.lastHolder !== null && st.characters[l.lastHolder - 1]?.team !== view.team;
+      if (!lastOpp) continue;
+      if (V.dist(l.pos, me.pos) > 18) continue;
+      const walk = view.walkDist(lootSurfacePoint(l, me.pos));
+      if (!Number.isFinite(walk)) continue;
+      const value = (l.innerValue ?? 0) * ((l.cracks ?? 0) >= 1 ? 0.55 : 0.3);
       const t = walk / WALK + 0.7;
       const u = (value / t) * urgency;
       if (!best || u > best.u) best = { u, l, pos: l.pos, value, t };
@@ -251,7 +268,7 @@ export class ItemGoals implements GoalProvider {
       target = boxSurfacePoint(br, me.pos);
     } else if (g.targetId !== null) {
       const l = view.sim.getLoot(g.targetId);
-      if (!l || l.recovered || !l.anchored) {
+      if (!l || !inPlayLoot(l) || (!l.anchored && l.variant !== 'piggy')) {
         view.endGoal('loose / gone');
         return still();
       }
@@ -271,7 +288,7 @@ export class ItemGoals implements GoalProvider {
   }
 
   /** The swing layer: take a good swing that is in reach right now (see header). */
-  overlay(view: BotView, c: Command): Command | null {
+  overlay(view: BotView, _c: Command): Command | null {
     const sim = view.sim;
     if (sim.rules.content !== 'v2') return null;
     const st = sim.state;
@@ -286,6 +303,7 @@ export class ItemGoals implements GoalProvider {
       if (!isHammer(h.kind) || h.phase !== 'idle' || h.cooldown > 0 || h.uses <= 0 || me.knockdownTicks > 0) return null;
       const l = sim.getLoot(me.grab.targetId);
       if (!l || (l.recovery && l.recovery.team === view.team)) return null;
+      if (st.tick - this.releasedAt < 90) return null; // (once in a while, never a release / regrab jitter)
       const foe = this.foeInReach(view, h.kind);
       if (!foe || !view.rngCheck(contentSkill(view.P).item, 3)) return null;
       this.releasedAt = st.tick;
@@ -297,17 +315,15 @@ export class ItemGoals implements GoalProvider {
     // a person takes most good chances, not all (itemSkill); a quick throttle like other reflexes
     const skill = contentSkill(view.P).item;
     const g = view.goal();
-    const ps = view.ps();
     const pick = this.pickTarget(view, it.kind, g);
     if (!pick) return null;
-    if (!view.rngCheck(Math.min(1, 0.35 + 0.65 * skill), 3)) return null;
+    // (right after letting go of a load for it, the swing is taken: no second roll)
+    if (st.tick - this.releasedAt >= 12 && !view.rngCheck(Math.min(1, 0.35 + 0.65 * skill), 3)) return null;
     const aim = aimWithError(view, V.sub(pick.p, me.pos));
     const arc = arcSummary(view, aim, it.kind);
     if (arc.ourBank || (arc.piggy && !pick.piggyOk)) return null;
     this.swungAt = st.tick;
     view.log(`swings ${it.kind} at ${pick.what}`);
-    void ps;
-    void c;
     return swingCommand(view, aim, pick.charId);
   }
 
@@ -355,6 +371,13 @@ export class ItemGoals implements GoalProvider {
       return { p, what: `opponent ${o.id}${held ? ` (holding ${held.id})` : ''}`, charId: o.id, piggyOk: held?.variant === 'piggy' };
     }
     // 3. the anchored loot my goal is about to grab (a small safe pops right out)
+    if (g && g.kind === 'useItem' && g.targetId !== null) {
+      const l = sim.getLoot(g.targetId);
+      if (l && l.variant === 'piggy' && inPlayLoot(l)) {
+        const q = lootSurfacePoint(l, me.pos);
+        if (reachesPoint(view, q, k, 0.2)) return { p: q, what: `piggy ${l.id}`, charId: null, piggyOk: true };
+      }
+    }
     if (g && g.targetId !== null && (g.kind === 'collectSafe' || g.kind === 'stripBank' || g.kind === 'haulBank' || g.kind === 'assistHaul' || g.kind === 'useItem')) {
       const l = sim.getLoot(g.targetId);
       if (l && !l.recovered && !l.dormant && !l.airborne && l.anchored && hammerProgress(l) > 0 && !me.grab) {
@@ -375,6 +398,10 @@ export class ItemGoals implements GoalProvider {
     }
     return null;
   }
+}
+
+function inPlayLoot(l: Readonly<LootState>): boolean {
+  return !l.recovered && !l.dormant && !l.airborne;
 }
 
 function still(grab = false): Command {

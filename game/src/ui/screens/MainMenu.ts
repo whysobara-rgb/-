@@ -1,43 +1,38 @@
 /**
- * Front door (C10, replaces the signboard menu). Over the live rooftop hideout ('front'
- * framing: the 3D marquee top-left, the gang centre-left, the hero holding a 뿅망치):
+ * Front door (C10, calm pass). One focal point over the live rooftop hideout:
  *
- *   right column   player card · big 게임 시작 (one press: quick match with the last setup, or the
- *                  practice on first launch) · mode cards 빠른 대전 / 라이벌 대회 / 연습 with live
- *                  status lines · "이어서 / 다음 목표" card (+ a small x to hide it)
- *   bottom-left    round dock buttons 옷장 · 설정 · 크레딧 · 종료
- *   bottom edge    LED news strip (offline headlines + honest update notes)
+ *   left column   the logo lockup, one big 게임 시작 (one press: quick match with the last
+ *                 setup, or the practice on first launch) with a small "맵·상대 바꾸기" link
+ *                 beside it, a caption naming that setup, an optional one-line next goal (with
+ *                 an x to hide it), then a short quiet list:
+ *                 빠른 대전 · 연습 · 라이벌 대회 | 옷장 · 설정 · 크레딧 · 종료
+ *   top right     a small chip with the player's portrait and rank title (not a control)
+ *   bottom left   one quiet line saying what the focused item does
  *
- * Focus starts on 게임 시작 (first launch: the highlighted 연습 card, which replaces the old
- * first-run modal). Back returns to the title. Game flow forwards `onFocusItem` to the 3D gang
- * and runs the play ceremony + `vanWipe` when 게임 시작 is pressed.
+ * The 3D gang stands in the right half; a soft scrim on the left keeps the UI readable. Focus
+ * starts on 게임 시작. Back returns to the title. Game flow forwards `onFocusItem` to the 3D
+ * scene (only 게임 시작 gets a reaction) and runs the play ceremony + `vanWipe` on 게임 시작.
  *
- * Portrait / phone width: a single column under the marquee, zoomed to the viewport width
- * with 16 px gutters (fonts keep a 14 px floor after the zoom).
+ * Everything sits in normal flow inside the 16:9 `.uh-frame`, so the shared shrink-to-fit
+ * keeps the column whole at 140 % UI scale. Portrait / phone width stacks the same column at
+ * the bottom with 16 px gutters (the gang stays visible above it).
  */
 import '../styles/front.css';
-import type { HatId, LayoutDef, TeamId } from '../../sim/types';
+import type { HatId, TeamId } from '../../sim/types';
 import { t, tr, type TextRef } from '../i18n';
 import { h, isReducedMotion, setText, svgFromMarkup } from '../core/dom';
-import { icon, type IconName, type RivalId } from '../core/icons';
+import { icon } from '../core/icons';
 import { navigable, uiSound } from '../core/nav';
 import { UiScreen } from '../core/screen';
-import { chunky } from '../core/juice';
 import { getUiRoot } from '../core/root';
-import { glyphChip } from '../core/prompts';
-import { layoutPortrait, objectPortrait, portrait } from '../core/portrait';
-import { chip } from '../components/controls';
-import { modeCard } from '../components/ModeCard';
-import { playerCard, type PlayerCardModel } from '../components/PlayerCard';
-import { nextGoalCard, type NextGoalView } from '../components/NextGoalCard';
-import { newsTicker, type NewsItem } from '../components/NewsTicker';
+import { playerChip, type PlayerChipModel } from '../components/PlayerCard';
+import { nextGoalLine, type NextGoalView } from '../components/NextGoalCard';
+import { logoLockup } from './TitleScreen';
 
 export type MainMenuItem = 'play' | 'practice' | 'quickMatch' | 'tournament' | 'wardrobe' | 'settings' | 'credits' | 'quit' | 'goal';
-export type FrontMode = 'quickMatch' | 'tournament' | 'practice';
 
-export type { PlayerCardModel } from '../components/PlayerCard';
+export type { PlayerChipModel } from '../components/PlayerCard';
 export type { NextGoalView, NextGoalKind } from '../components/NextGoalCard';
-export type { NewsItem } from '../components/NewsTicker';
 
 export interface MainMenuProps {
   onSelect: (item: MainMenuItem) => void;
@@ -45,63 +40,48 @@ export interface MainMenuProps {
   onBack?: () => void;
   /** Show 종료 (desktop builds). Default true. */
   showQuit?: boolean;
-  /** Player look (portrait on the player card). */
+  /** Player look (portrait on the corner chip when `player` is omitted). */
   hat?: HatId;
   team?: TeamId;
-  /** Small badge per item, e.g. { wardrobe: 'common.new' }. */
+  /** Small badge per list item, e.g. { wardrobe: 'common.new' }. */
   badges?: Partial<Record<MainMenuItem, TextRef>>;
   /** Focus on first show (default 'play'). */
   initialFocus?: MainMenuItem;
-  /** The focused control changed (the 3D gang reacts). */
+  /** The focused control changed (the 3D scene may react). */
   onFocusItem?: (item: MainMenuItem) => void;
-  /** Line under 게임 시작, e.g. "빠른 대전 · 1:1 · 랜덤 맵". */
+  /** Caption under 게임 시작, e.g. "빠른 대전 · 1:1 · 랜덤 맵". */
   playSub?: TextRef | null;
-  /** First launch: 게임 시작 leads to the practice, and the 연습 card carries the "여기부터!" flag. */
+  /** First launch: 게임 시작 leads to the practice (and the setup link is hidden). */
   firstRun?: boolean;
-  player?: PlayerCardModel | null;
-  /** Live status line per mode card. */
-  modeStatus?: Partial<Record<FrontMode, TextRef | null>>;
-  /** Layout snapshot for the 빠른 대전 card (null = the bank card). */
-  quickArt?: LayoutDef | null;
-  /** Rival on the 라이벌 대회 card (the next / current opponent). */
-  tournamentRival?: RivalId | null;
-  /** The "이어서 / 다음 목표" card (null = hidden). */
+  /** Corner chip (portrait + rank title). null = none. */
+  player?: PlayerChipModel | null;
+  /** One short next-goal line under 게임 시작 (null = hidden). */
   nextGoal?: NextGoalView | null;
-  /** Hide the next-goal card for this session. */
+  /** Hide the next-goal line for this session. */
   onDismissGoal?: () => void;
-  news?: readonly NewsItem[];
-  /** The 3D marquee is on screen (false = draw the HTML wordmark instead). Default true. */
-  logo3d?: boolean;
 }
 
-interface DockSpec {
-  id: 'wardrobe' | 'settings' | 'credits' | 'quit';
-  icon: IconName;
-  tone: string;
-  label: string;
-}
+type ListId = 'quickMatch' | 'practice' | 'tournament' | 'wardrobe' | 'settings' | 'credits' | 'quit';
 
-/**
- * Dock, left to right: 종료 at the outer corner, 설정 next to the panel (so Down from the goal card
- * lands on it). Every control stays reachable with the arrows alone.
- */
-const DOCK: readonly DockSpec[] = [
-  { id: 'quit', icon: 'quit', tone: 'ash', label: 'menu.quit' },
-  { id: 'credits', icon: 'star', tone: 'pink', label: 'front.credits' },
-  { id: 'wardrobe', icon: 'wardrobe', tone: 'grape', label: 'menu.wardrobe' },
-  { id: 'settings', icon: 'settings', tone: 'sky', label: 'menu.settings' },
+/** The quiet list, in two groups: ways to play, then the rest. */
+const LIST: readonly (readonly { id: ListId; label: string }[])[] = [
+  [
+    { id: 'quickMatch', label: 'menu.quickMatch' },
+    { id: 'practice', label: 'menu.practice' },
+    { id: 'tournament', label: 'menu.tournament' },
+  ],
+  [
+    { id: 'wardrobe', label: 'menu.wardrobe' },
+    { id: 'settings', label: 'menu.settings' },
+    { id: 'credits', label: 'front.credits' },
+    { id: 'quit', label: 'menu.quit' },
+  ],
 ];
 
-/** Learning order left to right: 연습 -> 빠른 대전 (centre, under 게임 시작) -> 라이벌 대회. */
-const MODES: readonly { id: FrontMode; tone: 'sun' | 'tomato' | 'mint'; title: string }[] = [
-  { id: 'practice', tone: 'mint', title: 'menu.practice' },
-  { id: 'quickMatch', tone: 'sun', title: 'menu.quickMatch' },
-  { id: 'tournament', tone: 'tomato', title: 'menu.tournament' },
-];
-
-/** What the gang says about the focused control (speech bubble). */
+/** One quiet line about the focused control. */
 const DESC: Record<string, string> = {
   play: 'front.play.desc',
+  change: 'front.play.change.desc',
   quickMatch: 'menu.quickMatch.desc',
   tournament: 'menu.tournament.desc',
   practice: 'menu.practice.desc',
@@ -117,8 +97,7 @@ const DESC: Record<string, string> = {
 const TALL_ASPECT = 0.8;
 
 export class MainMenu extends UiScreen<MainMenuProps> {
-  private bubble: HTMLElement | null = null;
-  private bubbleText: HTMLElement | null = null;
+  private hint: HTMLElement | null = null;
   private lastItem: string | null = null;
   private frontEl: HTMLElement | null = null;
   private zoomEl: HTMLElement | null = null;
@@ -128,7 +107,8 @@ export class MainMenu extends UiScreen<MainMenuProps> {
   }
 
   protected override defaultFocus(): string {
-    return `menu:${this.props.initialFocus ?? 'play'}`;
+    const f = this.props.initialFocus ?? 'play';
+    return `menu:${f === 'goal' && !this.props.nextGoal ? 'play' : f}`;
   }
 
   private select(item: MainMenuItem): void {
@@ -139,50 +119,32 @@ export class MainMenu extends UiScreen<MainMenuProps> {
     const p = this.props;
     const badges = p.badges ?? {};
 
-    // --- 게임 시작 -------------------------------------------------------------------------------
+    // --- 게임 시작 (the one accent on the screen) -----------------------------------------------
     const play = navigable(
       h(
         'div',
-        { class: ['uh-play', p.firstRun ? 'is-first' : ''], role: 'button' },
+        { class: ['uh-play', p.firstRun ? 'is-first' : ''], role: 'button', 'aria-describedby': 'uh-front-caption' },
         h('span', { class: 'uh-play__icon', 'aria-hidden': 'true' }, icon('play')),
-        h(
-          'span',
-          { class: 'uh-play__text' },
-          h('span', { class: 'uh-play__label' }, t('front.play')),
-          p.playSub ? h('span', { class: 'uh-play__sub' }, tr(p.playSub)) : null,
-        ),
-        h('span', { class: 'uh-play__glyph', 'aria-hidden': 'true' }, glyphChip('confirm')),
+        h('span', { class: 'uh-play__label' }, t('front.play')),
       ),
       'menu:play',
       { onActivate: () => this.select('play') },
     );
 
-    // --- mode cards ------------------------------------------------------------------------------
-    const art = (m: FrontMode): HTMLElement => {
-      if (m === 'quickMatch') return (p.quickArt ? layoutPortrait(p.quickArt) : null) ?? objectPortrait('bank');
-      if (m === 'tournament') return portrait({ rival: p.tournamentRival ?? 'hodadak', frame: 'head' });
-      return objectPortrait('smallSafe');
-    };
-    const modes = h(
-      'div',
-      { class: 'uh-front__modes' },
-      MODES.map((m) =>
-        modeCard({
-          id: `menu:${m.id}`,
-          title: m.title,
-          status: p.modeStatus?.[m.id] ?? null,
-          art: art(m.id),
-          tone: m.tone,
-          badge: badges[m.id] ?? null,
-          highlight: p.firstRun && m.id === 'practice' ? 'front.highlight' : null,
-          onActivate: () => this.select(m.id),
-        }),
-      ),
-    );
+    // the small link next to it (change the setup 게임 시작 replays) + the caption naming that setup
+    const change = p.firstRun
+      ? null
+      : navigable(
+          h('span', { class: 'uh-front__link', role: 'button' }, h('span', null, t('front.play.change')), icon('chevRight')),
+          'menu:change',
+          { onActivate: () => this.select('quickMatch') },
+        );
+    const playRow = h('div', { class: 'uh-front__playRow' }, play, change);
+    const caption = p.playSub ? h('p', { class: 'uh-front__caption', id: 'uh-front-caption' }, tr(p.playSub)) : null;
 
-    // --- next goal ---------------------------------------------------------------------------------
+    // --- next goal (one dismissible line) ----------------------------------------------------------
     const goal = p.nextGoal
-      ? nextGoalCard(p.nextGoal, {
+      ? nextGoalLine(p.nextGoal, {
           onActivate: () => this.select('goal'),
           onDismiss: p.onDismissGoal
             ? () => {
@@ -197,72 +159,76 @@ export class MainMenu extends UiScreen<MainMenuProps> {
         })
       : null;
 
-    const panel = h('div', { class: 'uh-front__panel' }, p.player ? playerCard(p.player) : null, play, modes, goal);
-
-    // --- dock --------------------------------------------------------------------------------------
-    const dock = h(
-      'nav',
-      { class: 'uh-front__dock' },
-      DOCK.filter((d) => d.id !== 'quit' || p.showQuit !== false).map((d) => {
-        const badge = badges[d.id];
-        return navigable(
-          h(
-            'div',
-            { class: ['uh-dock', `uh-dock--${d.tone}`], role: 'button' },
-            h('span', { class: 'uh-dock__btn' }, icon(d.icon)),
-            h('span', { class: 'uh-dock__label' }, t(d.label)),
-            badge ? h('span', { class: 'uh-dock__badge' }, chip(badge, 'tomato')) : null,
-          ),
-          `menu:${d.id}`,
-          { onActivate: () => this.select(d.id) },
-        );
-      }),
+    // --- the quiet list ----------------------------------------------------------------------------
+    const groups = LIST.map((group) =>
+      h(
+        'div',
+        { class: 'uh-front__group', role: 'group' },
+        group
+          .filter((it) => it.id !== 'quit' || p.showQuit !== false)
+          .map((it) => {
+            const badge = badges[it.id];
+            return navigable(
+              h(
+                'div',
+                { class: 'uh-mitem', role: 'button' },
+                h('span', { class: 'uh-mitem__label' }, t(it.label)),
+                badge ? h('span', { class: 'uh-mitem__badge' }, tr(badge)) : null,
+              ),
+              `menu:${it.id}`,
+              { onActivate: () => this.select(it.id) },
+            );
+          }),
+      ),
     );
+    const list = h('nav', { class: 'uh-front__list', 'aria-label': t('front.menu.aria') }, groups);
 
-    this.bubbleText = h('p', { class: 'uh-front__bubbleText' });
-    this.bubble = h('aside', { class: 'uh-front__bubble' }, this.bubbleText);
-
-    const ticker = p.news && p.news.length ? newsTicker(p.news) : null;
-    const logo =
-      p.logo3d === false
-        ? h('div', { class: 'uh-front__logo', role: 'img', 'aria-label': t('game.title') }, chunky(t('game.title'), { cls: 'uh-front__logoWord', tone: 'sun', seed: 2 }), h('span', { class: 'uh-front__logoEn' }, t('game.titleEn')))
-        : // The marquee is 3D; keep the name for assistive tech.
-          h('h1', { class: 'uh-sr-only', style: { position: 'absolute', width: '1px', height: '1px', overflow: 'hidden', clip: 'rect(0 0 0 0)' } }, t('game.title'));
-
-    this.zoomEl = h('div', { class: 'uh-front__zoom' }, logo, h('div', { class: 'uh-front__spacer', 'aria-hidden': 'true' }), panel, dock, this.bubble, ticker?.el ?? null);
-    this.frontEl = h('div', { class: 'uh-frame uh-front' }, h('div', { class: 'uh-front__inner' }, this.zoomEl));
-    this.el.append(this.frontEl);
-    if (ticker) this.own(ticker.start());
+    // --- frame -------------------------------------------------------------------------------------
+    const logo = logoLockup({ compact: true, cls: 'uh-front__logo' });
+    const chip = p.player ? playerChip(p.player) : null;
+    this.hint = h('p', { class: 'uh-front__hint', 'aria-live': 'polite' });
+    this.zoomEl = h(
+      'div',
+      { class: 'uh-front__zoom' },
+      h('header', { class: 'uh-front__top' }, logo, chip),
+      h('div', { class: 'uh-front__main' }, h('div', { class: 'uh-front__hero' }, playRow, caption, goal), list),
+      h('footer', { class: 'uh-front__foot' }, this.hint),
+    );
+    this.frontEl = h('div', { class: 'uh-frame uh-front' }, this.zoomEl);
+    // Backdrop treatment (under the UI): the left side of the 3D goes soft and the whole scene a
+    // touch calmer (less saturation / contrast), then a dusk scrim behind the column.
+    this.el.append(h('div', { class: 'uh-front__soften', 'aria-hidden': 'true' }), h('div', { class: 'uh-front__scrim', 'aria-hidden': 'true' }), this.frontEl);
     const onResize = (): void => this.layoutTall();
     window.addEventListener('resize', onResize);
     this.own(() => window.removeEventListener('resize', onResize));
     this.layoutTall();
-    this.paintDesc(this.focus.focusedId ?? this.defaultFocus(), false);
+    this.paintDesc(this.focus.focusedId ?? this.defaultFocus());
   }
 
-  /** Portrait / phone: one zoomed column (16 px gutters) under the 3D marquee. */
+  /**
+   * Portrait / phone: the column moves to the bottom and is zoomed to fill the width with 16 px
+   * gutters (rem follows the short side, so it would be tiny otherwise). Font floors divide by
+   * --fz so nothing renders under 14 px after the zoom.
+   */
   private layoutTall(): void {
-    const front = this.frontEl;
     const zoom = this.zoomEl;
-    if (!front || !zoom) return;
+    if (!zoom) return;
     const w = window.innerWidth || 1;
     const hgt = window.innerHeight || 1;
     const tall = w / hgt < TALL_ASPECT;
-    front.classList.toggle('is-tall', tall);
-    front.querySelector('.uh-front__inner')?.classList.toggle('uh-scroll', tall);
+    this.el.classList.toggle('is-tall', tall);
     if (!tall) {
-      zoom.style.removeProperty('zoom');
+      for (const k of ['zoom', 'height', 'padding']) zoom.style.removeProperty(k);
       this.el.style.setProperty('--fz', '1');
       return;
     }
     const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-    // Design column: 45rem panel + 2 x gutter, filling the viewport width.
-    const k = Math.max(1, w / (rem * 48));
+    // Design column: 30rem between two 16 px gutters.
+    const k = Math.max(1, (w - 32) / (rem * 30));
     zoom.style.setProperty('zoom', k.toFixed(3));
+    zoom.style.setProperty('height', `${(hgt / k).toFixed(1)}px`);
+    zoom.style.setProperty('padding', `${(24 / k).toFixed(2)}px ${(16 / k).toFixed(2)}px`);
     this.el.style.setProperty('--fz', k.toFixed(3));
-    zoom.style.setProperty('--front-gutter', `${(16 / k).toFixed(2)}px`);
-    // Room on top for the marquee (the tall framing puts it in the upper ~third).
-    zoom.style.setProperty('--front-top', `${((hgt * 0.36) / k).toFixed(1)}px`);
   }
 
   protected override onBack(): boolean {
@@ -275,27 +241,23 @@ export class MainMenu extends UiScreen<MainMenuProps> {
 
   protected override onShow(): void {
     this.layoutTall();
-    this.paintDesc(this.focus.focusedId, false);
+    this.paintDesc(this.focus.focusedId);
   }
 
   protected override onFocusChanged(el: HTMLElement | null): void {
-    this.paintDesc(el?.dataset.nav ?? null, true);
+    this.paintDesc(el?.dataset.nav ?? null);
   }
 
-  private paintDesc(navId: string | null, animate: boolean): void {
-    if (!navId || !this.bubbleText || !this.bubble) return;
+  private paintDesc(navId: string | null): void {
+    if (!navId || !this.hint) return;
     const id = navId.replace('menu:', '');
     const key = id === 'play' && this.props.firstRun ? 'front.play.desc.first' : DESC[id];
     if (!key) return;
-    setText(this.bubbleText, t(key));
-    if (animate && id !== this.lastItem && !isReducedMotion()) {
-      this.bubble.classList.remove('is-pop');
-      void this.bubble.offsetWidth;
-      this.bubble.classList.add('is-pop');
-    }
+    setText(this.hint, t(key));
     if (id !== this.lastItem) {
       this.lastItem = id;
-      if (id !== 'goalDismiss') this.props.onFocusItem?.(id as MainMenuItem);
+      if (id === 'change') this.props.onFocusItem?.('quickMatch');
+      else if (id !== 'goalDismiss') this.props.onFocusItem?.(id as MainMenuItem);
     }
   }
 }

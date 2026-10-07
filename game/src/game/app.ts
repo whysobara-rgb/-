@@ -62,12 +62,9 @@ import {
 } from '../ui';
 import { CreditsScreen } from '../ui/screens/CreditsScreen';
 import { BootSplash } from '../ui/screens/BootSplash';
-import { vanWipe, type FrontMode, type MainMenuProps, type NextGoalView, type PlayerCardModel } from '../ui/screens/MainMenu';
-import { buildNewsFeed, compareVersions, newestNewsVersion } from '../ui/components/NewsTicker';
+import { vanWipe, type MainMenuProps, type NextGoalView } from '../ui/screens/MainMenu';
 import { t as tFront } from '../ui/i18n';
-import { bumpFunnel, setLastQuick, setLastSeenVersion } from '../platform/progress';
-import { mergeRules } from '../sim/world';
-import { buildMatch as buildFrontMatch } from './setup';
+import { bumpFunnel, setLastQuick } from '../platform/progress';
 import { getNative } from '../platform/native';
 import { tournamentAchievements, wardrobeAchievement } from './achievements';
 import { MatchController, type MatchSummary } from './match';
@@ -498,8 +495,8 @@ export class App {
   toMenu(focus?: MainMenuItem): void {
     if (this.match || this.d.view.mode !== 'title') this.toSceneTitle();
     this.d.audio.playMusic('title');
-    // C10 front door: props (player card, 게임 시작, mode statuses, next goal, news) come from
-    // frontDoorProps(); the first-launch practice suggestion is the highlighted 연습 card (no modal).
+    // C10 front door: props (player chip, 게임 시작 + its caption, next goal) come from
+    // frontDoorProps(); on first launch 게임 시작 itself leads to the practice (no modal).
     const props = this.frontDoorProps(focus);
     const first = props.initialFocus ?? 'play';
     const hide = this.hideout('front');
@@ -519,8 +516,6 @@ export class App {
 
   private onMenuSelect(item: MainMenuItem): void {
     this.frontMenuAudio(null);
-    // Leaving the front door for play (any route, not only 게임 시작) marks the news as read.
-    if (item === 'play' || item === 'goal' || item === 'practice' || item === 'quickMatch' || item === 'tournament') this.frontMarkNewsSeen();
     switch (item) {
       case 'play':
         this.frontPlay();
@@ -556,10 +551,8 @@ export class App {
   // C10 front door: boot splash, props, 게임 시작 ceremony, next goal, credits, menu audio
   // ------------------------------------------------------------------------------------------
 
-  /** Front-door next-goal card hidden for this session ("x" on the card). */
+  /** Front-door next-goal line hidden for this session (its small "x"). */
   private frontGoalHidden = false;
-  /** Rotates the news headlines between sessions. */
-  private readonly newsStart = Math.floor(Math.random() * 40);
 
   /**
    * First run: the boot splash (paw-stamp thunk, wordmark, photosensitivity note) while the
@@ -634,72 +627,12 @@ export class App {
     }
   }
 
-  /**
-   * What a quick match on each rotation map really runs: the same buildMatch + mergeRules path
-   * the game uses, so the news strip only announces Content 2.0 once matches actually play it.
-   */
-  private frontLiveContent(): { v2: boolean; items: boolean; props: Set<string> } {
-    const out = { v2: false, items: false, props: new Set<string>() };
-    for (const id of MATCH_LAYOUT_IDS) {
-      try {
-        const built = buildFrontMatch({
-          kind: 'quick',
-          layoutId: id,
-          mode: '1v1',
-          rival: 'hodadak',
-          difficulty: 'normal',
-          adaptation: null,
-          seed: 1,
-          humanHat: 'none',
-          matchSeconds: this.d.params.matchSeconds,
-          police: this.d.params.police,
-        });
-        const rules = mergeRules(built.setup);
-        const v2 = rules.content === 'v2' ? built.setup.layout.v2 : null;
-        if (!v2) continue;
-        out.v2 = true;
-        if (rules.items !== 'off' && v2.itemPads.length > 0) out.items = true;
-        for (const p of v2.props) out.props.add(p.variant);
-      } catch {
-        // a map that cannot build announces nothing
-      }
-    }
-    return out;
-  }
-
-  /**
-   * Is a news.json `requires` gate true of what matches really run? 'v2' = Content 2.0 rules on
-   * a rotation map, 'items' = supply drops on one of them, 'props:a,b' = all those uprootables
-   * placed on v2 maps, 'layout:<id>' = that map is in the rotation.
-   */
-  private frontNewsGate(live: { v2: boolean; items: boolean; props: Set<string> }): (req: string) => boolean {
-    return (req) => {
-      if (req === 'v2') return live.v2;
-      if (req === 'items') return live.items;
-      if (req.startsWith('props:')) return live.v2 && req.slice(6).split(',').every((v) => live.props.has(v.trim()));
-      if (req.startsWith('layout:')) return (MATCH_LAYOUT_IDS as string[]).includes(req.slice(7));
-      return false;
-    };
-  }
-
-  /** Mark the update notes the player could see as read (leaving the front door for play). */
-  private frontMarkNewsSeen(): void {
-    const version = newestNewsVersion(this.frontNewsGate(this.frontLiveContent()));
-    if (!version) return;
-    try {
-      const prev = this.d.save.data.lastSeenVersion;
-      if (!prev || compareVersions(version, prev) > 0) setLastSeenVersion(version);
-    } catch {
-      // older save shape: nothing to remember
-    }
-  }
-
   private frontFirstRun(): boolean {
     const data = this.d.save.data;
     return !data.tutorialDone && data.stats.matches === 0;
   }
 
-  /** Everything the front door shows (C10). */
+  /** Everything the front door shows (C10, calm pass). */
   private frontDoorProps(focus?: MainMenuItem): Omit<MainMenuProps, 'onSelect'> {
     const data = this.d.save.data;
     const fresh = this.frontFirstRun();
@@ -709,61 +642,24 @@ export class App {
     if (cups) for (const list of Object.values(cups)) for (const r of list ?? []) beatenSet.add(r);
     const beaten = rivals.filter((r) => beatenSet.has(r));
     const badges: MainMenuProps['badges'] = {};
-    // (fresh saves: the 연습 card carries the "여기부터!" flag instead of a NEW badge)
     if (newHats(data.cosmetics).length) badges.wardrobe = 'common.new';
-    const st = data.stats;
-    const player: PlayerCardModel = {
-      hat: data.cosmetics.equipped,
-      team: 0,
-      rank: `front.player.rank.${beaten.length}`,
-      hatName: `hat.${data.cosmetics.equipped}.name`,
-      record: st.matches > 0 ? { wins: st.wins, losses: st.losses, draws: st.draws, best: st.bestScore } : null,
-      rivals: rivals.map((rival) => ({ rival, beaten: beatenSet.has(rival) })),
-    };
-    // 게임 시작 line
+    // caption under 게임 시작: what one press starts
     const q = this.frontQuickOpts();
     const mapName = q.layout === 'random' ? tFront('front.play.map.random') : tFront(getLayout(q.layout).nameKey);
     const playSub = fresh ? 'front.play.sub.first' : { key: 'front.play.sub.quick', params: { mode: tFront(`mode.${q.mode}`), map: mapName } };
-    // mode statuses
-    const series = data.tournament.series;
-    const rivalName = (r: RivalId): string => tFront(RIVALS[r].nameKey);
-    const nextRival = rivals.find((r) => !beatenSet.has(r)) ?? null;
-    // "새 맵": match maps added after the launch three that this save has not played or previewed.
-    const seen = (data as { seenLayouts?: LayoutId[] }).seenLayouts ?? [];
-    const launchMaps: readonly LayoutId[] = ['plaza', 'shortcut', 'counter'];
-    const newMaps = MATCH_LAYOUT_IDS.filter((id) => !launchMaps.includes(id) && !seen.includes(id)).length;
-    const modeStatus: Partial<Record<FrontMode, MainMenuProps['playSub']>> = {
-      quickMatch: newMaps > 0 ? { key: 'front.mode.quickMatch.newMaps', params: { n: newMaps } } : { key: 'front.mode.quickMatch.status', params: { maps: MATCH_LAYOUT_IDS.length, rivals: rivals.length } },
-      tournament: series
-        ? { key: 'front.mode.tournament.series', params: { rival: rivalName(series.rival), round: rivals.indexOf(series.rival) + 1 } }
-        : nextRival
-          ? { key: 'front.mode.tournament.next', params: { rival: rivalName(nextRival) } }
-          : 'front.mode.tournament.done',
-      practice: data.tutorialDone ? 'front.mode.practice.again' : 'front.mode.practice.first',
-    };
-    const lastSeen = (data as { lastSeenVersion?: string | null }).lastSeenVersion ?? null;
-    const news = buildNewsFeed({
-      available: this.frontNewsGate(this.frontLiveContent()),
-      // A fresh save has seen nothing yet, but everything is new to it: mark nothing.
-      lastSeenVersion: st.matches > 0 || data.tutorialDone ? lastSeen ?? '0.5.0' : null,
-      start: this.newsStart,
-    });
+    // A fresh save's next goal is the practice, which 게임 시작 already starts: no second line.
+    const goal = this.frontGoalHidden || fresh ? null : this.frontNextGoal();
     return {
       showQuit: isDesktopBuild(),
       hat: data.cosmetics.equipped,
       team: 0,
       badges,
-      initialFocus: focus ?? (fresh ? 'practice' : 'play'),
+      initialFocus: focus ?? 'play',
       firstRun: fresh,
       playSub,
-      player,
-      modeStatus,
-      quickArt: getLayout(q.layout === 'random' ? MATCH_LAYOUT_IDS[0]! : q.layout),
-      tournamentRival: series?.rival ?? nextRival ?? 'nunchi',
-      nextGoal: this.frontGoalHidden ? null : this.frontNextGoal(),
+      player: { hat: data.cosmetics.equipped, team: 0, rank: `front.player.rank.${beaten.length}` },
+      nextGoal: goal,
       onDismissGoal: () => (this.frontGoalHidden = true),
-      news,
-      logo3d: this.stage !== null,
     };
   }
 
@@ -781,13 +677,12 @@ export class App {
         kind: 'series',
         label: 'front.goal.continue',
         title: { key: 'front.goal.series', params: { rival: name(s.rival) } },
-        detail: { key: 'front.goal.series.detail', params: { w: s.wins, l: s.losses, n: nextGameNumber(s) } },
         icon: 'trophy',
       };
     }
-    if (!data.tutorialDone) return { id: 'practice', kind: 'practice', title: 'front.goal.practice', detail: 'front.goal.practice.detail', icon: 'practice' };
+    if (!data.tutorialDone) return { id: 'practice', kind: 'practice', title: 'front.goal.practice', icon: 'practice' };
     const next = (['hodadak', 'tongkeun', 'nunchi'] as RivalId[]).find((r) => !data.tournament.beaten.includes(r));
-    if (next) return { id: `rival:${next}`, kind: 'tournament', title: { key: 'front.goal.rival', params: { rival: name(next) } }, detail: 'front.goal.rival.detail', icon: 'hat' };
+    if (next) return { id: `rival:${next}`, kind: 'tournament', title: { key: 'front.goal.rival', params: { rival: name(next) } }, icon: 'hat' };
     return null;
   }
 

@@ -8,8 +8,16 @@ import { describe, expect, it } from 'vitest';
 import {
   CUP_IDS,
   FUNNEL_KEYS,
+  EMOTE_IDS,
+  HAT_IDS,
+  MAX_ACHIEVEMENTS,
+  MAX_ADAPT_LINE_KEY,
+  MAX_ADAPT_PARAMS,
+  MAX_ADAPT_PARAM_KEY,
+  MAX_ADAPT_PARAM_VALUE,
   MAX_CHALLENGE_IDS,
   MAX_MILESTONES,
+  ONBOARDING_STEPS,
   MAX_SUMMARY_CHALLENGES,
   MAX_VAN_PAINTS,
   MemorySaveBackend,
@@ -32,6 +40,7 @@ import {
   type SaveData,
 } from '../../src/platform/save';
 import { EMOTE_RIVAL } from '../../src/platform/emotes';
+import { MATCH_ACTIONS, MAX_BINDINGS_PER_ACTION } from '../../src/platform/bindings';
 import { createDefaultSettings } from '../../src/platform/settings';
 import { LAYOUTS, MATCH_LAYOUT_IDS } from '../../src/sim/layouts';
 import { ITEMS } from '../../src/sim/config';
@@ -303,30 +312,110 @@ describe('save v2: rival taunt unlock (WP9 bug fix)', () => {
 });
 
 describe('save v2: budget and locality', () => {
-  it('stays <= 64 KB with 20 recent summaries and every list at its cap', () => {
+  it('stays <= 64 KB in the true worst case: 20 recent summaries and EVERY capped field full', () => {
     const id = (p: string, i: number): string => `${p}${String(i).padStart(3, '0')}`.padEnd(32, 'x');
     const deltas = Object.fromEntries(Array.from({ length: MAX_SUMMARY_CHALLENGES }, (_, i) => [id('c', i), 1000]));
     const done = Array.from({ length: MAX_SUMMARY_CHALLENGES }, (_, i) => id('c', i));
     const d = defaults();
+    // v1 fields at their caps (tightened in v2 so this fits).
+    const keyboard = d.settings.bindings.keyboard as Record<string, string[]>;
+    MATCH_ACTIONS.forEach((a, ai) => {
+      keyboard[a] = Array.from({ length: MAX_BINDINGS_PER_ACTION }, (_, k) => `K${ai}x${k}`.padEnd(32, 'y'));
+    });
+    d.tournament = {
+      beaten: [...RIVALS],
+      series: {
+        rival: 'nunchi',
+        wins: 1,
+        losses: 1,
+        draws: 999,
+        gameIndex: 9999,
+        layoutId: 'counter',
+        cup: 'challenge',
+        adaptation: {
+          kind: 'ambushChoke',
+          chokepointId: 'c'.repeat(64),
+          lineKey: 'k'.repeat(MAX_ADAPT_LINE_KEY),
+          lineParams: Object.fromEntries(Array.from({ length: MAX_ADAPT_PARAMS }, (_, i) => [`p${i}`.padEnd(MAX_ADAPT_PARAM_KEY, 'p'), 'v'.repeat(MAX_ADAPT_PARAM_VALUE)])),
+        },
+      },
+    };
+    d.cosmetics.unlocked = [...HAT_IDS];
+    d.cosmetics.seen = [...HAT_IDS];
+    d.cosmetics.unlockedEmotes = [...EMOTE_IDS];
+    d.cosmetics.victoryPose = 'nunchiShrug';
+    d.achievements = Array.from({ length: MAX_ACHIEVEMENTS }, (_, i) => `A${i}`.padEnd(64, 'X'));
+    for (const k of Object.keys(d.stats) as Array<keyof SaveData['stats']>) d.stats[k] = 1e9;
+    // v2 fields at their caps.
     d.recent = Array.from({ length: RECENT_MAX }, (_, i) =>
-      summary(i, { matchId: 'm'.repeat(64 - String(i).length) + i, challengeDeltas: deltas, challengeCompleted: done, biggestSplash: 1e9, biggestDeposit: 1e9, eventKind: 'cashTruck' }),
+      summary(i, {
+        matchId: 'm'.repeat(64 - String(i).length) + i,
+        teamMode: '2v2',
+        difficulty: 'challenge',
+        cup: 'challenge',
+        mode: 'tournament',
+        outcome: 'draw',
+        endReason: 'allRecovered',
+        myScore: 1e9,
+        theirScore: 1e9,
+        ticks: 1e9,
+        biggestHaul: 1e9,
+        firstRecoveryTick: 1e9,
+        maxDeficit: 1e9,
+        finishedAt: 1e14,
+        challengeDeltas: deltas,
+        challengeCompleted: done,
+        biggestSplash: 1e9,
+        biggestDeposit: 1e9,
+        eventKind: 'cashTruck',
+      }),
     );
     d.challenges = {
       counters: Object.fromEntries(Array.from({ length: MAX_CHALLENGE_IDS }, (_, i) => [id('k', i), 1e9])),
       completed: Array.from({ length: MAX_CHALLENGE_IDS }, (_, i) => id('k', i)),
     };
-    for (let i = 0; i < MAX_MILESTONES; i++) d.funnel.milestones[id('ms', i)] = 1e13;
+    for (const k of FUNNEL_KEYS) d.funnel.counts[k] = 1e9;
+    d.funnel.matchesThisSession = 1e9;
+    d.funnel.playDays = 1e9;
+    d.funnel.lastPlayDay = '2026-10-07';
+    for (let i = 0; i < MAX_MILESTONES; i++) d.funnel.milestones[id('ms', i)] = 1e14;
     d.cosmetics.vanPaints = Array.from({ length: MAX_VAN_PAINTS }, (_, i) => id('v', i));
+    d.cosmetics.vanPaint = d.cosmetics.vanPaints[0]!;
     d.recordedMatchIds = Array.from({ length: RECORDED_IDS_MAX }, (_, i) => 'r'.repeat(60) + String(i).padStart(4, '0'));
     for (const r of RIVALS) for (const k of RIVAL_RECORD_KEYS) d.rivals[r][k] = { wins: 1e9, losses: 1e9, draws: 1e9, streak: -1e9, lastScore: 1e9, bestMargin: 1e9 };
     for (const l of RECORD_LAYOUT_IDS) for (const r of RIVALS) d.records[l][r] = { bestScore: 1e9, bestMargin: 1e9 };
+    d.globalRecords = { biggestHaul: 1e9, fastestFirstRecovery: 1e9, biggestSplash: 1e9, biggestDeposit: 1e9 };
+    for (const c of CUP_IDS) d.cups[c] = [...RIVALS];
+    d.onboarding = { done: [...ONBOARDING_STEPS], dismissed: true };
+    d.lastQuick = { layout: 'shortcut', mode: '2v2', difficulty: 'challenge', rival: 'tongkeun', items: 'hammerOnly', events: 'off' };
     d.seenItems = [...SAVE_ITEM_KINDS];
     d.itemSightings = Object.fromEntries(SAVE_ITEM_KINDS.map((k) => [k, 999]));
     d.seenLayouts = [...SAVE_LAYOUT_IDS];
-    const clean = sanitizeSaveData(JSON.parse(JSON.stringify(d)), defaults());
+    d.lastSeenVersion = '9'.repeat(32);
+    d.lastEventKind = 'goldSafe';
+
+    // Feed MORE than every cap: the sanitizer must cut it back to the measured worst case.
+    const over = JSON.parse(JSON.stringify(d)) as Record<string, any>;
+    over.achievements = Array.from({ length: 300 }, (_, i) => `A${i}`.padEnd(64, 'X'));
+    over.tournament.series.adaptation.lineParams = Object.fromEntries(Array.from({ length: 16 }, (_, i) => [`p${i}`.padEnd(MAX_ADAPT_PARAM_KEY, 'p'), 'v'.repeat(MAX_ADAPT_PARAM_VALUE)]));
+    const clean = sanitizeSaveData(over, defaults());
+    expect(clean.achievements).toHaveLength(MAX_ACHIEVEMENTS);
+    expect(Object.keys(clean.tournament.series!.adaptation!.lineParams!)).toHaveLength(MAX_ADAPT_PARAMS);
+    expect(clean.tournament.series!.adaptation!.lineKey).toHaveLength(MAX_ADAPT_LINE_KEY);
+    // Every filled field survived at its cap (the case really is "everything full").
+    expect(clean.recent).toHaveLength(RECENT_MAX);
+    expect(clean.recent[0]!.challengeDeltas).toEqual(deltas);
+    expect(Object.keys(clean.challenges.counters)).toHaveLength(MAX_CHALLENGE_IDS);
+    expect(clean.challenges.completed).toHaveLength(MAX_CHALLENGE_IDS);
+    expect(Object.keys(clean.funnel.milestones)).toHaveLength(MAX_MILESTONES);
+    expect(clean.cosmetics.vanPaints).toHaveLength(MAX_VAN_PAINTS);
+    expect(clean.recordedMatchIds).toHaveLength(RECORDED_IDS_MAX);
+    expect(clean.cosmetics.unlockedEmotes).toEqual([...EMOTE_IDS]);
+    expect(clean.settings.bindings.keyboard.grab).toHaveLength(MAX_BINDINGS_PER_ACTION);
+    expect(clean.lastSeenVersion).toBe(d.lastSeenVersion);
+    expect(clean.tournament.series!.adaptation!.chokepointId).toHaveLength(64);
     // Exactly what SaveManager.flush writes.
     const bytes = new TextEncoder().encode(JSON.stringify(clean, null, 2)).length;
-    expect(clean.recent).toHaveLength(RECENT_MAX);
     expect(bytes).toBeLessThanOrEqual(64 * 1024);
     // Typical 20-match save, for the report.
     const typical = defaults();

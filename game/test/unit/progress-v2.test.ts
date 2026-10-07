@@ -245,6 +245,72 @@ describe('funnel (local only)', () => {
     save.dispose();
   });
 
+  it('a session starts on the app-wide manager\'s first load (no caller needed), once per boot', () => {
+    const backend = new MemorySaveBackend();
+    const opts = { flushOnHide: false, defaults: () => createDefaultSaveData(createDefaultSettings({ languages: ['ko'] })) };
+    // Boot 1: getSaveManager() loads, then main.ts loads the same manager again.
+    const a = new SaveManager(backend, { ...opts, countSession: true });
+    a.load();
+    expect(a.data.funnel.counts.sessionStarted).toBe(1);
+    expect(a.dirty).toBe(false); // written right away ...
+    a.load(); // ... so the second load in the same boot keeps it and does not count again
+    expect(a.data.funnel.counts.sessionStarted).toBe(1);
+    recordMatchOutcome(match({ finishedAt: T0 }), a);
+    recordMatchOutcome(match({ finishedAt: T0 + 1000 }), a);
+    expect(a.data.funnel.matchesThisSession).toBe(2);
+    a.dispose();
+    // Boot 2: matches-this-session starts from zero, the session count goes up.
+    const b = new SaveManager(backend, { ...opts, countSession: true });
+    b.load();
+    expect(b.data.funnel).toMatchObject({ matchesThisSession: 0, counts: expect.objectContaining({ sessionStarted: 2, matchFinished: 2 }) });
+    recordMatchOutcome(match({ finishedAt: T0 + DAY }), b);
+    expect(b.data.funnel.matchesThisSession).toBe(1);
+    b.dispose();
+    // Plain managers (tests, ?fresh) never count a session.
+    const c = new SaveManager(backend, opts);
+    c.load();
+    expect(c.data.funnel.counts.sessionStarted).toBe(2);
+    expect(c.data.funnel.matchesThisSession).toBe(1);
+    c.dispose();
+  });
+
+  it('a session start never overwrites a newer-version save by itself', () => {
+    const backend = new MemorySaveBackend();
+    const newer = JSON.stringify({ ...createDefaultSaveData(createDefaultSettings({ languages: ['ko'] })), version: 99 });
+    backend.slots.set('main', newer);
+    const m = new SaveManager(backend, { flushOnHide: false, countSession: true });
+    expect(m.load().newerVersion).toBe(true);
+    expect(m.data.funnel.counts.sessionStarted).toBe(1);
+    expect(backend.read('main')).toBe(newer);
+    expect(backend.writes).toBe(0);
+    m.dispose();
+  });
+
+  it('ids named like Object.prototype members are ordinary ids (no NaN, no false "already set")', () => {
+    const { save, backend } = fresh();
+    recordMatchOutcome(match({ challengeDeltas: { constructor: 2, toString: 1, valueOf: 3 } }), save);
+    recordMatchOutcome(match({ challengeDeltas: { constructor: 1 } }), save);
+    expect(save.data.challenges.counters).toEqual({ constructor: 3, toString: 1, valueOf: 3 });
+    const written = JSON.parse(backend.read('main')!) as { challenges: { counters: Record<string, unknown> } };
+    expect(written.challenges.counters).toEqual({ constructor: 3, toString: 1, valueOf: 3 });
+    for (const k of ['toString', 'valueOf', 'constructor', 'hasOwnProperty']) {
+      expect(markMilestone(k, save, T0), k).toBe(true);
+      expect(markMilestone(k, save, T0 + 1), k).toBe(false);
+    }
+    expect(save.data.funnel.milestones.toString).toBe(T0);
+    // Reload keeps them (own properties, finite numbers).
+    save.flush();
+    const again = new SaveManager(backend, { flushOnHide: false });
+    again.load();
+    expect(again.data.challenges.counters).toEqual({ constructor: 3, toString: 1, valueOf: 3 });
+    expect(Object.keys(again.data.funnel.milestones)).toEqual(expect.arrayContaining(['toString', 'valueOf', 'constructor', 'hasOwnProperty']));
+    // rivalRecord with untyped junk returns an empty record instead of an inherited member.
+    expect(rivalRecord('constructor' as never, 'all', save)).toEqual(rivalRecord('nunchi', 'all', save));
+    expect(rivalRecord('hodadak', 'toString' as never, save).wins).toBe(0);
+    save.dispose();
+    again.dispose();
+  });
+
   it('bumpFunnel never throws, even if the backend does', () => {
     const throwing = {
       kind: 'memory' as const,

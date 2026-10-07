@@ -1,17 +1,15 @@
 /**
- * Front-door news strip: an LED ticker of in-world headlines in the game's voice
- * ('front.news.h01'..'front.news.h40') plus honest update notes from the bundled `public/news.json`.
+ * Front-door news feed: in-world headlines in the game's voice ('front.news.h01'..'front.news.h40')
+ * plus honest update notes from the bundled `public/news.json`. The calm front door does not
+ * scroll a ticker any more; the feed rules stay here (tested) for any page that lists the notes.
  *
  * Offline only: the JSON is bundled at build time and never fetched. A note shows only when its
- * `requires` gate is true of this build (the caller decides: 'v2', 'layout:<id>'), so the strip
+ * `requires` gate is true of this build (the caller decides: 'v2', 'layout:<id>'), so the feed
  * never announces content that is not in the game. NEW marks notes newer than the player's
- * `lastSeenVersion`. No countdowns, no "limited time": the strip just scrolls (with reduced
- * motion it cuts from one item to the next instead).
+ * `lastSeenVersion`. No countdowns, no "limited time".
  */
 import newsData from '../../../public/news.json';
-import { getLanguage, t, tr, type TextRef } from '../i18n';
-import { h, svgFromMarkup } from '../core/dom';
-import { icon } from '../core/icons';
+import { getLanguage, type TextRef } from '../i18n';
 
 export interface NewsItem {
   text: TextRef;
@@ -90,68 +88,4 @@ export function newestNewsVersion(available: (requires: string) => boolean = () 
     if (best === null || compareVersions(n.version, best) > 0) best = n.version;
   }
   return best;
-}
-
-const PAW = '<svg viewBox="0 0 24 24" aria-hidden="true"><g fill="currentColor"><ellipse cx="12" cy="15.5" rx="5" ry="4.3"/><ellipse cx="5.6" cy="9.6" rx="2" ry="2.5"/><ellipse cx="9.6" cy="6" rx="2" ry="2.5"/><ellipse cx="14.4" cy="6" rx="2" ry="2.5"/><ellipse cx="18.4" cy="9.6" rx="2" ry="2.5"/></g></svg>';
-
-export interface NewsTicker {
-  el: HTMLElement;
-  /** Size the scroll speed to the content (call once mounted; returns a cleanup). */
-  start(): () => void;
-}
-
-/** The LED strip. Content is doubled so the CSS scroll loops seamlessly (-50 %). */
-export function newsTicker(items: readonly NewsItem[], label: TextRef = 'front.news.label'): NewsTicker {
-  const one = (): HTMLElement[] =>
-    items.map((it) =>
-      h(
-        'span',
-        { class: ['uh-news__item', `uh-news__item--${it.kind}`] },
-        svgFromMarkup(PAW, 'uh-news__sep'),
-        it.isNew ? h('span', { class: 'uh-news__new' }, t('common.new')) : null,
-        tr(it.text),
-      ),
-    );
-  const track = h('div', { class: 'uh-news__track' }, one(), h('span', { 'aria-hidden': 'true', style: { display: 'contents' } }, one()));
-  const el = h(
-    'aside',
-    { class: 'uh-news', 'aria-label': tr(label) },
-    h('div', { class: 'uh-news__label' }, icon('megaphone'), tr(label)),
-    h('div', { class: 'uh-news__viewport' }, track),
-  );
-  return {
-    el,
-    start: () => {
-      // Reduced motion: no scrolling. The strip shows one item at a time and cuts to the next
-      // every few seconds (no slide), so every note can still be read.
-      if (document.documentElement.classList.contains('uh-reduced-motion')) {
-        const firstCopy = Array.from(track.children).filter((c) => c.classList.contains('uh-news__item')) as HTMLElement[];
-        el.classList.add('is-step');
-        let i = 0;
-        const show = (): void => {
-          const it = firstCopy[i];
-          if (it) track.style.transform = `translateX(${-it.offsetLeft}px)`;
-        };
-        show();
-        const timer = firstCopy.length > 1 ? window.setInterval(() => {
-          i = (i + 1) % firstCopy.length;
-          show();
-        }, 6000) : 0;
-        return () => {
-          if (timer) window.clearInterval(timer);
-        };
-      }
-      let raf = requestAnimationFrame(() => {
-        raf = 0;
-        // ~70 px/s at 1080p (scaled with the UI rem) whatever the content length
-        const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-        const half = track.scrollWidth / 2;
-        const secs = Math.max(20, half / (rem * 4.4));
-        track.style.setProperty('--news-dur', `${secs.toFixed(1)}s`);
-      });
-      return () => {
-        if (raf) cancelAnimationFrame(raf);
-      };
-    },
-  };
 }

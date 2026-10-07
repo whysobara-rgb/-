@@ -26,6 +26,7 @@ import {
   RECORDED_IDS_MAX,
   RECORD_KINDS,
   RECORD_LAYOUT_IDS,
+  RIVAL_RECORD_KEYS,
   RIVAL_REWARD_EMOTE,
   SAVE_ITEM_KINDS,
   SAVE_LAYOUT_IDS,
@@ -332,8 +333,16 @@ function applyFunnel(d: SaveData, key: FunnelKey, now: number): void {
   }
 }
 
+/**
+ * Own-property lookup for the id-keyed maps (challenge counters, milestones): a valid id such as
+ * 'constructor' or 'toString' must never pick up an Object.prototype member.
+ */
+function ownCount(map: Readonly<Record<string, number>>, key: string): number | undefined {
+  return Object.hasOwn(map, key) ? map[key] : undefined;
+}
+
 function applyMilestone(d: SaveData, key: string, now: number): boolean {
-  if (d.funnel.milestones[key] !== undefined || Object.keys(d.funnel.milestones).length >= MAX_MILESTONES) return false;
+  if (typeof key !== 'string' || ownCount(d.funnel.milestones, key) !== undefined || Object.keys(d.funnel.milestones).length >= MAX_MILESTONES) return false;
   if (!CHALLENGE_ID_RE.test(key)) return false;
   d.funnel.milestones[key] = Math.max(0, Math.floor(now));
   return true;
@@ -439,8 +448,9 @@ export function recordMatchOutcome(summary: Readonly<MatchOutcomeSummary>, save:
           if (!CHALLENGE_ID_RE.test(id) || typeof raw !== 'number' || !Number.isFinite(raw)) continue;
           const n = Math.min(1000, Math.floor(raw));
           if (n <= 0) continue;
-          if (d.challenges.counters[id] === undefined && Object.keys(d.challenges.counters).length >= MAX_CHALLENGE_IDS) continue;
-          d.challenges.counters[id] = Math.min(1e9, (d.challenges.counters[id] ?? 0) + n);
+          const prev = ownCount(d.challenges.counters, id);
+          if (prev === undefined && Object.keys(d.challenges.counters).length >= MAX_CHALLENGE_IDS) continue;
+          d.challenges.counters[id] = Math.min(1e9, (prev ?? 0) + n);
         }
         for (const id of summary.challengeCompleted ?? []) {
           if (typeof id !== 'string' || !CHALLENGE_ID_RE.test(id)) continue;
@@ -469,8 +479,10 @@ export function recordMatchOutcome(summary: Readonly<MatchOutcomeSummary>, save:
  * (streak and last score = the bucket of the most recent match against that rival).
  */
 export function rivalRecord(rival: RivalId, diff: RivalRecordKey | 'all', save: SaveManager = getSaveManager()): RivalRecord {
+  // Runtime guard for untyped callers: only real rivals / buckets (never an Object.prototype member).
+  if (!(RIVALS as readonly string[]).includes(rival)) return createEmptyRivalRecord();
   const buckets = save.data.rivals[rival] ?? {};
-  if (diff !== 'all') return { ...createEmptyRivalRecord(), ...(buckets[diff] ?? {}) };
+  if (diff !== 'all') return (RIVAL_RECORD_KEYS as readonly string[]).includes(diff) ? { ...createEmptyRivalRecord(), ...(buckets[diff] ?? {}) } : createEmptyRivalRecord();
   const out = createEmptyRivalRecord();
   const keys = Object.keys(buckets) as RivalRecordKey[];
   for (const k of keys) {
@@ -507,7 +519,9 @@ export function cupProgress(cup: CupId, save: SaveManager = getSaveManager()): C
 /**
  * Bump one local funnel counter (and the derived session / play-day fields). Never throws,
  * never blocks input, never touches the network. `recordMatchOutcome` already counts
- * 'matchFinished'; bump it here only for a match that is not recorded.
+ * 'matchFinished'; bump it here only for a match that is not recorded. 'sessionStarted' is
+ * counted by the app-wide save manager's first load (SaveManagerOptions.countSession), so game
+ * flow does not bump it either (a manual bump still works and starts a new session).
  */
 export function bumpFunnel(key: FunnelKey, save: SaveManager = getSaveManager(), now: number = Date.now()): void {
   try {
@@ -522,7 +536,7 @@ export function bumpFunnel(key: FunnelKey, save: SaveManager = getSaveManager(),
 export function markMilestone(key: string, save: SaveManager = getSaveManager(), now: number = Date.now()): boolean {
   let added = false;
   try {
-    if (save.data.funnel.milestones[key] !== undefined) return false;
+    if (typeof key !== 'string' || ownCount(save.data.funnel.milestones, key) !== undefined) return false;
     save.update((d) => {
       added = applyMilestone(d, key, now);
     });

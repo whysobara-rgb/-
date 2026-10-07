@@ -23,7 +23,7 @@
  *   npx tsx tools/balance-report.ts --fun --content --variants "classic v2"   # A/B, classic column = baseline
  *   npx tsx tools/balance-report.ts --fun --content --variants "v2:items=off v2:items=hammerOnly v2"
  *   npx tsx tools/balance-report.ts --fun --fun-json recs.jsonl # also dump per-match FunRec lines
- *   npx tsx tools/balance-report.ts --fun --content --fun-from a.jsonl,b.jsonl   # report only, no runs
+ *   npx tsx tools/balance-report.ts --fun --content --fun-from a.jsonl=v2,b.jsonl=v2+siren   # report only (=label renames the variant)
  * Fun blocks: P = proxy vs each rival at normal (layouts x 3 rivals x --fun-seeds, default n >= 300),
  * B = normal bot vs bot (same size), T2 = 2:2 smoke (layouts x --fun-seeds-t2, default 10);
  * --fun-blocks P,B selects blocks (lever experiments skip T2). With
@@ -723,7 +723,16 @@ async function main(argv: string[]): Promise<void> {
     // report only, from saved FunRec lines
     const { readFileSync } = await import('node:fs');
     const recs: FunRec[] = [];
-    for (const f of funFrom.split(',')) for (const l of readFileSync(f, 'utf8').split('\n')) if (l.trim()) recs.push(JSON.parse(l) as FunRec);
+    // file[=label]: the label replaces the records' variant (compare runs of one variant, e.g. a lever)
+    for (const spec of funFrom.split(',')) {
+      const [f, label] = spec.split('=');
+      for (const l of readFileSync(f!, 'utf8').split('\n')) {
+        if (!l.trim()) continue;
+        const r = JSON.parse(l) as FunRec;
+        if (label) r.variant = label;
+        recs.push(r);
+      }
+    }
     const md = `# Fun / content scorecard (뿌리째 털어라)\n\nFrom ${funFrom}.\n\n${funReport(recs, { content })}`;
     mkdirSync(dirname(out), { recursive: true });
     writeFileSync(out, md);

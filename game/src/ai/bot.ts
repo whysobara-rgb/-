@@ -35,7 +35,7 @@ import type { BotView, Goal, GoalProvider } from './goals/types';
 import { CoinGoals } from './goals/coins';
 import { PropGoals } from './goals/props';
 import { ItemGoals } from './goals/items';
-import { holdsHammer, swingBusy, usableHammer } from './itemSense';
+import { holdsHammer, swingBusy } from './itemSense';
 
 // ---------------------------------------------------------------------------
 // Constants (estimates of the shared physics; never different per difficulty)
@@ -880,6 +880,9 @@ export class Bot implements BotController {
   }
   private pinned = false;
 
+  /** (C6) Human stand-in: its opening opinion per goal key (kept for the first 20 s). */
+  private readonly openingNoise = new Map<string, number>();
+
   private decide(sim: Simulation): void {
     const tick = sim.state.tick;
     const wasUrgent = this.urgent;
@@ -898,10 +901,19 @@ export class Bot implements BotController {
     const cands = this.candidates(sim);
     // choice quality: noisy self-estimates (a novice misjudges; a challenge bot does not); a
     // person's opening plan is their own (wider noise during the first 20 s)
-    const noise = this.isProxy && tick < 20 * TICK_RATE ? Math.max(this.P.estimateNoise, 0.45) : this.P.estimateNoise;
+    const opening = this.isProxy && tick < 20 * TICK_RATE;
+    const noise = opening ? Math.max(this.P.estimateNoise, 0.45) : this.P.estimateNoise;
     if (noise > 0) {
       for (const c of cands) {
         if (c.kind === 'idle' || c.pingId !== undefined) continue;
+        if (opening) {
+          // (C6) a person's opening opinion of an option is drawn once and kept (re-rolled every
+          // decision it made the stand-in flip between targets every ~1 s for the first 20 s)
+          let f = this.openingNoise.get(c.key);
+          if (f === undefined) this.openingNoise.set(c.key, (f = Math.max(0.2, 1 + noise * (this.rng() + this.rng() + this.rng() - 1.5) * 1.4)));
+          c.utility *= f;
+          continue;
+        }
         c.utility *= Math.max(0.2, 1 + noise * (this.rng() + this.rng() + this.rng() - 1.5) * 1.4);
       }
     }
@@ -1547,11 +1559,13 @@ export class Bot implements BotController {
     // --- body-block / stun the officer chasing a carrying teammate (police are public) ---
     if (this.ps.onField() && !me.grab && this.P.policeAwareness > 0) {
       for (const mate of this.mates(sim)) {
-        if (!mate.grab) continue;
+        // (C6: a fat coin bag marks a teammate too — a tackle spills half of it)
+        const mateBag = mate.bag ?? 0;
+        if (!mate.grab && mateBag < 60) continue;
         const chs = this.ps.chasers(mate.id);
         if (!chs.length) continue;
-        const l = sim.getLoot(mate.grab.targetId);
-        if (!l || l.recovered || (l.recovery && l.recovery.team === this.team)) continue;
+        const l = mate.grab ? sim.getLoot(mate.grab.targetId) : undefined;
+        if (mate.grab && (!l || l.recovered || (l.recovery && l.recovery.team === this.team))) continue;
         const key = `copguard:${mate.id}`;
         if (claimed.has(key) || this.blacklisted(key, tick)) continue;
         let dm = Infinity;
@@ -1560,8 +1574,8 @@ export class Bot implements BotController {
         if (dMe > 18) continue;
         const tReach = Math.max(0, dMe - 1.5) / WALK;
         const urgency = Math.max(0.35, Math.min(1.4, 1.5 - dm / 8));
-        const value = l.kind === 'bank' ? l.estimatedValue : l.baseValue * 1.2;
-        const horizon = l.kind === 'bank' ? 40 : 8;
+        const value = !l ? mateBag * 0.5 : l.kind === 'bank' ? l.estimatedValue : this.lootValue(l) * 1.2;
+        const horizon = l && l.kind === 'bank' ? 40 : 8;
         let u = (value / (tReach + horizon)) * urgency * this.P.policeAwareness * (0.7 + 0.5 * W.assist);
         if (!mate.isBot) u *= 1.3;
         out.push(this.mk('escort', key, null, u, Math.round(value), tReach + 4, { mateId: mate.id, pos: { ...mate.pos }, until: tick + 6 * TICK_RATE }));
@@ -3458,7 +3472,7 @@ export class Bot implements BotController {
     if (!me.grab) {
       for (const mate of this.mates(sim)) {
         // (still protected for a while: the officer cannot lunge yet; at the very end it will)
-        if (!mate.grab || mate.protectTicks > 20) continue;
+        if ((!mate.grab && (mate.bag ?? 0) < 60) || mate.protectTicks > 20) continue;
         for (const cop of ps.chasers(mate.id)) {
           if (!this.copAboutToTackle(cop, mate.pos, 3.4)) continue;
           if (V.dist(cop.pos, me.pos) > 3.6) continue;
@@ -3555,9 +3569,11 @@ export class Bot implements BotController {
     const mate = g.mateId !== undefined ? sim.getCharacter(g.mateId) : undefined;
     const me = this.me(sim);
     // (a tackled mate gets up and grabs its load again: keep covering it for a moment)
-    if (mate && !mate.grab) g.exitTick ??= tick;
+    // (C6: a mate with a fat coin bag is the officers' mark as well)
+    const marked = !!mate && (mate.grab !== null || (mate.bag ?? 0) >= 60);
+    if (mate && !marked) g.exitTick ??= tick;
     else if (mate) g.exitTick = undefined;
-    const lost = !mate || (!mate.grab && mate.knockdownTicks <= 0 && tick - (g.exitTick ?? tick) > 1.5 * TICK_RATE);
+    const lost = !mate || (!marked && mate.knockdownTicks <= 0 && tick - (g.exitTick ?? tick) > 1.5 * TICK_RATE);
     if (lost || (g.until !== undefined && tick > g.until)) {
       this.endGoal(sim, 'cop guard over');
       return cmd({ x: 0, y: 0 }, false);

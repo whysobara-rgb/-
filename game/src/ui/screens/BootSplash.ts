@@ -1,6 +1,6 @@
 /**
- * Boot splash (C10): cream paper, a paw stamp lands with a "thunk" (~1.2 s with the ring and
- * the wordmark), then the wordmark and a one-line photosensitivity note. Any key, button, click
+ * Boot splash (C10): plain cream paper, a paw stamp lands with a soft "thunk" (~1.2 s with the
+ * ring and the logo), then the game logo and a one-line photosensitivity note. Any key, button, click
  * or touch skips it; it ends on its own after `holdMs` of smoothly rendered frames. Game flow shows it only on the first run
  * (and warms the title scene's shaders behind it), and plays the sting only in Electron (browsers
  * need a gesture before audio).
@@ -10,7 +10,7 @@ import { t } from '../i18n';
 import { h, isReducedMotion, svgFromMarkup } from '../core/dom';
 import { icon } from '../core/icons';
 import { UiScreen } from '../core/screen';
-import { chunky } from '../core/juice';
+import { logoLockup } from './TitleScreen';
 import type { NavAction } from '../core/prompts';
 
 export interface BootSplashProps {
@@ -65,8 +65,7 @@ export class BootSplash extends UiScreen<BootSplashProps> {
           h('span', { class: 'uh-boot__ring', 'aria-hidden': 'true' }),
           h('div', { class: 'uh-boot__stamp', 'aria-hidden': 'true' }, svgFromMarkup(PAW_SVG)),
         ),
-        chunky(t('game.title'), { tag: 'h1', cls: 'uh-boot__word', tone: 'sun', seed: 4 }),
-        h('div', { class: 'uh-boot__en' }, t('game.titleEn')),
+        h('h1', { class: 'uh-boot__title' }, logoLockup({ compact: true, cls: 'uh-boot__logo' })),
         h('p', { class: 'uh-boot__note' }, icon('alert'), t('front.boot.note')),
         h('div', { class: 'uh-boot__skip' }, t('front.boot.skip')),
       ),

@@ -98,7 +98,10 @@ export class PropGoals implements GoalProvider {
       const value = view.lootValue(l);
       let sub: 'kick' | 'smash' | null = null;
       let u = 0;
-      if (lastOpp && (l.cracks ?? 0) >= PROP_RULES.piggy.cracksToSmash - 1 && oppD < 6) {
+      const diff = st.scores[view.team] - st.scores[(1 - view.team) as 0 | 1];
+      const cracks = l.cracks ?? 0;
+      // (contested and one crack from open, or trailing with it already cracked: bust it open)
+      if (lastOpp && oppD < 8 && (cracks >= PROP_RULES.piggy.cracksToSmash - 1 || (diff < 0 && cracks >= 1))) {
         // 잭팟 when contested: crack it open where we stand closest
         sub = 'smash';
         u = (value * 0.5) / (d / WALK + Math.max(0, dashWait - d / WALK) + 1.2);

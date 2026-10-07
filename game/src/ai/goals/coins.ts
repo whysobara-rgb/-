@@ -37,10 +37,18 @@ export class CoinGoals implements GoalProvider {
   /** Piles that came out of a spill (pile id -> tick) — 눈치왕's scavenging. */
   private readonly spilled = new Map<EntityId, number>();
 
-  onEvents(_view: BotView, events: readonly SimEvent[]): void {
+  onEvents(view: BotView, events: readonly SimEvent[]): void {
+    const me = view.me();
     for (const e of events) {
-      if (e.type === 'coinSpawn' && e.source === 'spill') for (const id of e.ids) this.spilled.set(id, e.tick);
-      else if (e.type === 'coinPickup') this.spilled.delete(e.coinId);
+      if (e.type === 'coinSpawn' && e.source === 'spill') {
+        for (const id of e.ids) this.spilled.set(id, e.tick);
+        // 와르르 right next to me: worth a fresh look (the victim takes it back in a second)
+        if (!me.grab && V.dist(e.pos, me.pos) < 9 && (me.bag ?? 0) + COINS.coin <= COINS.bagCap) view.markUrgent();
+      } else if (e.type === 'coinPickup') this.spilled.delete(e.coinId);
+    }
+    if (this.spilled.size > 64) {
+      const t = view.sim.state.tick;
+      for (const [id, at] of this.spilled) if (t - at > 20 * TICK_RATE) this.spilled.delete(id);
     }
   }
 
@@ -120,8 +128,9 @@ export class CoinGoals implements GoalProvider {
       const t = Math.max(0, walk - 0.6) / WALK + PER_PILE_S * members.length + (Number.isFinite(home) ? home / WALK : 20) * 0.35 + 0.4;
       if (t + 2 > left) continue;
       let w = wCoins;
-      // fresh spills: the opportunist's moment (and anyone's: they lie right there)
-      if (spill > 0) w *= 1 + (0.25 + 0.6 * (W.opportunism ?? 0)) * (spill / value);
+      // fresh spills: the opportunist's moment (and anyone's: they lie right there, and what the
+      // other team does not get back is a swing both ways)
+      if (spill > 0) w *= 1 + (0.8 + 0.8 * W.opportunism) * (spill / value);
       // an opponent much closer gets there first
       for (const o of opps) {
         const od = V.dist(o.last!.pos, seed.pos) * 1.1 + (o.age / TICK_RATE) * 2.5;
