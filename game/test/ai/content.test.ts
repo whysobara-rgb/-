@@ -248,10 +248,12 @@ describe('C6 code-review fixes', () => {
     for (let t = 0; t < 110 * 60 && !sim.state.over; t++) {
       const cmds = bots.map((b) => b!.update(sim));
       for (const b of bots) {
-        if (b!.intent().goal !== 'fetchItem') continue;
+        const it = b!.intent();
+        if (it.goal !== 'fetchItem') continue;
         fetchTicks++;
-        // a fetch always has an announced (incoming) or landed item to go to
-        expect(sim.state.items.length).toBeGreaterThan(0);
+        // a fetch always heads for an announced (incoming) or landed item, never an empty pad
+        const tp = it.targetPos;
+        expect(tp !== null && sim.state.items.some((i) => Math.hypot(i.pos.x - tp.x, i.pos.y - tp.y) < 1.5)).toBe(true);
       }
       sim.step(cmds);
     }

@@ -11,7 +11,12 @@
  * - Act only through the returned `Command` (same physics as humans); never sim.debug.
  * - Read only public state: loot, coins, breakables, items on the field, gimmicks, events, police,
  *   own team; opponents ONLY through `view.opponents()` (perception: sight + last sighting, incl.
- *   the visible bag and item).
+ *   the visible bag and item). Who holds a piece of loot: own team from `LootState.grabbedBy`
+ *   filtered to `view.team`, opponents ONLY through `view.oppHolding(id)` (seen holding it).
+ * - Engage opponents with the bot's reaction time: decide on `view.opponents()` (reaction-delayed
+ *   by default); `view.opponents(0)` (the current sighting) is for aiming / local avoidance only.
+ * - No hidden schedules: a drop / event / gimmick is acted on from its public announcement (or a
+ *   visible telegraph) on, never from the config timetable ahead of it.
  * - Difficulty changes decisions and aim only (`DifficultyParams.itemSkill / gimmickSkill /
  *   aimErrorRad`), never speeds, forces or cooldowns.
  * - Deterministic: randomness only from `view.rng()` (the bot's seeded stream).
@@ -204,9 +209,11 @@ export interface BotView {
 
 /**
  * A provider of content goals (one instance per bot). `propose` appends candidates for the
- * shared auction; `execute` runs a goal of one of its `kinds` (null = idle this tick). Optional:
- * `overlay` may replace the command of whatever goal runs (opportunistic swing, scoop detour);
- * `onEvents` sees the new sim events once per update.
+ * shared auction; `execute` runs a goal of one of its `kinds` (null = idle this tick). Optional
+ * (C6 add-only extension of content-plan §4.5's `{ kinds; propose; execute }`):
+ * `overlay` may replace the command of whatever goal runs (opportunistic swing, scoop detour;
+ * bot.ts runs them each tick in this order: items' swing, police reflexes, props' dash-in-passing,
+ * coins' scoop detour; the first non-null wins); `onEvents` sees the new sim events once per update.
  */
 export interface GoalProvider {
   readonly kinds: readonly GoalKind[];
