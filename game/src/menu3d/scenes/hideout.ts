@@ -42,7 +42,7 @@ const TRY_HATS: HatId[] = ['teamCapA', 'tongkeunHat', 'hodadakBand', 'nunchiMask
 const FRAMES: Record<HideoutFraming, { pos: [number, number, number]; look: [number, number, number] }> = {
   menu: { pos: [-1.6, 4.7, 12.6], look: [1.0, 1.65, -0.9] },
   // quick setup: the gang in the left third, beside the setup panel
-  left: { pos: [8.9, 4.8, 18.4], look: [10.5, 1.5, -0.6] },
+  left: { pos: [7.7, 4.8, 18.4], look: [9.3, 1.5, -0.6] },
   right: { pos: [-1.0, 5.0, 13.0], look: [0.4, 1.6, -0.4] },
   center: { pos: [1.2, 5.6, 15.5], look: [1.6, 1.7, -0.6] },
   front: { pos: [0.4, 3.4, 12.4], look: [1.0, 1.25, -0.6] },

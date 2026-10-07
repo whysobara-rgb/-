@@ -820,7 +820,7 @@ export function rollBuffer(ctx: BaseAudioContext): AudioBuffer {
       l2 += a * (l1 - l2);
       d[i] += l2 * 0.8 * (0.3 + 0.7 * contact[i]);
     }
-    tamePeaks(d, sr, 6.5);
+    tamePeaks(d, sr, 6);
     const out = makeLoopable(d, fade);
     normalizePeak(out, 0.9);
     return monoBuffer(ctx, out);

@@ -112,7 +112,7 @@ export const DRAG_RELEASE_TAU = 0.14;
  */
 export function dragParams(i: number, p = 1): { rate: number; bumps: number; thrum: number; thrumHz: number; toneHz: number } {
   const sp = Math.sqrt(p);
-  const heavy = Math.min(1.25, 1 / p);
+  const heavy = Math.min(1.25, Math.max(0.95, 1 / p));
   return {
     rate: (0.82 + 0.4 * i) * sp,
     bumps: i > 0 ? 0.42 * Math.pow(i, 0.7) : 0,
