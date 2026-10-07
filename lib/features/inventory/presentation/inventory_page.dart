@@ -8,6 +8,8 @@ import '../../../core/utils/format.dart';
 import '../../../navigation/tab_navigator.dart';
 import '../../../shared/providers/auth_provider.dart';
 import '../../../shared/providers/gp_provider.dart';
+import '../../../core/domain/rarity.dart';
+import '../../../shared/widgets/collectible_card.dart';
 import '../../../shared/widgets/product_image.dart';
 import '../../../shared/widgets/rarity_tag.dart';
 import '../../../shared/widgets/ui.dart';
@@ -310,25 +312,7 @@ class _InventoryPageState extends State<InventoryPage> {
                         Space.gutter,
                         Space.x4,
                       ),
-                      child: Text.rich(
-                        TextSpan(
-                          children: [
-                            const TextSpan(text: '보관 중 '),
-                            TextSpan(
-                              text: '${stored.length}개',
-                              style: AppText.num(AppText.bodyStrong),
-                            ),
-                            const TextSpan(text: ' · 정가 합계 '),
-                            TextSpan(
-                              text: formatWon(storedValue),
-                              style: AppText.num(AppText.bodyStrong),
-                            ),
-                          ],
-                        ),
-                        style: AppText.body.copyWith(
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
+                      child: _VaultSummary(items: stored, value: storedValue),
                     ),
                   ),
                   SliverToBoxAdapter(
@@ -344,7 +328,7 @@ class _InventoryPageState extends State<InventoryPage> {
                             InventoryStatus.shipping,
                             InventoryStatus.delivered,
                           ]) ...[
-                            _FilterChip(
+                            VaultChip(
                               label: '${f?.label ?? '전체'} ${_count(f)}',
                               selected: _filter == f,
                               onTap: () => setState(() => _filter = f),
@@ -438,45 +422,6 @@ class _InventoryPageState extends State<InventoryPage> {
   }
 }
 
-class _FilterChip extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-  const _FilterChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: const BorderRadius.all(Radius.circular(16)),
-      child: AnimatedContainer(
-        duration: Motion.fast,
-        height: 32,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: selected ? AppColors.text : AppColors.canvas,
-          border: Border.all(
-            color: selected ? AppColors.text : AppColors.hairline,
-          ),
-          borderRadius: const BorderRadius.all(Radius.circular(16)),
-        ),
-        child: Text(
-          label,
-          style: AppText.num(AppText.callout).copyWith(
-            color: selected ? AppColors.canvas : AppColors.text,
-            fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _ItemRow extends StatelessWidget {
   final InventoryItem item;
   final bool selected;
@@ -495,7 +440,7 @@ class _ItemRow extends StatelessWidget {
       onTap: actionable ? onTap : null,
       child: AnimatedContainer(
         duration: Motion.fast,
-        color: AppColors.canvas,
+        color: selected ? AppColors.brandTint : AppColors.canvas,
         padding: const EdgeInsets.fromLTRB(
           Space.x3,
           Space.x3,
@@ -513,7 +458,19 @@ class _ItemRow extends StatelessWidget {
             SizedBox(
               width: 72,
               height: 72,
-              child: ProductImage(url: item.imageUrl),
+              child: RarityFrame(
+                rarity: item.rarity,
+                radius: 11,
+                glow: 0.6,
+                holo: item.rarity == Rarity.ssr,
+                holoIntensity: 0.45,
+                child: ProductImage(
+                  url: item.imageUrl,
+                  rarity: item.rarity,
+                  name: item.name,
+                  borderRadius: BorderRadius.zero,
+                ),
+              ),
             ),
             const SizedBox(width: Space.x3),
             Expanded(
@@ -662,6 +619,113 @@ class _SelectionBar extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// 보관함 상단: 보관 중 수량·정가 합계(큰 숫자) + 등급 구성 막대.
+class _VaultSummary extends StatelessWidget {
+  final List<InventoryItem> items;
+  final int value;
+  const _VaultSummary({required this.items, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    final counts = <Rarity, int>{};
+    for (final i in items) {
+      counts[i.rarity] = (counts[i.rarity] ?? 0) + 1;
+    }
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      decoration: BoxDecoration(
+        borderRadius: Radii.card,
+        border: Border.all(color: AppColors.hairline),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            AppColors.raised,
+            AppColors.surface,
+            (counts[Rarity.ssr] ?? 0) > 0
+                ? AppColors.raritySSR.withValues(alpha: 0.10)
+                : AppColors.surface,
+          ],
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('MY VAULT', style: AppText.eyebrow),
+          const SizedBox(height: 6),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Expanded(
+                child: Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(text: formatNumber(value)),
+                      const TextSpan(text: '원', style: TextStyle(fontSize: 17)),
+                    ],
+                  ),
+                  style: AppText.numeral.copyWith(fontSize: 30),
+                ),
+              ),
+              Text(
+                '보관 중 ${formatNumber(items.length)}개',
+                style: AppText.num(
+                  AppText.callout,
+                ).copyWith(color: AppColors.text, fontWeight: FontWeight.w700),
+              ),
+            ],
+          ),
+          Text('보관 중인 상품의 정가 합계', style: AppText.caption),
+          if (items.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(3),
+              child: SizedBox(
+                height: 6,
+                child: Row(
+                  children: [
+                    for (final r in Rarity.values.reversed)
+                      if ((counts[r] ?? 0) > 0)
+                        Expanded(
+                          flex: counts[r]!,
+                          child: Container(
+                            margin: const EdgeInsets.only(right: 1.5),
+                            color: r.color,
+                          ),
+                        ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 12,
+              children: [
+                for (final r in Rarity.values.reversed)
+                  if ((counts[r] ?? 0) > 0)
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        RarityTag(r, dense: true),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${counts[r]}',
+                          style: AppText.num(AppText.caption).copyWith(
+                            color: AppColors.text,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+              ],
+            ),
+          ],
+        ],
       ),
     );
   }

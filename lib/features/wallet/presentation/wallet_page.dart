@@ -8,7 +8,9 @@ import '../../../core/utils/format.dart';
 import '../../../navigation/tab_navigator.dart';
 import '../../../shared/providers/auth_provider.dart';
 import '../../../shared/providers/gp_provider.dart';
+import '../../../shared/widgets/gp_badge.dart';
 import '../../../shared/widgets/ui.dart';
+import '../../../shared/widgets/vault_art.dart';
 import '../data/wallet_repository.dart';
 import '../domain/point_history.dart';
 import '../domain/topup_limit.dart';
@@ -141,28 +143,10 @@ class _WalletPageState extends State<WalletPage> {
                 Space.x6,
               ),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text('보유 GP', style: AppText.callout),
-                  const SizedBox(height: Space.x1),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.baseline,
-                    textBaseline: TextBaseline.alphabetic,
-                    children: [
-                      Text(
-                        formatNumber(balance),
-                        style: AppText.num(AppText.display),
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        'GP',
-                        style: AppText.title2.copyWith(
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: Space.x5),
+                  _BalanceCard(balance: balance),
+                  const SizedBox(height: Space.x4),
                   PrimaryButton(
                     label: '충전하기',
                     loading: _toppingUp,
@@ -327,5 +311,102 @@ class _LimitSection extends StatelessWidget {
     return p.monthlyLimit == null
         ? '$when 한도가 해제돼요'
         : '$when ${formatWon(p.monthlyLimit!)}으로 바뀌어요';
+  }
+}
+
+/// 보유 GP 카드: 금속 카드 같은 먹색 면 + 기요셰 + 제이드 빛.
+class _BalanceCard extends StatelessWidget {
+  final int balance;
+  const _BalanceCard({required this.balance});
+
+  @override
+  Widget build(BuildContext context) {
+    return AspectRatio(
+      aspectRatio: 1.75,
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: Radii.hero,
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF1E1E24), Color(0xFF111114), Color(0xFF0C1F18)],
+            stops: [0, 0.55, 1],
+          ),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.brand.withValues(alpha: 0.12),
+              blurRadius: 30,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: Radii.hero,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              CustomPaint(
+                painter: GuillochePainter(
+                  color: AppColors.brand,
+                  opacity: 0.07,
+                  rings: 36,
+                  center: const Offset(1.02, 0.1),
+                  scale: 1.7,
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const GpCoin(size: 22),
+                        const SizedBox(width: 8),
+                        Text(
+                          '보유 GP',
+                          style: AppText.callout.copyWith(
+                            color: AppColors.text,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const Spacer(),
+                        Text('1 GP = 1원', style: AppText.caption),
+                      ],
+                    ),
+                    const Spacer(),
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text.rich(
+                        TextSpan(
+                          children: [
+                            TextSpan(text: formatNumber(balance)),
+                            const TextSpan(
+                              text: ' GP',
+                              style: TextStyle(
+                                fontSize: 20,
+                                color: AppColors.brand,
+                              ),
+                            ),
+                          ],
+                        ),
+                        style: AppText.numeral.copyWith(fontSize: 42),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '뽑기·배송비에 쓰고, 받은 상품을 전환하면 다시 쌓여요',
+                      style: AppText.caption,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

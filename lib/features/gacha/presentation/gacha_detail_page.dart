@@ -623,7 +623,9 @@ class _PityMeter extends StatelessWidget {
             GlowMeter(progress: pity.progress),
             const SizedBox(height: 6),
             Text(
-              keepAll('이 박스에서 SSR 없이 ${pity.threshold}회째가 되면 그 회차는 SSR로 확정돼요.'),
+              keepAll(
+                '이 박스에서 SSR 없이 ${formatNumber(pity.threshold!)}회째가 되면 그 회차는 SSR로 확정돼요.',
+              ),
               style: AppText.caption,
             ),
           ],
@@ -881,7 +883,7 @@ class _Guide extends StatelessWidget {
     final lines = <String>[
       '10회 뽑기마다 1회를 더 드려요(10+1). 보너스 회차도 같은 확률로 뽑아요.',
       if (detail.pityThreshold != null)
-        '천장: 이 박스에서 SSR 없이 ${detail.pityThreshold}회째 뽑으면 SSR이 확정돼요. SSR을 받으면 다시 0회부터 셉니다.',
+        '천장: 이 박스에서 SSR 없이 ${formatNumber(detail.pityThreshold!)}회째 뽑으면 SSR이 확정돼요. SSR을 받으면 다시 0회부터 셉니다.',
       '받은 상품은 보관함에 담기고, 정가의 80%를 GP로 전환하거나 배송 신청(배송비 3,000 GP)할 수 있어요.',
       '개봉한 박스는 환불할 수 없어요. 재고가 모두 판매되면 판매가 일찍 끝날 수 있어요.',
     ];

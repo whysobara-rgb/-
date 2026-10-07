@@ -25,7 +25,14 @@ class MainNavigation extends StatelessWidget {
   Widget build(BuildContext context) {
     final current = context.watch<TabNavigator>().current;
     return Scaffold(
-      body: IndexedStack(index: current.index, children: _pages),
+      // 보이지 않는 탭의 애니메이션(홀로 반사광 등)은 멈춘다.
+      body: IndexedStack(
+        index: current.index,
+        children: [
+          for (var i = 0; i < _pages.length; i++)
+            TickerMode(enabled: i == current.index, child: _pages[i]),
+        ],
+      ),
       bottomNavigationBar: _BottomBar(
         current: current,
         onSelect: context.read<TabNavigator>().select,
@@ -56,7 +63,7 @@ class _BottomBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: const BoxDecoration(
-        color: AppColors.canvas,
+        color: Color(0xFF0B0B0E),
         border: Border(top: BorderSide(color: AppColors.hairline)),
       ),
       child: SafeArea(
@@ -98,6 +105,14 @@ class _BarItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = selected ? AppColors.brand : AppColors.textTertiary;
+    final glow = selected
+        ? [
+            Shadow(
+              color: AppColors.brand.withValues(alpha: 0.6),
+              blurRadius: 12,
+            ),
+          ]
+        : null;
     return Semantics(
       selected: selected,
       button: true,
@@ -109,7 +124,7 @@ class _BarItem extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, size: 24, color: color),
+            Icon(icon, size: 24, color: color, shadows: glow),
             const SizedBox(height: 3),
             Text(
               label,

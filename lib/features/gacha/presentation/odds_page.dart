@@ -4,6 +4,8 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/format.dart';
+import '../../../core/domain/rarity.dart';
+import '../../../shared/widgets/collectible_card.dart';
 import '../../../shared/widgets/product_image.dart';
 import '../../../shared/widgets/rarity_tag.dart';
 import '../../../shared/widgets/ui.dart';
@@ -89,10 +91,12 @@ class _OddsBody extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(odds.title, style: AppText.title1),
+              Text('ODDS DISCLOSURE', style: AppText.eyebrow),
+              const SizedBox(height: 6),
+              Text(odds.title, style: AppText.display),
               const SizedBox(height: Space.x1),
               Text(
-                '1회 ${formatGp(odds.price)}',
+                '1회 ${formatGp(odds.price)} · 서버 추첨 가중치를 그대로 환산',
                 style: AppText.num(AppText.callout),
               ),
             ],
@@ -107,11 +111,13 @@ class _OddsBody extends StatelessWidget {
               _Figure(
                 'SSR 기본 확률',
                 formatPercent(pity?.baseRatePercent ?? ssrBase),
+                color: AppColors.raritySSRLight,
               ),
               if (pity != null)
                 _Figure(
                   '천장 반영 SSR 확률',
                   formatPercent(pity.effectiveRatePercent),
+                  color: AppColors.raritySSRLight,
                 )
               else
                 _Figure('천장', '없음'),
@@ -199,7 +205,7 @@ class _OddsBody extends StatelessWidget {
                 title: '천장',
                 body: pity == null
                     ? '이 박스에는 천장이 없어요. 매 회차가 위 확률로 독립적으로 뽑혀요.'
-                    : '이 박스에서 SSR 없이 ${pity.threshold}회째가 되면 그 회차는 SSR로 확정돼요. '
+                    : '이 박스에서 SSR 없이 ${formatNumber(pity.threshold)}회째가 되면 그 회차는 SSR로 확정돼요. '
                           'SSR을 받으면(천장·일반 모두) 다시 0회부터 셉니다. 진행 횟수는 박스마다 따로 셉니다.',
                 rows: pity == null
                     ? const []
@@ -297,7 +303,8 @@ class _Figure {
   final String label;
   final String value;
   final String? sub;
-  const _Figure(this.label, this.value, {this.sub});
+  final Color? color;
+  const _Figure(this.label, this.value, {this.sub, this.color});
 }
 
 class _FigureGrid extends StatelessWidget {
@@ -316,7 +323,12 @@ class _FigureGrid extends StatelessWidget {
           FittedBox(
             fit: BoxFit.scaleDown,
             alignment: Alignment.centerLeft,
-            child: Text(f.value, style: AppText.num(AppText.title2)),
+            child: Text(
+              f.value,
+              style: AppText.num(
+                AppText.title1,
+              ).copyWith(color: f.color, fontWeight: FontWeight.w900),
+            ),
           ),
           if (f.sub != null) ...[
             const SizedBox(height: 2),
@@ -358,6 +370,7 @@ class _FigureGrid extends StatelessWidget {
     }
     return Container(
       decoration: BoxDecoration(
+        color: AppColors.surface,
         border: Border.all(color: AppColors.hairline),
         borderRadius: Radii.card,
       ),
@@ -399,7 +412,7 @@ class _Table extends StatelessWidget {
         Container(
           decoration: const BoxDecoration(
             border: Border(
-              top: BorderSide(color: AppColors.text),
+              top: BorderSide(color: AppColors.hairlineStrong),
               bottom: BorderSide(color: AppColors.hairline),
             ),
           ),
@@ -451,7 +464,17 @@ class _ItemOddsRow extends StatelessWidget {
           SizedBox(
             width: 48,
             height: 48,
-            child: ProductImage(url: item.imageUrl),
+            child: RarityFrame(
+              rarity: item.rarity,
+              radius: 9,
+              glow: 0.5,
+              child: ProductImage(
+                url: item.imageUrl,
+                rarity: item.rarity,
+                name: item.name,
+                borderRadius: BorderRadius.zero,
+              ),
+            ),
           ),
           const SizedBox(width: Space.x3),
           Expanded(
@@ -485,7 +508,12 @@ class _ItemOddsRow extends StatelessWidget {
           const SizedBox(width: Space.x3),
           Text(
             formatPercent(item.probabilityPercent),
-            style: AppText.num(AppText.bodyStrong),
+            style: AppText.num(AppText.bodyStrong).copyWith(
+              color: item.rarity == Rarity.n
+                  ? AppColors.text
+                  : item.rarity.light,
+              fontWeight: FontWeight.w800,
+            ),
           ),
         ],
       ),
@@ -519,9 +547,10 @@ class _RuleBlock extends StatelessWidget {
               horizontal: Space.x4,
               vertical: Space.x1,
             ),
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               color: AppColors.surface,
               borderRadius: Radii.card,
+              border: Border.all(color: AppColors.hairline),
             ),
             child: Column(children: rows),
           ),

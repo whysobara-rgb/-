@@ -5,6 +5,8 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/format.dart';
 import '../../../shared/widgets/gp_badge.dart';
+import '../../../core/domain/product_category.dart';
+import '../../../shared/widgets/collectible_card.dart';
 import '../../../shared/widgets/product_image.dart';
 import '../../../shared/widgets/rarity_tag.dart';
 import '../../../shared/widgets/ui.dart';
@@ -161,12 +163,17 @@ class _RankNumber extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SizedBox(
-    width: 28,
+    width: 34,
     child: Text(
       '$rank',
-      style: AppText.num(AppText.headline).copyWith(
-        fontWeight: FontWeight.w800,
-        color: rank <= 3 ? AppColors.text : AppColors.textTertiary,
+      style: AppText.num(AppText.title1).copyWith(
+        fontWeight: FontWeight.w900,
+        fontStyle: FontStyle.italic,
+        color: rank == 1
+            ? AppColors.raritySSR
+            : rank <= 3
+            ? AppColors.text
+            : AppColors.textTertiary,
       ),
     ),
   );
@@ -254,7 +261,13 @@ class _GachaTab extends StatelessWidget {
               SizedBox(
                 width: 56,
                 height: 56,
-                child: ProductImage(url: g.imageUrl),
+                child: BoxImage(
+                  url: g.imageUrl,
+                  tone: g.accent ?? AppColors.brand,
+                  category: ProductCategory.box,
+                  borderRadius: Radii.thumb,
+                  artScale: 0.6,
+                ),
               ),
               const SizedBox(width: Space.x3),
               Expanded(
@@ -309,7 +322,17 @@ class _WinsTab extends StatelessWidget {
             SizedBox(
               width: 48,
               height: 48,
-              child: ProductImage(url: w.imageUrl),
+              child: RarityFrame(
+                rarity: w.rarity,
+                radius: 9,
+                glow: 0.5,
+                child: ProductImage(
+                  url: w.imageUrl,
+                  rarity: w.rarity,
+                  name: w.itemName,
+                  borderRadius: BorderRadius.zero,
+                ),
+              ),
             ),
             const SizedBox(width: Space.x3),
             Expanded(

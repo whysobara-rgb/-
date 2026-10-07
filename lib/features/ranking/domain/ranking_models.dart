@@ -1,6 +1,8 @@
 // 랭킹 탭 모델 (`GET /rankings/users`, `/rankings/gachas`, `/rankings/wins`).
+import 'package:flutter/painting.dart';
 import '../../../core/domain/rarity.dart';
 import '../../../core/utils/format.dart';
+import '../../gacha/domain/gacha_models.dart' show parseHexColor;
 
 class UserRankingItem {
   final int rank;
@@ -34,6 +36,7 @@ class GachaRankingItem {
   final String? imageUrl;
   final int price;
   final int drawCount;
+  final Color? accent;
 
   const GachaRankingItem({
     required this.rank,
@@ -42,6 +45,7 @@ class GachaRankingItem {
     required this.price,
     required this.drawCount,
     this.imageUrl,
+    this.accent,
   });
 
   factory GachaRankingItem.fromJson(Map<String, dynamic> json) =>
@@ -52,6 +56,7 @@ class GachaRankingItem {
         imageUrl: asStringOrNull(json['imageUrl']),
         price: asInt(json['price']),
         drawCount: asInt(json['drawCount']),
+        accent: parseHexColor(json['accentColorHex']),
       );
 }
 

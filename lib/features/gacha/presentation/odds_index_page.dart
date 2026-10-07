@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/network/api_client.dart';
+import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/format.dart';
@@ -72,9 +73,15 @@ class _OddsIndexPageState extends State<OddsIndexPage> {
                   child: Row(
                     children: [
                       SizedBox(
-                        width: 48,
-                        height: 48,
-                        child: ProductImage(url: box.imageUrl),
+                        width: 52,
+                        height: 52,
+                        child: BoxImage(
+                          url: box.imageUrl,
+                          tone: box.accent ?? AppColors.brand,
+                          category: box.category,
+                          borderRadius: Radii.thumb,
+                          artScale: 0.6,
+                        ),
                       ),
                       const SizedBox(width: Space.x3),
                       Expanded(
@@ -87,7 +94,7 @@ class _OddsIndexPageState extends State<OddsIndexPage> {
                               [
                                 '1회 ${formatGp(box.price)}',
                                 box.pityThreshold != null
-                                    ? '천장 ${box.pityThreshold}회'
+                                    ? '천장 ${formatNumber(box.pityThreshold!)}회'
                                     : '천장 없음',
                               ].join(' · '),
                               style: AppText.num(AppText.caption),
@@ -95,7 +102,11 @@ class _OddsIndexPageState extends State<OddsIndexPage> {
                           ],
                         ),
                       ),
-                      const Icon(Icons.chevron_right, size: 20),
+                      const Icon(
+                        Icons.chevron_right,
+                        size: 20,
+                        color: AppColors.textTertiary,
+                      ),
                     ],
                   ),
                 ),

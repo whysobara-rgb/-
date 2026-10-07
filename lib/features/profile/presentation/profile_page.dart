@@ -8,6 +8,7 @@ import '../../../core/utils/format.dart';
 import '../../../navigation/tab_navigator.dart';
 import '../../../shared/providers/auth_provider.dart';
 import '../../../shared/providers/gp_provider.dart';
+import '../../../shared/widgets/gp_badge.dart';
 import '../../../shared/widgets/ui.dart';
 import '../../gacha/presentation/odds_index_page.dart';
 import '../../inventory/data/inventory_repository.dart';
@@ -159,19 +160,34 @@ class _ProfilePageState extends State<ProfilePage> {
               child: Row(
                 children: [
                   Container(
-                    width: 52,
-                    height: 52,
-                    alignment: Alignment.center,
+                    width: 58,
+                    height: 58,
+                    padding: const EdgeInsets.all(2),
                     decoration: const BoxDecoration(
-                      color: AppColors.surface,
                       shape: BoxShape.circle,
+                      gradient: SweepGradient(
+                        colors: [
+                          AppColors.brand,
+                          Color(0xFF7FF5C9),
+                          AppColors.brandPressed,
+                          AppColors.brand,
+                        ],
+                      ),
                     ),
-                    child: Text(
-                      (user?.nickname.isNotEmpty ?? false)
-                          ? user!.nickname.characters.first
-                          : '·',
-                      style: AppText.title2.copyWith(
-                        color: AppColors.textSecondary,
+                    child: Container(
+                      alignment: Alignment.center,
+                      decoration: const BoxDecoration(
+                        color: AppColors.raised,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Text(
+                        (user?.nickname.isNotEmpty ?? false)
+                            ? user!.nickname.characters.first
+                            : '·',
+                        style: AppText.title1.copyWith(
+                          color: AppColors.text,
+                          fontWeight: FontWeight.w900,
+                        ),
                       ),
                     ),
                   ),
@@ -204,18 +220,28 @@ class _ProfilePageState extends State<ProfilePage> {
                     Space.x4,
                   ),
                   decoration: BoxDecoration(
+                    color: AppColors.surface,
                     border: Border.all(color: AppColors.hairline),
                     borderRadius: Radii.card,
+                    gradient: LinearGradient(
+                      colors: [
+                        AppColors.brand.withValues(alpha: 0.10),
+                        AppColors.surface,
+                      ],
+                      stops: const [0, 0.6],
+                    ),
                   ),
                   child: Row(
                     children: [
+                      const GpCoin(size: 20),
+                      const SizedBox(width: 8),
                       Text('보유 GP', style: AppText.callout),
                       const Spacer(),
                       Text(
                         formatGp(balance),
                         style: AppText.num(
-                          AppText.headline,
-                        ).copyWith(fontWeight: FontWeight.w700),
+                          AppText.title2,
+                        ).copyWith(fontWeight: FontWeight.w900),
                       ),
                       const SizedBox(width: 2),
                       const Icon(
@@ -233,20 +259,29 @@ class _ProfilePageState extends State<ProfilePage> {
             // 활동 요약.
             Padding(
               padding: Space.page,
-              child: IntrinsicHeight(
-                child: Row(
-                  children: [
-                    _Stat(label: '뽑기', value: _drawCount, unit: '회'),
-                    const VerticalDivider(width: 1, color: AppColors.hairline),
-                    _Stat(
-                      label: '보관 중',
-                      value: _storedCount,
-                      unit: '개',
-                      onTap: () => tabs.select(AppTab.inventory),
-                    ),
-                    const VerticalDivider(width: 1, color: AppColors.hairline),
-                    _Stat(label: '배송 완료', value: _deliveredCount, unit: '개'),
-                  ],
+              child: SurfaceCard(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: IntrinsicHeight(
+                  child: Row(
+                    children: [
+                      _Stat(label: '뽑기', value: _drawCount, unit: '회'),
+                      const VerticalDivider(
+                        width: 1,
+                        color: AppColors.hairline,
+                      ),
+                      _Stat(
+                        label: '보관 중',
+                        value: _storedCount,
+                        unit: '개',
+                        onTap: () => tabs.select(AppTab.inventory),
+                      ),
+                      const VerticalDivider(
+                        width: 1,
+                        color: AppColors.hairline,
+                      ),
+                      _Stat(label: '배송 완료', value: _deliveredCount, unit: '개'),
+                    ],
+                  ),
                 ),
               ),
             ),
