@@ -1,33 +1,45 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import '../../../core/domain/rarity.dart';
 import '../../../core/network/api_client.dart';
+import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
+import '../../../core/utils/format.dart';
 import '../../../shared/providers/auth_provider.dart';
-import '../../home/domain/capsule_box.dart';
+import '../../../shared/widgets/product_image.dart';
+import '../../../shared/widgets/rarity_tag.dart';
+import '../data/gacha_repository.dart';
 import '../domain/draw_result.dart';
 import '../domain/gacha_grade.dart';
-import '../domain/gacha_logic.dart';
+import '../domain/gacha_models.dart';
 import 'gacha_result_page.dart';
 import 'widgets/gacha_fx_painters.dart';
 
-/// 가치가차 - CLOVE(일본 오리파 1위 플랫폼) 스타일 4등급(B/A/S/SSS)
-/// 가챠 오픈 애니메이션 엔진.
+/// 뽑기 개봉 연출.
 ///
-/// 외부 3D 엔진 없이 순수 Flutter `AnimationController` + `CustomPainter`
-/// (dart:ui Canvas) + `Transform`(3D 회전)만으로 CLOVE식 5단계 연출
-/// 파이프라인을 구현한다:
-///   Stage 0(구체 소환) → Stage 1(크랙/등급 승급) → Stage 2(컷인, S/SSS 전용)
-///   → Stage 3(폭발+카드 3D 회전 등장) → Stage 4(결과 화면, [GachaResultPage]).
+/// 순수 Flutter `AnimationController` + `CustomPainter`로 4단계를 재생한다.
+///   ① 박스 등장 → ② 균열/승급 → ③ 컷인(SR·SSR) → ④ 개봉 + 카드 공개
+/// 이후 결과 화면([GachaResultPage])으로 넘어간다.
 ///
-/// count > 1인 경우, 결과 중 최고 등급 1개를 이 엔진으로 연출하고 나머지는
-/// 결과 화면 하단 그리드에 노출한다(기존 정책 유지).
+/// 연출 강도와 빛 색은 서버 응답의 `highestRarity`(실제 결과 중 최고 등급)로
+/// 정한다. 실제 결과보다 높은 등급의 빛을 보여주지 않는다.
+/// 우측 상단 "건너뛰기"는 언제나 보이고, 누르면 즉시 결과로 간다.
 class GachaAnimationPage extends StatefulWidget {
-  final CapsuleBox box;
+  final GachaSummary gacha;
+
+  /// 유료 뽑기 횟수 (1 또는 10).
   final int count;
 
-  const GachaAnimationPage({super.key, required this.box, required this.count});
+  const GachaAnimationPage({
+    super.key,
+    required this.gacha,
+    required this.count,
+  });
 
   @override
   State<GachaAnimationPage> createState() => _GachaAnimationPageState();
@@ -35,401 +47,446 @@ class GachaAnimationPage extends StatefulWidget {
 
 class _GachaAnimationPageState extends State<GachaAnimationPage>
     with TickerProviderStateMixin {
-  // ── 지속 회전/맥동용 idle 컨트롤러 (전체 수명 동안 계속 반복) ──
-  late final AnimationController _rotationController;
+  static const _repository = GachaRepository();
+  static const Duration _holdDuration = Duration(milliseconds: 1500);
 
-  // ── Stage 0: 구체 소환(성장) 컨트롤러. 1회 재생 후 값 1.0 유지 ──
-  late final AnimationController _orbSummonController;
+  /// 링 회전·광택 등 계속 도는 값.
+  late final AnimationController _idle;
 
-  // ── Stage 1~3: 등급이 확정된 뒤에만 생성되는 메인 시퀀스 컨트롤러 ──
-  AnimationController? _sequenceController;
+  /// ① 박스 등장.
+  late final AnimationController _summon;
+
+  /// ②~④ 본 시퀀스. 등급이 정해진 뒤에 만든다.
+  AnimationController? _sequence;
 
   bool _navigated = false;
   bool _skipRequested = false;
-
-  // API 상태
   bool _apiDone = false;
-  Object? _apiError;
-  List<DrawResult>? _apiResults;
+  bool _animationDone = false;
+  bool _holding = false;
+  bool _isPreview = false;
+  Timer? _holdTimer;
 
-  // 등급/하이라이트 결과 (API 완료 또는 디버그 프리뷰로 확정됨)
+  Object? _apiError;
+  DrawOutcome? _outcome;
   GachaGrade? _grade;
   DrawResult? _highlight;
 
-  // 애니메이션 최종 완료 여부
-  bool _animationDone = false;
-
-  // 디버그 프리뷰 모드 (kDebugMode에서만 노출되는 등급 테스트 버튼용)
-  bool _isPreview = false;
-
-  // 스테이지별 haptic 중복 방지 플래그
   double _lastCrackHapticT = -1;
   bool _burstHapticFired = false;
 
-  static const List<Color> _idleAscension = [Colors.white, Color(0xFFE3E7EF)];
-
-  List<AbsorbParticle>? _absorbSeeds;
-  List<BurstShard>? _shardSeeds;
-  List<ConfettiPiece3D>? _confettiSeeds;
+  final List<AbsorbParticle> _absorbSeeds = AbsorbParticlesPainter.generate(26);
+  final List<BurstShard> _shardSeeds = BurstShardsPainter.generate(26);
+  final List<GoldLeaf> _leafSeeds = GoldLeafPainter.generate(56);
 
   @override
   void initState() {
     super.initState();
-
-    _rotationController = AnimationController(
+    _idle = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 6),
+      duration: const Duration(seconds: 8),
     )..repeat();
-
-    _orbSummonController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 800),
-    );
-    _orbSummonController.addStatusListener((status) {
-      if (status == AnimationStatus.completed) {
-        _tryStartSequence();
-      }
-    });
-    _orbSummonController.forward();
-
+    _summon =
+        AnimationController(
+            vsync: this,
+            duration: const Duration(milliseconds: 800),
+          )
+          ..addStatusListener((status) {
+            if (status == AnimationStatus.completed) _tryStartSequence();
+          })
+          ..forward();
     _startDraw();
   }
 
   Future<void> _startDraw() async {
     try {
-      final results = await drawGacha(widget.box.id, widget.count);
-      if (!mounted) return;
-      if (_isPreview) return; // 프리뷰 모드로 전환된 경우 실제 API 결과는 무시.
-      _apiResults = results;
-      final sorted = [...results]
-        ..sort((a, b) => b.gradeEnum.rank.compareTo(a.gradeEnum.rank));
-      _highlight = sorted.isNotEmpty ? sorted.first : null;
-      _grade = _highlight?.gradeEnum ?? GachaGrade.b;
+      final outcome = await _repository.draw(
+        gachaId: widget.gacha.id,
+        count: widget.count,
+      );
+      if (!mounted || _isPreview) return;
+      _outcome = outcome;
+      _highlight = outcome.best;
+      _grade = GachaGrade.fromRarity(outcome.highestRarity);
+      final balance = outcome.balanceAfter;
+      if (balance != null) {
+        context.read<AuthProvider>().applyBalance(balance);
+      } else {
+        context.read<AuthProvider>().refreshProfile();
+      }
     } catch (e) {
       if (!mounted) return;
       _apiError = e;
     } finally {
-      if (!_isPreview) {
+      if (mounted && !_isPreview) {
         _apiDone = true;
-        _tryStartSequence();
-        _tryNavigate();
+        if (_apiError != null) {
+          _animationDone = true;
+          _tryNavigate();
+        } else {
+          _tryStartSequence();
+          _tryNavigate();
+        }
       }
     }
   }
 
-  /// 구체 소환(Stage0)이 끝났고 && 등급이 확정되었으면 본 시퀀스(Stage1~3) 시작.
   void _tryStartSequence() {
-    if (_sequenceController != null) return; // 이미 시작됨
-    if (!mounted) return;
-    if (_grade == null) return; // 등급 미확정
-    if (!_isPreview && !_orbSummonController.isCompleted) return;
+    if (_sequence != null || !mounted || _grade == null) return;
+    if (!_isPreview && !_summon.isCompleted) return;
 
     if (_skipRequested) {
-      // SKIP: 시퀀스를 아예 재생하지 않고 즉시 결과로 이동.
       _animationDone = true;
       _tryNavigate();
       return;
     }
 
-    final grade = _grade!;
-    final durations = grade.stageDurationsMs; // [orb, crack, cutin, burst]
-    final crackMs = durations[1];
-    final cutinMs = durations[2];
-    final burstMs = durations[3];
-    final totalMs = crackMs + cutinMs + burstMs;
-
+    final d = _grade!.stageDurationsMs;
     final controller = AnimationController(
       vsync: this,
-      duration: Duration(milliseconds: totalMs),
+      duration: Duration(milliseconds: d[1] + d[2] + d[3]),
     );
-    _sequenceController = controller;
-
+    _sequence = controller;
     controller.addListener(() {
       if (!mounted) return;
-      setState(() {}); // 스테이지 계산은 build()에서 수행
+      setState(() {});
       _maybeFireHaptics();
     });
     controller.addStatusListener((status) {
-      if (status == AnimationStatus.completed) {
-        _animationDone = true;
-        _tryNavigate();
-      }
+      if (status == AnimationStatus.completed) _beginHold();
     });
-
     HapticFeedback.lightImpact();
     controller.forward();
-    if (mounted) setState(() {});
+    setState(() {});
   }
 
-  // 현재 시퀀스 진행 상황을 [_StageInfo]로 계산.
+  /// 카드가 공개된 뒤 잠깐 머문다. 화면을 누르면 바로 넘어간다.
+  void _beginHold() {
+    if (_skipRequested) {
+      _animationDone = true;
+      _tryNavigate();
+      return;
+    }
+    setState(() => _holding = true);
+    _holdTimer = Timer(_holdDuration, _finishHold);
+  }
+
+  void _finishHold() {
+    _holdTimer?.cancel();
+    if (!mounted || _animationDone) return;
+    _animationDone = true;
+    _tryNavigate();
+  }
+
   _StageInfo _computeStage() {
     final grade = _grade;
-    final controller = _sequenceController;
+    final controller = _sequence;
     if (grade == null || controller == null) {
-      return _StageInfo(stage: _Stage.orb, localT: 1.0, grade: grade ?? GachaGrade.b);
+      return const _StageInfo(stage: _Stage.summon, localT: 1);
     }
-    final durations = grade.stageDurationsMs;
-    final crackMs = durations[1].toDouble();
-    final cutinMs = durations[2].toDouble();
-    final burstMs = durations[3].toDouble();
-    final totalMs = crackMs + cutinMs + burstMs;
-    final elapsed = controller.value * totalMs;
+    final d = grade.stageDurationsMs;
+    final crackMs = d[1].toDouble();
+    final cutinMs = d[2].toDouble();
+    final burstMs = d[3].toDouble();
+    final elapsed = controller.value * (crackMs + cutinMs + burstMs);
 
     if (elapsed < crackMs) {
-      return _StageInfo(stage: _Stage.crack, localT: (elapsed / crackMs).clamp(0.0, 1.0), grade: grade);
+      return _StageInfo(
+        stage: _Stage.crack,
+        localT: (elapsed / crackMs).clamp(0.0, 1.0),
+      );
     }
     final afterCrack = elapsed - crackMs;
     if (cutinMs > 0 && afterCrack < cutinMs) {
-      return _StageInfo(stage: _Stage.cutin, localT: (afterCrack / cutinMs).clamp(0.0, 1.0), grade: grade);
+      return _StageInfo(
+        stage: _Stage.cutin,
+        localT: (afterCrack / cutinMs).clamp(0.0, 1.0),
+      );
     }
-    final afterCutin = afterCrack - cutinMs;
-    return _StageInfo(stage: _Stage.burst, localT: (afterCutin / burstMs).clamp(0.0, 1.0), grade: grade);
+    return _StageInfo(
+      stage: _Stage.burst,
+      localT: ((afterCrack - cutinMs) / burstMs).clamp(0.0, 1.0),
+    );
   }
 
   void _maybeFireHaptics() {
     final info = _computeStage();
     if (info.stage == _Stage.crack) {
-      // 크랙 3단계 임계값(0.33/0.66/1.0)마다 짧은 진동.
-      const thresholds = [0.33, 0.66, 1.0];
-      for (final th in thresholds) {
+      for (final th in const [0.33, 0.66, 1.0]) {
         if (info.localT >= th && _lastCrackHapticT < th) {
-          HapticFeedback.vibrate();
-          SystemSound.play(SystemSoundType.click);
+          HapticFeedback.selectionClick();
         }
       }
       _lastCrackHapticT = info.localT;
-    } else if (info.stage == _Stage.burst) {
-      if (!_burstHapticFired && info.localT < 0.05) {
-        _burstHapticFired = true;
-        HapticFeedback.heavyImpact();
-        SystemSound.play(SystemSoundType.alert);
-      }
+    } else if (info.stage == _Stage.burst && !_burstHapticFired) {
+      _burstHapticFired = true;
+      HapticFeedback.heavyImpact();
     }
   }
 
-  /// 우측 상단 SKIP 버튼: 모든 연출을 건너뛰고 즉시 결과 화면으로 이동.
   void _skip() {
     _skipRequested = true;
-    if (_sequenceController != null) {
-      // 이미 시퀀스가 재생 중이면 즉시 끝으로 점프.
-      _sequenceController!.value = 1.0;
+    _holdTimer?.cancel();
+    if (_holding) {
+      _finishHold();
+    } else if (_sequence != null) {
+      _sequence!.value = 1.0;
+      _animationDone = true;
+      _tryNavigate();
     } else {
-      // 아직 API/등급 확정 전이면, 확정되는 즉시 재생 없이 바로 이동.
       _animationDone = true;
       _tryNavigate();
     }
   }
 
   void _tryNavigate() {
-    if (_navigated || !mounted) return;
+    if (_navigated || !mounted || _isPreview) return;
     if (!_animationDone || !_apiDone) return;
-    if (_isPreview) return; // 프리뷰 모드는 페이지 이동하지 않음(그 자리에서 반복 테스트).
     _navigated = true;
 
     if (_apiError != null) {
       final message = _apiError is ApiException
-          ? (_apiError as ApiException).message
-          : '뽑기 중 오류가 발생했습니다';
-      Navigator.of(context).pop();
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+          ? (_apiError as ApiException).displayMessage
+          : '뽑기를 완료하지 못했어요. 잠시 후 다시 시도해 주세요';
+      Navigator.of(context).pop(message);
       return;
     }
 
-    context.read<AuthProvider>().refreshProfile();
+    final outcome = _outcome;
+    if (outcome == null) {
+      Navigator.of(context).pop('결과를 받지 못했어요. 보관함을 확인해 주세요');
+      return;
+    }
 
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (context) => GachaResultPage(
-          box: widget.box,
-          count: widget.count,
-          results: _apiResults ?? const [],
-        ),
+      PageRouteBuilder<void>(
+        transitionDuration: Motion.slow,
+        pageBuilder: (_, _, _) =>
+            GachaResultPage(gacha: widget.gacha, outcome: outcome),
+        transitionsBuilder: (_, animation, _, child) =>
+            FadeTransition(opacity: animation, child: child),
       ),
     );
   }
 
-  /// 디버그 전용: 강제로 특정 등급을 즉시 재생해보는 프리뷰 모드 진입.
+  // ── 디버그 전용 등급 미리보기 (릴리스 빌드에는 나타나지 않음) ──
   void _debugPreview(GachaGrade grade) {
+    _holdTimer?.cancel();
     setState(() {
       _isPreview = true;
-      _navigated = true; // 실제 페이지 이동은 막는다.
+      _navigated = true;
       _apiDone = true;
       _apiError = null;
       _animationDone = false;
+      _holding = false;
       _skipRequested = false;
       _lastCrackHapticT = -1;
       _burstHapticFired = false;
       _grade = grade;
       _highlight = DrawResult(
-        id: 'preview_${grade.code}',
-        name: '${grade.label} 프리뷰 아이템',
-        grade: grade.code,
-        price: 50000 * (grade.rank + 1),
+        drawId: 0,
+        itemId: 0,
+        name: '${grade.code} 미리보기 상품',
+        rarity: grade.rarity,
+        estimatedValue: 50000 * (grade.rank + 1),
+        exchangeValue: 40000 * (grade.rank + 1),
       );
-      _apiResults = [_highlight!];
-
-      _sequenceController?.dispose();
-      _sequenceController = null;
-      _orbSummonController.reset();
+      _sequence?.dispose();
+      _sequence = null;
+      _summon.reset();
     });
-    _orbSummonController.forward();
-  }
-
-  void _closePreview() {
-    setState(() {
-      _isPreview = false;
-      _navigated = false;
-      _animationDone = false;
-      _apiDone = false;
-      _grade = null;
-      _sequenceController?.dispose();
-      _sequenceController = null;
-      _orbSummonController.reset();
-    });
-    _orbSummonController.forward();
-    _startDraw();
+    _summon.forward();
   }
 
   @override
   void dispose() {
-    _rotationController.dispose();
-    _orbSummonController.dispose();
-    _sequenceController?.dispose();
+    _holdTimer?.cancel();
+    _idle.dispose();
+    _summon.dispose();
+    _sequence?.dispose();
     super.dispose();
   }
+
+  // ── Build ────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     final info = _computeStage();
     final grade = _grade;
     final color = grade == null
-        ? Colors.white
+        ? const Color(0xFFF4F4F5)
         : _colorForStage(grade, info);
-    final rainbowActive = grade != null && _isRainbowActive(grade, info);
+    final paidCount = widget.count;
+    final bonus = paidCount ~/ 10;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFF0B0710),
-      body: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: RadialGradient(
-            colors: [
-              const Color(0xFF231433).withValues(alpha: 0.92),
-              const Color(0xFF0B0710).withValues(alpha: 0.98),
-            ],
-            radius: 1.1,
-          ),
-        ),
-        child: SafeArea(
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light,
+      child: Scaffold(
+        backgroundColor: AppColors.stage,
+        body: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: _holding ? _finishHold : null,
           child: Stack(
+            fit: StackFit.expand,
             children: [
-              // ── 배경 딥다크 블러 오버레이(rgba(0,0,0,0.92) 상당) ──
-              Positioned.fill(
-                child: Container(color: Colors.black.withValues(alpha: 0.35)),
-              ),
-
-              Center(
-                child: SizedBox(
-                  width: 300,
-                  height: 300,
-                  child: AnimatedBuilder(
-                    animation: Listenable.merge([
-                      _rotationController,
-                      _orbSummonController,
-                      if (_sequenceController != null) _sequenceController!,
-                    ]),
-                    builder: (context, _) {
-                      return _buildStageVisual(info, grade, color, rainbowActive);
-                    },
+              // 무대 비네팅: 중앙이 아주 약간 밝다.
+              const DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: RadialGradient(
+                    radius: 0.9,
+                    colors: [Color(0xFF1A1A1E), AppColors.stage],
                   ),
                 ),
               ),
 
-              // ── Stage2: 등급 엠블럼 컷인(S/SSS 전용) ──
+              // 빛줄기 (SR/SSR, 컷인 이후).
+              if (grade != null && grade.hasCutinStage)
+                AnimatedBuilder(
+                  animation: _idle,
+                  builder: (context, _) => CustomPaint(
+                    painter: LightRaysPainter(
+                      rotation: _idle.value * 2 * math.pi,
+                      intensity: _raysIntensity(info),
+                      color: grade.primaryColor,
+                      rays: grade == GachaGrade.sss ? 14 : 10,
+                    ),
+                  ),
+                ),
+
+              SafeArea(
+                child: Stack(
+                  children: [
+                    Center(
+                      child: SizedBox(
+                        width: 320,
+                        height: 360,
+                        child: AnimatedBuilder(
+                          animation: Listenable.merge([_idle, _summon]),
+                          builder: (context, _) =>
+                              _buildStageVisual(info, grade, color),
+                        ),
+                      ),
+                    ),
+
+                    // 공개 후 상품명.
+                    if (_highlight != null &&
+                        (info.stage == _Stage.burst || _holding))
+                      Positioned(
+                        left: Space.gutter,
+                        right: Space.gutter,
+                        bottom: 120,
+                        child: _RevealCaption(
+                          result: _highlight!,
+                          extraCount: (_outcome?.results.length ?? 1) - 1,
+                          visible: _holding || info.localT > 0.7,
+                        ),
+                      ),
+
+                    // 상단: 박스명 · 횟수 / 건너뛰기.
+                    Positioned(
+                      left: Space.gutter,
+                      right: Space.x2,
+                      top: Space.x2,
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              bonus > 0
+                                  ? '${widget.gacha.title} · $paidCount+$bonus회'
+                                  : '${widget.gacha.title} · $paidCount회',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppText.caption.copyWith(
+                                color: Colors.white.withValues(alpha: 0.6),
+                              ),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: _skip,
+                            style: TextButton.styleFrom(
+                              foregroundColor: Colors.white,
+                              minimumSize: const Size(0, 36),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                              ),
+                              side: BorderSide(
+                                color: Colors.white.withValues(alpha: 0.24),
+                              ),
+                              shape: const RoundedRectangleBorder(
+                                borderRadius: Radii.button,
+                              ),
+                            ),
+                            child: Text(
+                              _holding ? '결과 보기' : '건너뛰기',
+                              style: AppText.bodyStrong.copyWith(
+                                color: Colors.white,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // 하단 상태 문구.
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 56,
+                      child: AnimatedOpacity(
+                        duration: Motion.normal,
+                        opacity: _statusLabel(info).isEmpty ? 0 : 1,
+                        child: Text(
+                          _statusLabel(info),
+                          textAlign: TextAlign.center,
+                          style: AppText.callout.copyWith(
+                            color: Colors.white.withValues(alpha: 0.7),
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    if (kDebugMode)
+                      Positioned(
+                        left: Space.x3,
+                        bottom: Space.x3,
+                        child: _DebugGradePanel(onSelect: _debugPreview),
+                      ),
+                  ],
+                ),
+              ),
+
+              // ③ 컷인.
               if (grade != null &&
                   grade.hasCutinStage &&
                   info.stage == _Stage.cutin)
-                Positioned.fill(
-                  child: IgnorePointer(
-                    child: _CutinOverlay(grade: grade, localT: info.localT),
+                IgnorePointer(
+                  child: _CutinOverlay(grade: grade, localT: info.localT),
+                ),
+
+              // ④ 개봉 순간 섬광.
+              if (info.stage == _Stage.burst && info.localT < 0.18)
+                IgnorePointer(
+                  child: ColoredBox(
+                    color: Color.lerp(Colors.white, color, 0.15)!.withValues(
+                      alpha: (1 - info.localT / 0.18).clamp(0.0, 1.0),
+                    ),
                   ),
                 ),
 
-              // ── Stage3: 순백 섬광 flash-whiteout ──
-              if (info.stage == _Stage.burst && info.localT < 0.15)
-                Positioned.fill(
-                  child: IgnorePointer(
-                    child: Container(
-                      color: Colors.white.withValues(
-                        alpha: (1 - info.localT / 0.15).clamp(0.0, 1.0),
+              // SSR 금박.
+              if (grade != null &&
+                  grade.hasRainbowConfetti &&
+                  (info.stage == _Stage.burst || _holding))
+                IgnorePointer(
+                  child: AnimatedBuilder(
+                    animation: _idle,
+                    builder: (context, _) => CustomPaint(
+                      painter: GoldLeafPainter(
+                        progress: _holding ? 1.0 : info.localT,
+                        pieces: _leafSeeds,
                       ),
                     ),
-                  ),
-                ),
-
-              // ── 안내 텍스트 ──
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 96,
-                child: Center(
-                  child: Text(
-                    _statusLabel(info),
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.92),
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                ),
-              ),
-
-              // ── 하단 진행률 표시 ──
-              Positioned(
-                left: 24,
-                right: 24,
-                bottom: 56,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: LinearProgressIndicator(
-                    value: _sequenceController?.value ?? _orbSummonController.value * 0.15,
-                    minHeight: 5,
-                    backgroundColor: Colors.white.withValues(alpha: 0.16),
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      grade?.primaryColor ?? Colors.white,
-                    ),
-                  ),
-                ),
-              ),
-
-              // ── 우측 상단 SKIP 버튼 ──
-              Positioned(
-                right: 16,
-                top: 8,
-                child: TextButton.icon(
-                  onPressed: _skip,
-                  icon: const Icon(Icons.fast_forward_rounded, color: Colors.white70, size: 18),
-                  label: Text(
-                    'SKIP',
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.85),
-                      fontSize: 13,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 1,
-                    ),
-                  ),
-                ),
-              ),
-
-              // ── 디버그 전용: 등급 테스트 컨트롤러 패널 ──
-              if (kDebugMode)
-                Positioned(
-                  left: 12,
-                  top: 8,
-                  child: _DebugGradePanel(
-                    onSelect: _debugPreview,
-                    isPreview: _isPreview,
-                    onClose: _closePreview,
                   ),
                 ),
             ],
@@ -439,154 +496,149 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
     );
   }
 
-  bool _isRainbowActive(GachaGrade grade, _StageInfo info) {
-    if (!grade.isRainbow) return false;
-    if (info.stage == _Stage.cutin || info.stage == _Stage.burst) return true;
-    if (info.stage == _Stage.crack) {
-      final colors = grade.ascensionColors;
-      final segCount = colors.length - 1;
-      final segIndex = (info.localT * segCount).floor().clamp(0, segCount - 1);
-      final segT = (info.localT * segCount - segIndex).clamp(0.0, 1.0);
-      return segIndex == segCount - 1 && segT > 0.5;
-    }
-    return false;
+  double _raysIntensity(_StageInfo info) {
+    if (_holding) return 1;
+    return switch (info.stage) {
+      _Stage.summon || _Stage.crack => 0,
+      _Stage.cutin => info.localT * 0.6,
+      _Stage.burst => 0.6 + 0.4 * info.localT,
+    };
   }
 
   Color _colorForStage(GachaGrade grade, _StageInfo info) {
-    if (info.stage == _Stage.orb) return _idleAscension.first;
     final colors = grade.ascensionColors;
+    if (info.stage == _Stage.summon) return colors.first;
     if (info.stage != _Stage.crack) return colors.last;
     final segCount = colors.length - 1;
-    if (segCount <= 0) return colors.first;
     final scaled = info.localT * segCount;
     final segIndex = scaled.floor().clamp(0, segCount - 1);
     final segT = (scaled - segIndex).clamp(0.0, 1.0);
-    return Color.lerp(colors[segIndex], colors[segIndex + 1], segT) ?? colors.first;
+    return Color.lerp(colors[segIndex], colors[segIndex + 1], segT) ??
+        colors.last;
   }
 
   String _statusLabel(_StageInfo info) {
-    switch (info.stage) {
-      case _Stage.orb:
-        return '캡슐 에너지를 모으는 중...';
-      case _Stage.crack:
-        return '균열이 퍼지는 중...';
-      case _Stage.cutin:
-        return '텐션 MAX!';
-      case _Stage.burst:
-        return '캡슐이 열리고 있습니다!';
-    }
+    if (_holding) return '화면을 누르면 결과로 넘어가요';
+    final multi = widget.count > 1;
+    return switch (info.stage) {
+      _Stage.summon => _apiDone ? '' : '박스를 준비하고 있어요',
+      _Stage.crack => multi ? '가장 높은 등급부터 공개해요' : '박스를 여는 중',
+      _Stage.cutin => '',
+      _Stage.burst => '',
+    };
   }
 
-  Widget _buildStageVisual(_StageInfo info, GachaGrade? grade, Color color, bool rainbow) {
-    final rotationAngle = _rotationController.value * 2 * math.pi * 3;
-    final orbGrowth = _orbSummonController.value;
-    final magicAppear = _orbSummonController.value;
+  Widget _buildStageVisual(_StageInfo info, GachaGrade? grade, Color color) {
+    final summon = _summon.value;
+    double crack = 0;
+    double pulse = 1;
+    double lidOpen = 0;
+    double burst = 0;
+    Offset shake = Offset.zero;
+    final intensity = 0.7 + 0.3 * (grade?.rank ?? 0);
 
-    double pulseScale = 1.0;
-    double crackProgress = 0.0;
-    double burstProgress = 0.0;
-
-    if (info.stage == _Stage.crack) {
-      final t = info.localT;
-      crackProgress = t;
-      if (t < 0.33) {
-        pulseScale = 1.0 + 0.15 * (t / 0.33);
-      } else if (t < 0.66) {
-        pulseScale = 1.15 + 0.15 * ((t - 0.33) / 0.33);
-      } else {
-        pulseScale = 1.3;
-      }
-    } else if (info.stage == _Stage.cutin) {
-      crackProgress = 1.0;
-      pulseScale = 1.3 + 0.08 * math.sin(info.localT * 4 * math.pi);
-    } else if (info.stage == _Stage.burst) {
-      crackProgress = 1.0;
-      burstProgress = info.localT;
-      pulseScale = (1.3 * (1 - (burstProgress / 0.25).clamp(0.0, 1.0)));
-    } else {
-      // idle/orb 소환 단계: 은은한 숨쉬기 펄스
-      pulseScale = 1.0 + 0.03 * math.sin(_rotationController.value * 2 * math.pi);
+    switch (info.stage) {
+      case _Stage.summon:
+        pulse = 1 + 0.015 * math.sin(_idle.value * 2 * math.pi * 4);
+      case _Stage.crack:
+        crack = info.localT;
+        pulse = 1 + 0.06 * Curves.easeIn.transform(info.localT);
+        // 균열 임계점마다 짧게 흔들린다(등급이 높을수록 크게).
+        final phase = (info.localT * 3) % 1;
+        final amp =
+            (1 - phase) *
+            (1.5 + 1.5 * (grade?.rank ?? 0)) *
+            (phase < 0.35 ? 1 : 0);
+        shake = Offset(
+          math.sin(info.localT * 160) * amp,
+          math.cos(info.localT * 130) * amp * 0.5,
+        );
+      case _Stage.cutin:
+        crack = 1;
+        pulse = 1.06 + 0.02 * math.sin(info.localT * 6 * math.pi);
+      case _Stage.burst:
+        crack = 1;
+        burst = info.localT;
+        lidOpen = (burst / 0.3).clamp(0.0, 1.0);
+        pulse = 1.06;
+    }
+    if (_holding) {
+      burst = 1;
+      lidOpen = 1;
     }
 
-    final showOrb = info.stage != _Stage.burst || burstProgress < 0.45;
-    final showCard = info.stage == _Stage.burst && burstProgress > 0.15;
+    final boxOpacity = info.stage == _Stage.burst || _holding
+        ? (1 - ((burst - 0.15) / 0.3)).clamp(0.0, 1.0)
+        : 1.0;
+    final showCard = (info.stage == _Stage.burst && burst > 0.15) || _holding;
 
-    final shardSeeds = _shardSeeds ??=
-        BurstShardsPainter.generate(22, grade?.primaryColor ?? Colors.white);
-    final confettiSeeds = _confettiSeeds ??= RainbowConfettiPainter.generate(48);
-
-    return Stack(
-      alignment: Alignment.center,
-      children: [
-        // ── 마법진 링 ──
-        if (info.stage == _Stage.orb || info.stage == _Stage.crack)
-          CustomPaint(
-            size: const Size(300, 300),
-            painter: MagicCirclePainter(
-              rotation: rotationAngle,
-              appear: magicAppear,
-              color: color,
-            ),
-          ),
-
-        // ── 흡수 파티클 ──
-        if (info.stage == _Stage.orb)
-          CustomPaint(
-            size: const Size(300, 300),
-            painter: AbsorbParticlesPainter(
-              progress: orbGrowth,
-              color: color,
-              particles: _absorbSeeds ??= AbsorbParticlesPainter.generate(28, color),
-            ),
-          ),
-
-        // ── 에너지 구체 ──
-        if (showOrb)
-          CustomPaint(
-            size: const Size(300, 300),
-            painter: EnergyOrbPainter(
-              growth: orbGrowth,
-              crackProgress: crackProgress,
-              color: color,
-              pulseScale: pulseScale,
-              rainbow: rainbow,
-              rainbowShift: _rotationController.value,
-            ),
-          ),
-
-        // ── 폭발 파편 ──
-        if (info.stage == _Stage.burst)
-          CustomPaint(
-            size: const Size(300, 300),
-            painter: BurstShardsPainter(
-              progress: burstProgress,
-              shards: shardSeeds,
-            ),
-          ),
-
-        // ── SSS 무지개 컨페티 ──
-        if (info.stage == _Stage.burst && (grade?.hasRainbowConfetti ?? false))
-          Positioned.fill(
-            child: CustomPaint(
-              painter: RainbowConfettiPainter(
-                progress: burstProgress,
-                pieces: confettiSeeds,
+    return Transform.translate(
+      offset: shake,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          if (info.stage == _Stage.summon || info.stage == _Stage.crack)
+            Positioned.fill(
+              child: CustomPaint(
+                painter: FloorRingPainter(
+                  rotation: _idle.value * 2 * math.pi,
+                  appear: summon,
+                  color: color,
+                ),
               ),
             ),
-          ),
-
-        // ── 카드 3D 회전 등장 ──
-        if (showCard)
-          _buildEnteringCard(grade, burstProgress),
-      ],
+          if (info.stage == _Stage.summon)
+            Positioned.fill(
+              child: CustomPaint(
+                painter: AbsorbParticlesPainter(
+                  progress: summon,
+                  color: color,
+                  particles: _absorbSeeds,
+                ),
+              ),
+            ),
+          if (boxOpacity > 0)
+            Positioned.fill(
+              child: Opacity(
+                opacity: boxOpacity,
+                child: CustomPaint(
+                  painter: VaultBoxPainter(
+                    appear: summon,
+                    crack: crack,
+                    color: color,
+                    pulse: pulse,
+                    lidOpen: lidOpen,
+                    sheen: _idle.value * 3 % 1,
+                    metallic:
+                        grade == GachaGrade.sss && info.stage != _Stage.summon,
+                    intensity: intensity,
+                  ),
+                ),
+              ),
+            ),
+          if (info.stage == _Stage.burst)
+            Positioned.fill(
+              child: CustomPaint(
+                painter: BurstShardsPainter(
+                  progress: burst,
+                  color: color,
+                  shards: _shardSeeds,
+                ),
+              ),
+            ),
+          if (showCard && _highlight != null && grade != null)
+            _buildEnteringCard(grade, _holding ? 1 : burst),
+        ],
+      ),
     );
   }
 
-  Widget _buildEnteringCard(GachaGrade? grade, double burstProgress) {
-    final cardT = ((burstProgress - 0.15) / 0.7).clamp(0.0, 1.0);
+  Widget _buildEnteringCard(GachaGrade grade, double burst) {
+    final cardT = ((burst - 0.15) / 0.7).clamp(0.0, 1.0);
     final curved = Curves.easeOutBack.transform(cardT);
-    final scale = 0.2 + 0.8 * curved.clamp(0.0, 1.2);
+    final scale = 0.3 + 0.7 * curved;
     final rotateY = math.pi * (1 - curved.clamp(0.0, 1.0));
+    final showFront = rotateY < math.pi / 2;
 
     return Transform(
       alignment: Alignment.center,
@@ -594,42 +646,145 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
         ..setEntry(3, 2, 0.0012)
         ..rotateY(rotateY)
         ..scaleByDouble(scale, scale, scale, 1.0),
-      child: Container(
-        width: 168,
-        height: 208,
-        decoration: BoxDecoration(
-          gradient: grade?.gradient,
-          borderRadius: BorderRadius.circular(24),
-          boxShadow: [
-            BoxShadow(
-              color: (grade?.glowColor ?? Colors.white).withValues(alpha: 0.55),
-              blurRadius: 30,
-              spreadRadius: 2,
+      child: showFront
+          ? _RevealCard(result: _highlight!, grade: grade)
+          : _CardBack(grade: grade),
+    );
+  }
+}
+
+enum _Stage { summon, crack, cutin, burst }
+
+class _StageInfo {
+  final _Stage stage;
+  final double localT;
+  const _StageInfo({required this.stage, required this.localT});
+}
+
+/// 공개되는 카드 앞면: 실제 상품 사진 + 등급.
+class _RevealCard extends StatelessWidget {
+  final DrawResult result;
+  final GachaGrade grade;
+
+  const _RevealCard({required this.result, required this.grade});
+
+  @override
+  Widget build(BuildContext context) {
+    final isSsr = grade == GachaGrade.sss;
+    return Container(
+      width: 196,
+      height: 248,
+      padding: const EdgeInsets.all(1.5),
+      decoration: BoxDecoration(
+        borderRadius: Radii.card,
+        gradient: isSsr ? grade.gradient : null,
+        color: isSsr ? null : grade.primaryColor.withValues(alpha: 0.8),
+        boxShadow: [
+          BoxShadow(
+            color: grade.glowColor.withValues(
+              alpha: grade.rank >= 2 ? 0.55 : 0.3,
             ),
-          ],
-        ),
-        child: Center(
-          child: Icon(
-            Icons.card_giftcard_rounded,
-            size: 72,
-            color: Colors.white.withValues(alpha: 0.95),
+            blurRadius: 36,
+            spreadRadius: grade.rank.toDouble(),
           ),
+        ],
+      ),
+      child: Container(
+        decoration: const BoxDecoration(
+          color: AppColors.stageRaised,
+          borderRadius: BorderRadius.all(Radius.circular(Radii.lg - 1.5)),
+        ),
+        padding: const EdgeInsets.all(Space.x3),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: ProductImage(
+                url: result.imageUrl,
+                background: const Color(0xFFF2F2F0),
+              ),
+            ),
+            const SizedBox(height: Space.x3),
+            RarityTag(result.rarity),
+          ],
         ),
       ),
     );
   }
 }
 
-enum _Stage { orb, crack, cutin, burst }
-
-class _StageInfo {
-  final _Stage stage;
-  final double localT;
+class _CardBack extends StatelessWidget {
   final GachaGrade grade;
-  const _StageInfo({required this.stage, required this.localT, required this.grade});
+  const _CardBack({required this.grade});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 196,
+      height: 248,
+      decoration: BoxDecoration(
+        color: AppColors.stageRaised,
+        borderRadius: Radii.card,
+        border: Border.all(
+          color: grade.primaryColor.withValues(alpha: 0.6),
+          width: 1.5,
+        ),
+      ),
+      alignment: Alignment.center,
+      child: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          border: Border.all(color: grade.primaryColor.withValues(alpha: 0.6)),
+          borderRadius: Radii.chip,
+        ),
+      ),
+    );
+  }
 }
 
-/// Stage2 컷인 오버레이: 대각선 번개 섬광 + 등급 엠블럼 슬라이드 + 심장박동 줌.
+/// 카드 아래 상품명·정가.
+class _RevealCaption extends StatelessWidget {
+  final DrawResult result;
+  final int extraCount;
+  final bool visible;
+
+  const _RevealCaption({
+    required this.result,
+    required this.extraCount,
+    required this.visible,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedOpacity(
+      duration: Motion.slow,
+      opacity: visible ? 1 : 0,
+      child: Column(
+        children: [
+          Text(
+            result.name,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: AppText.title2.copyWith(color: Colors.white),
+          ),
+          const SizedBox(height: Space.x1),
+          Text(
+            extraCount > 0
+                ? '정가 ${formatWon(result.estimatedValue)} · 외 $extraCount개'
+                : '정가 ${formatWon(result.estimatedValue)}',
+            style: AppText.num(
+              AppText.callout,
+            ).copyWith(color: Colors.white.withValues(alpha: 0.6)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// ③ 컷인: 화면을 가로지르는 띠 위로 등급 코드가 밀려 들어온다.
 class _CutinOverlay extends StatelessWidget {
   final GachaGrade grade;
   final double localT;
@@ -638,118 +793,117 @@ class _CutinOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final heartbeat = 1.0 + 0.06 * math.sin(localT * 4 * math.pi);
-    final slideProgress = (localT * 2.4).clamp(0.0, 1.0);
-    final slideX = (1 - Curves.easeOutCubic.transform(slideProgress)) * 260;
-
-    return Stack(
-      children: [
-        Container(color: Colors.black.withValues(alpha: 0.55 * (1 - (localT - 0.7).clamp(0.0, 0.3) / 0.3))),
-        CustomPaint(
-          size: Size.infinite,
-          painter: LightningCutinPainter(progress: localT, color: grade.primaryColor),
-        ),
-        Center(
-          child: Transform.scale(
-            scale: heartbeat,
-            child: Transform.translate(
-              offset: Offset(slideX, 0),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
-                decoration: BoxDecoration(
-                  gradient: grade.gradient,
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(color: grade.glowColor.withValues(alpha: 0.6), blurRadius: 24, spreadRadius: 2),
-                  ],
-                ),
-                child: Text(
-                  grade.code,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 40,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 2,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
+    final slideIn = Curves.easeOutCubic.transform(
+      (localT * 2.2).clamp(0.0, 1.0),
     );
-  }
-}
+    final fadeOut = (1 - ((localT - 0.8) / 0.2)).clamp(0.0, 1.0);
+    final bandOpen = Curves.easeOutCubic.transform(
+      (localT * 3).clamp(0.0, 1.0),
+    );
+    final heartbeat = 1 + 0.04 * math.sin(localT * 4 * math.pi);
+    final isSsr = grade == GachaGrade.sss;
 
-/// 디버그 전용 등급 테스트 컨트롤러 패널 (kDebugMode에서만 렌더링됨).
-class _DebugGradePanel extends StatelessWidget {
-  final ValueChanged<GachaGrade> onSelect;
-  final bool isPreview;
-  final VoidCallback onClose;
-
-  const _DebugGradePanel({
-    required this.onSelect,
-    required this.isPreview,
-    required this.onClose,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(6),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.45),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
+    return Opacity(
+      opacity: fadeOut,
+      child: Stack(
+        fit: StackFit.expand,
         children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: GachaGrade.values.map((g) {
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 2),
-                child: InkWell(
-                  onTap: () => onSelect(g),
-                  borderRadius: BorderRadius.circular(8),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                    decoration: BoxDecoration(
-                      gradient: g.gradient,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      g.code,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                      ),
+          ColoredBox(color: Colors.black.withValues(alpha: 0.5)),
+          CustomPaint(
+            painter: LightningCutinPainter(
+              progress: localT,
+              color: grade.primaryColor,
+            ),
+          ),
+          Center(
+            child: Container(
+              height: 132 * bandOpen,
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.85),
+                border: Border.symmetric(
+                  horizontal: BorderSide(color: grade.primaryColor, width: 1),
+                ),
+              ),
+              child: ClipRect(
+                child: Transform.translate(
+                  offset: Offset((1 - slideIn) * 280, 0),
+                  child: Transform.scale(
+                    scale: heartbeat,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        ShaderMask(
+                          shaderCallback: (rect) =>
+                              (isSsr
+                                      ? grade.gradient
+                                      : LinearGradient(
+                                          colors: [
+                                            Colors.white,
+                                            grade.secondaryColor,
+                                          ],
+                                        ))
+                                  .createShader(rect),
+                          child: Text(
+                            grade.code,
+                            style: AppText.display.copyWith(
+                              color: Colors.white,
+                              fontSize: 56,
+                              height: 1,
+                              letterSpacing: 6,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: Space.x2),
+                        Text(
+                          grade.rarity == Rarity.ssr ? '최상위 등급' : '슈퍼 레어 등급',
+                          style: AppText.caption.copyWith(
+                            color: Colors.white.withValues(alpha: 0.75),
+                            letterSpacing: 2,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-              );
-            }).toList(),
-          ),
-          if (isPreview)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: TextButton(
-                onPressed: onClose,
-                style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  minimumSize: const Size(0, 24),
-                ),
-                child: const Text(
-                  '프리뷰 종료',
-                  style: TextStyle(color: Colors.white70, fontSize: 10),
-                ),
               ),
             ),
+          ),
         ],
       ),
     );
   }
 }
 
+/// 디버그 빌드 전용 등급 미리보기.
+class _DebugGradePanel extends StatelessWidget {
+  final ValueChanged<GachaGrade> onSelect;
+
+  const _DebugGradePanel({required this.onSelect});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: GachaGrade.values
+          .map(
+            (g) => Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: OutlinedButton(
+                onPressed: () => onSelect(g),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white70,
+                  minimumSize: const Size(0, 28),
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  side: const BorderSide(color: Colors.white24),
+                  textStyle: AppText.micro,
+                ),
+                child: Text(g.code),
+              ),
+            ),
+          )
+          .toList(),
+    );
+  }
+}
