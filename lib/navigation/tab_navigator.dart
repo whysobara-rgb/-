@@ -40,4 +40,20 @@ class TabNavigator extends ChangeNotifier {
     Navigator.of(context).popUntil((route) => route.isFirst);
     select(tab);
   }
+
+  bool _topupRequested = false;
+
+  /// 충전 탭으로 가서 충전 시트를 연다(배너 TOPUP 링크). 충전 로직은
+  /// 충전 탭의 기존 흐름을 그대로 쓴다.
+  void openTopup(BuildContext context) {
+    _topupRequested = true;
+    goTo(context, AppTab.wallet);
+  }
+
+  /// 충전 탭이 한 번만 소비한다.
+  bool consumeTopupRequest() {
+    final requested = _topupRequested;
+    _topupRequested = false;
+    return requested;
+  }
 }

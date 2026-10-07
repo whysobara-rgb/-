@@ -129,7 +129,7 @@ class HoloSheenPainter extends CustomPainter {
     const reps = 2;
     for (var r = 0; r < reps; r++) {
       for (var i = 0; i < spectrum.length; i++) {
-        colors.add(spectrum[i].withValues(alpha: 0.22 * intensity));
+        colors.add(spectrum[i].withValues(alpha: 0.16 * intensity));
         stops.add((r * spectrum.length + i) / (reps * spectrum.length - 1));
       }
     }
@@ -156,11 +156,11 @@ class HoloSheenPainter extends CustomPainter {
           begin: Alignment(sweep - 0.6, -1),
           end: Alignment(sweep + 0.6, 1),
           colors: [
-            Colors.white.withValues(alpha: 0),
-            Colors.white.withValues(alpha: 0.38 * intensity),
-            Colors.white.withValues(alpha: 0),
+            const Color(0x00FFF3D0),
+            const Color(0xFFFFF3D0).withValues(alpha: 0.34 * intensity),
+            const Color(0x00FFF3D0),
           ],
-          stops: const [0.38, 0.5, 0.62],
+          stops: const [0.42, 0.5, 0.58],
         ).createShader(rect),
     );
 

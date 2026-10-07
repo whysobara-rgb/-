@@ -117,6 +117,12 @@ class _WalletPageState extends State<WalletPage> {
       if (!first) {
         WidgetsBinding.instance.addPostFrameCallback((_) => _refresh());
       }
+      // 홈 배너(TOPUP)에서 왔으면 기존 충전 흐름을 그대로 연다.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && context.read<TabNavigator>().consumeTopupRequest()) {
+          _topup();
+        }
+      });
     }
 
     return Scaffold(

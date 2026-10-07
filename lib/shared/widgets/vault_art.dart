@@ -94,8 +94,8 @@ class VaultEmblem extends StatelessWidget {
               center: const Alignment(0, -0.25),
               radius: 0.95,
               colors: [
-                Color.lerp(AppColors.high, color, 0.22)!,
-                AppColors.surface,
+                Color.lerp(AppColors.high, color, 0.30)!,
+                Color.lerp(AppColors.surface, color, 0.06)!,
               ],
             ),
           ),
@@ -170,7 +170,7 @@ class BoxArt extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final glow = _lift(tone);
+    final glow = vaultTone(tone);
     return DecoratedBox(
       decoration: BoxDecoration(
         gradient: RadialGradient(
@@ -194,18 +194,17 @@ class BoxArt extends StatelessWidget {
       ),
     );
   }
+}
 
-  /// 아주 어두운 서버 색(#1A1A1A 등)도 어두운 바탕에서 보이게 끌어올린다.
-  static Color _lift(Color c) {
-    final hsl = HSLColor.fromColor(c);
-    if (hsl.saturation < 0.12) {
-      return const Color(0xFFC9CED6); // 무채색이면 플래티넘.
-    }
-    return hsl
-        .withLightness(hsl.lightness.clamp(0.52, 0.66))
-        .withSaturation(hsl.saturation.clamp(0.45, 0.85))
-        .toColor();
-  }
+/// 서버 색(박스·배너 accentColorHex)을 어두운 바탕에서 빛나 보이게 보정한다.
+/// 무채색(#1A1A1A 등)은 플래티넘으로 바꾼다.
+Color vaultTone(Color c) {
+  final hsl = HSLColor.fromColor(c);
+  if (hsl.saturation < 0.12) return const Color(0xFFD5D9E0);
+  return hsl
+      .withLightness(hsl.lightness.clamp(0.5, 0.64))
+      .withSaturation(hsl.saturation.clamp(0.5, 0.88))
+      .toColor();
 }
 
 class _BoxArtPainter extends CustomPainter {
@@ -230,7 +229,7 @@ class _BoxArtPainter extends CustomPainter {
     // 기요셰 바탕.
     GuillochePainter(
       color: tone,
-      opacity: 0.07,
+      opacity: 0.055,
       rings: 26,
       center: Offset(0.5, centerY - 0.04),
       scale: 0.78,

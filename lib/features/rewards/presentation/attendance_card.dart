@@ -88,35 +88,70 @@ class _AttendanceCardState extends State<AttendanceCard> {
   @override
   Widget build(BuildContext context) {
     final status = _status;
-    if (_loading) return const SizedBox(height: 196);
+    if (_loading) return const SizedBox(height: 150);
     if (_failed || status == null || status.schedule.isEmpty) {
       // 구버전 서버 등 출석 API가 없으면 카드를 감춘다.
       return const SizedBox.shrink();
     }
 
     final lastDay = status.schedule.last;
+    final done = status.checkedInToday;
     return Container(
-      padding: const EdgeInsets.fromLTRB(
-        Space.x4,
-        Space.x4,
-        Space.x4,
-        Space.x4,
-      ),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
       decoration: BoxDecoration(
-        border: Border.all(color: AppColors.hairline),
+        color: AppColors.surface,
         borderRadius: Radii.card,
+        border: Border.all(
+          color: done
+              ? AppColors.hairline
+              : AppColors.brand.withValues(alpha: 0.35),
+        ),
+        gradient: done
+            ? null
+            : LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  AppColors.brand.withValues(alpha: 0.10),
+                  AppColors.surface,
+                ],
+                stops: const [0, 0.6],
+              ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('출석체크', style: AppText.headline),
+                    Row(
+                      children: [
+                        Text('출석체크', style: AppText.headline),
+                        if (status.streakDay > 0) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.high,
+                              borderRadius: Radii.chip,
+                            ),
+                            child: Text(
+                              '${status.streakDay}일 연속',
+                              style: AppText.num(AppText.micro).copyWith(
+                                color: AppColors.text,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
                     const SizedBox(height: 2),
                     Text(
                       '${lastDay.day}일 연속 출석하면 ${formatGp(lastDay.reward)}',
@@ -125,21 +160,64 @@ class _AttendanceCardState extends State<AttendanceCard> {
                   ],
                 ),
               ),
-              if (status.streakDay > 0)
-                Text(
-                  '${status.streakDay}일 연속',
-                  style: AppText.num(AppText.caption).copyWith(
-                    color: AppColors.text,
-                    fontWeight: FontWeight.w700,
+              const SizedBox(width: Space.x2),
+              if (done)
+                Container(
+                  height: 36,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: AppColors.high,
+                    borderRadius: Radii.pill,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.check_rounded,
+                        size: 15,
+                        color: AppColors.brand,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        '완료',
+                        style: AppText.caption.copyWith(
+                          color: AppColors.text,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                SizedBox(
+                  height: 36,
+                  child: FilledButton(
+                    onPressed: _submitting ? null : _checkIn,
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(0, 36),
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      shape: const StadiumBorder(),
+                      textStyle: AppText.bodyStrong.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    child: _submitting
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : Text('+${formatNumber(status.nextReward)} GP 받기'),
                   ),
                 ),
             ],
           ),
-          const SizedBox(height: Space.x4),
+          const SizedBox(height: 14),
           Row(
             children: [
               for (var i = 0; i < status.schedule.length; i++) ...[
-                if (i > 0) const SizedBox(width: 6),
+                if (i > 0) const SizedBox(width: 5),
                 Expanded(
                   child: _DayCell(
                     day: status.schedule[i],
@@ -151,38 +229,13 @@ class _AttendanceCardState extends State<AttendanceCard> {
               ],
             ],
           ),
-          const SizedBox(height: Space.x4),
-          if (status.checkedInToday)
-            Container(
-              height: 44,
-              alignment: Alignment.center,
-              decoration: const BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: Radii.button,
-              ),
-              child: Text(
-                '오늘 출석 완료 · 내일 ${formatGp(status.tomorrowReward)}',
-                style: AppText.num(AppText.callout),
-              ),
-            )
-          else
-            SizedBox(
-              height: 44,
-              child: FilledButton(
-                onPressed: _submitting ? null : _checkIn,
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size.fromHeight(44),
-                  textStyle: AppText.bodyStrong,
-                ),
-                child: _submitting
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Text('출석하고 ${formatGp(status.nextReward)} 받기'),
-              ),
+          if (done) ...[
+            const SizedBox(height: 10),
+            Text(
+              '내일 ${formatGp(status.tomorrowReward)}를 받을 수 있어요',
+              style: AppText.num(AppText.caption),
             ),
+          ],
         ],
       ),
     );
@@ -208,20 +261,24 @@ class _DayCell extends StatelessWidget {
     final Color fg;
     BoxBorder? border;
     if (done) {
-      bg = AppColors.text;
-      fg = AppColors.canvas;
-    } else if (today) {
-      bg = AppColors.brandTint;
+      bg = AppColors.brand.withValues(alpha: 0.16);
       fg = AppColors.brand;
+    } else if (today) {
+      bg = AppColors.raised;
+      fg = AppColors.text;
       border = Border.all(color: AppColors.brand, width: 1.2);
+    } else if (isLast) {
+      bg = AppColors.raritySSR.withValues(alpha: 0.10);
+      fg = AppColors.raritySSRLight;
+      border = Border.all(color: AppColors.raritySSR.withValues(alpha: 0.35));
     } else {
-      bg = AppColors.surface;
+      bg = AppColors.raised;
       fg = AppColors.textSecondary;
     }
 
     return AnimatedContainer(
       duration: Motion.normal,
-      height: 56,
+      height: 50,
       decoration: BoxDecoration(
         color: bg,
         borderRadius: Radii.button,
@@ -231,17 +288,22 @@ class _DayCell extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           done
-              ? Icon(Icons.check, size: 14, color: fg)
+              ? Icon(Icons.check_rounded, size: 14, color: fg)
               : Text(
                   today ? '오늘' : '${day.day}일',
-                  style: AppText.micro.copyWith(color: fg, height: 1.1),
+                  style: AppText.micro.copyWith(
+                    color: fg,
+                    fontSize: 10,
+                    height: 1.1,
+                  ),
                 ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 3),
           Text(
             formatNumber(day.reward),
             style: AppText.num(AppText.caption).copyWith(
               color: fg,
-              fontWeight: isLast ? FontWeight.w800 : FontWeight.w600,
+              fontSize: 11.5,
+              fontWeight: isLast ? FontWeight.w900 : FontWeight.w700,
               height: 1.1,
             ),
           ),

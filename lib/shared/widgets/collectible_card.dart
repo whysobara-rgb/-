@@ -22,6 +22,9 @@ class RarityFrame extends StatelessWidget {
   /// 후광 세기 배율(0이면 후광 없음).
   final double glow;
 
+  /// 홀로 반사광 세기(작은 카드는 낮게).
+  final double holoIntensity;
+
   final Offset tilt;
 
   const RarityFrame({
@@ -31,6 +34,7 @@ class RarityFrame extends StatelessWidget {
     this.radius = 14,
     this.holo = false,
     this.glow = 1,
+    this.holoIntensity = 0.6,
     this.tilt = Offset.zero,
   });
 
@@ -48,7 +52,7 @@ class RarityFrame extends StatelessWidget {
     if (rarity == Rarity.ssr && holo) {
       content = HoloFoil(
         borderRadius: inner,
-        intensity: 0.8,
+        intensity: holoIntensity,
         tilt: tilt,
         child: content,
       );

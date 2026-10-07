@@ -525,3 +525,45 @@ void showToast(BuildContext context, String message, {SnackBarAction? action}) {
       ),
     );
 }
+
+/// 필터·정렬 칩(볼트). 선택되면 오프화이트 면 + 먹색 글씨.
+class VaultChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const VaultChip({
+    super.key,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: Radii.pill,
+      child: AnimatedContainer(
+        duration: Motion.fast,
+        height: 32,
+        padding: const EdgeInsets.symmetric(horizontal: 13),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: selected ? AppColors.text : AppColors.surface,
+          border: Border.all(
+            color: selected ? AppColors.text : AppColors.hairlineStrong,
+          ),
+          borderRadius: Radii.pill,
+        ),
+        child: Text(
+          label,
+          style: AppText.num(AppText.callout).copyWith(
+            color: selected ? AppColors.canvas : AppColors.text,
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+          ),
+        ),
+      ),
+    );
+  }
+}

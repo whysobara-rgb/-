@@ -1,5 +1,47 @@
+import 'package:flutter/painting.dart';
+import '../../../core/domain/product_category.dart';
 import '../../../core/domain/rarity.dart';
 import '../../../core/utils/format.dart';
+
+/// 박스의 대표 경품(`GET /gachas` items[].topPrize): 가장 희귀하고,
+/// 같은 등급이면 가장 비싼 상품. 구버전 서버면 null.
+class TopPrize {
+  final int itemId;
+  final String name;
+  final Rarity rarity;
+  final int estimatedValue;
+  final String? imageUrl;
+
+  const TopPrize({
+    required this.itemId,
+    required this.name,
+    required this.rarity,
+    required this.estimatedValue,
+    this.imageUrl,
+  });
+
+  static TopPrize? fromJson(Object? raw) {
+    if (raw is! Map<String, dynamic>) return null;
+    final name = asStringOrNull(raw['name']);
+    if (name == null) return null;
+    return TopPrize(
+      itemId: asInt(raw['itemId']),
+      name: name,
+      rarity: Rarity.fromCode(raw['rarity']),
+      estimatedValue: asInt(raw['estimatedValue']),
+      imageUrl: asStringOrNull(raw['imageUrl']),
+    );
+  }
+}
+
+/// 서버 색 문자열("#C9A227", "C9A227", "#FFC9A227")을 색으로. 잘못되면 null.
+Color? parseHexColor(Object? raw) {
+  final text = asStringOrNull(raw)?.replaceFirst('#', '').trim();
+  if (text == null || !(text.length == 6 || text.length == 8)) return null;
+  final v = int.tryParse(text, radix: 16);
+  if (v == null) return null;
+  return Color(text.length == 6 ? 0xFF000000 | v : v);
+}
 
 /// `GET /gachas` 목록 항목.
 class GachaSummary {
@@ -11,6 +53,12 @@ class GachaSummary {
   final String? badgeLabel;
   final String? imageUrl;
   final String? iconName;
+
+  /// 박스 고유 색(서버 accentColorHex). 박스 아트·배너 빛에만 쓴다.
+  final Color? accent;
+
+  /// 대표 경품. 구버전 서버면 null.
+  final TopPrize? topPrize;
 
   /// 천장(SSR 확정) 횟수. 없으면 천장 없음.
   final int? pityThreshold;
@@ -29,6 +77,8 @@ class GachaSummary {
     this.badgeLabel,
     this.imageUrl,
     this.iconName,
+    this.accent,
+    this.topPrize,
     this.pityThreshold,
     this.totalStock,
     this.soldStock,
@@ -37,6 +87,20 @@ class GachaSummary {
 
   /// 남은 수량. 재고 정보가 없으면 null(제한 없음으로 취급).
   int? get remaining => remainingStock(totalStock, soldStock);
+
+  /// 판매 비율 0~1. 재고 정보가 없으면 null.
+  double? get soldRatio {
+    final total = totalStock;
+    final sold = soldStock;
+    if (total == null || sold == null || total <= 0) return null;
+    return (sold / total).clamp(0.0, 1.0);
+  }
+
+  /// 마감 임박: 실재고 기준 [threshold] 이상 팔렸고 아직 품절은 아님.
+  bool isEndingSoon({double threshold = 0.7}) =>
+      !soldOut && (soldRatio ?? 0) >= threshold;
+
+  ProductCategory get category => ProductCategory.fromIconName(iconName);
 
   factory GachaSummary.fromJson(Map<String, dynamic> json) => GachaSummary(
     id: asInt(json['id']),
@@ -47,6 +111,8 @@ class GachaSummary {
     badgeLabel: asStringOrNull(json['badgeLabel']),
     imageUrl: asStringOrNull(json['imageUrl']),
     iconName: asStringOrNull(json['iconName']),
+    accent: parseHexColor(json['accentColorHex']),
+    topPrize: TopPrize.fromJson(json['topPrize']),
     pityThreshold: _positiveOrNull(json['pityThreshold']),
     totalStock: asIntOrNull(json['totalStock']),
     soldStock: asIntOrNull(json['soldStock']),
@@ -185,6 +251,8 @@ class GachaDetail {
   final String? tagline;
   final String? badgeLabel;
   final String? imageUrl;
+  final String? iconName;
+  final Color? accent;
   final int totalStock;
   final int soldStock;
   final bool soldOut;
@@ -202,6 +270,8 @@ class GachaDetail {
     this.tagline,
     this.badgeLabel,
     this.imageUrl,
+    this.iconName,
+    this.accent,
     this.pityThreshold,
     this.soldOut = false,
   });
@@ -214,6 +284,8 @@ class GachaDetail {
     tagline: asStringOrNull(json['tagline']),
     badgeLabel: asStringOrNull(json['badgeLabel']),
     imageUrl: asStringOrNull(json['imageUrl']),
+    iconName: asStringOrNull(json['iconName']),
+    accent: parseHexColor(json['accentColorHex']),
     totalStock: asInt(json['totalStock']),
     soldStock: asInt(json['soldStock']),
     soldOut: _soldOut(json),
