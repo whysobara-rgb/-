@@ -129,7 +129,12 @@ function renderDrag(i: number, p: number, seconds: number): Float32Array {
   const d = dragParams(i, p);
   const n = Math.floor(SR * seconds);
   const roll = playLooped(rollBuffer(ctx).getChannelData(0), d.rate, n);
-  const thrum = lowpass(playLooped(noiseBuffer(ctx, 'brown').getChannelData(0), 1, n), d.thrumHz, 1.5);
+  // Two reads of the brown loop (rate 1 and 0.77, as in createLoop), summed into the thrum filter.
+  const brown = noiseBuffer(ctx, 'brown').getChannelData(0);
+  const b1 = playLooped(brown, 1, n);
+  const b2 = playLooped(brown.subarray(Math.floor(brown.length / 3)), 0.77, n);
+  for (let k = 0; k < n; k++) b1[k] += b2[k];
+  const thrum = lowpass(b1, d.thrumHz, 1.5);
   const mix = new Float32Array(n);
   for (let k = 0; k < n; k++) mix[k] = roll[k] * d.bumps + thrum[k] * d.thrum;
   const out = lowpass(mix, d.toneHz, 0.5);
@@ -225,6 +230,7 @@ describe('drag voice (rendered in JS)', () => {
 
 describe('drag / bank graphs', () => {
   it('stay within the node budget, fade to 0 and take a size pitch', () => {
+    // Budget: the previous recipes' node counts (drag 7, bank 14) + 4.
     for (const [id, budget] of [['drag', 11], ['bankRumble', 18]] as const) {
       const ctx = mockContext();
       const before = ctx.nodesCreated;

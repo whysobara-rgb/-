@@ -113,10 +113,14 @@ export const DRAG_RELEASE_TAU = 0.14;
 export function dragParams(i: number, p = 1): { rate: number; bumps: number; thrum: number; thrumHz: number; toneHz: number } {
   const sp = Math.sqrt(p);
   const heavy = Math.min(1.25, Math.max(0.95, 1 / p));
+  // Creeping (under ~0.5 m/s, around the director's speed gate) fades right down: >= 20 dB under
+  // full speed there, so hovering at the gate never sputters.
+  const creep = smoothstep(0, 0.15, i);
   return {
     rate: (0.82 + 0.4 * i) * sp,
-    bumps: i > 0 ? 0.42 * Math.pow(i, 0.7) : 0,
-    thrum: i > 0 ? 0.3 * heavy * Math.pow(i, 0.85) : 0,
+    bumps: i > 0 ? 0.42 * Math.pow(i, 0.7) * (0.25 + 0.75 * creep) : 0,
+    // (two summed brown reads, see createLoop)
+    thrum: i > 0 ? 0.21 * heavy * Math.pow(i, 0.85) : 0,
     thrumHz: (190 + 130 * i) * sp,
     toneHz: (1500 + 600 * i) * Math.sqrt(sp),
   };
@@ -295,11 +299,16 @@ export function createLoop(ctx: BaseAudioContext, id: LoopId, t: number, rnd: ()
       const roll = loopSource(g, rollBuffer(ctx), t, rnd);
       const rollLvl = gainNode(ctx);
       const body = noiseLoop(g, 'brown', t, rnd);
+      // A second read of the brown loop at an unrelated rate: the 2 s noise loop's swells no
+      // longer repeat in the thrum over a long haul.
+      const body2 = noiseLoop(g, 'brown', t, rnd);
+      body2.playbackRate.value = 0.77;
       const thrum = filter(ctx, 'lowpass', 220, 1.5);
       const bodyLvl = gainNode(ctx);
-      const tone = filter(ctx, 'lowpass', 1200, 0.5);
+      const tone = filter(ctx, 'lowpass', 1600, 0.5);
       chain(roll, rollLvl, tone);
       chain(body, thrum, bodyLvl, tone);
+      body2.connect(thrum);
       tone.connect(g.out);
       const apply = (i: number, at: number, tau: number): void => {
         const d = dragParams(i, pitch);

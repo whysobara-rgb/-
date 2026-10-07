@@ -42,10 +42,19 @@ export interface PlaceHint {
   stick?: number;
   /** Extra clearance (px) a nudged label needs before it drops back onto its anchor (default 4). */
   release?: number;
+  /**
+   * Bottom the label is drawn at now (a second cut held off, see layoutTags): it stays there while
+   * that spot is free, else it takes the free spot nearest to it, but never more than `stick`
+   * farther from the anchor than the spot nearest the anchor.
+   */
+  near?: number;
 }
 
 /** Stick margin while a fresh side change holds (in tag heights): firm, but never absurd. */
 export const HOLD_STICK = 3;
+
+/** While a second cut is held off, how much farther (tag heights) a tag may stay from its anchor. */
+export const CUT_HOLD_REACH = 2;
 
 /**
  * Bottom edge for a w×h label whose preferred bottom is `bottom`, centred on `cx`, given the
@@ -59,6 +68,28 @@ export function placeLabel(placed: Box[], cx: number, bottom: number, w: number,
   const side = hint?.side ?? 0;
   const release = hint?.release ?? 4;
   const free = !hits(placed, l, r, bottom - h, bottom, gap);
+  const near = hint?.near;
+  if (near !== undefined && Number.isFinite(near)) {
+    cand.length = 0;
+    cand.push(near, bottom);
+    for (let i = 0; i < placed.length; i++) {
+      const q = placed[i]!;
+      if (l >= q.r + gap || r <= q.l - gap) continue;
+      cand.push(q.t - gap - 0.01, q.b + gap + h + 0.01);
+    }
+    let reach = Infinity;
+    for (const c of cand) if (Math.abs(c - bottom) < reach && !hits(placed, l, r, c - h, c, gap)) reach = Math.abs(c - bottom);
+    reach += hint?.stick ?? h;
+    let dBest = Infinity;
+    for (const c of cand) {
+      const d = Math.abs(c - near);
+      if (d >= dBest || Math.abs(c - bottom) > reach || hits(placed, l, r, c - h, c, gap)) continue;
+      dBest = d;
+      best = c;
+    }
+    placed.push({ l, t: best - h, r, b: best });
+    return best;
+  }
   // A nudged label stays off its anchor until the anchor is clear by `release` more px.
   const holding = free && side !== 0 && hits(placed, l, r, bottom - h, bottom, gap + release);
   if (!free || holding) {
@@ -143,6 +174,8 @@ export interface Tag {
   side: Side;
   /** Seconds since `side` last changed. */
   sideAge: number;
+  /** Seconds since the tag last cut (faded across) or changed side: a second cut waits SIDE_HOLD. */
+  moveAge: number;
   /** Last side off the anchor (preferred again when the tag gets blocked anew). */
   lastSide: Side;
   /** Displayed vertical offset from the anchor (eased) and its velocity. */
@@ -162,13 +195,21 @@ export const SIDE_HOLD = 0.5;
 export const SWAP_OUT = 0.05;
 export const SWAP_IN = 0.08;
 
+/** Rate (1/s) at which the play of a tag riding its blocker relaxes (pulled back, see layoutTags). */
+const PLAY_RELAX = 3;
+
+/** Play (px) a riding tag of height `h` keeps outside its spot when its blocker pulls back. */
+export function tagPlay(h: number): number {
+  return Math.min(6, Math.max(2, h / 4));
+}
+
 /** CSS `opacity` for a tag's `alpha` ('' = fully shown), rounded so unchanged values compare equal. */
 export function tagOpacity(alpha: number): string {
   return alpha >= 0.995 ? '' : String(Math.max(0, Math.round(alpha * 100) / 100));
 }
 
-export function newTagMemory(): Pick<Tag, 'side' | 'sideAge' | 'lastSide' | 'off' | 'fresh' | 'tgt' | 'alpha'> {
-  return { side: 0, sideAge: SIDE_HOLD, lastSide: 0, off: { x: 0, v: 0 }, fresh: true, tgt: 0, alpha: 1 };
+export function newTagMemory(): Pick<Tag, 'side' | 'sideAge' | 'moveAge' | 'lastSide' | 'off' | 'fresh' | 'tgt' | 'alpha'> {
+  return { side: 0, sideAge: SIDE_HOLD, moveAge: SIDE_HOLD, lastSide: 0, off: { x: 0, v: 0 }, fresh: true, tgt: 0, alpha: 1 };
 }
 
 /**
@@ -198,9 +239,10 @@ function cutOver(placed: readonly Box[], own: number, t: Tag, from: number, to: 
 /**
  * De-overlap pass with memory: places `tags` (sorted in place by priority, then age), keeps each
  * on the side it sat on last frame while that side stays reasonable, and moves the vertical
- * offset (never the anchor) without teleports: a target gliding with its blocker is carried
- * 1:1, a short move eases (spring), a move across another tag or a long one is a quick cut
- * (fade out in place, jump, fade in; `alpha`). The anchor itself is followed exactly: an
+ * offset (never the anchor) without teleports: a target pushed outward by its blocker is carried
+ * 1:1 (pulled back, it keeps a little slowly relaxing play), a short move eases (spring), a move
+ * across another tag or a long one is a quick cut (fade out in place, jump, fade in; `alpha`),
+ * and a second cut waits SIDE_HOLD while a spot near where the tag is stays free. The anchor itself is followed exactly: an
  * un-nudged tag sits on `ay` with no lag. Afterwards the displayed bottom of a tag is
  * `ay + off.x`, drawn at opacity `alpha`.
  */
@@ -217,13 +259,23 @@ export function layoutTags(tags: Tag[], placed: Box[], dt: number, gap = 3): voi
       const stick = t.side !== 0 && t.sideAge < SIDE_HOLD ? HOLD_STICK * t.h : undefined;
       bottom = placeLabel(placed, t.ax, t.ay, t.w, t.h, gap, { side: t.side, lean: t.lean || t.lastSide, stick });
       own = placed.length - 1;
+      // a second cut within SIDE_HOLD of the last move (blinking from spot to spot): rather stay
+      // where it is drawn, or take the free spot nearest to that, while one is reasonably close
+      if (!t.fresh && t.moveAge < SIDE_HOLD && t.alpha >= 1 && cutOver(placed, own, t, t.off.x, bottom - t.ay)) {
+        placed.pop();
+        bottom = placeLabel(placed, t.ax, t.ay, t.w, t.h, gap, { stick: CUT_HOLD_REACH * t.h, near: t.ay + t.off.x });
+      }
     }
     const side = sideOf(t.ay, bottom);
     if (side !== t.side) {
       t.side = side;
       t.sideAge = 0;
+      t.moveAge = 0;
       if (side !== 0) t.lastSide = side;
-    } else t.sideAge += step;
+    } else {
+      t.sideAge += step;
+      t.moveAge += step;
+    }
     const target = bottom - t.ay;
     const prev = t.tgt;
     t.tgt = target;
@@ -237,6 +289,7 @@ export function layoutTags(tags: Tag[], placed: Box[], dt: number, gap = 3): voi
     if (own >= 0 && cutOver(placed, own, t, t.off.x, target)) {
       // fade out where it is (riding its anchor), then jump; re-checked every frame
       t.off.v = 0;
+      if (t.alpha >= 1) t.moveAge = 0;
       t.alpha -= step / SWAP_OUT;
       if (t.alpha < 1e-3) {
         t.alpha = 0;
@@ -245,9 +298,28 @@ export function layoutTags(tags: Tag[], placed: Box[], dt: number, gap = 3): voi
       continue;
     }
     if (t.alpha < 1) t.alpha = Math.min(1, t.alpha + step / SWAP_IN);
-    // riding the same blocker (same side both frames, small change): carried 1:1, no lag;
-    // a new nudge or a drop back onto the anchor is a decision and eases
-    if (prev * target > 0 && Math.abs(target - prev) <= glide(t.h)) t.off.x += target - prev;
+    // riding the same blocker (small change, never across the anchor): pushed outward it moves
+    // with the blocker at once (no lag, never into it); pulled back it has a little play that
+    // relaxes slowly, so a vibrating blocker does not pass its shake on and the tag drifts home
+    // calmly. A new nudge or a longer drop back onto the anchor is a decision and eases (spring).
+    const out = Math.sign(target || prev || t.off.x);
+    if (out !== 0 && prev * out >= 0 && target * out >= 0 && Math.abs(target - prev) <= glide(t.h)) {
+      const play = tagPlay(t.h);
+      const was = (t.off.x - prev) * out;
+      // (a nudge off the anchor bigger than the play is a decision: it eases, below)
+      if (t.off.v === 0 && was >= -1e-9 && was <= play + 1e-9 && (prev !== 0 || Math.abs(target) <= play)) {
+        // resting at its spot or within the play outside it (not mid-ease): a push moves it along
+        // at once, a pull back beyond the play drags it, otherwise it holds, relaxing slowly
+        const o = (t.off.x - target) * out;
+        if (o < 0) t.off.x = target;
+        else if (o > play) t.off.x = target + play * out;
+        else t.off.x = target + o * Math.exp(-PLAY_RELAX * step) * out;
+        if (Math.abs(t.off.x - target) < 0.02) t.off.x = target;
+        continue;
+      }
+      // nudged and still easing in: carried with its blocker so it does not fall further behind
+      if (was < 0 && prev * out > 0) t.off.x += target - prev;
+    }
     // still covered by a tag placed before it: get out of the way twice as fast
     const l = t.ax - t.w / 2 + 2;
     const b = t.ay + t.off.x - 2;

@@ -12,7 +12,7 @@
  *   proximity value tags have a show / hide hysteresis band.
  */
 import { describe, expect, it } from 'vitest';
-import { HOLD_STICK, layoutTags, newTagMemory, placeLabel, SIDE_HOLD, sideOf, springStep, tagOpacity, type Box, type Tag } from '../../src/ui/core/declutter';
+import { CUT_HOLD_REACH, HOLD_STICK, layoutTags, newTagMemory, placeLabel, SIDE_HOLD, sideOf, springStep, tagOpacity, tagPlay, type Box, type Tag } from '../../src/ui/core/declutter';
 import { hudModelFromSim, labelsFromSim } from '../../src/ui/hud/adapters';
 import { Simulation, type MatchSetup } from '../../src/sim';
 import { LAYOUTS } from '../../src/sim/layouts';
@@ -208,7 +208,7 @@ describe('layoutTags (temporal de-overlap)', () => {
   });
 
   for (const hz of [60, 144]) {
-    it(`a nudged tag rides a fast-moving blocker 1:1 (no lag, so no trailing overlap) @ ${hz} Hz`, () => {
+    it(`a nudged tag riding a fast-moving blocker is pushed along at once (no lag, no trailing overlap), pulled back within its play @ ${hz} Hz`, () => {
       const value = tag({ ax: 500, ay: 300, w: 70, h: 26, prio: 3, seq: 0 });
       const name = tag({ ax: 505, ay: 300, w: 60, h: 20, prio: 4, seq: 1, lean: -1 });
       const dt = 1 / hz;
@@ -217,7 +217,11 @@ describe('layoutTags (temporal de-overlap)', () => {
         // the name tag stays lifted above it the whole time
         value.ay = 310 + 15 * Math.sin(f * dt * 2 * Math.PI * 3.2);
         layoutTags([value, name], [], dt, GAP);
-        if (f > 0) expect(Math.abs(name.off.x - name.tgt)).toBeLessThan(1e-6);
+        if (f > 0) {
+          // never behind its spot (toward the blocker), at most the play beyond it
+          expect(name.off.x).toBeLessThanOrEqual(name.tgt + 1e-6);
+          expect(name.off.x).toBeGreaterThanOrEqual(name.tgt - tagPlay(20) - 1e-6);
+        }
         expect(name.alpha).toBe(1);
         // never drawn over the value tag
         const b = name.ay + name.off.x;
@@ -225,6 +229,81 @@ describe('layoutTags (temporal de-overlap)', () => {
       }
     });
   }
+
+  for (const hz of [60, 144]) {
+    for (const freq of [7, 12]) {
+      it(`a tag pushed by a vibrating blocker does not take on its shake (±6 px @ ${freq} Hz, ${hz} Hz display)`, () => {
+        // a held bank's estimate tag shaking (holder spring) brushes the carrier's name tag below it
+        const bank = tag({ ax: 400, ay: 300, w: 140, h: 50, prio: 0, seq: 0 });
+        const name = tag({ ax: 410, ay: 325, w: 70, h: 20, prio: 4, seq: 1, lean: -1 });
+        const dt = 1 / hz;
+        let lo = Infinity;
+        let hi = -Infinity;
+        for (let f = 0; f < hz * 4; f++) {
+          bank.ay = 300 + 6 * Math.sin(2 * Math.PI * freq * f * dt);
+          layoutTags([bank, name], [], f ? dt : 0, GAP);
+          expect(name.alpha).toBe(1);
+          // never drawn over the shaking tag
+          expect(name.ay + name.off.x - 20).toBeGreaterThanOrEqual(bank.ay + GAP - 1e-6);
+          if (f * dt > 2) {
+            lo = Math.min(lo, name.off.x);
+            hi = Math.max(hi, name.off.x);
+          }
+        }
+        // the blocker moves 12 px peak to peak; riding it 1:1 gave the name tag ~3-4 px of shake
+        expect(hi - lo).toBeLessThan(1.5);
+      });
+    }
+  }
+
+  it('a second cut within SIDE_HOLD is held off while the spot the tag is drawn at stays free', () => {
+    const value = tag({ ax: 500, ay: 303, w: 70, h: 26, prio: 3, seq: 0 });
+    const name = tag({ ax: 505, ay: 300, w: 60, h: 20, prio: 4, seq: 1, lean: -1 });
+    const keepOut: Box = { l: 0, t: 0, r: 1000, b: 270 }; // the up side is taken (a banner)
+    const dt = 1 / 120;
+    const cuts: number[] = [];
+    let prevA = 1;
+    let t = 0;
+    const run = (secs: number, extra: Box[]) => {
+      for (let f = 0; f < Math.round(secs / dt); f++) {
+        layoutTags([value, name], extra.map((b) => ({ ...b })), dt, GAP);
+        t += dt;
+        if (name.alpha < 1 && prevA >= 1) cuts.push(t);
+        prevA = name.alpha;
+      }
+    };
+    run(1, [keepOut]);
+    expect(name.side).toBe(1); // below the value tag, settled
+    expect(cuts).toHaveLength(0);
+    // another object's tag drops onto its spot: the only free spot is past it (a long move: cut 1)
+    const below: Box = { l: 470, t: 320, r: 540, b: 340 };
+    run(0.2, [keepOut, below]);
+    expect(cuts).toHaveLength(1);
+    expect(name.off.x).toBeCloseTo(340 + GAP + 20 + 0.01 - 300, 5);
+    const held = name.off.x;
+    // the up side frees up and is much nearer now: without the hold it would cut straight back
+    // across both tags; it stays where it is (visible, still) until SIDE_HOLD has passed
+    run(0.25, [below]);
+    expect(cuts).toHaveLength(1);
+    expect(name.alpha).toBe(1);
+    expect(name.off.x).toBe(held);
+    run(0.6, [below]);
+    expect(cuts).toHaveLength(2);
+    expect(cuts[1]! - cuts[0]!).toBeGreaterThanOrEqual(SIDE_HOLD - 1e-9);
+    expect(name.side).toBe(-1); // then it takes the near spot above the value tag
+  });
+
+  it('placeLabel near: keeps a free spot where the tag is drawn, but never strays far from the anchor', () => {
+    const v: Box = { l: 465, t: 277, r: 535, b: 303 };
+    const k: Box = { l: 470, t: 320, r: 540, b: 340 };
+    // drawn below k (63 px down): free and within reach of the nearest spot (26 px up) -> kept
+    expect(placeLabel([{ ...v }, { ...k }], 505, 300, 60, 20, GAP, { near: 363.01, stick: CUT_HOLD_REACH * 20 })).toBeCloseTo(363.01, 5);
+    // drawn spot taken: the free spot nearest to it (just below the blocker)
+    const k2: Box = { l: 470, t: 350, r: 540, b: 370 };
+    expect(placeLabel([{ ...v }, { ...k }, { ...k2 }], 505, 300, 60, 20, GAP, { near: 363.01, stick: CUT_HOLD_REACH * 20 })).toBeCloseTo(370 + GAP + 20 + 0.01, 5);
+    // ...unless that is more than `stick` farther from the anchor than the nearest spot: nearest it is
+    expect(placeLabel([{ ...v }, { ...k }, { ...k2 }], 505, 300, 60, 20, GAP, { near: 363.01, stick: 20 })).toBeCloseTo(277 - GAP - 0.01, 5);
+  });
 
   it('tagOpacity: blank when shown, rounded otherwise', () => {
     expect(tagOpacity(1)).toBe('');

@@ -923,7 +923,8 @@ export const GROAN_NOTES_HZ: readonly number[] = [73.42, 87.31, 110, 73.42];
 /**
  * The bank's gentle musical groan (the 'bankRumble' loop, played at rate 1 so it stays in key
  * whatever the bank's speed): every couple of seconds a vowel-like tone on a D-minor chord tone
- * (GROAN_NOTES_HZ) that swells, bends up a little and settles, with a slow vibrato. 9 s, seamless.
+ * (GROAN_NOTES_HZ) that scoops softly up into the note and swells, with a slow vibrato. 9 s,
+ * seamless.
  */
 export function groanBuffer(ctx: BaseAudioContext): AudioBuffer {
   return cachedBuffer(ctx, 'tex:groan', () => {
@@ -933,7 +934,7 @@ export function groanBuffer(ctx: BaseAudioContext): AudioBuffer {
     const len = Math.floor(sr * seconds) + fade;
     const rnd = makeRng(6363);
     const d = new Float32Array(len);
-    // Groans: wavetable tone, raised-sine swell, a small bend up and back, slow vibrato.
+    // Groans: wavetable tone, broad swell, a soft scoop into the note, slow vibrato.
     const notes = GROAN_NOTES_HZ;
     let g = 0.6;
     let gi = 0;
@@ -951,11 +952,13 @@ export function groanBuffer(ctx: BaseAudioContext): AudioBuffer {
       for (let i = 0; i < n; i++) {
         if ((i & 15) === 0) {
           const u = i / n;
-          const bend = Math.sin(Math.PI * u);
-          inc = (f0 * (1 + 0.035 * bend) * (1 + 0.006 * Math.sin((2 * Math.PI * vib * i) / sr)) * N) / sr;
-          // A broad swell (quick soft rise, long plateau, soft fall): the same energy as a peaky
-          // sin^1.5 swell with a ~2 dB lower peak.
-          env = 0.46 * Math.sqrt(bend);
+          const swell = Math.sin(Math.PI * u);
+          // A soft scoop up into the note over the first quarter (from 25 cents flat), then
+          // exactly on the chord tone for the rest of the swell.
+          const scoop = Math.max(0, 1 - u / 0.25);
+          inc = (f0 * (1 - 0.0145 * scoop * scoop) * (1 + 0.006 * Math.sin((2 * Math.PI * vib * i) / sr)) * N) / sr;
+          // A broad swell: a quick soft rise, a long plateau and a soft fall.
+          env = 0.46 * Math.sqrt(swell);
         }
         ph += inc;
         if (ph >= N) ph -= N;
