@@ -390,7 +390,12 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
                     _buildMultiIntro()
                   else
                     _buildSingleStage(),
-                  SafeArea(child: _buildTopBar(title)),
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    top: 0,
+                    child: SafeArea(bottom: false, child: _buildTopBar(title)),
+                  ),
                   if (kDebugMode && !_multi)
                     Positioned(
                       left: Space.x3,
@@ -446,7 +451,7 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
               shape: const StadiumBorder(),
             ),
             child: Text(
-              _hold != null || _spread ? '결과 보기' : '건너뛰기',
+              '건너뛰기',
               style: AppText.bodyStrong.copyWith(
                 color: Colors.white,
                 fontSize: 13,
@@ -485,11 +490,21 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
             .toDouble();
 
         // 차지 에너지: 박스가 열리기 전까지 0→1.
-        final energy = tl == null
-            ? 0.12 + 0.04 * math.sin(_time * 3)
-            : holding || ms >= preEnd
-            ? (RevealTimeline.hasClimax(r) ? 1.0 : 0.7)
-            : Curves.easeIn.transform((ms / preEnd).clamp(0.0, 1.0));
+        // 차지 에너지: 차지 0.15→0.55, 승급 단계마다 계단식 상승, 긴장 1.0.
+        final double energy;
+        if (tl == null) {
+          energy = 0.12 + 0.04 * math.sin(_time * 3);
+        } else if (holding || ms >= preEnd) {
+          energy = RevealTimeline.hasClimax(r) ? 1.0 : 0.7;
+        } else {
+          final steps0 = RevealTimeline.ascensionFor(r).length;
+          energy = switch (moment!.phase) {
+            RevealPhase.charge => 0.15 + 0.4 * math.pow(moment.t, 1.2),
+            RevealPhase.ascend =>
+              0.55 + 0.4 * ((moment.step - 1 + moment.t) / steps0),
+            _ => 0.95,
+          }.toDouble();
+        }
 
         // 카메라 푸시인(차지 동안 다가가고, 열리면 되돌아온다).
         final pushMax = 0.05 + 0.025 * r.rank;
@@ -543,8 +558,14 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
         if (moment != null) {
           switch (moment.phase) {
             case RevealPhase.charge:
-              crack = 0.12 * moment.t;
-              pulse = 1 + 0.03 * moment.t;
+              crack = 0.3 * moment.t;
+              // 심장 박동처럼 점점 빨라지는 맥동.
+              pulse =
+                  1 +
+                  0.02 * moment.t +
+                  0.022 *
+                      moment.t *
+                      math.pow(math.sin(moment.t * moment.t * 9 * math.pi), 2);
             case RevealPhase.ascend:
               crack = 0.15 + 0.8 * ((moment.step - 1 + moment.t) / steps);
               pulse = 1.03 + 0.04 * math.pow(1 - moment.t, 4);
@@ -595,7 +616,7 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
             : (r == Rarity.ssr ? 1.0 : 0.8) *
                   (0.4 + 0.6 * (sinceClimax / 450).clamp(0.0, 1.0));
         final tensionDim = phase == RevealPhase.tension
-            ? 0.45 * Curves.easeIn.transform(moment!.t)
+            ? 0.62 * Curves.easeIn.transform(moment!.t)
             : 0.0;
 
         // 충격파: 승급 단계 + 클라이맥스.
@@ -730,9 +751,13 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
                           CustomPaint(
                             painter: ConvergeParticlesPainter(
                               time: _time,
-                              density: tl == null || ms >= preEnd
-                                  ? (tl == null ? 0.12 : 0)
-                                  : 0.15 + 0.85 * energy,
+                              density: tl == null
+                                  ? 0.12
+                                  : ms >= preEnd
+                                  ? 0
+                                  : phase == RevealPhase.tension
+                                  ? 0.25
+                                  : 0.2 + 0.8 * energy,
                               color: light,
                               origin: center,
                               maxCount: 30 + 20 * r.rank,
@@ -807,6 +832,22 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
                       ),
                     ),
                   ),
+                  if (tl != null)
+                    for (final s in tl.segments)
+                      if (s.phase == RevealPhase.ascend &&
+                          ms >= s.startMs &&
+                          ms < s.startMs + 1100)
+                        IgnorePointer(
+                          child: CustomPaint(
+                            painter: SparkBurstPainter(
+                              age: (ms - s.startMs) / 1000,
+                              color: stageLight(s.rarity!),
+                              count: 14 + 10 * s.rarity!.rank,
+                              origin: center,
+                              power: 0.32 + 0.06 * s.rarity!.rank,
+                            ),
+                          ),
+                        ),
                   if (virtualAge > 0)
                     IgnorePointer(
                       child: CustomPaint(
@@ -1037,8 +1078,7 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
         SafeArea(
           child: Column(
             children: [
-              const SizedBox(height: 56),
-              _SpreadHeader(outcome: outcome),
+              const SizedBox(height: 60),
               Expanded(
                 child: RevealSpread(
                   ordered: ordered,
@@ -1050,34 +1090,6 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
           ),
         ),
       ],
-    );
-  }
-}
-
-class _SpreadHeader extends StatelessWidget {
-  final DrawOutcome outcome;
-  const _SpreadHeader({required this.outcome});
-
-  @override
-  Widget build(BuildContext context) {
-    final foil = outcome.results.where((r) => r.rarity.isFoil).length;
-    return Padding(
-      padding: Space.page,
-      child: Column(
-        children: [
-          Text(
-            '${outcome.results.length}장 도착',
-            style: AppText.title1.copyWith(color: Colors.white),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            foil > 0 ? '빛나는 카드 $foil장 · 카드를 눌러 뒤집어 보세요' : '카드를 눌러 뒤집어 보세요',
-            style: AppText.callout.copyWith(
-              color: Colors.white.withValues(alpha: 0.65),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

@@ -87,7 +87,7 @@ class _Bar extends StatelessWidget {
                   borderRadius: BorderRadius.circular(height),
                 ),
               ),
-              if (w > 0)
+              if (w > 0 && c.maxWidth >= height)
                 Container(
                   width: w.clamp(height, c.maxWidth),
                   decoration: BoxDecoration(
@@ -123,6 +123,7 @@ class GlowMeter extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
+      width: double.infinity,
       height: height + 10,
       child: CustomPaint(
         painter: _GlowMeterPainter(
@@ -176,7 +177,7 @@ class _GlowMeterPainter extends CustomPainter {
         tickPaint,
       );
     }
-    if (progress <= 0) return;
+    if (progress <= 0 || size.width < barHeight) return;
     final w = (size.width * progress).clamp(barHeight, size.width);
     final fill = RRect.fromLTRBR(0, y - barHeight / 2, w, y + barHeight / 2, r);
     // 후광.

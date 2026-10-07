@@ -239,7 +239,8 @@ class _RevealSpreadState extends State<RevealSpread>
     final cardH = cardW * 1.4;
     final rows = (n / cols).ceil();
     final gridH = rows * cardH + (rows - 1) * gapY;
-    final top = (size.height - gridH) / 2 - 10;
+    // 아래 버튼 영역(약 96px)을 빼고 남은 공간의 가운데보다 살짝 위.
+    final top = math.max(70.0, (size.height - 96 - gridH) / 2 + 20);
     final rects = <Rect>[];
     for (var i = 0; i < n; i++) {
       final row = i ~/ cols;
@@ -265,33 +266,46 @@ class _RevealSpreadState extends State<RevealSpread>
         final pulse = (_now / 1400) % 1.0;
         final focusOn = _focusActive;
 
-        return Stack(
-          clipBehavior: Clip.none,
-          children: [
-            // 뒤집힌 R 이상 카드의 작은 충격파·불꽃.
-            Positioned.fill(
-              child: IgnorePointer(
-                child: CustomPaint(
-                  painter: _FlipBurstPainter(
-                    now: _now,
-                    flipAt: _flipAt,
-                    rarities: widget.ordered.map((r) => r.rarity).toList(),
-                    slots: slots,
-                    flipMs: _flipMs,
+        return SizedBox(
+          width: size.width,
+          height: size.height,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Positioned(
+                left: Space.gutter,
+                right: Space.gutter,
+                top: 0,
+                child: _SpreadHeader(
+                  results: widget.ordered,
+                  revealed: _allRevealed,
+                ),
+              ),
+              // 뒤집힌 R 이상 카드의 작은 충격파·불꽃.
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: CustomPaint(
+                    painter: _FlipBurstPainter(
+                      now: _now,
+                      flipAt: _flipAt,
+                      rarities: widget.ordered.map((r) => r.rarity).toList(),
+                      slots: slots,
+                      flipMs: _flipMs,
+                    ),
                   ),
                 ),
               ),
-            ),
-            for (var i = 0; i < widget.ordered.length; i++)
-              _buildCard(i, slots[i], origin, cardW, pulse),
-            if (focusOn) Positioned.fill(child: _buildFocus(size, slots)),
-            Positioned(
-              left: Space.gutter,
-              right: Space.gutter,
-              bottom: Space.x4,
-              child: _buildActions(),
-            ),
-          ],
+              for (var i = 0; i < widget.ordered.length; i++)
+                _buildCard(i, slots[i], origin, cardW, pulse),
+              if (focusOn) Positioned.fill(child: _buildFocus(size, slots)),
+              Positioned(
+                left: Space.gutter,
+                right: Space.gutter,
+                bottom: Space.x4,
+                child: _buildActions(),
+              ),
+            ],
+          ),
         );
       },
     );
@@ -318,7 +332,9 @@ class _RevealSpreadState extends State<RevealSpread>
     if (isFocusCard && _focusStart != null) {
       flip = _isFlipped(i) ? 1 : 0;
       // 포커스 중에는 슬롯 자리를 비워 둔다.
-      if (_focusActive) return const SizedBox.shrink();
+      if (_focusActive) {
+        return const Positioned(left: 0, top: 0, child: SizedBox.shrink());
+      }
     }
     // 뒤집히는 순간 살짝 튀어 오른다.
     final pop = at == null
@@ -676,20 +692,45 @@ class _FlipBurstPainter extends CustomPainter {
   bool shouldRepaint(covariant _FlipBurstPainter old) => true;
 }
 
-/// 스프레드 화면 상단 요약: "N장 중 SR 이상 k장" 같은 사실만.
-class SpreadSummary extends StatelessWidget {
+/// 스프레드 상단: 몇 장인지, (뒤집기 전) 실제로 빛나는 카드 수,
+/// (모두 공개 후) 등급별 장수. 모두 실제 결과에서 센 숫자다.
+class _SpreadHeader extends StatelessWidget {
   final List<DrawResult> results;
-  const SpreadSummary({super.key, required this.results});
+  final bool revealed;
+  const _SpreadHeader({required this.results, required this.revealed});
 
   @override
   Widget build(BuildContext context) {
     final foil = results.where((r) => r.rarity.isFoil).length;
-    return Text(
-      foil > 0 ? '빛나는 카드 $foil장 · 탭해서 뒤집기' : '카드를 탭해서 뒤집어 보세요',
-      textAlign: TextAlign.center,
-      style: AppText.callout.copyWith(
-        color: foil > 0 ? AppColors.text : AppColors.textSecondary,
-      ),
+    final counts = <Rarity, int>{};
+    for (final r in results) {
+      counts[r.rarity] = (counts[r.rarity] ?? 0) + 1;
+    }
+    final summary = [
+      for (final r in Rarity.values.reversed)
+        if ((counts[r] ?? 0) > 0) '${r.code} ${counts[r]}',
+    ].join(' · ');
+    return Column(
+      children: [
+        Text(
+          revealed ? '모두 공개' : '${results.length}장 도착',
+          style: AppText.title1.copyWith(color: Colors.white),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          revealed
+              ? summary
+              : foil > 0
+              ? '빛나는 카드 $foil장 · 눌러서 뒤집기'
+              : '카드를 눌러 뒤집어 보세요',
+          style: AppText.num(AppText.callout).copyWith(
+            color: revealed || foil > 0
+                ? AppColors.text
+                : Colors.white.withValues(alpha: 0.65),
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
     );
   }
 }

@@ -79,35 +79,42 @@ class RevealCardFace extends StatelessWidget {
               ),
               if (!compact)
                 Container(
-                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                  height: 34,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
                       colors: [
-                        AppColors.surface,
-                        r.color.withValues(alpha: 0.10),
+                        r.color.withValues(alpha: 0.22),
+                        r.color.withValues(alpha: 0.06),
                       ],
                     ),
+                    border: Border(
+                      top: BorderSide(color: r.color.withValues(alpha: 0.35)),
+                    ),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  child: Row(
                     children: [
                       Text(
-                        result.name,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppText.bodyStrong.copyWith(
-                          color: AppColors.text,
-                          height: 1.3,
+                        '${r.code} · ${r.label}',
+                        style: AppText.micro.copyWith(
+                          color: r.light,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.8,
+                          height: 1,
                         ),
                       ),
-                      const SizedBox(height: 3),
+                      const Spacer(),
                       Text(
-                        '정가 ${formatWon(result.estimatedValue)}',
-                        style: AppText.num(
-                          AppText.caption,
-                        ).copyWith(color: r.light, fontWeight: FontWeight.w700),
+                        '가치가차',
+                        style: AppText.micro.copyWith(
+                          color: AppColors.text.withValues(alpha: 0.45),
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.2,
+                          height: 1,
+                        ),
                       ),
                     ],
                   ),

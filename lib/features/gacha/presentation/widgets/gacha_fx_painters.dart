@@ -443,7 +443,7 @@ class ConvergeParticlesPainter extends CustomPainter {
         rng.nextDouble() * 2 * math.pi,
         rng.nextDouble(),
         0.5 + rng.nextDouble() * 0.9,
-        0.8 + rng.nextDouble() * 1.8,
+        1.1 + rng.nextDouble() * 2.0,
       ),
     );
   }();
@@ -463,8 +463,8 @@ class ConvergeParticlesPainter extends CustomPainter {
       final a = angle + cycle * 0.9;
       final dir = Offset(math.cos(a), math.sin(a));
       final pos = center + dir * r;
-      final alpha = math.sin(cycle * math.pi).clamp(0.0, 1.0) * 0.9;
-      final tail = 6 + 18 * cycle * density;
+      final alpha = math.sin(cycle * math.pi).clamp(0.0, 1.0);
+      final tail = 8 + 26 * cycle * density;
       paint
         ..color = (i.isEven ? hot : color).withValues(alpha: alpha)
         ..strokeWidth = sz;

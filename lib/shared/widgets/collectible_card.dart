@@ -3,6 +3,7 @@ import '../../core/domain/product_category.dart';
 import '../../core/domain/rarity.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/utils/format.dart';
 import 'holo.dart';
 import 'product_image.dart';
 import 'rarity_tag.dart';
@@ -180,7 +181,7 @@ class CollectibleCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    name,
+                    keepAll(name),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: (dense ? AppText.caption : AppText.callout).copyWith(

@@ -518,10 +518,10 @@ class _MotifPainter extends CustomPainter {
     const n = 11;
     final cw = h * 0.22;
     final ch = cw * 1.4;
-    final pivot = c + Offset(0, h * 0.42);
+    final pivot = c + Offset(-h * 0.12, h * 0.42);
     for (var i = 0; i < n; i++) {
       final last = i == n - 1;
-      final a = -0.62 + 1.24 * i / (n - 1);
+      final a = -0.55 + 1.05 * i / (n - 1);
       canvas.save();
       canvas.translate(pivot.dx, pivot.dy);
       canvas.rotate(a);

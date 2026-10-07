@@ -251,12 +251,23 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
                       child: Text(summary.title, style: AppText.headline),
                     ),
                     actions: const [GpBadge()],
-                    flexibleSpace: FlexibleSpaceBar(
-                      collapseMode: CollapseMode.parallax,
-                      background: _CinematicHeader(
-                        detail: detail,
-                        summary: summary,
-                      ),
+                    flexibleSpace: LayoutBuilder(
+                      builder: (context, c) {
+                        // 접히는 동안 제목 블록이 반쯤 잘려 보이지 않게 먼저 사라진다.
+                        final top = MediaQuery.paddingOf(context).top;
+                        final t =
+                            ((c.maxHeight - kToolbarHeight - top) /
+                                    (_headerHeight - kToolbarHeight - top))
+                                .clamp(0.0, 1.0);
+                        return FlexibleSpaceBar(
+                          collapseMode: CollapseMode.parallax,
+                          background: _CinematicHeader(
+                            detail: detail,
+                            summary: summary,
+                            textOpacity: ((t - 0.45) / 0.4).clamp(0.0, 1.0),
+                          ),
+                        );
+                      },
                     ),
                   ),
                   SliverToBoxAdapter(child: _PriceBlock(detail: detail)),
@@ -295,7 +306,12 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
 class _CinematicHeader extends StatelessWidget {
   final GachaDetail detail;
   final GachaSummary summary;
-  const _CinematicHeader({required this.detail, required this.summary});
+  final double textOpacity;
+  const _CinematicHeader({
+    required this.detail,
+    required this.summary,
+    this.textOpacity = 1,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -331,52 +347,58 @@ class _CinematicHeader extends StatelessWidget {
           left: Space.gutter,
           right: Space.gutter,
           bottom: Space.x5,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  if (detail.badgeLabel != null) ...[
-                    BoxBadge(detail.badgeLabel!),
-                    const SizedBox(width: 6),
-                  ],
-                  if (detail.soldOut)
-                    const QuietLabel('품절', color: AppColors.danger)
-                  else if (detail.tagline != null)
-                    Flexible(
-                      child: Text(
-                        detail.tagline!,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppText.caption.copyWith(
-                          color: Colors.white.withValues(alpha: 0.75),
-                          fontWeight: FontWeight.w600,
+          child: Opacity(
+            opacity: textOpacity,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    if (detail.badgeLabel != null) ...[
+                      BoxBadge(detail.badgeLabel!),
+                      const SizedBox(width: 6),
+                    ],
+                    if (detail.soldOut)
+                      const QuietLabel('품절', color: AppColors.danger)
+                    else if (detail.tagline != null)
+                      Flexible(
+                        child: Text(
+                          detail.tagline!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppText.caption.copyWith(
+                            color: Colors.white.withValues(alpha: 0.75),
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: Space.x2),
-              Text(
-                detail.title,
-                style: AppText.hero.copyWith(fontSize: 32, color: Colors.white),
-              ),
-              if (detail.description.isNotEmpty) ...[
-                const SizedBox(height: 6),
+                  ],
+                ),
+                const SizedBox(height: Space.x2),
                 Text(
-                  keepAll(detail.description),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppText.callout.copyWith(
-                    color: Colors.white.withValues(alpha: 0.7),
+                  detail.title,
+                  style: AppText.hero.copyWith(
+                    fontSize: 32,
+                    color: Colors.white,
                   ),
                 ),
+                if (detail.description.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    keepAll(detail.description),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.callout.copyWith(
+                      color: Colors.white.withValues(alpha: 0.7),
+                    ),
+                  ),
+                ],
+                if (prize != null) ...[
+                  const SizedBox(height: Space.x3),
+                  _TopPrizeLine(prize: prize),
+                ],
               ],
-              if (prize != null) ...[
-                const SizedBox(height: Space.x3),
-                _TopPrizeLine(prize: prize),
-              ],
-            ],
+            ),
           ),
         ),
       ],
@@ -696,7 +718,7 @@ class _TierBlock extends StatelessWidget {
           const SizedBox(height: 10),
           LayoutBuilder(
             builder: (context, c) {
-              final cols = 2;
+              final cols = items.length == 1 ? 1 : 2;
               const gap = 10.0;
               final w = (c.maxWidth - gap * (cols - 1)) / cols;
               return Wrap(
@@ -711,7 +733,7 @@ class _TierBlock extends StatelessWidget {
                         name: item.name,
                         imageUrl: item.imageUrl,
                         holo: hero,
-                        imageAspect: hero ? 0.95 : 1.2,
+                        imageAspect: cols == 1 ? 1.9 : (hero ? 0.95 : 1.2),
                         meta: formatWon(item.estimatedValue),
                         trailing: formatPercent(item.probabilityPercent),
                       ),

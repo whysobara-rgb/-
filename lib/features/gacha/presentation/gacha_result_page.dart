@@ -411,14 +411,29 @@ class _Hero extends StatelessWidget {
               ),
               if (festive)
                 Positioned.fill(
-                  child: AnimatedBuilder(
-                    animation: spin,
-                    builder: (context, _) => CustomPaint(
-                      painter: LightRaysPainter(
-                        rotation: spin.value * 2 * math.pi,
-                        intensity: r == Rarity.ssr ? 0.9 : 0.7,
-                        color: light,
-                        rays: r == Rarity.ssr ? 16 : 12,
+                  child: ShaderMask(
+                    // 목록 위쪽 가장자리에서 빛줄기가 칼같이 잘리지 않게 흐린다.
+                    blendMode: BlendMode.dstIn,
+                    shaderCallback: (rect) => const LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.transparent,
+                        Colors.white,
+                        Colors.white,
+                        Colors.transparent,
+                      ],
+                      stops: [0, 0.22, 0.8, 1],
+                    ).createShader(rect),
+                    child: AnimatedBuilder(
+                      animation: spin,
+                      builder: (context, _) => CustomPaint(
+                        painter: LightRaysPainter(
+                          rotation: spin.value * 2 * math.pi,
+                          intensity: r == Rarity.ssr ? 0.9 : 0.7,
+                          color: light,
+                          rays: r == Rarity.ssr ? 16 : 12,
+                        ),
                       ),
                     ),
                   ),
@@ -651,7 +666,7 @@ class _PityLine extends StatelessWidget {
                     children: [
                       const TextSpan(text: '확정까지 '),
                       TextSpan(
-                        text: '$remaining회',
+                        text: '${formatNumber(remaining)}회',
                         style: AppText.num(AppText.bodyStrong).copyWith(
                           color: AppColors.raritySSRLight,
                           fontWeight: FontWeight.w800,
