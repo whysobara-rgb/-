@@ -1,5 +1,9 @@
+import 'dart:math' as math;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../../core/domain/rarity.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/theme/app_colors.dart';
@@ -9,18 +13,23 @@ import '../../../core/utils/format.dart';
 import '../../../navigation/tab_navigator.dart';
 import '../../../shared/providers/auth_provider.dart';
 import '../../../shared/providers/gp_provider.dart';
-import '../../../shared/widgets/product_image.dart';
+import '../../../shared/widgets/collectible_card.dart';
+import '../../../shared/widgets/meters.dart';
 import '../../../shared/widgets/rarity_tag.dart';
 import '../../../shared/widgets/ui.dart';
 import '../../inventory/data/inventory_repository.dart';
 import '../domain/draw_result.dart';
 import '../domain/gacha_models.dart';
-import 'widgets/pity_bar.dart';
+import '../domain/reveal_timeline.dart';
+import 'widgets/gacha_fx_painters.dart';
+import 'widgets/reveal_card.dart';
 
 /// 뽑기 결과.
 ///
 /// 결과는 서버에서 이미 보관함에 담긴 상태다. 기본 동작은 "보관함에 보관"
 /// (그대로 두기)이고, 원하면 그 자리에서 정가의 80%를 GP로 전환할 수 있다.
+/// SR 이상이 나오면 들어올 때 한 번 축하 연출(불꽃·SSR 금박)과 홀로 카드,
+/// 그리고 실제 결과 문구만 담은 "자랑하기"를 보여준다.
 class GachaResultPage extends StatefulWidget {
   final GachaSummary gacha;
   final DrawOutcome outcome;
@@ -35,12 +44,46 @@ class GachaResultPage extends StatefulWidget {
   State<GachaResultPage> createState() => _GachaResultPageState();
 }
 
-class _GachaResultPageState extends State<GachaResultPage> {
+class _GachaResultPageState extends State<GachaResultPage>
+    with TickerProviderStateMixin {
   static const _inventory = InventoryRepository();
   bool _exchanging = false;
   bool _exchanged = false;
 
+  /// 들어올 때 한 번 터지는 축하(SR 이상).
+  late final AnimationController _celebrate = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 3600),
+  );
+
+  /// 빛줄기 회전.
+  late final AnimationController _spin = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 24),
+  );
+
+  late final List<GoldLeaf> _leaves = GoldLeafPainter.generate(60, seed: 7);
+  Offset _tilt = Offset.zero;
+
   DrawOutcome get _o => widget.outcome;
+  DrawResult? get _best => _o.best;
+  bool get _festive => _best?.rarity.isFoil ?? false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_festive) {
+      _celebrate.forward();
+      _spin.repeat();
+    }
+  }
+
+  @override
+  void dispose() {
+    _celebrate.dispose();
+    _spin.dispose();
+    super.dispose();
+  }
 
   void _keep() {
     final count = _o.results.length;
@@ -58,6 +101,30 @@ class _GachaResultPageState extends State<GachaResultPage> {
           ),
         ),
       );
+  }
+
+  /// 실제 결과만 담은 공유 문구.
+  String get _brag {
+    final b = _best!;
+    final extra = _o.results.length > 1 ? ' (${_o.results.length}개 중)' : '';
+    return '가치가차 ${widget.gacha.title}에서 ${b.rarity.code} ${b.name}'
+        '(정가 ${formatWon(b.estimatedValue)})을 받았어요!$extra';
+  }
+
+  Future<void> _share() async {
+    final text = _brag;
+    if (kIsWeb) {
+      // 웹 공유 시트가 없는 브라우저는 메일 앱으로 넘어가므로 복사로 대신한다.
+      await Clipboard.setData(ClipboardData(text: text));
+      if (mounted) showToast(context, '자랑 문구를 복사했어요');
+      return;
+    }
+    try {
+      await SharePlus.instance.share(ShareParams(text: text, subject: '가치가차'));
+    } catch (_) {
+      await Clipboard.setData(ClipboardData(text: text));
+      if (mounted) showToast(context, '자랑 문구를 복사했어요');
+    }
   }
 
   Future<void> _confirmExchange() async {
@@ -85,15 +152,7 @@ class _GachaResultPageState extends State<GachaResultPage> {
               style: AppText.callout,
             ),
             const SizedBox(height: Space.x4),
-            Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: Space.x4,
-                vertical: Space.x2,
-              ),
-              decoration: const BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: Radii.card,
-              ),
+            SheetPanel(
               child: Column(
                 children: [
                   InfoRow(label: '상품 정가 합계', value: formatWon(_o.totalValue)),
@@ -185,37 +244,111 @@ class _GachaResultPageState extends State<GachaResultPage> {
             const SizedBox(width: Space.x1),
           ],
         ),
-        body: ListView(
-          padding: const EdgeInsets.only(bottom: Space.x8),
+        body: Stack(
           children: [
-            if (isSingle && best != null) ...[
-              _SingleResult(
-                result: best,
-                caption: '${widget.gacha.title} · 1회',
-              ),
-              const SectionBand(),
-              _Summary(gacha: widget.gacha, outcome: _o, compact: true),
-            ] else ...[
-              _Summary(gacha: widget.gacha, outcome: _o),
-              const SectionBand(),
-              _ResultGrid(results: sorted),
-            ],
-            if (_o.pity?.hasPity ?? false) ...[
-              const SectionBand(),
-              _PityLine(pity: _o.pity!),
-            ],
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                Space.gutter,
-                Space.x5,
-                Space.gutter,
-                0,
-              ),
-              child: Text(
-                keepAll('보관한 상품은 보관함에서 언제든 배송 신청하거나 포인트로 전환할 수 있어요.'),
-                style: AppText.caption.copyWith(color: AppColors.textTertiary),
-              ),
+            ListView(
+              padding: const EdgeInsets.only(bottom: Space.x8),
+              children: [
+                if (best != null)
+                  _Hero(
+                    result: best,
+                    caption: isSingle
+                        ? '${widget.gacha.title} · 1회'
+                        : '${widget.gacha.title} · 이번 최고',
+                    spin: _spin,
+                    festive: _festive,
+                    tilt: _tilt,
+                    onTilt: (t) => setState(() => _tilt = t),
+                    onShare: _festive ? _share : null,
+                  ),
+                if (!isSingle) ...[
+                  _CountsHeader(outcome: _o),
+                  _ResultGrid(results: sorted),
+                ],
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    Space.gutter,
+                    Space.x5,
+                    Space.gutter,
+                    0,
+                  ),
+                  child: SurfaceCard(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: Space.x4,
+                      vertical: Space.x2,
+                    ),
+                    child: Column(
+                      children: [
+                        InfoRow(label: '사용', value: formatGp(_o.spent)),
+                        InfoRow(
+                          label: '받은 상품 정가',
+                          value: formatWon(_o.totalValue),
+                        ),
+                        if (_o.totalExchange > 0)
+                          InfoRow(
+                            label: '포인트 전환 시',
+                            value: formatGp(_o.totalExchange),
+                            valueStyle: AppText.num(
+                              AppText.bodyStrong,
+                            ).copyWith(color: AppColors.textSecondary),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+                if (_o.pity?.hasPity ?? false) _PityLine(pity: _o.pity!),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    Space.gutter,
+                    Space.x5,
+                    Space.gutter,
+                    0,
+                  ),
+                  child: Text(
+                    keepAll('보관한 상품은 보관함에서 언제든 배송 신청하거나 포인트로 전환할 수 있어요.'),
+                    style: AppText.caption.copyWith(
+                      color: AppColors.textTertiary,
+                    ),
+                  ),
+                ),
+              ],
             ),
+            if (_festive)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: AnimatedBuilder(
+                    animation: _celebrate,
+                    builder: (context, _) {
+                      final t = _celebrate.value;
+                      if (t <= 0 || t >= 1) return const SizedBox.shrink();
+                      final r = best!.rarity;
+                      return LayoutBuilder(
+                        builder: (context, c) => Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            CustomPaint(
+                              painter: SparkBurstPainter(
+                                age: t * 3.6 * 0.6,
+                                color: stageLight(r),
+                                count: RevealTimeline.sparkCount(r),
+                                origin: Offset(c.maxWidth / 2, 200),
+                                power: 0.7,
+                              ),
+                            ),
+                            if (r == Rarity.ssr)
+                              CustomPaint(
+                                painter: GoldLeafPainter(
+                                  progress: t,
+                                  pieces: _leaves,
+                                ),
+                              ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
           ],
         ),
         bottomNavigationBar: _BottomActions(
@@ -231,18 +364,138 @@ class _GachaResultPageState extends State<GachaResultPage> {
   }
 }
 
-class _Summary extends StatelessWidget {
-  final GachaSummary gacha;
-  final DrawOutcome outcome;
+/// 대표 결과: 빛줄기 위 큰 카드(SSR 홀로·틸트) + 이름·정가·라벨 + 자랑하기.
+class _Hero extends StatelessWidget {
+  final DrawResult result;
+  final String caption;
+  final Animation<double> spin;
+  final bool festive;
+  final Offset tilt;
+  final ValueChanged<Offset> onTilt;
+  final VoidCallback? onShare;
 
-  /// 단일 결과 화면에서는 금액 행만 보여준다.
-  final bool compact;
-
-  const _Summary({
-    required this.gacha,
-    required this.outcome,
-    this.compact = false,
+  const _Hero({
+    required this.result,
+    required this.caption,
+    required this.spin,
+    required this.festive,
+    required this.tilt,
+    required this.onTilt,
+    required this.onShare,
   });
+
+  @override
+  Widget build(BuildContext context) {
+    final r = result.rarity;
+    final light = stageLight(r);
+    const cardW = 196.0;
+    return Column(
+      children: [
+        SizedBox(
+          height: cardW * 1.4 + 56,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Positioned.fill(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: RadialGradient(
+                      radius: 0.75,
+                      colors: [
+                        r.color.withValues(alpha: festive ? 0.28 : 0.12),
+                        Colors.transparent,
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              if (festive)
+                Positioned.fill(
+                  child: AnimatedBuilder(
+                    animation: spin,
+                    builder: (context, _) => CustomPaint(
+                      painter: LightRaysPainter(
+                        rotation: spin.value * 2 * math.pi,
+                        intensity: r == Rarity.ssr ? 0.9 : 0.7,
+                        color: light,
+                        rays: r == Rarity.ssr ? 16 : 12,
+                      ),
+                    ),
+                  ),
+                ),
+              GestureDetector(
+                onPanUpdate: (d) => onTilt(
+                  Offset(
+                    (tilt.dx + d.delta.dx / 90).clamp(-1.0, 1.0),
+                    (tilt.dy + d.delta.dy / 90).clamp(-1.0, 1.0),
+                  ),
+                ),
+                onPanEnd: (_) => onTilt(Offset.zero),
+                child: Transform(
+                  alignment: Alignment.center,
+                  transform: Matrix4.identity()
+                    ..setEntry(3, 2, 0.0012)
+                    ..rotateY(tilt.dx * 0.25)
+                    ..rotateX(-tilt.dy * 0.2),
+                  child: RevealCardFace(
+                    result: result,
+                    width: cardW,
+                    tilt: tilt,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: Space.page,
+          child: Column(
+            children: [
+              Text(caption, style: AppText.caption),
+              const SizedBox(height: 6),
+              Text(
+                result.name,
+                textAlign: TextAlign.center,
+                style: AppText.title1.copyWith(fontSize: 24),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                result.exchangeValue > 0
+                    ? '정가 ${formatWon(result.estimatedValue)} · 전환 시 ${formatGp(result.exchangeValue)}'
+                    : '정가 ${formatWon(result.estimatedValue)}',
+                textAlign: TextAlign.center,
+                style: AppText.num(AppText.callout).copyWith(
+                  color: r == Rarity.n ? AppColors.textSecondary : r.light,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              if (onShare != null) ...[
+                const SizedBox(height: Space.x3),
+                OutlinedButton.icon(
+                  onPressed: onShare,
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(0, 38),
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    shape: const StadiumBorder(),
+                    side: BorderSide(color: r.color.withValues(alpha: 0.6)),
+                    foregroundColor: r.light,
+                    textStyle: AppText.bodyStrong,
+                  ),
+                  icon: const Icon(Icons.ios_share_rounded, size: 17),
+                  label: const Text('자랑하기'),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CountsHeader extends StatelessWidget {
+  final DrawOutcome outcome;
+  const _CountsHeader({required this.outcome});
 
   @override
   Widget build(BuildContext context) {
@@ -253,117 +506,71 @@ class _Summary extends StatelessWidget {
     final drawLabel = outcome.bonusCount > 0
         ? '${outcome.count}+${outcome.bonusCount}회'
         : '${outcome.count}회';
-
     return Padding(
-      padding: EdgeInsets.fromLTRB(
+      padding: const EdgeInsets.fromLTRB(
         Space.gutter,
-        compact ? Space.x4 : Space.x2,
+        Space.x8,
         Space.gutter,
-        compact ? Space.x2 : Space.x5,
+        Space.x3,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (!compact) ...[
-            Text('${gacha.title} · $drawLabel', style: AppText.callout),
-            const SizedBox(height: Space.x1),
-            Text('${outcome.results.length}개를 받았어요', style: AppText.title1),
-            const SizedBox(height: Space.x3),
-            Wrap(
-              spacing: Space.x3,
-              runSpacing: Space.x2,
-              children: [
-                for (final rarity in Rarity.values.reversed)
-                  if ((counts[rarity] ?? 0) > 0)
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        RarityTag(rarity),
-                        const SizedBox(width: 4),
-                        Text(
-                          '${counts[rarity]}',
-                          style: AppText.num(AppText.bodyStrong),
-                        ),
-                      ],
-                    ),
+          Text(drawLabel, style: AppText.eyebrow),
+          const SizedBox(height: 4),
+          Text('${outcome.results.length}개를 받았어요', style: AppText.title1),
+          const SizedBox(height: Space.x3),
+          Row(
+            children: [
+              for (final rarity in Rarity.values.reversed) ...[
+                Expanded(
+                  child: _CountCell(rarity: rarity, count: counts[rarity] ?? 0),
+                ),
+                if (rarity != Rarity.n) const SizedBox(width: 6),
               ],
-            ),
-            const SizedBox(height: Space.x4),
-          ],
-          InfoRow(label: '사용', value: formatGp(outcome.spent)),
-          InfoRow(label: '받은 상품 정가', value: formatWon(outcome.totalValue)),
-          if (outcome.totalExchange > 0)
-            InfoRow(
-              label: '포인트 전환 시',
-              value: formatGp(outcome.totalExchange),
-              valueStyle: AppText.num(
-                AppText.bodyStrong,
-              ).copyWith(color: AppColors.textSecondary),
-            ),
+            ],
+          ),
         ],
       ),
     );
   }
 }
 
-class _SingleResult extends StatelessWidget {
-  final DrawResult result;
-  final String caption;
-  const _SingleResult({required this.result, required this.caption});
+class _CountCell extends StatelessWidget {
+  final Rarity rarity;
+  final int count;
+  const _CountCell({required this.rarity, required this.count});
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        Space.gutter,
-        Space.x2,
-        Space.gutter,
-        Space.x5,
+    final on = count > 0;
+    return Container(
+      height: 52,
+      decoration: BoxDecoration(
+        color: on ? rarity.tint : AppColors.surface,
+        borderRadius: Radii.button,
+        border: Border.all(
+          color: on ? rarity.color.withValues(alpha: 0.5) : AppColors.hairline,
+        ),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text(caption, style: AppText.callout),
-          const SizedBox(height: Space.x3),
-          AspectRatio(
-            aspectRatio: 1,
-            child: Container(
-              decoration: BoxDecoration(
-                borderRadius: Radii.card,
-                border: Border.all(
-                  color: result.rarity.color.withValues(alpha: 0.5),
-                  width: 1.5,
-                ),
-              ),
-              padding: const EdgeInsets.all(1.5),
-              child: ProductImage(
-                url: result.imageUrl,
-                borderRadius: Radii.thumb,
-              ),
+          Text(
+            rarity.code,
+            style: AppText.micro.copyWith(
+              color: on ? rarity.light : AppColors.textTertiary,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0.6,
             ),
           ),
-          const SizedBox(height: Space.x4),
-          Row(
-            children: [
-              RarityTag(result.rarity),
-              if (result.isPity) ...[
-                const SizedBox(width: 4),
-                const QuietLabel('천장'),
-              ],
-              if (result.isBonus) ...[
-                const SizedBox(width: 4),
-                const QuietLabel('보너스'),
-              ],
-            ],
-          ),
-          const SizedBox(height: Space.x2),
-          Text(result.name, style: AppText.title2),
-          const SizedBox(height: Space.x1),
           Text(
-            result.exchangeValue > 0
-                ? '정가 ${formatWon(result.estimatedValue)} · 전환 시 ${formatGp(result.exchangeValue)}'
-                : '정가 ${formatWon(result.estimatedValue)}',
-            style: AppText.num(AppText.callout),
+            '$count',
+            style: AppText.num(AppText.headline).copyWith(
+              color: on ? AppColors.text : AppColors.textTertiary,
+              fontWeight: FontWeight.w900,
+              height: 1.2,
+            ),
           ),
         ],
       ),
@@ -380,88 +587,36 @@ class _ResultGrid extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         Space.gutter,
-        Space.x5,
-        Space.gutter,
         Space.x2,
+        Space.gutter,
+        0,
       ),
       child: LayoutBuilder(
         builder: (context, c) {
           const columns = 3;
-          const gap = Space.x3;
+          const gap = 8.0;
           final w = (c.maxWidth - gap * (columns - 1)) / columns;
           return Wrap(
             spacing: gap,
-            runSpacing: Space.x4,
+            runSpacing: gap,
             children: [
               for (final r in results)
                 SizedBox(
                   width: w,
-                  child: _ResultTile(result: r),
+                  child: CollectibleCard(
+                    rarity: r.rarity,
+                    name: r.name,
+                    imageUrl: r.imageUrl,
+                    dense: true,
+                    holo: r.rarity == Rarity.ssr,
+                    meta: formatWonShort(r.estimatedValue),
+                    labels: [if (r.isPity) '천장', if (r.isBonus) '보너스'],
+                  ),
                 ),
             ],
           );
         },
       ),
-    );
-  }
-}
-
-class _ResultTile extends StatelessWidget {
-  final DrawResult result;
-  const _ResultTile({required this.result});
-
-  @override
-  Widget build(BuildContext context) {
-    final highlight = result.rarity.rank >= Rarity.sr.rank;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        AspectRatio(
-          aspectRatio: 1,
-          child: Container(
-            decoration: BoxDecoration(
-              borderRadius: Radii.thumb,
-              border: highlight
-                  ? Border.all(
-                      color: result.rarity.color.withValues(alpha: 0.7),
-                      width: 1.5,
-                    )
-                  : null,
-            ),
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                ProductImage(url: result.imageUrl),
-                Positioned(
-                  left: 6,
-                  top: 6,
-                  child: RarityTag(result.rarity, dense: true),
-                ),
-                if (result.isPity || result.isBonus)
-                  Positioned(
-                    left: 6,
-                    bottom: 6,
-                    child: QuietLabel(result.isPity ? '천장' : '보너스'),
-                  ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: Space.x2),
-        Text(
-          result.name,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: AppText.caption.copyWith(color: AppColors.text, height: 1.35),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          formatWon(result.estimatedValue),
-          style: AppText.num(
-            AppText.caption,
-          ).copyWith(fontWeight: FontWeight.w700, color: AppColors.text),
-        ),
-      ],
     );
   }
 }
@@ -476,41 +631,46 @@ class _PityLine extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         Space.gutter,
-        Space.x5,
+        Space.x3,
         Space.gutter,
-        Space.x2,
+        0,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Text('천장', style: AppText.bodyStrong),
-              const Spacer(),
-              Text.rich(
-                TextSpan(
-                  children: [
-                    const TextSpan(text: 'SSR 확정까지 '),
-                    TextSpan(
-                      text: '$remaining회',
-                      style: AppText.num(
-                        AppText.bodyStrong,
-                      ).copyWith(color: AppColors.text),
-                    ),
-                  ],
+      child: SurfaceCard(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const RarityTag(Rarity.ssr, dense: true),
+                const SizedBox(width: 6),
+                Text('천장', style: AppText.bodyStrong),
+                const Spacer(),
+                Text.rich(
+                  TextSpan(
+                    children: [
+                      const TextSpan(text: '확정까지 '),
+                      TextSpan(
+                        text: '$remaining회',
+                        style: AppText.num(AppText.bodyStrong).copyWith(
+                          color: AppColors.raritySSRLight,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                  style: AppText.callout,
                 ),
-                style: AppText.callout,
-              ),
-            ],
-          ),
-          const SizedBox(height: Space.x2),
-          PityBar(progress: pity.progress),
-          const SizedBox(height: Space.x2),
-          Text(
-            '${formatNumber(pity.drawsSinceTopTier)} / ${formatNumber(pity.threshold ?? 0)}회',
-            style: AppText.num(AppText.caption),
-          ),
-        ],
+              ],
+            ),
+            const SizedBox(height: 6),
+            GlowMeter(progress: pity.progress, height: 6),
+            Text(
+              '${formatNumber(pity.drawsSinceTopTier)} / ${formatNumber(pity.threshold ?? 0)}회',
+              style: AppText.num(AppText.caption),
+            ),
+          ],
+        ),
       ),
     );
   }

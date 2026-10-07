@@ -1,3 +1,4 @@
+import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/domain/rarity.dart';
@@ -8,7 +9,9 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/format.dart';
 import '../../../navigation/tab_navigator.dart';
 import '../../../shared/providers/gp_provider.dart';
+import '../../../shared/widgets/collectible_card.dart';
 import '../../../shared/widgets/gp_badge.dart';
+import '../../../shared/widgets/meters.dart';
 import '../../../shared/widgets/product_image.dart';
 import '../../../shared/widgets/rarity_tag.dart';
 import '../../../shared/widgets/ui.dart';
@@ -16,13 +19,12 @@ import '../data/gacha_repository.dart';
 import '../domain/gacha_models.dart';
 import 'gacha_animation_page.dart';
 import 'odds_page.dart';
-import 'widgets/pity_bar.dart';
 
 /// 박스 상세.
 ///
-/// 상품 사진 → 가격 → 내 천장 진행 → 등급별 확률 → 구성 상품 → 이용 안내
-/// 순서로, 사기 전에 알아야 할 것을 모두 한 화면에 둔다.
-/// 하단 CTA는 "1회 뽑기"와 "10+1회 뽑기" 두 개뿐이다.
+/// 시네마틱 헤더(박스 아트 + 큰 제목) → 가격·실재고 → 빛나는 천장 게이지 →
+/// 등급별 구성 상품(컬렉터블 카드, SSR 홀로) → 등급별 확률 요약 →
+/// 이용 안내. 하단 고정 바에 "1회"와 "10+1회" 두 버튼.
 class GachaDetailPage extends StatefulWidget {
   final GachaSummary gacha;
 
@@ -40,17 +42,17 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
   bool _loading = true;
   String? _error;
 
-  /// 사진을 지나 스크롤하면 앱바에 박스명을 보여준다.
+  /// 헤더를 지나 스크롤하면 앱바에 박스명을 보여준다.
   final _scroll = ScrollController();
   bool _showTitle = false;
+
+  static const double _headerHeight = 400;
 
   @override
   void initState() {
     super.initState();
     _scroll.addListener(() {
-      final show =
-          _scroll.hasClients &&
-          _scroll.offset > MediaQuery.sizeOf(context).width * 0.9;
+      final show = _scroll.hasClients && _scroll.offset > _headerHeight - 120;
       if (show != _showTitle) setState(() => _showTitle = show);
     });
     _load();
@@ -104,6 +106,9 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
       tagline: d.tagline,
       badgeLabel: d.badgeLabel,
       imageUrl: d.imageUrl,
+      iconName: d.iconName ?? widget.gacha.iconName,
+      accent: d.accent ?? widget.gacha.accent,
+      topPrize: widget.gacha.topPrize,
       pityThreshold: d.pityThreshold,
       totalStock: d.totalStock,
       soldStock: d.soldStock,
@@ -213,41 +218,63 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
     final summary = _summary;
 
     return Scaffold(
-      appBar: AppBar(
-        titleSpacing: 0,
-        title: AnimatedOpacity(
-          duration: Motion.fast,
-          opacity: _showTitle ? 1 : 0,
-          child: Text(summary.title, style: AppText.headline),
-        ),
-        actions: const [GpBadge()],
-      ),
+      extendBody: true,
       body: _loading
-          ? const LoadingView(height: 400)
+          ? const SafeArea(child: LoadingView(height: 400))
           : detail == null
-          ? ErrorView(message: _error ?? '박스 정보를 불러오지 못했어요', onRetry: _load)
-          : RefreshIndicator(
-              color: AppColors.text,
-              onRefresh: _load,
-              child: ListView(
-                controller: _scroll,
-                padding: const EdgeInsets.only(bottom: Space.x10),
+          ? SafeArea(
+              child: Column(
                 children: [
-                  AspectRatio(
-                    aspectRatio: 1,
-                    child: ProductImage(
-                      url: detail.imageUrl ?? widget.gacha.imageUrl,
-                      borderRadius: BorderRadius.zero,
+                  const BackButton(),
+                  ErrorView(
+                    message: _error ?? '박스 정보를 불러오지 못했어요',
+                    onRetry: _load,
+                  ),
+                ],
+              ),
+            )
+          : RefreshIndicator(
+              color: AppColors.brand,
+              backgroundColor: AppColors.raised,
+              onRefresh: _load,
+              child: CustomScrollView(
+                controller: _scroll,
+                slivers: [
+                  SliverAppBar(
+                    pinned: true,
+                    expandedHeight: _headerHeight,
+                    backgroundColor: AppColors.canvas,
+                    titleSpacing: 0,
+                    title: AnimatedOpacity(
+                      duration: Motion.fast,
+                      opacity: _showTitle ? 1 : 0,
+                      child: Text(summary.title, style: AppText.headline),
+                    ),
+                    actions: const [GpBadge()],
+                    flexibleSpace: FlexibleSpaceBar(
+                      collapseMode: CollapseMode.parallax,
+                      background: _CinematicHeader(
+                        detail: detail,
+                        summary: summary,
+                      ),
                     ),
                   ),
-                  _Headline(detail: detail),
-                  if (_pity?.hasPity ?? false) _PitySection(pity: _pity!),
-                  const SectionBand(),
-                  _OddsSummary(detail: detail, onOpenOdds: _openOdds),
-                  const SectionBand(),
-                  _LineupSection(items: detail.lineup),
-                  const SectionBand(),
-                  _Guide(detail: detail, onOpenOdds: _openOdds),
+                  SliverToBoxAdapter(child: _PriceBlock(detail: detail)),
+                  if (_pity?.hasPity ?? false)
+                    SliverToBoxAdapter(child: _PityMeter(pity: _pity!)),
+                  SliverToBoxAdapter(
+                    child: _LineupSection(
+                      items: detail.lineup,
+                      onOpenOdds: _openOdds,
+                    ),
+                  ),
+                  SliverToBoxAdapter(
+                    child: _OddsSummary(detail: detail, onOpenOdds: _openOdds),
+                  ),
+                  SliverToBoxAdapter(
+                    child: _Guide(detail: detail, onOpenOdds: _openOdds),
+                  ),
+                  const SliverToBoxAdapter(child: SizedBox(height: 120)),
                 ],
               ),
             ),
@@ -263,9 +290,148 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
   }
 }
 
-class _Headline extends StatelessWidget {
+/// 시네마틱 헤더: 박스 아트(박스 색 빛) + 아래로 녹아드는 그라데이션 +
+/// 배지·큰 제목·설명.
+class _CinematicHeader extends StatelessWidget {
   final GachaDetail detail;
-  const _Headline({required this.detail});
+  final GachaSummary summary;
+  const _CinematicHeader({required this.detail, required this.summary});
+
+  @override
+  Widget build(BuildContext context) {
+    final prize = summary.topPrize;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        BoxImage(
+          url: detail.imageUrl,
+          tone: summary.accent ?? AppColors.brand,
+          category: summary.category,
+          borderRadius: BorderRadius.zero,
+          artScale: 0.42,
+          artCenterY: 0.4,
+        ),
+        const DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Color(0x99000000),
+                Color(0x00000000),
+                Color(0x00000000),
+                Color(0xCC09090B),
+                AppColors.canvas,
+              ],
+              stops: [0, 0.22, 0.5, 0.82, 1],
+            ),
+          ),
+        ),
+        Positioned(
+          left: Space.gutter,
+          right: Space.gutter,
+          bottom: Space.x5,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  if (detail.badgeLabel != null) ...[
+                    BoxBadge(detail.badgeLabel!),
+                    const SizedBox(width: 6),
+                  ],
+                  if (detail.soldOut)
+                    const QuietLabel('품절', color: AppColors.danger)
+                  else if (detail.tagline != null)
+                    Flexible(
+                      child: Text(
+                        detail.tagline!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppText.caption.copyWith(
+                          color: Colors.white.withValues(alpha: 0.75),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: Space.x2),
+              Text(
+                detail.title,
+                style: AppText.hero.copyWith(fontSize: 32, color: Colors.white),
+              ),
+              if (detail.description.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  keepAll(detail.description),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppText.callout.copyWith(
+                    color: Colors.white.withValues(alpha: 0.7),
+                  ),
+                ),
+              ],
+              if (prize != null) ...[
+                const SizedBox(height: Space.x3),
+                _TopPrizeLine(prize: prize),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _TopPrizeLine extends StatelessWidget {
+  final TopPrize prize;
+  const _TopPrizeLine({required this.prize});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(5, 5, 12, 5),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.45),
+        borderRadius: Radii.pill,
+        border: Border.all(color: prize.rarity.color.withValues(alpha: 0.45)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          RarityTag(prize.rarity, holo: true),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text.rich(
+              TextSpan(
+                children: [
+                  TextSpan(text: prize.name),
+                  TextSpan(
+                    text: '  ${formatWon(prize.estimatedValue)}',
+                    style: TextStyle(
+                      color: prize.rarity.light,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppText.num(
+                AppText.caption,
+              ).copyWith(color: Colors.white, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PriceBlock extends StatelessWidget {
+  final GachaDetail detail;
+  const _PriceBlock({required this.detail});
 
   @override
   Widget build(BuildContext context) {
@@ -273,50 +439,67 @@ class _Headline extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         Space.gutter,
-        Space.x5,
+        Space.x2,
         Space.gutter,
-        Space.x6,
+        Space.x5,
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (detail.badgeLabel != null) ...[
-            QuietLabel(badgeLabelText(detail.badgeLabel!)),
-            const SizedBox(height: Space.x2),
-          ],
-          Text(detail.title, style: AppText.title1),
-          if (detail.description.isNotEmpty) ...[
-            const SizedBox(height: Space.x1),
-            Text(keepAll(detail.description), style: AppText.callout),
-          ],
-          const SizedBox(height: Space.x4),
-          if (detail.soldOut) ...[
-            const QuietLabel('품절', color: AppColors.danger),
-            const SizedBox(height: Space.x2),
-          ],
           Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text('1회', style: AppText.callout),
-              const SizedBox(width: 6),
-              Text(
-                formatGp(detail.price),
-                style: AppText.num(
-                  AppText.title1,
-                ).copyWith(fontWeight: FontWeight.w800),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('1회', style: AppText.caption),
+                    const SizedBox(height: 2),
+                    Text.rich(
+                      TextSpan(
+                        children: [
+                          TextSpan(text: formatNumber(detail.price)),
+                          const TextSpan(
+                            text: ' GP',
+                            style: TextStyle(
+                              fontSize: 18,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                      style: AppText.numeral.copyWith(fontSize: 34),
+                    ),
+                  ],
+                ),
               ),
-              const Spacer(),
               if (values.isNotEmpty)
-                Text(
-                  '구성품 정가 ${formatNumber(values.first)}~${formatWon(values.last)}',
-                  style: AppText.num(AppText.caption),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text('구성품 정가', style: AppText.caption),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${formatWonShort(values.first)} ~ ${formatWonShort(values.last)}',
+                      style: AppText.num(
+                        AppText.bodyStrong,
+                      ).copyWith(fontWeight: FontWeight.w800),
+                    ),
+                  ],
                 ),
             ],
           ),
           if (detail.totalStock > 0) ...[
-            const SizedBox(height: Space.x5),
-            _StockLine(detail: detail),
+            const SizedBox(height: Space.x4),
+            SurfaceCard(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+              child: StockBar(
+                total: detail.totalStock,
+                sold: detail.soldStock,
+                soldOut: detail.soldOut,
+                compact: false,
+              ),
+            ),
           ],
         ],
       ),
@@ -324,99 +507,218 @@ class _Headline extends StatelessWidget {
   }
 }
 
-/// 실재고: 판매 수량 / 전체 수량.
-class _StockLine extends StatelessWidget {
-  final GachaDetail detail;
-  const _StockLine({required this.detail});
+/// 빛나는 천장 게이지.
+class _PityMeter extends StatelessWidget {
+  final PityStatus pity;
+  const _PityMeter({required this.pity});
 
   @override
   Widget build(BuildContext context) {
-    final total = detail.totalStock;
-    final sold = detail.soldStock.clamp(0, total);
-    final left = detail.remaining ?? 0;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        Space.gutter,
+        0,
+        Space.gutter,
+        Space.x2,
+      ),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+        decoration: BoxDecoration(
+          borderRadius: Radii.card,
+          border: Border.all(
+            color: AppColors.raritySSR.withValues(alpha: 0.35),
+          ),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              AppColors.raritySSR.withValues(alpha: 0.13),
+              AppColors.surface,
+              AppColors.surface,
+            ],
+            stops: const [0, 0.55, 1],
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('판매 현황', style: AppText.callout),
-            const Spacer(),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const RarityTag(Rarity.ssr, holo: true),
+                          const SizedBox(width: 6),
+                          Text(
+                            '천장 · 내 진행도',
+                            style: AppText.caption.copyWith(
+                              color: AppColors.raritySSRLight,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text.rich(
+                        TextSpan(
+                          children: [
+                            const TextSpan(
+                              text: '확정까지 ',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                            TextSpan(text: formatNumber(pity.remaining ?? 0)),
+                            const TextSpan(
+                              text: '회',
+                              style: TextStyle(fontSize: 18),
+                            ),
+                          ],
+                        ),
+                        style: AppText.numeral.copyWith(
+                          fontSize: 32,
+                          color: AppColors.raritySSRLight,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Text(
+                  '${formatNumber(pity.drawsSinceTopTier)} / ${formatNumber(pity.threshold!)}',
+                  style: AppText.num(
+                    AppText.caption,
+                  ).copyWith(color: AppColors.textSecondary),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            GlowMeter(progress: pity.progress),
+            const SizedBox(height: 6),
             Text(
-              '${formatNumber(sold)} / ${formatNumber(total)}개',
-              style: AppText.num(AppText.bodyStrong),
+              keepAll('이 박스에서 SSR 없이 ${pity.threshold}회째가 되면 그 회차는 SSR로 확정돼요.'),
+              style: AppText.caption,
             ),
           ],
         ),
-        const SizedBox(height: Space.x2),
-        ClipRRect(
-          borderRadius: const BorderRadius.all(Radius.circular(2)),
-          child: LinearProgressIndicator(
-            value: total == 0 ? 0 : sold / total,
-            minHeight: 4,
-            color: AppColors.text,
-            backgroundColor: AppColors.high,
+      ),
+    );
+  }
+}
+
+/// 구성 상품: 등급별로 묶은 컬렉터블 카드.
+class _LineupSection extends StatelessWidget {
+  final List<LineupItem> items;
+  final VoidCallback onOpenOdds;
+  const _LineupSection({required this.items, required this.onOpenOdds});
+
+  @override
+  Widget build(BuildContext context) {
+    final tiers = <Rarity, List<LineupItem>>{};
+    for (final i in items) {
+      (tiers[i.rarity] ??= []).add(i);
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SectionHeader(
+          eyebrow: 'LINEUP',
+          title: '구성 상품',
+          subtitle: '총 ${items.length}종 · 희귀한 순 · 카드의 %는 1회 확률',
+          actionLabel: '전체 확률',
+          onAction: onOpenOdds,
+          padding: const EdgeInsets.fromLTRB(
+            Space.gutter,
+            Space.section - 8,
+            Space.gutter,
+            Space.x2,
           ),
         ),
-        const SizedBox(height: 6),
-        Text(
-          detail.soldOut ? '모두 판매됐어요' : '남은 수량 ${formatNumber(left)}개',
-          style: AppText.num(AppText.caption),
-        ),
+        for (final rarity in Rarity.values.reversed)
+          if (tiers[rarity] case final list?)
+            _TierBlock(rarity: rarity, items: list),
       ],
     );
   }
 }
 
-class _PitySection extends StatelessWidget {
-  final PityStatus pity;
-  const _PitySection({required this.pity});
+class _TierBlock extends StatelessWidget {
+  final Rarity rarity;
+  final List<LineupItem> items;
+  const _TierBlock({required this.rarity, required this.items});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(
+    final total = items.fold<double>(0, (s, i) => s + i.probabilityPercent);
+    final hero = rarity == Rarity.ssr;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
         Space.gutter,
-        0,
+        Space.x3,
         Space.gutter,
-        Space.x6,
-      ),
-      padding: const EdgeInsets.all(Space.x4),
-      decoration: BoxDecoration(
-        border: Border.all(color: AppColors.hairline),
-        borderRadius: Radii.card,
+        Space.x2,
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
             children: [
-              const RarityTag(Rarity.ssr),
-              const SizedBox(width: Space.x2),
-              Text.rich(
-                TextSpan(
-                  children: [
-                    const TextSpan(text: '확정까지 '),
-                    TextSpan(
-                      text: '${pity.remaining}회',
-                      style: AppText.num(AppText.headline),
-                    ),
-                  ],
-                ),
-                style: AppText.headline.copyWith(fontWeight: FontWeight.w500),
-              ),
-              const Spacer(),
+              RarityTag(rarity, holo: hero),
+              const SizedBox(width: 8),
               Text(
-                '${formatNumber(pity.drawsSinceTopTier)}/${formatNumber(pity.threshold!)}',
-                style: AppText.num(AppText.caption),
+                rarity.label,
+                style: AppText.caption.copyWith(
+                  color: rarity.light,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Container(
+                  height: 1,
+                  color: rarity.color.withValues(alpha: 0.18),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '합계 ${formatPercent(total)}',
+                style: AppText.num(
+                  AppText.caption,
+                ).copyWith(color: AppColors.text, fontWeight: FontWeight.w700),
               ),
             ],
           ),
-          const SizedBox(height: Space.x3),
-          PityBar(progress: pity.progress),
-          const SizedBox(height: Space.x2),
-          Text(
-            keepAll('이 박스에서 SSR 없이 ${pity.threshold}회째가 되면 그 회차는 SSR로 확정돼요.'),
-            style: AppText.caption,
+          const SizedBox(height: 10),
+          LayoutBuilder(
+            builder: (context, c) {
+              final cols = 2;
+              const gap = 10.0;
+              final w = (c.maxWidth - gap * (cols - 1)) / cols;
+              return Wrap(
+                spacing: gap,
+                runSpacing: gap,
+                children: [
+                  for (final item in items)
+                    SizedBox(
+                      width: w,
+                      child: CollectibleCard(
+                        rarity: item.rarity,
+                        name: item.name,
+                        imageUrl: item.imageUrl,
+                        holo: hero,
+                        imageAspect: hero ? 0.95 : 1.2,
+                        meta: formatWon(item.estimatedValue),
+                        trailing: formatPercent(item.probabilityPercent),
+                      ),
+                    ),
+                ],
+              );
+            },
           ),
         ],
       ),
@@ -433,154 +735,115 @@ class _OddsSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tiers = detail.rarityOdds;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        SectionHeader(
-          title: '등급별 확률',
-          actionLabel: '확률 및 구성 정보',
-          onAction: onOpenOdds,
-        ),
-        Padding(
-          padding: Space.page,
-          child: Column(
-            children: [
-              for (var i = 0; i < tiers.length; i++) ...[
-                if (i > 0) const Hairline(),
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 11),
-                  child: Row(
-                    children: [
-                      SizedBox(
-                        width: 44,
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: RarityTag(tiers[i].rarity),
-                        ),
-                      ),
-                      const SizedBox(width: Space.x2),
-                      Expanded(
-                        child: _OddsBar(
-                          percent: tiers[i].probabilityPercent,
-                          color: tiers[i].rarity.color,
-                        ),
-                      ),
-                      const SizedBox(width: Space.x3),
-                      SizedBox(
-                        width: 72,
-                        child: Text(
-                          formatPercent(tiers[i].probabilityPercent),
-                          textAlign: TextAlign.right,
-                          style: AppText.num(AppText.bodyStrong),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-        const SizedBox(height: Space.x5),
-      ],
-    );
-  }
-}
-
-/// 확률의 상대 크기를 보여주는 짧은 막대(로그 스케일 아님, 0~100%).
-class _OddsBar extends StatelessWidget {
-  final double percent;
-  final Color color;
-  const _OddsBar({required this.percent, required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    final factor = (percent / 100).clamp(0.0, 1.0);
-    return SizedBox(
-      height: 4,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          const ColoredBox(color: AppColors.high),
-          FractionallySizedBox(
-            alignment: Alignment.centerLeft,
-            widthFactor: factor < 0.03 && factor > 0 ? 0.03 : factor,
-            child: ColoredBox(color: color),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _LineupSection extends StatelessWidget {
-  final List<LineupItem> items;
-  const _LineupSection({required this.items});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        SectionHeader(title: '구성 상품', subtitle: '총 ${items.length}종 · 희귀한 순'),
-        for (var i = 0; i < items.length; i++) ...[
-          if (i > 0) const Hairline(inset: Space.gutter),
-          LineupRow(item: items[i]),
-        ],
-        const SizedBox(height: Space.x3),
-      ],
-    );
-  }
-}
-
-/// 구성 상품 한 줄: 사진 · 등급 · 이름 · 정가/전환가 · 확률.
-class LineupRow extends StatelessWidget {
-  final LineupItem item;
-  const LineupRow({super.key, required this.item});
-
-  @override
-  Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: Space.gutter,
-        vertical: Space.x3,
+      padding: const EdgeInsets.fromLTRB(
+        Space.gutter,
+        Space.section - 8,
+        Space.gutter,
+        0,
       ),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 64,
-            height: 64,
-            child: ProductImage(url: item.imageUrl),
-          ),
-          const SizedBox(width: Space.x3),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      child: SurfaceCard(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
               children: [
-                RarityTag(item.rarity, dense: true),
-                const SizedBox(height: 4),
+                Expanded(child: Text('등급별 확률', style: AppText.headline)),
                 Text(
-                  item.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppText.bodyStrong,
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  item.exchangeValue != null
-                      ? '정가 ${formatWon(item.estimatedValue)} · 전환 ${formatGp(item.exchangeValue!)}'
-                      : '정가 ${formatWon(item.estimatedValue)}',
-                  style: AppText.num(AppText.caption),
+                  '소수 넷째 자리까지 공개',
+                  style: AppText.micro.copyWith(color: AppColors.textTertiary),
                 ),
               ],
             ),
-          ),
-          const SizedBox(width: Space.x2),
-          Text(
-            formatPercent(item.probabilityPercent),
-            style: AppText.num(AppText.bodyStrong),
-          ),
-        ],
+            const SizedBox(height: 10),
+            // 한눈에 보는 비율 막대(아주 작은 확률도 보이게 최소 폭).
+            ClipRRect(
+              borderRadius: BorderRadius.circular(3),
+              child: SizedBox(
+                height: 6,
+                child: Row(
+                  children: [
+                    for (final t in tiers.reversed)
+                      Expanded(
+                        flex: (t.probabilityPercent * 10).round().clamp(
+                          18,
+                          1000,
+                        ),
+                        child: Container(
+                          margin: const EdgeInsets.only(right: 1.5),
+                          color: t.rarity.color,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            for (var i = 0; i < tiers.length; i++) ...[
+              if (i > 0) const Hairline(),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 46,
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: RarityTag(tiers[i].rarity),
+                      ),
+                    ),
+                    Text(
+                      '${tiers[i].itemCount}종',
+                      style: AppText.num(AppText.caption),
+                    ),
+                    const Spacer(),
+                    Text(
+                      formatPercent(tiers[i].probabilityPercent),
+                      style: AppText.num(AppText.bodyStrong).copyWith(
+                        color: tiers[i].rarity == Rarity.n
+                            ? AppColors.text
+                            : tiers[i].rarity.light,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const Hairline(),
+            InkWell(
+              onTap: onOpenOdds,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.percent_rounded,
+                      size: 16,
+                      color: AppColors.brand,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        '확률 및 구성 정보 · 천장 · 기대 가치',
+                        style: AppText.callout.copyWith(
+                          color: AppColors.text,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    const Icon(
+                      Icons.chevron_right,
+                      size: 18,
+                      color: AppColors.textTertiary,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -603,7 +866,15 @@ class _Guide extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const SectionHeader(title: '이용 안내'),
+        const SectionHeader(
+          title: '이용 안내',
+          padding: EdgeInsets.fromLTRB(
+            Space.gutter,
+            Space.section - 8,
+            Space.gutter,
+            Space.x3,
+          ),
+        ),
         Padding(
           padding: Space.page,
           child: Column(
@@ -629,15 +900,6 @@ class _Guide extends StatelessWidget {
                     ],
                   ),
                 ),
-              const SizedBox(height: Space.x3),
-              OutlinedButton.icon(
-                onPressed: onOpenOdds,
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(48),
-                ),
-                icon: const Icon(Icons.percent, size: 18),
-                label: const Text('확률 및 구성 정보 전체 보기'),
-              ),
             ],
           ),
         ),
@@ -646,6 +908,7 @@ class _Guide extends StatelessWidget {
   }
 }
 
+/// 하단 고정 CTA: 반투명 유리 바 위 "1회" / "10+1회".
 class _DrawBar extends StatelessWidget {
   final int price;
   final bool soldOut;
@@ -666,100 +929,117 @@ class _DrawBar extends StatelessWidget {
     final left = remaining;
     final canSingle = !soldOut && (left == null || left >= 1);
     final canMulti = !soldOut && (left == null || left >= 11);
-    if (soldOut) {
-      return _BarFrame(
-        child: OutlinedButton(
-          onPressed: null,
-          style: OutlinedButton.styleFrom(
-            minimumSize: const Size.fromHeight(56),
+    return ClipRect(
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: AppColors.canvas.withValues(alpha: 0.82),
+            border: const Border(top: BorderSide(color: AppColors.hairline)),
           ),
-          child: const _TwoLine(
-            title: '품절',
-            price: '준비된 수량이 모두 판매됐어요',
-            color: AppColors.textTertiary,
-          ),
-        ),
-      );
-    }
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        color: AppColors.canvas,
-        border: Border(top: BorderSide(color: AppColors.hairline)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            Space.gutter,
-            Space.x3,
-            Space.gutter,
-            Space.x3,
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                flex: 4,
-                child: OutlinedButton(
-                  onPressed: canSingle ? () => onDraw(1) : null,
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(0, 56),
-                    padding: EdgeInsets.zero,
-                  ),
-                  child: _TwoLine(
-                    title: '1회 뽑기',
-                    price: formatGp(price),
-                    color: canSingle ? AppColors.text : AppColors.textTertiary,
-                  ),
-                ),
+          child: SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                Space.gutter,
+                Space.x3,
+                Space.gutter,
+                Space.x3,
               ),
-              const SizedBox(width: Space.x2),
-              Expanded(
-                flex: 6,
-                child: FilledButton(
-                  onPressed: canMulti ? () => onDraw(10) : null,
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size(0, 56),
-                    padding: EdgeInsets.zero,
-                  ),
-                  child: _TwoLine(
-                    title: '10+1회 뽑기',
-                    price: canMulti
-                        ? formatGp(price * 10)
-                        : '남은 수량 ${formatNumber(left ?? 0)}개',
-                    color: canMulti ? AppColors.canvas : AppColors.textTertiary,
-                  ),
-                ),
-              ),
-            ],
+              child: soldOut
+                  ? OutlinedButton(
+                      onPressed: null,
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(58),
+                      ),
+                      child: const _TwoLine(
+                        title: '품절',
+                        price: '준비된 수량이 모두 판매됐어요',
+                        color: AppColors.textTertiary,
+                      ),
+                    )
+                  : Row(
+                      children: [
+                        Expanded(
+                          flex: 4,
+                          child: OutlinedButton(
+                            onPressed: canSingle ? () => onDraw(1) : null,
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size(0, 58),
+                              padding: EdgeInsets.zero,
+                              backgroundColor: AppColors.surface,
+                            ),
+                            child: _TwoLine(
+                              title: '1회 뽑기',
+                              price: formatGp(price),
+                              color: canSingle
+                                  ? AppColors.text
+                                  : AppColors.textTertiary,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: Space.x2),
+                        Expanded(
+                          flex: 6,
+                          child: Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              SizedBox(
+                                width: double.infinity,
+                                child: FilledButton(
+                                  onPressed: canMulti ? () => onDraw(10) : null,
+                                  style: FilledButton.styleFrom(
+                                    minimumSize: const Size(0, 58),
+                                    padding: EdgeInsets.zero,
+                                  ),
+                                  child: _TwoLine(
+                                    title: '10+1회 뽑기',
+                                    price: canMulti
+                                        ? formatGp(price * 10)
+                                        : '남은 수량 ${formatNumber(left ?? 0)}개',
+                                    color: canMulti
+                                        ? AppColors.onBrand
+                                        : AppColors.textTertiary,
+                                  ),
+                                ),
+                              ),
+                              if (canMulti)
+                                Positioned(
+                                  right: 8,
+                                  top: -9,
+                                  child: Container(
+                                    height: 18,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 6,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      gradient: Rarity.ssr.foilGradient(
+                                        begin: Alignment.topCenter,
+                                        end: Alignment.bottomCenter,
+                                      ),
+                                      borderRadius: Radii.chip,
+                                    ),
+                                    child: Center(
+                                      widthFactor: 1,
+                                      child: Text(
+                                        '+1 보너스',
+                                        style: AppText.micro.copyWith(
+                                          color: Rarity.ssr.onColor,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w900,
+                                          height: 1,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+            ),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 하단 고정 바의 공통 테두리·여백.
-class _BarFrame extends StatelessWidget {
-  final Widget child;
-  const _BarFrame({required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        color: AppColors.canvas,
-        border: Border(top: BorderSide(color: AppColors.hairline)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            Space.gutter,
-            Space.x3,
-            Space.gutter,
-            Space.x3,
-          ),
-          child: child,
         ),
       ),
     );
@@ -783,14 +1063,20 @@ class _TwoLine extends StatelessWidget {
       children: [
         Text(
           title,
-          style: AppText.headline.copyWith(color: color, height: 1.2),
+          style: AppText.headline.copyWith(
+            color: color,
+            height: 1.2,
+            fontWeight: FontWeight.w800,
+          ),
         ),
         const SizedBox(height: 2),
         Text(
           price,
-          style: AppText.num(
-            AppText.caption,
-          ).copyWith(color: color.withValues(alpha: 0.75), height: 1.2),
+          style: AppText.num(AppText.caption).copyWith(
+            color: color.withValues(alpha: 0.75),
+            height: 1.2,
+            fontWeight: FontWeight.w700,
+          ),
         ),
       ],
     );
@@ -828,17 +1114,7 @@ class _ConfirmSheetBody extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Space.x4,
-              vertical: Space.x2,
-            ),
-            decoration: const BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: Radii.card,
-            ),
-            child: Column(children: rows),
-          ),
+          SheetPanel(child: Column(children: rows)),
           if (note != null) ...[
             const SizedBox(height: Space.x3),
             Text(note!, style: AppText.caption),
