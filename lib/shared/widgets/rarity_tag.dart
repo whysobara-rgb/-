@@ -147,15 +147,13 @@ class BoxBadge extends StatelessWidget {
         : (dream || isNew)
         ? AppColors.text
         : Colors.white;
-    final Color fg = hot || isNew
-        ? Colors.white
-        : dream
-        ? const Color(0xFFF2C75C)
-        : AppColors.brand;
+    // DREAM은 아래에서 금박 그라데이션(foreground)으로 칠한다.
+    final Color fg = hot || isNew ? Colors.white : AppColors.brand;
     final text = Text(
       labelOf(raw),
       style: AppText.micro.copyWith(
-        color: fg,
+        // foreground와 color는 함께 줄 수 없다(디버그 assert).
+        color: dream ? null : fg,
         fontSize: 10.5,
         fontWeight: FontWeight.w900,
         letterSpacing: 0.4,

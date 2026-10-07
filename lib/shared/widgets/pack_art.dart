@@ -1112,7 +1112,8 @@ class PackPainter extends CustomPainter {
           fontWeight: FontWeight.w900,
           height: 1,
           letterSpacing: -size * 0.04,
-          color: style.type,
+          // foreground와 color는 함께 줄 수 없다(디버그 assert).
+          color: style.foilType ? null : style.type,
           foreground: style.foilType
               ? (Paint()
                   ..shader = FoilTone.gold
