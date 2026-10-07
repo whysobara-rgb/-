@@ -1,7 +1,7 @@
 /**
  * The soft haul loops (owner feedback: dragging an uprooted object sounded too rough): the drag and
  * bank rumble voices are built from band-limited textures (./src/audio/dsp.ts rollBuffer /
- * heaveBuffer / groanBuffer) and must stay hiss-free, click-free and seamless, yet audible on
+ * heaveKnockBuffer / groanSwellBuffer) and must stay hiss-free, click-free and seamless, yet audible on
  * small laptop speakers (the bumps' fundamental never sinks below ~265 Hz at a real carry speed,
  * and slow / heavy hauls get a presence lift). Node has no OfflineAudioContext, so the drag voice
  * is also rendered here in plain JS (texture at its playback rate through the same RBJ presence
@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { MatchAudioDirector, type AudioEngine, type AudioSimView } from '../../src/audio';
 import { MockBufferSource, MockFilter, mockContext } from '../../src/audio/dev/mockAudioContext';
 import { DRAG_PITCH } from '../../src/audio/director';
-import { GROAN_NOTES_HZ, ROLL_BUMP_HZ, groanBuffer, heaveBuffer, noiseBuffer, rollBuffer } from '../../src/audio/dsp';
+import { ROLL_BUMP_HZ, groanSwellBuffer, heaveKnockBuffer, noiseBuffer, rollBuffer } from '../../src/audio/dsp';
 import type { LoopId } from '../../src/audio/ids';
 import { LOOP_GAIN, bankParams, createLoop, dragParams } from '../../src/audio/loops';
 import { makeRng } from '../../src/audio/rng';
@@ -201,7 +201,7 @@ const rms = (x: Float32Array): number => Math.sqrt(x.reduce((a, v) => a + v * v,
 describe('soft haul textures', () => {
   it('roll and heave textures are finite, bounded, DC-free, seamless and click-free', () => {
     const ctx = mockContext();
-    for (const make of [rollBuffer, heaveBuffer, groanBuffer]) {
+    for (const make of [rollBuffer, heaveKnockBuffer]) {
       const d = make(ctx).getChannelData(0);
       let peak = 0;
       let sum = 0;
@@ -238,28 +238,33 @@ describe('soft haul textures', () => {
     expect(lineProminenceDb(d, 700, 2000)).toBeLessThan(10);
   });
 
-  it("the bank's groan is a steady, smooth presence, not a peaky on-off", () => {
-    const g = groanBuffer(mockContext()).getChannelData(0);
-    let e = 0;
-    let peak = 0;
-    for (const v of g) {
-      e += v * v;
-      peak = Math.max(peak, Math.abs(v));
-    }
-    expect(20 * Math.log10(peak / Math.sqrt(e / g.length))).toBeLessThan(11);
-    // Sounding (within 20 dB of its peak) most of the time.
-    const F = 2400;
+  it("the bank's groan swells are steady and smooth, not a peaky on-off", () => {
+    // groanSwellBuffer is the groan tone's gain envelope (0..1): broad swells with short breaths.
+    const g = groanSwellBuffer(mockContext()).getChannelData(0);
     let on = 0;
-    let all = 0;
-    for (let s = 0; s + F <= g.length; s += F, all++) {
-      let q = 0;
-      for (let i = s; i < s + F; i++) q += g[i] * g[i];
-      if (Math.sqrt(q / F) > 0.1 * peak) on++;
+    let maxStep = 0;
+    for (let i = 0; i < g.length; i++) {
+      expect(g[i]).toBeGreaterThanOrEqual(0);
+      expect(g[i]).toBeLessThanOrEqual(1);
+      if (g[i] > 0.1) on++;
+      if (i > 0) maxStep = Math.max(maxStep, Math.abs(g[i] - g[i - 1]));
     }
-    expect(on / all).toBeGreaterThan(0.5);
-    // Long, and its note figure does not cycle every three notes.
+    // Sounding most of the time, with breaths; never a step (no click), seamless (0 at both ends).
+    expect(on / g.length).toBeGreaterThan(0.5);
+    expect(on / g.length).toBeLessThan(0.9);
+    expect(maxStep).toBeLessThan(1e-3);
+    expect(g[0]).toBe(0);
+    expect(g[g.length - 1]).toBe(0);
     expect(g.length / SR).toBeGreaterThan(12);
-    expect(GROAN_NOTES_HZ.length).toBeGreaterThan(4);
+  });
+
+  it("the bank's frame knock adds 300-900 Hz presence without brightness", () => {
+    // The knock is what a small (400-500 Hz highpass) speaker plays of a bank under the music.
+    const d = heaveKnockBuffer(mockContext()).getChannelData(0);
+    expect(energyBandDb(d, 300, 900)).toBeGreaterThan(-12);
+    expect(energyAboveDb(d, 2500)).toBeLessThan(-45);
+    // Noise-rung knocks: no fixed pitch line in the presence band.
+    expect(lineProminenceDb(d, 300, 900)).toBeLessThan(12);
   });
 });
 
@@ -321,7 +326,7 @@ describe('drag voice (rendered in JS)', () => {
       for (const i of [0.3, 0.6, 1]) expect(ROLL_BUMP_HZ * dragParams(i, p).rate).toBeGreaterThanOrEqual(265);
     }
     expect(bankParams(0).heave).toBe(0);
-    expect(bankParams(1).heaveHz).toBeLessThan(1000);
+    expect(bankParams(1).heaveHz).toBeLessThan(1300);
   });
 });
 
@@ -363,23 +368,16 @@ describe('drag / bank graphs', () => {
     expect(rateAt()).toBeLessThan(mid * 0.92);
   });
 
-  it("the bank's groan plays at a fixed rate, so it stays on the songs' D-minor chord tones", () => {
+  it("the bank's thunks follow the speed, the groan's swells do not", () => {
     const ctx = mockContext();
     const v = createLoop(ctx as unknown as BaseAudioContext, 'bankRumble', 0, makeRng(3));
     for (const i of [0.2, 0.6, 1]) v.set(i, i);
-    const groan = ctx.nodes.find((n) => n instanceof MockBufferSource && n.buffer === (groanBuffer(ctx) as unknown)) as MockBufferSource;
-    expect(groan).toBeTruthy();
-    expect(groan.playbackRate.events.length).toBe(0);
-    expect(groan.playbackRate.value).toBe(1);
-    // The thunks' texture still follows the speed.
-    const heave = ctx.nodes.find((n) => n instanceof MockBufferSource && n.buffer === (heaveBuffer(ctx) as unknown)) as MockBufferSource;
+    const swell = ctx.nodes.find((n) => n instanceof MockBufferSource && n.buffer === (groanSwellBuffer(ctx) as unknown)) as MockBufferSource;
+    expect(swell).toBeTruthy();
+    expect(swell.playbackRate.events.length).toBe(0);
+    expect(swell.playbackRate.value).toBe(1);
+    const heave = ctx.nodes.find((n) => n instanceof MockBufferSource && n.buffer === (heaveKnockBuffer(ctx) as unknown)) as MockBufferSource;
     expect(heave.playbackRate.events.length).toBeGreaterThan(0);
-    // D2 / F2 / A2 (+- 1 cent).
-    for (const f of GROAN_NOTES_HZ) {
-      const m = 69 + 12 * Math.log2(f / 440);
-      expect(Math.abs(m - Math.round(m))).toBeLessThan(0.01);
-      expect([2, 5, 9]).toContain(((Math.round(m) % 12) + 12) % 12);
-    }
     expect(bankParams(0).groan).toBe(0);
     expect(bankParams(1).groan).toBeGreaterThan(bankParams(0.3).groan);
     v.stop(2);

@@ -37,6 +37,8 @@ export interface EmoteWheelModel {
   cooldown: number;
   /** A taunt cannot start right now (holding, dashing, knocked down). */
   blocked: boolean;
+  /** Why, as a string key ('taunt.nope.dazed' while dizzy / knocked down); omitted: 'taunt.wheel.blocked'. */
+  blockedNote?: string | null;
   /** Show the direct-key glyphs on the base slots (keyboard players). */
   showKeys: boolean;
   /** (local multiplayer) Whose wheel this is: "P2" tag in that player's colour. */
@@ -101,6 +103,7 @@ export class EmoteWheel {
   private cKey = '';
   private cCool = -1;
   private cBlocked: boolean | null = null;
+  private cBlockNote = '';
   private model: EmoteWheelModel | null = null;
   private readonly chipNote: HTMLElement;
   private noteTimer: ReturnType<typeof setTimeout> | null = null;
@@ -199,16 +202,18 @@ export class EmoteWheel {
           { duration: 240, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
         );
     }
-    if (m.hover !== this.cHover || m.blocked !== this.cBlocked) {
+    const blockNote = m.blockedNote || 'taunt.wheel.blocked';
+    if (m.hover !== this.cHover || m.blocked !== this.cBlocked || (m.blocked && blockNote !== this.cBlockNote)) {
       this.cHover = m.hover;
+      this.cBlockNote = blockNote;
       this.slots.forEach((s, i) => setClass(s.root, 'is-hover', i === m.hover));
       const slot = m.hover !== null ? m.slots[m.hover] : undefined;
       if (!slot) {
         setText(this.nameEl, t('taunt.wheel.title'));
-        setText(this.noteEl, t(m.blocked ? 'taunt.wheel.blocked' : 'taunt.wheel.pick'));
+        setText(this.noteEl, t(m.blocked ? blockNote : 'taunt.wheel.pick'));
       } else if (slot.unlocked) {
         setText(this.nameEl, t(`emote.${slot.id}.name`));
-        setText(this.noteEl, t(m.blocked ? 'taunt.wheel.blocked' : 'taunt.wheel.release'));
+        setText(this.noteEl, t(m.blocked ? blockNote : 'taunt.wheel.release'));
       } else {
         setText(this.nameEl, t('taunt.wheel.locked'));
         setText(this.noteEl, t(`emote.${slot.id}.unlock`));

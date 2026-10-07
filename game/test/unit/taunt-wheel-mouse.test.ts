@@ -246,3 +246,91 @@ describe('InputManager: wheel click', () => {
     }
   });
 });
+
+describe('wheel button on the left mouse button', () => {
+  function mouse(type: 'mousedown' | 'mouseup' | 'mousemove', x: number, y: number, button = 0): Event {
+    return Object.assign(new Event(type, { cancelable: true }), { clientX: x, clientY: y, button });
+  }
+
+  it('the press that opens the wheel is not a click: the wheel stays open and releasing plays the hovered slot', () => {
+    const g = SCREENS[0]!;
+    const b = defaultBindings();
+    b.keyboard.emoteWheel = ['Mouse0'];
+    const target = new EventTarget();
+    const input = new InputManager({ target, doc: null, now: () => 1000, getGamepads: () => [], keyboard: null, chordKeys: true });
+    input.setBindings(b);
+    input.pollMatch();
+    const w = new EmoteWheelController(EMOTE_IDS);
+    const step = (pointer: { x: number; y: number }) => {
+      const f = input.pollMatch();
+      return w.update({
+        ...base(g),
+        held: f.emoteWheelDown,
+        pointer,
+        click: f.wheelClick ? { x: f.wheelClick.clientX, y: f.wheelClick.clientY } : null,
+      });
+    };
+    // cursor resting right of the wheel center (on the bleh slot's side) when the button goes down
+    const right = slotCenter(1, g);
+    target.dispatchEvent(mouse('mousemove', right.x, right.y));
+    target.dispatchEvent(mouse('mousedown', right.x, right.y));
+    const opened = step(right);
+    expect(opened.justOpened).toBe(true);
+    expect(opened.open).toBe(true);
+    expect(opened.confirmed).toBeNull();
+    expect(opened.justClosed).toBe(false);
+    // held: still open; move onto squatBounce (down), release there
+    const down = slotCenter(2, g);
+    target.dispatchEvent(mouse('mousemove', down.x, down.y));
+    expect(step(down).hover).toBe(2);
+    target.dispatchEvent(mouse('mouseup', down.x, down.y));
+    const rel = step(down);
+    expect(rel.confirmed).toBe(EMOTE_IDS[2]);
+    expect(rel.justClosed).toBe(true);
+  });
+
+  it('a click on the opening poll never plays, whichever button opened the wheel', () => {
+    const g = SCREENS[1]!;
+    const w = new EmoteWheelController(EMOTE_IDS);
+    const on = slotCenter(1, g);
+    const out = w.update({ ...base(g), pointer: on, click: on });
+    expect(out).toMatchObject({ open: true, justOpened: true, confirmed: null, justClosed: false });
+    // a later click still plays at once
+    expect(w.update({ ...base(g), pointer: on, click: on }).confirmed).toBe(EMOTE_IDS[1]);
+  });
+});
+
+describe('EmoteWheel.geometry(): the mouse deadzone follows the drawn ring', () => {
+  /** A stand-in for the mounted wheel at 16 px rem (hud.css): center disc 10.5 rem, slot disc 26 rem, slots at 9 rem. */
+  const CW = 168;
+  const DW = 416;
+  const SLOT_R = 144;
+  function fake(k: number, pop: number) {
+    const cw = CW;
+    const dw = DW;
+    const center = { offsetWidth: cw, getBoundingClientRect: () => ({ left: 400, top: 200, width: cw * k, height: cw * k }) };
+    return {
+      el: { hidden: false, querySelector: () => center, parentElement: null },
+      disc: { offsetWidth: dw, getBoundingClientRect: () => ({ width: dw * k * pop }) },
+      place: null,
+    };
+  }
+
+  it.each([
+    [1, 1],
+    [1, 0.55],
+    [1.25, 0.55],
+    [2, 0.8],
+    [0.78, 1.07],
+  ])('UI / DPR scale %s, pop-in scale %s', async (k, pop) => {
+    const { EmoteWheel } = await import('../../src/ui/hud/EmoteWheel');
+    const geo = (EmoteWheel.prototype.geometry as () => { x: number; y: number; dead: number } | null).call(fake(k, pop));
+    expect(geo).not.toBeNull();
+    expect(geo!.x).toBeCloseTo(400 + (CW * k) / 2, 6);
+    expect(geo!.y).toBeCloseTo(200 + (CW * k) / 2, 6);
+    // full size at rest (the overshoot never grows it), shrunk with the ring during the pop-in
+    expect(geo!.dead).toBeCloseTo(((CW * k) / 2) * Math.min(1, pop), 6);
+    // so the drawn slot center (9 rem from the middle, at the drawn scale) is outside it
+    expect(SLOT_R * k * pop).toBeGreaterThan(geo!.dead);
+  });
+});

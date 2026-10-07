@@ -1056,7 +1056,7 @@ export function groanBuffer(ctx: BaseAudioContext): AudioBuffer {
 // ---------------------------------------------------------------------------------------------
 
 /** Body resonance of ropeCreakBuffer's grains at playback rate 1 (Hz). */
-export const ROPE_CREAK_HZ = 400;
+export const ROPE_CREAK_HZ = 470;
 
 /**
  * Creaky rope / root under tension (the strain loop): loose "eeerk"s, each a train of soft wooden

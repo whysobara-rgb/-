@@ -3,12 +3,14 @@
  *
  *   drag       a heavy toy hauled over paving: soft rounded "dugu-dugu" bumps over a warm thrum;
  *              intensity = drag speed (bump rate, warmth, level), pitch = size
- *   bankRumble a whole building heaving along: rumble, sub, slow soft thunks and a gentle
- *              musical groan; intensity = bank speed
- *   strain     the uproot build-up while pulling an anchored target; intensity = unanchor progress
- *              (pitch = size: small safe high, bank low). Creak and groan rise in pitch and grit,
- *              taut roots start to quiver and snap past 40 %, the ground shakes past 80 %
- *              (the stages of src/render/uproot.ts)
+ *   bankRumble a whole building heaving along: rumble, sub, slow soft thunks answered by the wooden
+ *              frame's warm knock, and a gentle groan on the root of the music's current chord;
+ *              intensity = bank speed
+ *   strain     the uproot tug while pulling an anchored target; intensity = unanchor progress
+ *              (pitch = size: small safe high, bank low). A warm creaky rope / root (soft wooden
+ *              creaks) over a hollow tension hum that climbs an octave and quivers harder, soft
+ *              wooden toks as the roots give way past 40 %, the ground shakes past 80 % (the
+ *              stages of src/render/uproot.ts); nothing bright or gritty
  *   sirenLoop  police wailing in the distance during "30초 뒤 출발!"; intensity = urgency
  *   policeSiren a police car's cute two-tone "삐뽀" (red / blue strobe rhythm); intensity = level,
  *              pitch = doppler bend while it drives in
@@ -152,8 +154,9 @@ export function bankParams(i: number): { rumble: number; rumbleHz: number; sub: 
     rate: 0.9 + 0.3 * i,
     // A slow bank's thunks are softer than a fast one's (they would stick out of the quiet body).
     heave: i > 0 ? 0.44 * Math.pow(i, 1.35) : 0,
+    // Open enough for the frame's knock (~0.4-0.8 kHz, the small-speaker presence under the music).
     heaveHz: 700 + 500 * i,
-    // The groan plays at rate 1 (in key at every speed); only its level follows the speed.
+    // The groan's pitch follows the music's chord (createLoop); only its level follows the speed.
     groan: i > 0 ? 0.3 * Math.pow(i, 0.9) : 0,
   };
 }
@@ -230,10 +233,10 @@ function sirenWaves(ctx: BaseAudioContext): { freq: PeriodicWave; amp: PeriodicW
 
 /**
  * The synthesized material the loops (and many one-shots) build lazily on first use, as separate
- * steps: noise colors, the scrape / creak / haul / uproot textures, the police siren's wave tables
- * and the alarm bell (the heaviest, ~25 ms). The engine runs one step per idle slot after unlock,
- * so the first police car or bank alarm (which lands right on the bank-uproot slam) never stalls a
- * frame building them. Every step is cached per context: running it again is free.
+ * steps: noise colors, the scrape / creak / haul / uproot textures, the groan / tension-hum and
+ * police siren wave tables and the alarm bell (the heaviest, ~25 ms). The engine runs one step per
+ * idle slot after unlock, so the first police car or bank alarm (which lands right on the
+ * bank-uproot slam) never stalls a frame building them. Every step is cached per context: running it again is free.
  */
 export function prewarmSteps(ctx: BaseAudioContext): (() => void)[] {
   const colors: NoiseColor[] = ['white', 'pink', 'brown'];
@@ -246,6 +249,7 @@ export function prewarmSteps(ctx: BaseAudioContext): (() => void)[] {
     (): void => void creakBuffer(ctx),
     (): void => void ropeCreakBuffer(ctx),
     (): void => void rootPopBuffer(ctx),
+    (): void => void (groanWave(ctx), strainWave(ctx)),
     (): void => void sirenWaves(ctx),
     (): void => void alarmBellBuffer(ctx),
   ];
@@ -300,18 +304,19 @@ function noiseLoop(g: Graph, color: NoiseColor, t: number, rnd: () => number): A
  */
 export function strainParams(i: number, p = 1): { creakRate: number; creak: number; humHz: number; humLpHz: number; hum: number; quiverHz: number; quiverCents: number; popRate: number; pops: number; shake: number; toneHz: number } {
   const stretch = smoothstep(0.45, 1, i);
+  const shake = smoothstep(0.8, 0.98, i);
   const sp = Math.sqrt(p);
   return {
-    creakRate: (0.75 + 0.5 * i) * p,
-    creak: 0.24 + 0.22 * i,
+    creakRate: (0.68 + 0.62 * i) * p,
+    creak: (0.28 + 0.26 * i) * (1 - 0.15 * shake),
     humHz: (72 + 70 * Math.pow(i, 1.2)) * p,
-    humLpHz: (260 + 600 * i) * sp,
+    humLpHz: (300 + 700 * i) * sp,
     hum: 0.06 + 0.15 * i,
     quiverHz: 4.5 + 6 * i,
     quiverCents: 5 + 25 * stretch,
     popRate: (0.65 + 0.45 * i) * sp,
     pops: 0.5 * smoothstep(0.4, 0.95, i),
-    shake: smoothstep(0.8, 0.98, i),
+    shake,
     toneHz: (1150 + 500 * i) * sp,
   };
 }
@@ -379,7 +384,7 @@ const strainWave = (ctx: BaseAudioContext): PeriodicWave =>
 
 /**
  * Build a loop voice starting at time t. `grid` is the bar grid of the music playing now; loops
- * with a musical rhythm (the siren) lock their phrasing to it.
+ * with a musical rhythm (the siren) lock their phrasing to it, the bank's groan follows its chords.
  */
 export function createLoop(ctx: BaseAudioContext, id: LoopId, t: number, rnd: () => number, grid?: BarGrid | null): LoopVoice {
   const g: Graph = { ctx, out: gainNode(ctx, LOOP_GAIN[id]), sources: [] };

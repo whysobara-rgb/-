@@ -25,12 +25,14 @@
  * (WHEEL_MOUSE_TAKEOVER_PX) onto another slot, never by resting on the center disc. A left click
  * plays the slot under it at once (a locked gift box just shakes; a click on the center closes
  * the wheel); with grab / dash / ping rebound to the left button the click is that action
- * instead (input.ts reports no wheel click, `wheelClickFree`).
+ * instead (input.ts reports no wheel click, `wheelClickFree`). The press that opens the wheel is
+ * never a click (the wheel button itself may be rebound to the left button).
  *
  * Releasing the wheel button confirms; grab / dash / pause / right-click close the wheel without
  * a taunt.
  */
-import { BASE_EMOTES, type EmoteId } from '../sim/types';
+import { BASE_EMOTES, type EmoteId, type EmoteState } from '../sim/types';
+import { EMOTE } from '../sim/config';
 import type { Vec2 } from '../sim/types';
 import { EMOTE_IDS } from './save';
 
@@ -63,6 +65,29 @@ export function wheelClickFree(keyboard: { readonly [A in (typeof WHEEL_CLICK_BL
 
 /** Mouse travel (CSS px) before the mouse takes back a pick the stick / keys made (a bumped desk is not a pick). */
 export const WHEEL_MOUSE_TAKEOVER_PX = 24;
+
+/**
+ * Client mirror of the sim's taunt cooldown (sim/emotes.ts `emoteReadyTick` = end / cancel tick +
+ * EMOTE.cooldownTicks), so the chip says "catching my breath" exactly while the sim would refuse a
+ * press, never a tick longer. `tick` is sim.state.tick before the next step (the sim runs that
+ * command at tick + 1: it increments state.tick before processCommands), `live` the character's
+ * taunt now, `endedTick` when the last one ended or was cancelled (`tauntEndedTick`).
+ */
+export function tauntCoolingAt(tick: number, live: EmoteState | null | undefined, endedTick: number): boolean {
+  // a live taunt is never replaced (even one ending on the next tick: its cooldown starts right there)
+  if (live) return true;
+  return tick + 1 < endedTick + EMOTE.cooldownTicks;
+}
+
+/**
+ * Follow the tick the last taunt ended, called after every sim step with the taunt before (`prev`)
+ * and after (`now`) it: a cancel ends it on that step's tick, a natural end on its endTick.
+ */
+export function tauntEndedTick(prev: EmoteState | null, now: EmoteState | null, tick: number, endedTick: number): number {
+  if (prev && (!now || now.startTick !== prev.startTick)) return Math.min(tick, prev.endTick);
+  if (now && tick >= now.endTick && endedTick < now.endTick) return now.endTick;
+  return endedTick;
+}
 
 /** Taunts the player owns: the four base ones plus every rival taunt listed in the save. */
 export function unlockedEmotes(cosmetics: { readonly unlockedEmotes?: readonly string[] | null } | null | undefined): EmoteId[] {
@@ -273,7 +298,9 @@ export class EmoteWheelController {
       }
     }
     // Left click: play the slot under the click at once (a gift box shakes and the wheel stays).
-    if (inp.click) {
+    // Not on the poll that opened the wheel: that press is the one that opened it (the wheel button
+    // itself may sit on Mouse0) or came before the wheel was even drawn.
+    if (inp.click && !out.justOpened) {
       const slot = this.mouseSlot(inp.click, inp);
       const id = slot !== null ? EMOTE_IDS[slot] : undefined;
       if (id !== undefined && !this.unlocked.has(id)) {

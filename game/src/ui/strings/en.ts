@@ -614,6 +614,7 @@ export const en: Record<StringKey, string> = {
   'taunt.wheel.blocked': 'Paws must be free',
   'taunt.nope.moving': 'Stop first, then tease!',
   'taunt.nope.cooling': 'Catching my breath…',
+  'taunt.nope.dazed': 'Shake it off first…',
   'settings.showOthersTaunts': "Show other raccoons' taunts",
   'settings.showOthersTaunts.desc': "Off hides everyone else's taunt moves, bubbles and sounds. Yours still play.",
   // === Fun round string blocks (docs/ARCHITECTURE.md "Fun round contracts") ===

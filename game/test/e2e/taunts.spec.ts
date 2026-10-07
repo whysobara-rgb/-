@@ -3,7 +3,8 @@
  * in a quick match, Ctrl+1 through the real keyboard path starts the butt wiggle in the sim
  * (CharacterState.emote + the 'emote' event), the view plays its pose and pops its head bubble;
  * then the T wheel opened with the cursor far from the wheel highlights exactly the slot the
- * cursor is moved onto, and releasing T plays that taunt. Zero console errors.
+ * cursor is moved onto (also while the ring is drawn scaled down, as in its open pop-in), and
+ * releasing T plays that taunt. Zero console errors.
  *
  * Test scaffolding (environment only, never the behaviour under test): the autotest proxy that
  * drives the human slot is switched off so the keyboard drives it, the bots stand still (so a
@@ -167,6 +168,42 @@ test('taunts: Ctrl+1 plays the wiggle; the T wheel follows the mouse and plays t
   expect(await page.evaluate(() => (window as unknown as { __uproot: { app: { currentMatch: { wheel: { hover: number | null } } } } }).__uproot.app.currentMatch.wheel.hover)).toBe(1);
   await expect(page.locator('.uh-ewheel__slot.is-hover')).toHaveCount(1);
   await shot(page, 'taunt-02-wheel-hover-under-cursor');
+
+  // --- pop-in: while the ring is drawn scaled down (the open animation starts at 0.55) the slot
+  // where it is drawn right now is picked, with the real CSS and the HUD's real geometry() --------
+  const hoverNow = () => page.evaluate(() => (window as unknown as { __uproot: { app: { currentMatch: { wheel: { hover: number | null } } } } }).__uproot.app.currentMatch.wheel.hover);
+  await page.evaluate(() => {
+    const disc = document.querySelector<HTMLElement>('.uh-ewheel__disc')!;
+    for (const a of disc.getAnimations()) a.finish();
+    disc.style.transform = 'scale(0.55)';
+  });
+  const small = await page.evaluate(() => {
+    const geo = (window as unknown as { __uproot: { app: { currentMatch: { svc: { hud: { taunts: { geometry(): { x: number; y: number; dead: number } } } } } } } }).__uproot.app.currentMatch.svc.hud.taunts.geometry();
+    const c = document.querySelector('.uh-ewheel__center')!.getBoundingClientRect();
+    const box = (id: string) => {
+      const r = document.querySelector(`.uh-ewheel__slot[data-emote="${id}"]`)!.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    };
+    return { geo, centerR: Math.min(c.width, c.height) / 2, down: box('squatBounce'), right: box('bleh') };
+  });
+  // the deadzone shrank with the ring (0.55x the center disc), so the drawn slots lie outside it
+  expect(small.geo.dead).toBeGreaterThan(small.centerR * 0.5);
+  expect(small.geo.dead).toBeLessThan(small.centerR * 0.6);
+  expect(small.down.y - small.geo.y).toBeGreaterThan(small.geo.dead);
+  expect(small.down.y - small.geo.y).toBeLessThan(small.centerR); // inside the full-size disc: the old deadzone would have eaten it
+  await page.mouse.move(small.down.x, small.down.y, { steps: 8 });
+  await expect.poll(hoverNow, { timeout: 120_000, intervals: [250] }).toBe(2);
+  await expect(page.locator('.uh-ewheel__slot[data-emote="squatBounce"]')).toHaveClass(/is-hover/, { timeout: 120_000 });
+  await shot(page, 'taunt-02b-popin-drawn-slot');
+  await page.mouse.move(small.right.x, small.right.y, { steps: 8 });
+  await expect.poll(hoverNow, { timeout: 120_000, intervals: [250] }).toBe(1);
+  // back to full size, cursor back on the full-size slot
+  await page.evaluate(() => {
+    document.querySelector<HTMLElement>('.uh-ewheel__disc')!.style.transform = '';
+  });
+  await page.mouse.move(target.x, target.y, { steps: 8 });
+  await expect.poll(hoverNow, { timeout: 120_000, intervals: [250] }).toBe(1);
+
   await page.keyboard.up('KeyT');
   await page.waitForFunction(
     (id) => (window as unknown as { __taunt: Rec }).__taunt.events.filter((e) => e.type === 'emote' && e.charId === id).length >= 2,

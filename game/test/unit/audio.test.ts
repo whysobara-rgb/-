@@ -580,8 +580,8 @@ describe('police / presentation plumbing', () => {
       expect(buffers).toBe(afterUnlock + 1);
       await vi.advanceTimersByTimeAsync(2000);
       const warmed = buffers;
-      expect(warmed - afterUnlock).toBe(10); // 3 noise colors, scrape, roll, heave, groan, creak, crackle, alarm bell
-      expect(waves).toBeGreaterThanOrEqual(2); // the siren's two wave tables
+      expect(warmed - afterUnlock).toBe(11); // 3 noise colors, scrape, roll, heave + knock, groan swell, creak, rope creak, root toks, alarm bell
+      expect(waves).toBeGreaterThanOrEqual(4); // the bank groan's, the strain hum's and the siren's two wave tables
       const w = waves;
       for (const id of ['alarmBell', 'policeSiren', 'strain', 'drag', 'bankRumble'] as const) createLoop(ctx, id, 1, makeRng(2)).stop(2);
       expect(buffers).toBe(warmed);

@@ -342,6 +342,7 @@ export const ko = {
   'taunt.wheel.blocked': '빈손으로 서 있어야 해요',
   'taunt.nope.moving': '멈춰 서서 놀려요!',
   'taunt.nope.cooling': '숨 좀 고르고요…',
+  'taunt.nope.dazed': '정신부터 차리고요…',
   'settings.showOthersTaunts': '다른 너구리의 도발 보기',
   'settings.showOthersTaunts.desc': '끄면 다른 너구리의 도발 몸짓·말풍선·소리를 숨겨요. 내 도발은 그대로 보여요.',
 

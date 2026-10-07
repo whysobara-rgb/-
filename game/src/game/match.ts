@@ -28,7 +28,7 @@ import type { GameView, ViewCallout, ViewFocus } from '../render';
 import { GrabLatch, buildCommand, type InputManager, type MatchFrame } from '../platform/input';
 import type { LocalDeviceId, LocalInputRouter } from '../platform/localInput';
 import { playerColor } from '../shared/players';
-import { EMOTE_IDS, EmoteWheelController, unlockedEmotes, wheelSlotAngle } from '../platform/emotes';
+import { EMOTE_IDS, EmoteWheelController, tauntCoolingAt, tauntEndedTick, unlockedEmotes, wheelSlotAngle } from '../platform/emotes';
 import { getSaveManager } from '../platform/save';
 import type { Settings } from '../platform/settings';
 import { unlockAchievement } from '../platform/steam';
@@ -574,15 +574,20 @@ export class MatchController {
     return me.grab !== null || me.dashTicks > 0 || me.knockdownTicks > 0 || me.boostTicks > 0 || (me.dizzyTicks ?? 0) > 0;
   }
 
+  /** What the chip / wheel says while tauntBlocked: dazed (dizzy / knocked down) or paws busy. */
+  private tauntBlockNote(me: CharacterState): string {
+    return me.knockdownTicks > 0 || (me.dizzyTicks ?? 0) > 0 ? 'taunt.nope.dazed' : 'taunt.wheel.blocked';
+  }
+
   /**
    * A new taunt cannot start yet: one is still playing (the sim never replaces a live taunt), or
    * it is still the gap after the last one ended. Either way the chip says "cooling down" (the
-   * cooldown ring reads full while one plays) instead of the press vanishing.
+   * cooldown ring reads full while one plays) instead of the press vanishing. Judged at the tick
+   * the sim will run this command at (it increments state.tick before processCommands), so the
+   * client opens exactly when the sim does (emotes.ts emoteReadyTick = end / cancel tick + cd).
    */
   private tauntCooling(me: CharacterState, seat: Seat): boolean {
-    const tick = this.sim.state.tick;
-    if (me.emote && tick < me.emote.endTick) return true;
-    return tick < seat.emoteEndedTick + EMOTE.cooldownTicks;
+    return tauntCoolingAt(this.sim.state.tick, me.emote, seat.emoteEndedTick);
   }
 
   /**
@@ -621,7 +626,7 @@ export class MatchController {
     let emote: EmoteId | null = null;
     if (want) {
       const moving = Math.hypot(f.move.x, f.move.y) > EMOTE.cancelMove;
-      if (this.tauntBlocked(me)) this.svc.hud.taunts.nope('taunt.wheel.blocked');
+      if (this.tauntBlocked(me)) this.svc.hud.taunts.nope(this.tauntBlockNote(me));
       else if (this.tauntCooling(me, seat)) this.svc.hud.taunts.nope('taunt.nope.cooling');
       else if (!fromWheel && moving) this.svc.hud.taunts.nope('taunt.nope.moving');
       else {
@@ -641,8 +646,7 @@ export class MatchController {
     const prev = seat.prevEmote;
     const tick = this.sim.state.tick;
     if (em && (!prev || prev.startTick !== em.startTick || prev.id !== em.id)) this.svc.hud.taunts.fired();
-    if (prev && (!em || em.startTick !== prev.startTick)) seat.emoteEndedTick = Math.min(tick, prev.endTick);
-    else if (em && tick >= em.endTick && seat.emoteEndedTick < em.endTick) seat.emoteEndedTick = em.endTick;
+    seat.emoteEndedTick = tauntEndedTick(prev, em, tick, seat.emoteEndedTick);
     seat.prevEmote = em && tick < em.endTick ? { ...em } : null;
   }
 
@@ -651,7 +655,8 @@ export class MatchController {
     const me = this.sim.getCharacter(seat.charId);
     const tick = this.sim.state.tick;
     const playing = !!me?.emote && tick < me.emote.endTick;
-    const cool = playing ? 1 : Math.max(0, Math.min(1, (seat.emoteEndedTick + EMOTE.cooldownTicks - tick) / EMOTE.cooldownTicks));
+    // ring empty exactly when a press would start (same next-tick rule as tauntCooling)
+    const cool = playing ? 1 : Math.max(0, Math.min(1, (seat.emoteEndedTick + EMOTE.cooldownTicks - (tick + 1)) / EMOTE.cooldownTicks));
     const blocked = !me || this.tauntBlocked(me);
     return {
       open: seat.wheel.open && !this.paused,
@@ -659,6 +664,7 @@ export class MatchController {
       slots: EMOTE_IDS.map((id, i) => ({ id, unlocked: this.unlocked.has(id), angle: (wheelSlotAngle(i, EMOTE_IDS.length) * 180) / Math.PI })),
       cooldown: cool,
       blocked,
+      blockedNote: me && blocked ? this.tauntBlockNote(me) : null,
       showKeys: seat.device ? seat.device === 'kbA' || seat.device === 'kbB' : this.svc.input.glyphDevice === 'keyboard',
       ...(this.isLocal ? { owner: { index: seat.index, keys: this.directTauntKeys(seat) }, place } : {}),
     };
