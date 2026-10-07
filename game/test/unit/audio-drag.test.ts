@@ -2,9 +2,10 @@
  * The soft haul loops (owner feedback: dragging an uprooted object sounded too rough): the drag and
  * bank rumble voices are built from band-limited textures (./src/audio/dsp.ts rollBuffer /
  * heaveBuffer / groanBuffer) and must stay hiss-free, click-free and seamless, yet audible on
- * small laptop speakers (the bumps' fundamental never sinks below ~265 Hz at a real carry speed). Node has no OfflineAudioContext,
- * so the drag voice is also rendered here in plain JS (texture at its playback rate + brown thrum
- * through the same RBJ lowpasses) to bound its spectrum and level.
+ * small laptop speakers (the bumps' fundamental never sinks below ~265 Hz at a real carry speed,
+ * and slow / heavy hauls get a presence lift). Node has no OfflineAudioContext, so the drag voice
+ * is also rendered here in plain JS (texture at its playback rate through the same RBJ presence
+ * peak + brown thrum through the same RBJ lowpasses) to bound its spectrum and level.
  */
 import { describe, expect, it } from 'vitest';
 import { MatchAudioDirector, type AudioEngine, type AudioSimView } from '../../src/audio';
@@ -111,6 +112,59 @@ function lowpass(x: Float32Array, f: number, q: number): Float32Array {
   return y;
 }
 
+/** RBJ peaking biquad (what BiquadFilterNode 'peaking' does), constant settings. */
+function peaking(x: Float32Array, f: number, q: number, gainDb: number): Float32Array {
+  const A = Math.pow(10, gainDb / 40);
+  const w = (2 * Math.PI * f) / SR;
+  const al = Math.sin(w) / (2 * q);
+  const c = Math.cos(w);
+  const a0 = 1 + al / A;
+  const b0 = (1 + al * A) / a0;
+  const b1 = (-2 * c) / a0;
+  const b2 = (1 - al * A) / a0;
+  const a2 = (1 - al / A) / a0;
+  const y = new Float32Array(x.length);
+  let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+  for (let i = 0; i < x.length; i++) {
+    const v = b0 * x[i] + b1 * x1 + b2 * x2 - b1 * y1 - a2 * y2;
+    x2 = x1;
+    x1 = x[i];
+    y2 = y1;
+    y1 = v;
+    y[i] = v;
+  }
+  return y;
+}
+
+/**
+ * Long-term spectrum "pitch line" prominence of x in [lo, hi] Hz: the highest level (dB) of an
+ * 8192-point averaged spectrum over the median of its flanks half an octave either side (a fixed
+ * pitch repeated over a long haul stands out as a line: the "bloop" risk).
+ */
+function lineProminenceDb(x: Float32Array, lo: number, hi: number): number {
+  const N = 8192;
+  const P = new Float64Array(N / 2);
+  for (let s = 0; s + N <= x.length; s += N / 2) {
+    const re = new Float64Array(N);
+    const im = new Float64Array(N);
+    for (let i = 0; i < N; i++) re[i] = x[s + i] * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / N));
+    fft(re, im);
+    for (let k = 0; k < N / 2; k++) P[k] += re[k] * re[k] + im[k] * im[k];
+  }
+  const L = Array.from(P, (p) => 10 * Math.log10(p + 1e-30));
+  const df = SR / N;
+  const median = (a: number, b: number): number => {
+    const v = L.slice(Math.ceil(a / df), Math.floor(b / df) + 1).sort((u, w) => u - w);
+    return v[v.length >> 1];
+  };
+  let best = -Infinity;
+  for (let k = Math.ceil(lo / df); k <= hi / df; k++) {
+    const f = k * df;
+    best = Math.max(best, L[k] - 0.5 * (median(f / Math.SQRT2, f / 2 ** 0.25) + median(f * 2 ** 0.25, f * Math.SQRT2)));
+  }
+  return best;
+}
+
 /** A looped buffer read at `rate` with linear interpolation (AudioBufferSourceNode loop). */
 function playLooped(d: Float32Array, rate: number, n: number): Float32Array {
   const y = new Float32Array(n);
@@ -128,7 +182,7 @@ function renderDrag(i: number, p: number, seconds: number): Float32Array {
   const ctx = mockContext();
   const d = dragParams(i, p);
   const n = Math.floor(SR * seconds);
-  const roll = playLooped(rollBuffer(ctx).getChannelData(0), d.rate, n);
+  const roll = peaking(playLooped(rollBuffer(ctx).getChannelData(0), d.rate, n), d.presHz, 0.55, d.presDb);
   // Two reads of the brown loop (rate 1 and 0.77, as in createLoop), summed into the thrum filter.
   const brown = noiseBuffer(ctx, 'brown').getChannelData(0);
   const b1 = playLooped(brown, 1, n);
@@ -174,6 +228,39 @@ describe('soft haul textures', () => {
       expect(energyAboveDb(d, 3000)).toBeLessThan(-50);
     }
   });
+
+  it('the bumps have no fixed pitch lines (wooden knocks, not "bloops")', () => {
+    // Every bump has its own pitch, overtone tuning and noise-rung knock: over the whole texture
+    // no line stands far out of its flanks (the sine-partial bumps of the first redesign: ~22 dB
+    // at the fundamentals, ~23 dB at a fixed 1.4 kHz overtone).
+    const d = rollBuffer(mockContext()).getChannelData(0);
+    expect(lineProminenceDb(d, 250, 700)).toBeLessThan(18);
+    expect(lineProminenceDb(d, 700, 2000)).toBeLessThan(10);
+  });
+
+  it("the bank's groan is a steady, smooth presence, not a peaky on-off", () => {
+    const g = groanBuffer(mockContext()).getChannelData(0);
+    let e = 0;
+    let peak = 0;
+    for (const v of g) {
+      e += v * v;
+      peak = Math.max(peak, Math.abs(v));
+    }
+    expect(20 * Math.log10(peak / Math.sqrt(e / g.length))).toBeLessThan(11);
+    // Sounding (within 20 dB of its peak) most of the time.
+    const F = 2400;
+    let on = 0;
+    let all = 0;
+    for (let s = 0; s + F <= g.length; s += F, all++) {
+      let q = 0;
+      for (let i = s; i < s + F; i++) q += g[i] * g[i];
+      if (Math.sqrt(q / F) > 0.1 * peak) on++;
+    }
+    expect(on / all).toBeGreaterThan(0.5);
+    // Long, and its note figure does not cycle every three notes.
+    expect(g.length / SR).toBeGreaterThan(12);
+    expect(GROAN_NOTES_HZ.length).toBeGreaterThan(4);
+  });
 });
 
 describe('drag voice (rendered in JS)', () => {
@@ -200,6 +287,8 @@ describe('drag voice (rendered in JS)', () => {
     for (const [i, p, minDef] of [[0.35, DRAG_PITCH.largeSafe, -35], [0.6, DRAG_PITCH.goldSafe, -32], [1, DRAG_PITCH.smallSafe, -26]] as const) {
       const y = renderDrag(i, p, 4);
       expect(energyBandDb(y, 300, 800)).toBeGreaterThan(-9);
+      // What a 400-500 Hz-highpass laptop speaker plays: the knock's presence band.
+      expect(energyBandDb(y, 400, 1600)).toBeGreaterThan(-11);
       const def = energyBandDb(y, 800, 2500);
       expect(def).toBeGreaterThan(minDef);
       expect(def).toBeLessThan(-14);
@@ -219,6 +308,14 @@ describe('drag voice (rendered in JS)', () => {
     // the heavier thrum.
     expect(dragParams(0.8, DRAG_PITCH.smallSafe).rate).toBeGreaterThan(dragParams(0.8, DRAG_PITCH.goldSafe).rate * 1.15);
     expect(dragParams(0.8, DRAG_PITCH.goldSafe).thrum).toBeGreaterThan(dragParams(0.8, DRAG_PITCH.smallSafe).thrum * 1.2);
+    // Slow / heavy hauls get the presence lift and a more open final lowpass (small speakers
+    // under the music); a fast small safe gets neither (it would only get brighter).
+    const slowGold = dragParams(0.6, DRAG_PITCH.goldSafe);
+    const fastSmall = dragParams(1, DRAG_PITCH.smallSafe);
+    expect(slowGold.presDb).toBeGreaterThan(4);
+    expect(fastSmall.presDb).toBe(0);
+    expect(slowGold.toneHz).toBeGreaterThan(fastSmall.toneHz);
+    expect(slowGold.presHz).toBeGreaterThan(500);
     // Small-speaker floor: at any real carry speed (>= ~1 m/s) every size's "du" stays >= 265 Hz.
     for (const p of Object.values(DRAG_PITCH)) {
       for (const i of [0.3, 0.6, 1]) expect(ROLL_BUMP_HZ * dragParams(i, p).rate).toBeGreaterThanOrEqual(265);
@@ -239,7 +336,8 @@ describe('drag / bank graphs', () => {
       v.set(1, 0.1);
       v.set(0, 0.5);
       // Every level-carrying gain is sent to exactly 0 (no floor), smoothly (setTargetAtTime).
-      const gains = ctx.nodes.filter((n) => 'gain' in n && n !== (v.output as unknown)) as unknown as { gain: { events: { kind: string; value: number; time: number }[] } }[];
+      // (Gain nodes only: the drag's presence peaking filter has a dB 'gain' too.)
+      const gains = ctx.nodes.filter((n) => 'gain' in n && !(n instanceof MockFilter) && n !== (v.output as unknown)) as unknown as { gain: { events: { kind: string; value: number; time: number }[] } }[];
       const levels = gains.filter((g) => g.gain.events.some((e) => e.kind === 'target' && e.value > 0));
       expect(levels.length).toBeGreaterThanOrEqual(2);
       for (const g of levels) {

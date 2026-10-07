@@ -39,9 +39,6 @@ const ROOTS_SVG = `<svg viewBox="0 0 600 130" xmlns="http://www.w3.org/2000/svg"
   <g fill="#9C6440" stroke="#2A2131" stroke-width="4.5"><circle cx="48" cy="34" r="8"/><circle cx="196" cy="30" r="6"/><circle cx="372" cy="34" r="7"/><circle cx="556" cy="30" r="6"/></g>
 </svg>`;
 
-/** Hand-set letter tilts (small: the logo leans, it does not wobble). */
-const TILT = [-4, 2.5, -2, 3.5, -3, 2];
-
 export interface LogoOptions {
   /** One line, front-door size (default: two stacked words, title size). */
   compact?: boolean;
@@ -52,11 +49,12 @@ export interface LogoOptions {
 
 /** The game logo: "뿌리째" in sun yellow with roots hanging from it, "털어라" in cream, "UPROOT HEIST" under it. */
 export function logoLockup(o: LogoOptions = {}): HTMLElement {
-  const word = (text: string, tone: 'sun' | 'cream', delay0: number, seed: number): HTMLElement =>
+  const word = (text: string, tone: 'sun' | 'cream', delay0: number, _seed: number): HTMLElement =>
     h(
       'span',
       { class: `uh-logo__word uh-logo__word--${tone}` },
-      Array.from(text).map((ch, i) => h('span', { class: 'uh-logo__char', style: { '--d': `${delay0 + i * 70}ms`, '--tilt': `${TILT[(i + seed) % TILT.length]}deg` } }, ch)),
+      // Letters stand upright (owner's upright-text bar); the drop-in gives the bounce.
+      Array.from(text).map((ch, i) => h('span', { class: 'uh-logo__char', style: { '--d': `${delay0 + i * 70}ms` } }, ch)),
     );
   const title = t('game.title');
   const [first, ...rest] = title.split(' ');

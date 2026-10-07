@@ -104,6 +104,7 @@ import { createPropRig, type PropRig } from './models/props';
 import { BarkBubble, BeatLabel, BEATS, GlanceTracker, LabelScreen, PulseRing, WindupRing, departParam, getawayDepart, vanFreeRun, type ChipSize } from './beats';
 import { matchPointInfo, VAN } from '../sim';
 import { sharedFraming, type FramePoint, type SharedFrame } from './sharedCamera';
+import { lootTwinPlacements, mirrorTwinYaw } from './upright';
 import { ko as KO_STRINGS } from '../ui/strings/ko';
 import { en as EN_STRINGS } from '../ui/strings/en';
 
@@ -257,6 +258,8 @@ interface SafeView {
   done: boolean;
   hl: string | null;
   dustAcc: number;
+  /** Render-only yaw added to the sim angle: PI for an east mirror twin (see mirrorTwinYaw). */
+  yawFix: number;
 }
 
 interface BankView {
@@ -649,6 +652,7 @@ export class GameView {
     }
 
     let bankIndex = 0;
+    const twinSpots = lootTwinPlacements(layout);
     for (const l of st.loot) {
       if (l.kind === 'bank') {
         const rig = createBank();
@@ -678,7 +682,9 @@ export class GameView {
       } else {
         // [C7a] Props (ATM / piggy / money tree / gold safe) use SafeRig-compatible prop rigs.
         const rig = l.variant ? createPropRig(l.variant, this.settings.language ?? 'ko') : createSafe(l.kind);
-        placeOnSim(rig.root, l.pos, l.angle, l.floorOf !== null ? BANK_FLOOR_Y : 0);
+        // An east mirror twin turns its door / screen to match its west original (upright text).
+        const yawFix = l.homeBank === null ? mirrorTwinYaw(twinSpots, { x: l.pos.x, y: l.pos.y, key: l.variant ?? l.kind }, layout.size.x / 2) : 0;
+        placeOnSim(rig.root, l.pos, l.angle + yawFix, l.floorOf !== null ? BANK_FLOOR_Y : 0);
         rig.setAnchored(l.anchored);
         rig.root.visible = !l.recovered;
         this.world.add(rig.root);
@@ -692,6 +698,7 @@ export class GameView {
           done: l.recovered,
           hl: null,
           dustAcc: 0,
+          yawFix,
         });
       }
     }
@@ -2483,7 +2490,7 @@ export class GameView {
     const targetY = onFloor ? BANK_FLOOR_Y : 0;
     sv.y += (targetY - sv.y) * damp(18, dt);
     if (this.snapVisuals) sv.y = targetY;
-    placeOnSim(sv.rig.root, sv.pose, sv.pose.a, sv.y + this.floorLift(l.floorOf));
+    placeOnSim(sv.rig.root, sv.pose, sv.pose.a + sv.yawFix, sv.y + this.floorLift(l.floorOf));
     const ps = this.pulseScale(sv.id);
     sv.rig.root.scale.set(2 - ps, ps, 2 - ps);
     if (sv.anchored !== l.anchored) {

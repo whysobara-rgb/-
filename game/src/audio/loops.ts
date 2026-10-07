@@ -88,7 +88,7 @@ export const sirenGapFill = (i: number): number => 0.5 * smoothstep(0.8, 1, i);
 
 /** Relative loudness of each loop at intensity 1 (loudness-matched offline). */
 export const LOOP_GAIN: Readonly<Record<LoopId, number>> = {
-  drag: 0.57,
+  drag: 0.58,
   bankRumble: 0.52,
   strain: 0.55,
   sirenLoop: 0.5,
@@ -99,45 +99,58 @@ export const LOOP_GAIN: Readonly<Record<LoopId, number>> = {
 /** Drag level smoothing (s): a gentle start, a slower let-go (no sputter at the speed gate). */
 export const DRAG_ATTACK_TAU = 0.09;
 export const DRAG_RELEASE_TAU = 0.14;
+/** Drag presence boost (dB) on the bumps of the slowest, heaviest hauls (see dragParams). */
+export const DRAG_PRESENCE_DB = 6;
 
 /**
  * The drag voice's settings at intensity i (speed) and pitch p (size, 1 = large safe-ish):
  * bump-texture rate (= bump rate and pitch), bump and thrum levels (both 0 at i = 0, no floor),
- * the thrum's resonant lowpass and the final lowpass, which stays under ~2.2 kHz.
+ * the thrum's resonant lowpass, the bumps' presence peak and the final lowpass, which stays
+ * under ~2.2 kHz.
  *
  * Size moves the bumps' pitch and rate only by sqrt(p) (a small safe ~3 semitones over a gold
  * safe) and the speed range is narrow, so even a slow gold safe's "tok" stays near 300 Hz, where
- * small laptop speakers still play it; weight comes from a heavier, deeper thrum and a darker
- * final lowpass instead.
+ * small laptop speakers still play it; weight comes from a heavier, deeper thrum. The lower the
+ * texture rate (slow and / or heavy), the more the bumps' wooden knock is lifted by a broad
+ * presence peak (~0.6-0.9 kHz, up to DRAG_PRESENCE_DB) and the further the final lowpass opens,
+ * so a slow gold safe keeps the presence and definition a small speaker needs under the music
+ * while a fast small safe (already higher) does not get brighter.
  */
-export function dragParams(i: number, p = 1): { rate: number; bumps: number; thrum: number; thrumHz: number; toneHz: number } {
+export function dragParams(i: number, p = 1): { rate: number; bumps: number; thrum: number; thrumHz: number; toneHz: number; presDb: number; presHz: number } {
   const sp = Math.sqrt(p);
-  const heavy = Math.min(1.25, Math.max(0.95, 1 / p));
+  const heavy = Math.min(1.18, Math.max(0.95, 1 / p));
   // Creeping (under ~0.5 m/s, around the director's speed gate) fades right down: >= 20 dB under
   // full speed there, so hovering at the gate never sputters.
   const creep = smoothstep(0, 0.15, i);
+  const rate = (0.82 + 0.4 * i) * sp;
   return {
-    rate: (0.82 + 0.4 * i) * sp,
-    bumps: i > 0 ? 0.42 * Math.pow(i, 0.7) * (0.25 + 0.75 * creep) : 0,
+    rate,
+    bumps: i > 0 ? 0.42 * Math.pow(i, 0.8) * (0.25 + 0.75 * creep) : 0,
     // (two summed brown reads, see createLoop)
-    thrum: i > 0 ? 0.21 * heavy * Math.pow(i, 0.85) : 0,
+    thrum: i > 0 ? 0.2 * heavy * Math.pow(i, 0.85) : 0,
     thrumHz: (190 + 130 * i) * sp,
-    toneHz: (1500 + 600 * i) * Math.sqrt(sp),
+    toneHz: Math.min(2000, 1700 / Math.pow(rate, 0.8)),
+    presDb: DRAG_PRESENCE_DB * Math.min(1, Math.max(0, (1.3 - rate) / 0.4)),
+    presHz: 720 * rate,
   };
 }
 
-/** The bank rumble's settings at intensity i (bank speed). */
+/**
+ * The bank rumble's settings at intensity i (bank speed). The steady parts (rumble, the sub's
+ * smooth sine) carry the level and the thunks and groan ride on them a little lower, so the mix
+ * stays smooth: no thunk or groan sticks out of the body (crest ~ the old sub-bass rumble's).
+ */
 export function bankParams(i: number): { rumble: number; rumbleHz: number; sub: number; rate: number; heave: number; heaveHz: number; groan: number } {
   return {
-    rumble: 0.3 * Math.pow(i, 0.85),
+    rumble: 0.33 * Math.pow(i, 0.85),
     rumbleHz: 110 + 170 * i,
-    sub: 0.2 * i,
+    sub: 0.26 * i,
     rate: 0.9 + 0.3 * i,
     // A slow bank's thunks are softer than a fast one's (they would stick out of the quiet body).
-    heave: i > 0 ? 0.46 * Math.pow(i, 1.35) : 0,
+    heave: i > 0 ? 0.38 * Math.pow(i, 1.35) : 0,
     heaveHz: 480 + 420 * i,
     // The groan plays at rate 1 (in key at every speed); only its level follows the speed.
-    groan: i > 0 ? 0.4 * Math.pow(i, 0.9) : 0,
+    groan: i > 0 ? 0.3 * Math.pow(i, 0.9) : 0,
   };
 }
 
@@ -291,9 +304,10 @@ export function createLoop(ctx: BaseAudioContext, id: LoopId, t: number, rnd: ()
   switch (id) {
     case 'drag': {
       // A heavy toy hauled over paving: rounded wooden "dugu-dugu" bumps whose rate follows the
-      // speed (./dsp.ts rollBuffer) over a warm resonant thrum, all under a 12 dB/oct lowpass that
-      // only opens a little with speed. Nothing hisses; `pitch` is the object's size (small safe
-      // lighter and quicker, gold safe deeper).
+      // speed (./dsp.ts rollBuffer) over a warm resonant thrum, all under a 12 dB/oct lowpass.
+      // A broad presence peak lifts the bumps' wooden knock on slow / heavy hauls (small speakers
+      // under the music). Nothing hisses; `pitch` is the object's size (small safe lighter and
+      // quicker, gold safe deeper).
       let pitch = 1;
       let last = 0;
       const roll = loopSource(g, rollBuffer(ctx), t, rnd);
@@ -306,7 +320,8 @@ export function createLoop(ctx: BaseAudioContext, id: LoopId, t: number, rnd: ()
       const thrum = filter(ctx, 'lowpass', 220, 1.5);
       const bodyLvl = gainNode(ctx);
       const tone = filter(ctx, 'lowpass', 1600, 0.5);
-      chain(roll, rollLvl, tone);
+      const pres = filter(ctx, 'peaking', 620, 0.55);
+      chain(roll, rollLvl, pres, tone);
       chain(body, thrum, bodyLvl, tone);
       body2.connect(thrum);
       tone.connect(g.out);
@@ -317,6 +332,8 @@ export function createLoop(ctx: BaseAudioContext, id: LoopId, t: number, rnd: ()
         to(thrum.frequency, d.thrumHz, at, tau);
         to(bodyLvl.gain, d.thrum, at, tau);
         to(tone.frequency, d.toneHz, at, tau);
+        to(pres.frequency, d.presHz, at, tau);
+        to(pres.gain, d.presDb, at, tau);
       };
       set = (i, at) => {
         // Gentle on, slower off: stop-and-go and hovering at the director's speed gate breathe

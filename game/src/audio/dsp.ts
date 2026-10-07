@@ -750,18 +750,72 @@ function addScaled(d: Float32Array, at: number, b: Float32Array, amp: number): v
   for (let i = 0; i < n; i++) d[at + i] += amp * b[i];
 }
 
-/** Bump fundamental of rollBuffer at playback rate 1 (the "du"; "gu" is 15 % higher). */
+/** Bump fundamental of rollBuffer at playback rate 1 (the "du"; "gu" is ~14 % higher). */
 export const ROLL_BUMP_HZ = 320;
+
+/** One RBJ biquad pass over x, in place (b0, b1, b2, a1, a2 already divided by a0). */
+function biquadInPlace(x: Float32Array, b0: number, b1: number, b2: number, a1: number, a2: number): void {
+  let x1 = 0;
+  let x2 = 0;
+  let y1 = 0;
+  let y2 = 0;
+  for (let i = 0; i < x.length; i++) {
+    const v = b0 * x[i] + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+    x2 = x1;
+    x1 = x[i];
+    y2 = y1;
+    y1 = v;
+    x[i] = v;
+  }
+}
+
+/**
+ * The wooden body of a "tok": a short burst of noise rung through a soft resonance of the toy's
+ * hollow wooden shell (centre `ratio` x f0, quality q). Unlike a sine partial it has no single
+ * pitch line, so a long haul reads as knocks on wood rather than "bloops". The noise is first
+ * darkened (two 2-pole lowpasses at ~2.3 f0, so the resonance's upper skirt never reaches the hiss
+ * range), rung through the resonance twice (a rounder skirt), RMS-normalized, then shaped by a
+ * slow raised-cosine attack (no click, no noisy spit), an exponential decay and the bump window.
+ */
+function woodKnock(sr: number, f0: number, ratio: number, q: number, o: { attack: number; decay: number; length: number }, rnd: () => number): Float32Array {
+  const n = Math.floor(sr * o.length);
+  const x = new Float32Array(n);
+  for (let i = 0; i < n; i++) x[i] = rnd() * 2 - 1;
+  let w = (2 * Math.PI * Math.min(f0 * 2.3, sr / 4)) / sr;
+  let al = Math.sin(w) / (2 * Math.SQRT1_2);
+  let c = Math.cos(w);
+  let a0 = 1 + al;
+  for (let pass = 0; pass < 2; pass++) biquadInPlace(x, (1 - c) / 2 / a0, (1 - c) / a0, (1 - c) / 2 / a0, (-2 * c) / a0, (1 - al) / a0);
+  w = (2 * Math.PI * f0 * ratio) / sr;
+  al = Math.sin(w) / (2 * q);
+  c = Math.cos(w);
+  a0 = 1 + al;
+  for (let pass = 0; pass < 2; pass++) biquadInPlace(x, al / a0, 0, -al / a0, (-2 * c) / a0, (1 - al) / a0);
+  const m = Math.min(n, Math.floor(sr * 0.06));
+  let e = 0;
+  for (let i = 0; i < m; i++) e += x[i] * x[i];
+  const att = Math.max(1, Math.floor(sr * o.attack));
+  const win = bumpWindow(n, att);
+  const k = Math.exp(-1 / (o.decay * sr));
+  let env = 1 / Math.sqrt(e / m + 1e-12);
+  for (let i = 0; i < n; i++) {
+    x[i] *= env * softAttack(i, att) * win[i];
+    env *= k;
+  }
+  return x;
+}
 
 /**
  * Rolling-bump texture of a heavy toy hauled over paving (the 'drag' loop): rounded wooden "tok"s
  * in loose "du-gu" pairs (a short gap inside a pair, a longer one between pairs, now and then a
  * skipped or extra bump so it never ticks like a metronome) over a soft low-passed rolling bed
- * that swells with each contact. The bump fundamental (ROLL_BUMP_HZ) sits where small laptop
- * speakers still play it, a short wooden overtone near 1.1-1.6 kHz gives each "tok" its
- * definition (well under the body, no hiss), nothing above ~2 kHz. 9.4 s (the pattern does not
- * audibly repeat over a long haul), seamless; the loop plays it at a rate that follows the haul
- * speed, so "dugu-dugu" speeds up as the object does.
+ * that swells with each contact. Each "tok" is a short plump thump (fundamental near
+ * ROLL_BUMP_HZ, where small laptop speakers still play it, and a soft sub-octave) with two short
+ * inharmonic wooden overtones, inside a noise-rung wooden knock (a soft resonance at ~1.7 f0, the
+ * 0.4-0.9 kHz presence small speakers carry). Every bump has its own pitch (+-10 %), its own
+ * overtone tuning and its own knock, so a long haul has no fixed pitch lines ("bloops"); nothing
+ * above ~2 kHz. 9.4 s (the pattern does not audibly repeat over a long haul), seamless; the loop
+ * plays it at a rate that follows the haul speed, so "dugu-dugu" speeds up as the object does.
  */
 export function rollBuffer(ctx: BaseAudioContext): AudioBuffer {
   return cachedBuffer(ctx, 'tex:roll', () => {
@@ -772,18 +826,32 @@ export function rollBuffer(ctx: BaseAudioContext): AudioBuffer {
     const rnd = makeRng(5150);
     const d = new Float32Array(len);
     const contact = new Float32Array(len);
-    // Fundamental, the wooden "tok" overtone (inharmonic, short), a brief knock partial that
-    // gives the attack its definition, and a soft low body thump.
-    const parts = [
-      [1, 1, 0.07],
-      [2.27, 0.26, 0.016],
-      [3.62, 0.16, 0.009],
-      [0.5, 0.38, 0.05],
-    ] as const;
-    const shape = { attack: 0.0045, glide: 0.06, glideTau: 0.012, length: 0.26 };
-    // Five pitches per stroke (+-4.5 %): "du" and the slightly higher "gu".
-    const du = bumpBank(sr, ROLL_BUMP_HZ, 0.045, 5, parts, shape);
-    const gu = bumpBank(sr, ROLL_BUMP_HZ * 1.15, 0.045, 5, parts, shape);
+    const shape = { attack: 0.006, glide: 0.03, glideTau: 0.012, length: 0.2 };
+    const knock = { attack: 0.012, decay: 0.07, length: shape.length };
+    // Nine pitches per stroke over +-10 %, each with its own overtones and knock: "du" and the
+    // higher "gu" (their ranges overlap: no fixed interval either).
+    const make = (base: number): Float32Array[] => {
+      const bank: Float32Array[] = [];
+      for (let k = 0; k < 9; k++) {
+        const f0 = base * (1 + 0.1 * (k / 4 - 1));
+        const jit = (): number => 1 + 0.06 * (2 * rnd() - 1);
+        // Fundamental, two short inharmonic wooden overtones, soft sub-octave body (last, so its
+        // start phase lines up with the fundamental's: a round, not peaky, onset).
+        const parts: [number, number, number][] = [
+          [1, 1, 0.055],
+          [2.27 * jit(), 0.3, 0.016],
+          [3.1 * jit(), 0.16, 0.01],
+          [0.5, 0.36, 0.045],
+        ];
+        const b = softBump(sr, f0, parts, shape);
+        const kn = woodKnock(sr, f0, 1.7, 1.4, knock, rnd);
+        for (let i = 0; i < b.length; i++) b[i] += 0.3 * kn[i];
+        bank.push(b);
+      }
+      return bank;
+    };
+    const du = make(ROLL_BUMP_HZ);
+    const gu = make(ROLL_BUMP_HZ * 1.14);
     // Contact swell of the rolling bed after each bump (~90 ms decay, same window).
     const cn = Math.floor(sr * shape.length);
     const cwin = bumpWindow(cn, Math.max(1, Math.floor(sr * shape.attack)));
@@ -818,7 +886,7 @@ export function rollBuffer(ctx: BaseAudioContext): AudioBuffer {
       br = (br + 0.02 * (rnd() * 2 - 1)) / 1.02;
       l1 += a * (br - l1);
       l2 += a * (l1 - l2);
-      d[i] += l2 * 0.8 * (0.3 + 0.7 * contact[i]);
+      d[i] += l2 * 1.2 * (0.3 + 0.7 * contact[i]);
     }
     tamePeaks(d, sr, 6);
     const out = makeLoopable(d, fade);
@@ -897,12 +965,13 @@ export function heaveBuffer(ctx: BaseAudioContext): AudioBuffer {
     const rnd = makeRng(6262);
     const d = new Float32Array(len);
     const parts = [
-      [1, 1, 0.3],
-      [2.02, 0.7, 0.14],
+      [1, 1, 0.4],
+      [2.02, 0.7, 0.16],
       [3.05, 0.4, 0.06],
     ] as const;
     // Four thunk pitches over 104 Hz * (0.95 .. 1.11): the upper ones also serve the doubles.
-    const thunks = bumpBank(sr, 104 * 1.03, 0.08, 4, parts, { attack: 0.035, glide: 0.08, glideTau: 0.03, length: 0.8 });
+    // A slow 60 ms swell and a long body: a heave, not a hit (a low crest under the rumble).
+    const thunks = bumpBank(sr, 104 * 1.03, 0.08, 4, parts, { attack: 0.06, glide: 0.08, glideTau: 0.03, length: 0.9 });
     const pickThunk = (lo: number): Float32Array => thunks[Math.min(3, lo + Math.floor(rnd() * 3))];
     let t = 0.08;
     while (t < len / sr - 0.02) {
@@ -917,20 +986,23 @@ export function heaveBuffer(ctx: BaseAudioContext): AudioBuffer {
   });
 }
 
-/** Pitches of the bank's groans: D-minor chord tones (D2 / F2 / A2, the songs' key). */
-export const GROAN_NOTES_HZ: readonly number[] = [73.42, 87.31, 110, 73.42];
+/**
+ * Pitches of the bank's groans, in order: D-minor chord tones (D2 / F2 / A2, the songs' key) in a
+ * figure that goes up and comes back down (no short repeating three-note cycle).
+ */
+export const GROAN_NOTES_HZ: readonly number[] = [73.42, 87.31, 110, 73.42, 110, 87.31, 73.42];
 
 /**
  * The bank's gentle musical groan (the 'bankRumble' loop, played at rate 1 so it stays in key
- * whatever the bank's speed): every couple of seconds a vowel-like tone on a D-minor chord tone
- * (GROAN_NOTES_HZ) that scoops softly up into the note and swells, with a slow vibrato. 9 s,
- * seamless.
+ * whatever the bank's speed): a vowel-like tone on a D-minor chord tone (GROAN_NOTES_HZ) that
+ * scoops softly up into the note and swells, with a slow vibrato, then a short breath before the
+ * next (groaning ~70 % of the time: steady under the rumble, not a peaky on-off). 13 s, seamless.
  */
 export function groanBuffer(ctx: BaseAudioContext): AudioBuffer {
   return cachedBuffer(ctx, 'tex:groan', () => {
     const sr = ctx.sampleRate;
     const fade = Math.floor(sr * 0.12);
-    const seconds = 9;
+    const seconds = 13;
     const len = Math.floor(sr * seconds) + fade;
     const rnd = makeRng(6363);
     const d = new Float32Array(len);
@@ -938,9 +1010,11 @@ export function groanBuffer(ctx: BaseAudioContext): AudioBuffer {
     const notes = GROAN_NOTES_HZ;
     let g = 0.6;
     let gi = 0;
-    for (let dur = 1.1 + rnd() * 0.6; g + dur < seconds; dur = 1.1 + rnd() * 0.6) {
+    const tables = new Map<number, Float32Array>();
+    for (let dur = 1.4 + rnd() * 0.8; g + dur < seconds; dur = 1.4 + rnd() * 0.8) {
       const f0 = notes[gi++ % notes.length];
-      const table = groanCycle(f0);
+      let table = tables.get(f0);
+      if (!table) tables.set(f0, (table = groanCycle(f0)));
       const N = table.length;
       const s0 = Math.floor(g * sr);
       const n = Math.min(len - s0, Math.floor(dur * sr));
@@ -966,7 +1040,7 @@ export function groanBuffer(ctx: BaseAudioContext): AudioBuffer {
         const x = table[j] + (table[(j + 1) % N] - table[j]) * (ph - j);
         d[s0 + i] += x * env;
       }
-      g += dur + 0.8 + rnd() * 1.2;
+      g += dur + 0.35 + rnd() * 0.6;
     }
     // Every groan ends inside the loop (no truncated swell to cross-fade): no limiter needed on
     // a smooth sustained tone.

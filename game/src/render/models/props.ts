@@ -31,6 +31,7 @@ import { blobShadowTexture, makeCanvasTexture, outlinedText, roundRectPath, valu
 import { Highlighter, InkOutline } from './outline';
 import { cameraFacingYaw, trackViewCamera } from './occlusion';
 import type { SafeRig } from './safes';
+import { cameraSideOf } from '../upright';
 
 // ===========================================================================
 // Shared coin art
@@ -1393,8 +1394,12 @@ function vendSignTexture(lang: 'ko' | 'en'): THREE.Texture {
 
 let glassCrackTex: THREE.Texture | null = null;
 
-/** Create a breakable rig ('crate' | 'vending'); `lang` picks the vending brand sign text. */
-export function createBreakableRig(kind: BreakableKind, lang: 'ko' | 'en' = 'ko'): BreakableRig {
+/**
+ * Create a breakable rig ('crate' | 'vending'); `lang` picks the vending brand sign text, `angle`
+ * is the sim angle it will be placed at (placeOnSim): a machine facing east / west wears its
+ * brand sign on the header side the camera sees, so it reads upright instead of edge-on.
+ */
+export function createBreakableRig(kind: BreakableKind, lang: 'ko' | 'en' = 'ko', angle = 0): BreakableRig {
   const spec = BREAKABLE_SPECS[kind];
   const root = new THREE.Group();
   root.name = `breakable:${kind}`;
@@ -1415,6 +1420,15 @@ export function createBreakableRig(kind: BreakableKind, lang: 'ko' | 'en' = 'ko'
     const fz = spec.half.y - 0.04;
     sign = new THREE.Mesh(cachedGeo('vendSign', () => new THREE.PlaneGeometry(spec.half.x * 1.8, 0.22)), matTextured(vendSignTexture(lang), { rim: 0, polygonOffset: -1 }));
     sign.position.set(0, spec.height - 0.13, fz + 0.045);
+    // Facing east / west, the front sign is an edge-on sideways sliver to the north-looking
+    // camera: move it onto the header band's camera-side face (upright, left to right).
+    const side = cameraSideOf(angle);
+    if (side !== 0) {
+      const k = Math.min(1, (spec.half.y * 2 - 0.12) / (spec.half.x * 1.8));
+      sign.position.set(side * (spec.half.x + 0.015), spec.height - 0.13, 0);
+      sign.rotation.y = side * (Math.PI / 2);
+      sign.scale.set(k, k, 1);
+    }
     sign.userData.noOutline = true;
     body.add(sign);
     // Glass pane (slightly blue-white, transparent) over the can shelves.

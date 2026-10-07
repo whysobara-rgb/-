@@ -24,6 +24,7 @@ import type { ViewExtra, ViewExtrasHost } from './extras';
 import { createBreakableRig, type BreakableRig, type PropRig } from './models/props';
 import { placeOnSim } from './models';
 import { PAL } from './models/palette';
+import { mirrorTwinYawById } from './upright';
 
 /** Smashed piggy shell: how long the broken bowl stays, then how long it takes to sink away (s). */
 export const SHELL = { hold: 1.6, fade: 0.5 } as const;
@@ -227,7 +228,7 @@ export class PropsSync implements ViewExtra {
     for (let i = 0; i < bs.length; i++) {
       const b = bs[i]!;
       let bv = this.breakables.get(b.id);
-      if (!bv) bv = this.createBreakable(b);
+      if (!bv) bv = this.createBreakable(b, bs);
       if (b.broken && !bv.broken) this.breakApart(bv, null);
       if (!bv.broken && b.hp !== bv.hp) {
         bv.hp = b.hp;
@@ -270,9 +271,11 @@ export class PropsSync implements ViewExtra {
     }
   }
 
-  private createBreakable(b: BreakableState): BreakableView {
-    const rig = createBreakableRig(b.kind, this.host.language());
-    placeOnSim(rig.root, b.center, b.angle);
+  private createBreakable(b: BreakableState, all: readonly BreakableState[]): BreakableView {
+    // East mirror twins turn their front back (see mirrorTwinYaw); the sim box is unchanged.
+    const angle = b.angle + mirrorTwinYawById(b.id, (id) => all.some((o) => o.id === id));
+    const rig = createBreakableRig(b.kind, this.host.language(), angle);
+    placeOnSim(rig.root, b.center, angle);
     this.root.add(rig.root);
     const bv: BreakableView = { id: b.id, rig, hp: b.hp, broken: false };
     rig.setHp(b.hp);

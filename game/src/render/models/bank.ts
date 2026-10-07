@@ -1183,8 +1183,8 @@ export function createBank(): BankRig {
   let bellAmp = 0;
   let cutaway = true;
   let backOffset = 2.6;
-  // Sign spring (pitch about x, roll about z) + a free spin kicked by the pop.
-  const sp = { ax: 0, az: 0, vx: 0, vz: 0, spin: 0, spinVel: 0 };
+  // Sign spring (pitch about x; sideways energy reads as sway) + a hop kicked by the pop.
+  const sp = { ax: 0, az: 0, vx: 0, vz: 0, hopT: 99 };
   const prevPos = new THREE.Vector3();
   const prevVel = new THREE.Vector3();
   const curPos = new THREE.Vector3();
@@ -1270,19 +1270,22 @@ export function createBank(): BankRig {
     sp.vz += (-k * sp.az - c * sp.vz + acc.x * gain * 10 + jitter * 0.4) * dt;
     sp.ax = THREE.MathUtils.clamp(sp.ax + sp.vx * dt, -0.7, 0.7);
     sp.az = THREE.MathUtils.clamp(sp.az + sp.vz * dt, -0.6, 0.6);
-    // Free spin (pop): decays, then snaps back to the nearest full turn.
-    if (Math.abs(sp.spinVel) > 0.3) {
-      sp.spin += sp.spinVel * dt;
-      sp.spinVel *= Math.exp(-dt * 1.8);
-    } else {
-      const full = Math.round(sp.spin / (Math.PI * 2)) * Math.PI * 2;
-      sp.spin += (full - sp.spin) * (1 - Math.exp(-dt * 6));
-      if (Math.abs(full - sp.spin) < 1e-3) sp.spin = 0;
-      sp.spinVel = 0;
+    // Pop: the board hops on its boom (decaying bounces + squash-and-stretch) instead of
+    // spinning, so the lettering never turns edge-on or skews (upright policy).
+    if (sp.hopT < 1.4) {
+      sp.hopT += dt;
+      const e = Math.exp(-sp.hopT * 3.2);
+      const q = 0.14 * e * Math.cos(sp.hopT * 18);
+      signWobble.position.y = Math.abs(Math.sin(sp.hopT * 9)) * 0.5 * e;
+      signWobble.scale.set(1 + q, 1 - q, 1);
+    } else if (signWobble.position.y !== 0) {
+      signWobble.position.y = 0;
+      signWobble.scale.set(1, 1, 1);
     }
     // No roll: the board's lettering stays level on screen (upright policy). The sideways
-    // spring energy (az) reads as a small sideways sway of the board instead.
-    signWobble.rotation.set(sp.ax, sp.spin, 0);
+    // spring energy (az) reads as a small sideways sway of the board instead; the body's own
+    // rock is cancelled below (signWobble.rotation.z).
+    signWobble.rotation.set(sp.ax, 0, 0);
     signWobble.position.x = THREE.MathUtils.clamp(sp.az * 0.3, -0.18, 0.18);
 
     // Strain tremble, lift, pop hop.
@@ -1309,6 +1312,9 @@ export function createBank(): BankRig {
     body.position.set(Math.sin(time * 43) * 0.05 * tr, y + Math.abs(Math.sin(time * 29)) * 0.03 * tr, Math.sin(time * 37 + 0.7) * 0.05 * tr);
     body.rotation.z = rz;
     body.rotation.x = rx;
+    // Cancel the part of the body's rock that would roll the board about its own face normal
+    // (the board yaws to the camera, so that normal is (sin s, 0, cos s) in the body frame).
+    signWobble.rotation.z = -(rx * Math.sin(signYawAngle) + rz * Math.cos(signYawAngle));
     body.scale.set(1 / Math.sqrt(sq), sq, 1 / Math.sqrt(sq));
     // Windows rattle: each wall jitters on its own while the building strains.
     for (let i = 0; i < walls.length; i++) {
@@ -1384,7 +1390,7 @@ export function createBank(): BankRig {
         popAge = 0;
         sp.vx += 5.5;
         sp.vz += (rnd() - 0.5) * 4;
-        sp.spinVel = (rnd() < 0.5 ? -1 : 1) * (9 + rnd() * 5);
+        sp.hopT = 0;
         sparkTimer = 0;
         bellAmp = 1;
       }
