@@ -3,15 +3,18 @@ import '../../../core/network/api_client.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/theme/rarity_style.dart';
+import '../../../core/domain/rarity.dart';
 import '../../../core/utils/format.dart';
 import '../../../shared/widgets/gp_badge.dart';
-import '../../../core/domain/product_category.dart';
 import '../../../shared/widgets/collectible_card.dart';
 import '../../../shared/widgets/product_image.dart';
 import '../../../shared/widgets/rarity_tag.dart';
 import '../../../shared/widgets/ui.dart';
+import '../../gacha/data/gacha_repository.dart';
 import '../../gacha/domain/gacha_models.dart';
 import '../../gacha/presentation/gacha_detail_page.dart';
+import '../../gacha/presentation/widgets/box_thumb.dart';
 import '../data/ranking_repository.dart';
 import '../domain/ranking_models.dart';
 
@@ -157,6 +160,7 @@ class _Note extends StatelessWidget {
   );
 }
 
+/// 순위 숫자: 굵은 이탤릭. 1위만 캡슐 레드, 2·3위 잉크, 그 아래 회색.
 class _RankNumber extends StatelessWidget {
   final int rank;
   const _RankNumber(this.rank);
@@ -167,10 +171,12 @@ class _RankNumber extends StatelessWidget {
     child: Text(
       '$rank',
       style: AppText.num(AppText.title1).copyWith(
+        fontSize: 24,
         fontWeight: FontWeight.w900,
         fontStyle: FontStyle.italic,
+        letterSpacing: -1,
         color: rank == 1
-            ? AppColors.raritySSR
+            ? AppColors.brand
             : rank <= 3
             ? AppColors.text
             : AppColors.textTertiary,
@@ -204,7 +210,13 @@ class _UserTab extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(u.nickname, style: AppText.bodyStrong),
+                  Text(
+                    u.nickname,
+                    style: AppText.bodyStrong.copyWith(
+                      color: AppColors.text,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                   const SizedBox(height: 2),
                   Text(
                     '뽑기 ${formatNumber(u.drawCount)}회',
@@ -213,10 +225,7 @@ class _UserTab extends StatelessWidget {
                 ],
               ),
             ),
-            Text(
-              formatWon(u.totalValue),
-              style: AppText.num(AppText.bodyStrong),
-            ),
+            PriceText(u.totalValue, unit: '원', size: 16),
           ],
         ),
       ),
@@ -227,75 +236,111 @@ class _UserTab extends StatelessWidget {
 class _GachaTab extends StatelessWidget {
   const _GachaTab();
   static const _repo = RankingRepository();
+  static const _gachas = GachaRepository();
+
+  /// 순위 + (판매 중이면) 박스 요약. 박스 요약이 있어야 그 박스의 패키지를
+  /// 그릴 수 있다. 목록을 못 받으면 순위만 보여준다.
+  static Future<List<(GachaRankingItem, GachaSummary?)>> _load() async {
+    final ranking = await _repo.gachas();
+    List<GachaSummary> boxes = const [];
+    try {
+      boxes = await _gachas.list();
+    } catch (_) {}
+    return [
+      for (final g in ranking)
+        (g, boxes.where((b) => b.id == g.gachaId).firstOrNull),
+    ];
+  }
 
   @override
   Widget build(BuildContext context) {
-    return _AsyncList<GachaRankingItem>(
-      loader: _repo.gachas,
+    return _AsyncList<(GachaRankingItem, GachaSummary?)>(
+      loader: _load,
       emptyTitle: '아직 순위가 없어요',
       emptyMessage: '박스를 연 기록이 생기면 여기에 순위가 매겨져요.',
       sparseNote: '실제 뽑기 기록만으로 순위를 매겨요. 기록이 쌓이면 더 채워져요.',
       header: const _Note('누적 뽑기 횟수 순이에요.'),
-      itemBuilder: (context, g) => InkWell(
-        onTap: () => Navigator.of(context).push(
-          MaterialPageRoute<void>(
-            builder: (_) => GachaDetailPage(
-              gacha: GachaSummary(
-                id: g.gachaId,
-                title: g.title,
-                price: g.price,
-                imageUrl: g.imageUrl,
-              ),
+      itemBuilder: (context, entry) {
+        final (g, box) = entry;
+        final summary =
+            box ??
+            GachaSummary(
+              id: g.gachaId,
+              title: g.title,
+              price: g.price,
+              imageUrl: g.imageUrl,
+              accent: g.accent,
+            );
+        return InkWell(
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => GachaDetailPage(gacha: summary),
             ),
           ),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: Space.gutter,
-            vertical: Space.x3,
-          ),
-          child: Row(
-            children: [
-              _RankNumber(g.rank),
-              const SizedBox(width: Space.x2),
-              SizedBox(
-                width: 56,
-                height: 56,
-                child: BoxImage(
-                  url: g.imageUrl,
-                  tone: g.accent ?? AppColors.brand,
-                  category: ProductCategory.box,
-                  borderRadius: Radii.thumb,
-                  artScale: 0.6,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Space.gutter,
+              vertical: Space.x3,
+            ),
+            child: Row(
+              children: [
+                _RankNumber(g.rank),
+                const SizedBox(width: Space.x2),
+                SizedBox(
+                  width: 60,
+                  height: 60,
+                  child: DecoratedBox(
+                    decoration: const BoxDecoration(
+                      borderRadius: Radii.thumb,
+                      boxShadow: Shadows.small,
+                    ),
+                    child: BoxThumb(
+                      box: summary,
+                      scale: 0.76,
+                      borderRadius: Radii.thumb,
+                    ),
+                  ),
                 ),
-              ),
-              const SizedBox(width: Space.x3),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                const SizedBox(width: Space.x3),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        g.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppText.bodyStrong.copyWith(
+                          color: AppColors.text,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '1회 ${formatGp(g.price)}',
+                        style: AppText.num(AppText.caption),
+                      ),
+                    ],
+                  ),
+                ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Text(
-                      g.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppText.bodyStrong,
+                      formatNumber(g.drawCount),
+                      style: AppText.num(AppText.headline).copyWith(
+                        color: AppColors.text,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '1회 ${formatGp(g.price)}',
-                      style: AppText.num(AppText.caption),
-                    ),
+                    Text('회 오픈', style: AppText.micro),
                   ],
                 ),
-              ),
-              Text(
-                '${formatNumber(g.drawCount)}회',
-                style: AppText.num(AppText.bodyStrong),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
@@ -320,12 +365,12 @@ class _WinsTab extends StatelessWidget {
         child: Row(
           children: [
             SizedBox(
-              width: 48,
-              height: 48,
+              width: 52,
+              height: 52,
               child: RarityFrame(
                 rarity: w.rarity,
-                radius: 9,
-                glow: 0.5,
+                radius: 11,
+                glow: 0.6,
                 child: ProductImage(
                   url: w.imageUrl,
                   rarity: w.rarity,
@@ -370,8 +415,8 @@ class _WinsTab extends StatelessWidget {
                 Text(
                   formatWon(w.estimatedValue),
                   style: AppText.num(AppText.callout).copyWith(
-                    color: AppColors.text,
-                    fontWeight: FontWeight.w600,
+                    color: w.rarity == Rarity.n ? AppColors.text : w.rarity.ink,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
                 const SizedBox(height: 2),

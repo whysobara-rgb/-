@@ -328,7 +328,7 @@ class _InventoryPageState extends State<InventoryPage> {
                             InventoryStatus.shipping,
                             InventoryStatus.delivered,
                           ]) ...[
-                            VaultChip(
+                            AppChip(
                               label: '${f?.label ?? '전체'} ${_count(f)}',
                               selected: _filter == f,
                               onTap: () => setState(() => _filter = f),
@@ -442,7 +442,7 @@ class _ItemRow extends StatelessWidget {
         duration: Motion.fast,
         color: selected ? AppColors.brandTint : AppColors.canvas,
         padding: const EdgeInsets.fromLTRB(
-          Space.x3,
+          Space.x2,
           Space.x3,
           Space.gutter,
           Space.x3,
@@ -450,19 +450,20 @@ class _ItemRow extends StatelessWidget {
         child: Row(
           children: [
             SizedBox(
-              width: 40,
+              width: 44,
               child: actionable
                   ? Checkbox(value: selected, onChanged: (_) => onTap())
                   : const SizedBox.shrink(),
             ),
             SizedBox(
-              width: 72,
-              height: 72,
+              width: 76,
+              height: 76,
               child: RarityFrame(
                 rarity: item.rarity,
-                radius: 11,
-                glow: 0.6,
+                radius: 14,
+                glow: 0.7,
                 holo: item.rarity == Rarity.ssr,
+                holoAnimate: false,
                 holoIntensity: 0.45,
                 child: ProductImage(
                   url: item.imageUrl,
@@ -490,33 +491,42 @@ class _ItemRow extends StatelessWidget {
                       if (item.isLocked) ...[
                         const SizedBox(width: 4),
                         const Icon(
-                          Icons.lock_outline,
+                          Icons.lock_outline_rounded,
                           size: 14,
                           color: AppColors.textTertiary,
                         ),
                       ],
+                      const Spacer(),
+                      Text(
+                        '${formatMonthDay(item.acquiredAt)} 획득',
+                        style: AppText.num(AppText.micro),
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 5),
                   Text(
                     item.name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: AppText.bodyStrong,
+                    style: AppText.bodyStrong.copyWith(
+                      color: AppColors.text,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    item.exchangeValue != null
-                        ? '정가 ${formatWon(item.estimatedValue)} · 전환 ${formatGp(item.exchangeValue!)}'
-                        : '정가 ${formatWon(item.estimatedValue)}',
-                    style: AppText.num(AppText.caption),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '${formatMonthDay(item.acquiredAt)} 획득',
-                    style: AppText.num(
-                      AppText.caption,
-                    ).copyWith(color: AppColors.textTertiary),
+                  const SizedBox(height: 3),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      PriceText(item.estimatedValue, unit: '원', size: 15),
+                      if (item.exchangeValue != null) ...[
+                        const SizedBox(width: 6),
+                        Text(
+                          '전환 ${formatGp(item.exchangeValue!)}',
+                          style: AppText.num(AppText.caption),
+                        ),
+                      ],
+                    ],
                   ),
                 ],
               ),
@@ -550,8 +560,8 @@ class _SelectionBar extends StatelessWidget {
         .fold<int>(0, (s, i) => s + (i.exchangeValue ?? 0));
     return DecoratedBox(
       decoration: const BoxDecoration(
-        color: AppColors.canvas,
-        border: Border(top: BorderSide(color: AppColors.hairline)),
+        color: AppColors.raised,
+        boxShadow: Shadows.bar,
       ),
       child: SafeArea(
         top: false,
@@ -609,7 +619,7 @@ class _SelectionBar extends StatelessWidget {
                                 '포인트 전환 ${formatGp(exchangeTotal)}',
                                 style: AppText.num(
                                   AppText.headline,
-                                ).copyWith(color: AppColors.canvas),
+                                ).copyWith(color: AppColors.onBrand),
                               ),
                             ),
                     ),
@@ -624,7 +634,7 @@ class _SelectionBar extends StatelessWidget {
   }
 }
 
-/// 보관함 상단: 보관 중 수량·정가 합계(큰 숫자) + 등급 구성 막대.
+/// 보관함 상단: 보관 중인 상품의 정가 합계(큰 숫자) + 등급 구성 막대.
 class _VaultSummary extends StatelessWidget {
   final List<InventoryItem> items;
   final int value;
@@ -636,57 +646,34 @@ class _VaultSummary extends StatelessWidget {
     for (final i in items) {
       counts[i.rarity] = (counts[i.rarity] ?? 0) + 1;
     }
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-      decoration: BoxDecoration(
-        borderRadius: Radii.card,
-        border: Border.all(color: AppColors.hairline),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            AppColors.raised,
-            AppColors.surface,
-            (counts[Rarity.ssr] ?? 0) > 0
-                ? AppColors.raritySSR.withValues(alpha: 0.10)
-                : AppColors.surface,
-          ],
-        ),
-      ),
+    return AppCard(
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('MY VAULT', style: AppText.eyebrow),
-          const SizedBox(height: 6),
           Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Expanded(
-                child: Text.rich(
-                  TextSpan(
-                    children: [
-                      TextSpan(text: formatNumber(value)),
-                      const TextSpan(text: '원', style: TextStyle(fontSize: 17)),
-                    ],
-                  ),
-                  style: AppText.numeral.copyWith(fontSize: 30),
-                ),
-              ),
               Text(
-                '보관 중 ${formatNumber(items.length)}개',
+                '보관 중인 상품 정가 합계',
+                style: AppText.caption.copyWith(fontWeight: FontWeight.w600),
+              ),
+              const Spacer(),
+              Text(
+                '${formatNumber(items.length)}개',
                 style: AppText.num(
                   AppText.callout,
-                ).copyWith(color: AppColors.text, fontWeight: FontWeight.w700),
+                ).copyWith(color: AppColors.text, fontWeight: FontWeight.w800),
               ),
             ],
           ),
-          Text('보관 중인 상품의 정가 합계', style: AppText.caption),
+          const SizedBox(height: 6),
+          PriceText(value, unit: '원', size: 32),
           if (items.isNotEmpty) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
             ClipRRect(
-              borderRadius: BorderRadius.circular(3),
+              borderRadius: BorderRadius.circular(4),
               child: SizedBox(
-                height: 6,
+                height: 8,
                 child: Row(
                   children: [
                     for (final r in Rarity.values.reversed)
@@ -694,17 +681,23 @@ class _VaultSummary extends StatelessWidget {
                         Expanded(
                           flex: counts[r]!,
                           child: Container(
-                            margin: const EdgeInsets.only(right: 1.5),
-                            color: r.color,
+                            margin: const EdgeInsets.only(right: 2),
+                            decoration: BoxDecoration(
+                              gradient: r.foilGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                              ),
+                            ),
                           ),
                         ),
                   ],
                 ),
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
             Wrap(
-              spacing: 12,
+              spacing: 14,
+              runSpacing: 6,
               children: [
                 for (final r in Rarity.values.reversed)
                   if ((counts[r] ?? 0) > 0)
@@ -712,12 +705,12 @@ class _VaultSummary extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         RarityTag(r, dense: true),
-                        const SizedBox(width: 4),
+                        const SizedBox(width: 5),
                         Text(
                           '${counts[r]}',
-                          style: AppText.num(AppText.caption).copyWith(
+                          style: AppText.num(AppText.callout).copyWith(
                             color: AppColors.text,
-                            fontWeight: FontWeight.w700,
+                            fontWeight: FontWeight.w800,
                           ),
                         ),
                       ],
