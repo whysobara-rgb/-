@@ -21,6 +21,7 @@ import '../../wallet/domain/topup_limit.dart';
 import '../../wallet/presentation/payment_history_page.dart';
 import '../../wallet/presentation/point_history_page.dart';
 import '../../wallet/presentation/widgets/limit_sheet.dart';
+import '../../shipping/presentation/shipments_page.dart';
 import 'delete_account_page.dart';
 
 /// MY 탭.
@@ -383,6 +384,11 @@ class _ProfilePageState extends State<ProfilePage> {
               icon: Icons.inventory_2_outlined,
               label: '보관함',
               onTap: () => tabs.select(AppTab.inventory),
+            ),
+            MenuRow(
+              icon: Icons.local_shipping_outlined,
+              label: '배송 내역',
+              onTap: () => Navigator.of(context).push(ShipmentsPage.route()),
             ),
             const SectionBand(),
 

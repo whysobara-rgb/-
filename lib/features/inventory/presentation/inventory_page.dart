@@ -15,6 +15,7 @@ import '../../../shared/widgets/rarity_tag.dart';
 import '../../../shared/widgets/ui.dart';
 import '../data/inventory_repository.dart';
 import '../domain/inventory_item.dart';
+import '../../shipping/presentation/shipments_page.dart';
 import 'delivery_request_page.dart';
 
 /// 보관함 탭.
@@ -283,6 +284,11 @@ class _InventoryPageState extends State<InventoryPage> {
       appBar: AppBar(
         title: const Text('보관함'),
         actions: [
+          IconButton(
+            tooltip: '배송 내역',
+            onPressed: () => Navigator.of(context).push(ShipmentsPage.route()),
+            icon: const Icon(Icons.local_shipping_outlined),
+          ),
           TextButton.icon(
             onPressed: _openSort,
             iconAlignment: IconAlignment.end,
