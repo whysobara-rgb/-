@@ -16,6 +16,8 @@ import {
   markLayoutSeen,
   markMilestone,
   matchOutcomeFacts,
+  RECORD_MIN_FASTER_TICKS,
+  RECORD_MIN_VALUE,
   recordMatchOutcome,
   rivalRecord,
   rivalRecordKeyOf,
@@ -127,6 +129,28 @@ describe('recordMatchOutcome', () => {
     const r3 = recordMatchOutcome(match({ outcome: 'loss', myScore: 2100, theirScore: 2200, biggestHaul: 0, firstRecoveryTick: null }), save);
     expect(r3.newRecords).toEqual([{ kind: 'layoutBestScore', value: 2100, previous: 2000 }]);
     expect(save.data.records.plaza.hodadak).toEqual({ bestScore: 2100, bestMargin: 800 });
+    save.dispose();
+  });
+
+  it('a record must read as better: 1 s faster first recovery, coin records above their floor', () => {
+    const { save } = fresh();
+    const base = { firstRecoveryTick: 1500, biggestHaul: 0, biggestSplash: 10, biggestDeposit: 40 };
+    expect(recordMatchOutcome(match(base), save).newRecords).toEqual([]);
+    // 59 ticks faster (shows the same whole second), a 20-coin splash, an 80-coin deposit: stored silently.
+    const small = recordMatchOutcome(match({ ...base, firstRecoveryTick: 1500 - RECORD_MIN_FASTER_TICKS + 1, biggestSplash: 20, biggestDeposit: 80 }), save);
+    expect(small.newRecords).toEqual([]);
+    expect(save.data.globalRecords).toMatchObject({ fastestFirstRecovery: 1441, biggestSplash: 20, biggestDeposit: 80 });
+    // Exactly 1 s faster than the stored best, a splash and a deposit at their floors: all three are new.
+    const big = recordMatchOutcome(
+      match({ ...base, firstRecoveryTick: 1441 - RECORD_MIN_FASTER_TICKS, biggestSplash: RECORD_MIN_VALUE.biggestSplash!, biggestDeposit: RECORD_MIN_VALUE.biggestDeposit! }),
+      save,
+    );
+    expect(big.newRecords).toEqual([
+      { kind: 'biggestSplash', value: 50, previous: 20 },
+      { kind: 'biggestDeposit', value: 100, previous: 80 },
+      { kind: 'fastestFirstRecovery', value: 1381, previous: 1441 },
+    ]);
+    expect(RECORD_MIN_FASTER_TICKS).toBe(60);
     save.dispose();
   });
 

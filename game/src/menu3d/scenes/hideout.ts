@@ -45,7 +45,7 @@ const FRAMES: Record<HideoutFraming, { pos: [number, number, number]; look: [num
   front: { pos: [0.4, 3.4, 12.4], look: [1.0, 1.25, -0.6] },
 };
 /** Front door on portrait screens (fov keeps the 16:9 width): the gang above the column. */
-const FRONT_TALL = { pos: [2.8, 4.2, 10.5] as [number, number, number], look: [2.8, -0.6, -0.5] as [number, number, number] };
+const FRONT_TALL = { pos: [2.8, 4.6, 11.5] as [number, number, number], look: [2.8, -2.6, -0.5] as [number, number, number] };
 /** Idle pace on the front door (the gang breathes slower there than on the busier screens). */
 const FRONT_PACE = 0.7;
 
@@ -264,6 +264,8 @@ export class HideoutScene extends MenuScene {
     // --- live props: the safe table, string lights, glows -----------------------------------------
     this.safe = createSafe('largeSafe');
     this.safe.setAnchored(false);
+    // Unanchoring plays the "uprooted" hop; the snack table has stood here for ages, so skip it.
+    this.safe.update(10);
     this.safe.root.position.set(2.65, 0, -0.7);
     this.safe.root.rotation.y = -0.25;
     this.scene.add(this.safe.root);
@@ -436,7 +438,8 @@ export class HideoutScene extends MenuScene {
     const faceCam = -Math.PI / 2;
     const yawGoal = cer !== null ? faceCam - 1.2 : f === 'settings' ? 0.55 : f === 'wardrobe' ? faceCam - 0.9 : f === 'tournament' ? faceCam + 1.1 : faceCam + 0.25;
     this.lead.holder.rotation.y += (yawGoal - this.lead.holder.rotation.y) * damp(rm ? 40 : 7, dt);
-    this.lead.expression = f === 'tournament' ? 'shock' : cer !== null ? 'happy' : null;
+    // 게임 시작 focused (the front door's one reaction): a happy face and the hammer lifted a little.
+    this.lead.expression = f === 'tournament' ? 'shock' : cer !== null || f === 'play' ? 'happy' : null;
     const crewAct: Act = f === 'quickMatch' ? 'hop' : f === 'practice' ? 'stretch' : f === 'quit' || f === 'credits' ? 'wave' : 'idle';
     this.crew.forEach((p, i) => {
       p.setAct(cer !== null ? 'cheer' : i === 0 && f !== 'quit' && f !== 'practice' && f !== 'credits' ? (f === 'quickMatch' ? 'cheer' : 'idle') : crewAct);
@@ -477,13 +480,13 @@ export class HideoutScene extends MenuScene {
       p.setAct(i === 0 ? 'hop' : i === 1 ? 'flex' : 'smug');
       p.update(idt, it, rm);
     });
-    // Hammer pose (after the rig update: the arm override wins): resting on the shoulder, lifted
-    // while 게임 시작 is focused (the front door's one reaction), swung down on the slam.
+    // Hammer pose (after the rig update: the arm override wins): resting at the side, lifted a
+    // little while 게임 시작 is focused, raised and swung down on the slam (ceremony).
     const arm = this.lead.rightPaw;
     if (arm && this.hammer.visible) {
-      const raised = (f === 'play' && cer === null) || cer !== null;
-      let z = 0.3 + (rm ? 0 : Math.sin(it * 2.1) * 0.05);
-      if (raised) z = 2.95 + (rm ? 0 : Math.sin(it * 2.6) * 0.05);
+      const raised = cer !== null;
+      let z = (f === 'play' ? 0.75 : 0.3) + (rm ? 0 : Math.sin(it * 2.1) * 0.05);
+      if (raised) z = 2.95;
       if (cer !== null) {
         const k = cer / CER.slam;
         z = k < 1 ? 2.5 + k * 0.8 : Math.max(1.05, 3.3 - (cer - CER.slam) * 22);

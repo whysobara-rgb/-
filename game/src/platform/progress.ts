@@ -12,7 +12,7 @@
  *
  * Tournament / wardrobe achievements come from the save itself (`progressAchievements`).
  */
-import { secondsToTicks } from '../sim/config';
+import { COINS, secondsToTicks } from '../sim/config';
 import type { EntityId, ItemKind, LayoutId, LootEventKind, LootKind, MatchResult, SimEvent, TeamId } from '../sim/types';
 import { RIVALS, RIVAL_REWARD_HAT, getSaveManager, type MatchStatsSummary, type RivalId, type SaveData, type SaveManager } from './save';
 import { unlockHat, type CosmeticsData } from './save';
@@ -348,6 +348,24 @@ function applyMilestone(d: SaveData, key: string, now: number): boolean {
   return true;
 }
 
+/**
+ * A "fastest first recovery" record must be at least this much faster than the stored best (the
+ * chip shows seconds: a few ticks faster would read "신기록 21초 (이전 21초)"). The stored best
+ * still tracks the true minimum. Point records need no margin: any higher value reads higher.
+ */
+export const RECORD_MIN_FASTER_TICKS = secondsToTicks(1);
+
+/**
+ * Smallest value a coin record must reach to count as "new" (stored silently below it): a 10-20
+ * coin splash or a 40-coin deposit beats an equally small earlier one often and means little.
+ * Half the natural maximum: a spill is at most half a full bag (100), a deposit at most a full
+ * bag (COINS.bagCap 200). Keeps the record chip in its 25-40% band at match 10 on v2 rules.
+ */
+export const RECORD_MIN_VALUE: Readonly<Partial<Record<RecordKind, number>>> = {
+  biggestSplash: Math.floor(COINS.bagCap / 4),
+  biggestDeposit: Math.floor(COINS.bagCap / 2),
+};
+
 /** Head-to-head bucket of a match (a tournament match without a cup = today's ladder = 'normal'). */
 export function rivalRecordKeyOf(s: Pick<MatchOutcomeSummary, 'mode' | 'cup' | 'difficulty'>): RivalRecordKey {
   return s.mode === 'tournament' ? `cup.${s.cup ?? 'normal'}` : `quick.${s.difficulty}`;
@@ -364,7 +382,8 @@ const lastResults = new WeakMap<SaveManager, { matchId: string; result: MatchOut
  * it is the latest recorded match, `{ newRecord: null }` otherwise):
  *  - head-to-head `rivals[rival][bucket]` (W / L / D, signed streak, last score, best margin);
  *  - personal bests `records[layout][rival]` and `globalRecords` (incl. Content 2.0 splash /
- *    deposit) — a record is "new" only when an earlier non-zero record is strictly beaten;
+ *    deposit) — a record is "new" only when an earlier non-zero record is strictly beaten
+ *    (fastest first recovery: by at least RECORD_MIN_FASTER_TICKS = 1 s);
  *  - challenge counters (+ `challengeDeltas`, already capped by WP10) and completed ids;
  *  - the `recent` ring buffer, `seenLayouts`, `lastEventKind` (when `eventKind` is given);
  *  - the funnel: counts `matchFinished` (so do NOT also `bumpFunnel('matchFinished')`),
@@ -394,7 +413,7 @@ export function recordMatchOutcome(summary: Readonly<MatchOutcomeSummary>, save:
         if (s.outcome === 'win') applyMilestone(d, 'firstWin', now);
         const margin = s.outcome === 'win' ? s.myScore - s.theirScore : 0;
         const higher = (kind: RecordKind, value: number, previous: number): void => {
-          if (previous > 0 && value > previous) broken.push({ kind, value, previous });
+          if (previous > 0 && value > previous && value >= (RECORD_MIN_VALUE[kind] ?? 0)) broken.push({ kind, value, previous });
         };
 
         // Head-to-head.
@@ -430,7 +449,7 @@ export function recordMatchOutcome(summary: Readonly<MatchOutcomeSummary>, save:
         higher('biggestHaul', s.biggestHaul, g.biggestHaul);
         g.biggestHaul = Math.max(g.biggestHaul, s.biggestHaul);
         if (s.firstRecoveryTick !== null) {
-          if (g.fastestFirstRecovery !== null && s.firstRecoveryTick < g.fastestFirstRecovery) {
+          if (g.fastestFirstRecovery !== null && s.firstRecoveryTick <= g.fastestFirstRecovery - RECORD_MIN_FASTER_TICKS) {
             broken.push({ kind: 'fastestFirstRecovery', value: s.firstRecoveryTick, previous: g.fastestFirstRecovery });
           }
           g.fastestFirstRecovery = g.fastestFirstRecovery === null ? s.firstRecoveryTick : Math.min(g.fastestFirstRecovery, s.firstRecoveryTick);

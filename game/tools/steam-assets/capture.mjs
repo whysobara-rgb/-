@@ -633,7 +633,10 @@ async function main() {
     } catch {
       /* first run */
     }
-    fs.writeFileSync(mf, JSON.stringify({ ...prev, ...manifest, frames: { ...(prev.frames ?? {}), ...manifest.frames } }, null, 2));
+    // Failures recorded by earlier runs stay listed only for jobs this run did not redo.
+    const redone = new Set(JOBS.filter((j) => !ONLY || ONLY.includes(j.name)).map((j) => j.name));
+    const failed = [...(prev.failed ?? []).filter((f) => !redone.has(f.split('/')[0])), ...(manifest.failed ?? [])];
+    fs.writeFileSync(mf, JSON.stringify({ ...prev, ...manifest, failed, frames: { ...(prev.frames ?? {}), ...manifest.frames } }, null, 2));
     stopServers();
   }
   if (manifest.failed?.length) {

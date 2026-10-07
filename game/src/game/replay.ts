@@ -12,41 +12,49 @@
  *
  * Lossless by construction. A raw stick / bot direction is an arbitrary float64 that changes on
  * almost every tick (measured: ~88 % of bot ticks), so storing it exactly would cost 16 bytes per
- * slot-tick (~460 KB for a 4-minute 1:1) — over the 150 KB budget. Instead game flow puts every
- * slot's `move` on the log's int16 grid (`MOVE_STEPS` = 32767 steps per unit, ≤ 1.5e-5 per axis:
+ * slot-tick (~460 KB for a 4-minute 1:1) — far over the 150 KB budget. Instead game flow puts
+ * every slot's `move` on the log's grid (`MOVE_STEPS` = 8191 steps per unit, <= 6.2e-5 per axis:
  * far below anything a stick, a bot or the physics can tell apart) BEFORE the sim sees it. The
- * log then stores exactly the commands the sim consumed: nothing is rounded after the fact, and
- * a replay feeds back the identical numbers. `aim` and `ping` positions are rare and kept as raw
+ * log then stores exactly the commands the sim consumed: nothing is rounded after the fact, and a
+ * replay feeds back the identical numbers. `aim` and `ping` positions are rare and kept as raw
  * float64; flags, grab / dash levels and taunts are kept as-is.
  *
- * Storage (compact typed arrays, grown by doubling):
- * - one flag byte per slot-tick (present / grab / dash / move changed / aim / ping / emote);
- * - an int16 pair only when a slot's move differs from its previous move;
- * - side tables for aim (float64 pair), ping (float64 pair + target id) and emote (string).
- * A 4-minute 1:1 with a keyboard human and one bot is ~80 KB; two bots ~130 KB (see tests).
+ * Encoding: one byte stream, per tick
+ * - a slot mask (ceil(slots / 8) bytes): bit s clear = slot s repeats its previous command
+ *   (same presence, grab, dash and move; no aim / ping / taunt) and costs nothing more;
+ * - per masked slot a header byte (present / grab / dash / aim / ping / taunt + a 2-bit move code)
+ *   and the move as a delta from that slot's previous move: unchanged (0 B), two 4-bit deltas
+ *   (1 B, |d| <= 7), two int8 deltas (2 B) or the absolute int16 pair (4 B);
+ * - side tables for aim (float64 pair), ping (float64 pair + target id) and taunt (string).
+ * Bot steering moves a little on most ticks (median change 3e-4), so most changes take 1-2 bytes.
+ * Measured on 2:2 police-on matches (three bots, every content system on): ~95-125 KB per
+ * 4 minutes (test/unit/replay.test.ts asserts <= 150 KB).
  *
  * Pure TS (no DOM / Node APIs), deterministic, no wall clock.
  */
 import { Simulation } from '../sim/sim';
 import type { Command, EmoteId, EntityId, MatchSetup, SimEvent } from '../sim/types';
 
-/** int16 steps per unit of `Command.move` (the sim clamps |move| to 1, so |x|, |y| ≤ 1). */
-export const MOVE_STEPS = 32767;
+/** Grid steps per unit of `Command.move` (the sim clamps |move| to 1, so |x|, |y| <= 1). */
+export const MOVE_STEPS = 8191;
 
-const F_PRESENT = 1;
-const F_GRAB = 2;
-const F_DASH = 4;
-const F_MOVE = 8;
-const F_AIM = 16;
-const F_PING = 32;
-const F_EMOTE = 64;
+const H_PRESENT = 1;
+const H_GRAB = 2;
+const H_DASH = 4;
+const H_AIM = 8;
+const H_PING = 16;
+const H_EMOTE = 32;
+const H_MOVE_SHIFT = 6;
+/** Move codes (header bits 6-7). */
+const M_SAME = 0;
+const M_NIBBLE = 1;
+const M_INT8 = 2;
+const M_ABS = 3;
 
 /** One move component on the log's grid (finite, clamped to [-1, 1]). Idempotent. */
 export function quantizeAxis(v: number): number {
-  if (!Number.isFinite(v)) return 0;
-  const c = v > 1 ? 1 : v < -1 ? -1 : v;
-  const r = Math.round(c * MOVE_STEPS);
-  // -0 becomes +0: the int16 store cannot hold a signed zero (and atan2 tells them apart)
+  const r = axisToInt(v);
+  // -0 becomes +0: the integer store cannot hold a signed zero (and atan2 tells them apart)
   return r === 0 ? 0 : r / MOVE_STEPS;
 }
 
@@ -55,6 +63,10 @@ function axisToInt(v: number): number {
   const c = v > 1 ? 1 : v < -1 ? -1 : v;
   const r = Math.round(c * MOVE_STEPS);
   return r === 0 ? 0 : r;
+}
+
+function intToAxis(i: number): number {
+  return i === 0 ? 0 : i / MOVE_STEPS;
 }
 
 /**
@@ -73,9 +85,10 @@ export function canonicalizeCommands(cmds: (Command | undefined)[]): void {
   }
 }
 
-function growI16(a: Int16Array, need: number): Int16Array {
+/** Grow by 1.5x (keeps the reserved capacity close to the payload for long matches). */
+function growU8(a: Uint8Array, need: number): Uint8Array {
   if (need <= a.length) return a;
-  const b = new Int16Array(Math.max(need, a.length * 2));
+  const b = new Uint8Array(Math.max(need, Math.ceil(a.length * 1.5)));
   b.set(a);
   return b;
 }
@@ -83,13 +96,6 @@ function growI16(a: Int16Array, need: number): Int16Array {
 function growF64(a: Float64Array, need: number): Float64Array {
   if (need <= a.length) return a;
   const b = new Float64Array(Math.max(need, a.length * 2));
-  b.set(a);
-  return b;
-}
-
-function growU8(a: Uint8Array, need: number): Uint8Array {
-  if (need <= a.length) return a;
-  const b = new Uint8Array(Math.max(need, a.length * 2));
   b.set(a);
   return b;
 }
@@ -103,49 +109,59 @@ function growI32(a: Int32Array, need: number): Int32Array {
 
 /** Serializable form of a CommandLog (bug reports): typed arrays as plain number arrays. */
 export interface CommandLogJSON {
-  v: 1;
+  v: 2;
   slots: number;
   ticks: number;
-  flags: number[];
-  moves: number[];
+  /** Grid of the stored moves (`MOVE_STEPS` when recorded). */
+  steps: number;
+  bytes: number[];
   aims: number[];
   pings: number[];
   pingTargets: number[];
   emotes: string[];
 }
 
+/** Per-slot running state of the encoder / decoder. */
+interface SlotRun {
+  /** Header of the last recorded command (presence / grab / dash bits only). */
+  base: Uint8Array;
+  x: Int16Array;
+  y: Int16Array;
+}
+
+function newRun(slots: number): SlotRun {
+  return { base: new Uint8Array(slots), x: new Int16Array(slots), y: new Int16Array(slots) };
+}
+
 export class CommandLog {
   readonly slots: number;
+  private readonly maskBytes: number;
   private nTicks = 0;
-  private flags: Uint8Array;
-  private moves: Int16Array;
-  private nMoves = 0;
+  private buf: Uint8Array;
+  private nBytes = 0;
   private aims: Float64Array;
   private nAims = 0;
   private pings: Float64Array;
   private pingTargets: Int32Array;
   private nPings = 0;
   private emotes: string[] = [];
-  /** Last recorded move per slot (int16 grid), for change detection. */
-  private readonly lastX: Int16Array;
-  private readonly lastY: Int16Array;
-  // decoding cursor (sequential reads are O(1) per tick)
-  private cur = { tick: 0, move: 0, aim: 0, ping: 0, emote: 0 };
-  private readonly curX: Int16Array;
-  private readonly curY: Int16Array;
+  /** Encoder state (what the last recorded tick left per slot). */
+  private enc: SlotRun;
+  /** Decoder state + cursor (sequential reads are O(slots) per tick). */
+  private dec: SlotRun;
+  private cur = { tick: 0, byte: 0, aim: 0, ping: 0, emote: 0 };
 
   constructor(slots: number, expectedTicks = 4 * 60 * 60) {
     if (!(slots >= 1 && slots <= 255)) throw new RangeError(`CommandLog: bad slot count ${slots}`);
     this.slots = slots;
-    this.flags = new Uint8Array(Math.max(64, expectedTicks * slots));
-    this.moves = new Int16Array(Math.max(64, expectedTicks * slots));
+    this.maskBytes = Math.ceil(slots / 8);
+    // typical payload is ~1-2 bytes per slot-tick; grows by 1.5x past that
+    this.buf = new Uint8Array(Math.max(64, expectedTicks * (this.maskBytes + slots)));
     this.aims = new Float64Array(64);
     this.pings = new Float64Array(16);
     this.pingTargets = new Int32Array(8);
-    this.lastX = new Int16Array(slots);
-    this.lastY = new Int16Array(slots);
-    this.curX = new Int16Array(slots);
-    this.curY = new Int16Array(slots);
+    this.enc = newRun(slots);
+    this.dec = newRun(slots);
   }
 
   /** Ticks recorded so far (tick i of the log = the i-th `sim.step`). */
@@ -155,43 +171,68 @@ export class CommandLog {
 
   /**
    * Append one tick: exactly the commands passed to that `sim.step` (after
-   * `canonicalizeCommands`). A move off the int16 grid is a programming error (the replay would
-   * not be exact) and throws.
+   * `canonicalizeCommands`). A move off the grid is a programming error (the replay would not be
+   * exact) and throws.
    */
   record(cmds: ReadonlyArray<Command | undefined>): void {
     const n = this.slots;
-    const base = this.nTicks * n;
-    this.flags = growU8(this.flags, base + n);
+    const mb = this.maskBytes;
+    // worst case: mask + per slot header + 4 move bytes
+    this.buf = growU8(this.buf, this.nBytes + mb + n * 5);
+    const buf = this.buf;
+    const maskAt = this.nBytes;
+    for (let i = 0; i < mb; i++) buf[maskAt + i] = 0;
+    let at = maskAt + mb;
+    const run = this.enc;
     for (let s = 0; s < n; s++) {
       const c = cmds[s];
-      if (!c) {
-        this.flags[base + s] = 0;
-        continue;
+      let h = 0;
+      let code = M_SAME;
+      let dx = 0;
+      let dy = 0;
+      let xi = run.x[s]!;
+      let yi = run.y[s]!;
+      if (c) {
+        h = H_PRESENT;
+        if (c.grab) h |= H_GRAB;
+        if (c.dash) h |= H_DASH;
+        xi = axisToInt(c.move.x);
+        yi = axisToInt(c.move.y);
+        if (!Object.is(intToAxis(xi), c.move.x) || !Object.is(intToAxis(yi), c.move.y)) {
+          throw new RangeError(`CommandLog: slot ${s} move (${c.move.x}, ${c.move.y}) is not on the log grid; call canonicalizeCommands before sim.step`);
+        }
+        dx = xi - run.x[s]!;
+        dy = yi - run.y[s]!;
+        if (dx === 0 && dy === 0) code = M_SAME;
+        else if (dx >= -8 && dx <= 7 && dy >= -8 && dy <= 7) code = M_NIBBLE;
+        else if (dx >= -128 && dx <= 127 && dy >= -128 && dy <= 127) code = M_INT8;
+        else code = M_ABS;
       }
-      let f = F_PRESENT;
-      if (c.grab) f |= F_GRAB;
-      if (c.dash) f |= F_DASH;
-      const xi = axisToInt(c.move.x);
-      const yi = axisToInt(c.move.y);
-      if (!Object.is(xi === 0 ? 0 : xi / MOVE_STEPS, c.move.x) || !Object.is(yi === 0 ? 0 : yi / MOVE_STEPS, c.move.y)) {
-        throw new RangeError(`CommandLog: slot ${s} move (${c.move.x}, ${c.move.y}) is not on the log grid; call canonicalizeCommands before sim.step`);
+      const extra = c ? (c.aim ? H_AIM : 0) | (c.ping ? H_PING : 0) | (c.emote ? H_EMOTE : 0) : 0;
+      if (h === run.base[s] && code === M_SAME && extra === 0) continue; // repeat: mask bit stays clear
+      buf[maskAt + (s >> 3)]! |= 1 << (s & 7);
+      buf[at++] = h | extra | (code << H_MOVE_SHIFT);
+      if (code === M_NIBBLE) {
+        buf[at++] = ((dx + 8) << 4) | (dy + 8);
+      } else if (code === M_INT8) {
+        buf[at++] = dx & 0xff;
+        buf[at++] = dy & 0xff;
+      } else if (code === M_ABS) {
+        buf[at++] = xi & 0xff;
+        buf[at++] = (xi >> 8) & 0xff;
+        buf[at++] = yi & 0xff;
+        buf[at++] = (yi >> 8) & 0xff;
       }
-      if (xi !== this.lastX[s] || yi !== this.lastY[s]) {
-        f |= F_MOVE;
-        this.moves = growI16(this.moves, this.nMoves + 2);
-        this.moves[this.nMoves++] = xi;
-        this.moves[this.nMoves++] = yi;
-        this.lastX[s] = xi;
-        this.lastY[s] = yi;
-      }
+      run.base[s] = h;
+      run.x[s] = xi;
+      run.y[s] = yi;
+      if (!c) continue;
       if (c.aim) {
-        f |= F_AIM;
         this.aims = growF64(this.aims, this.nAims + 2);
         this.aims[this.nAims++] = c.aim.x;
         this.aims[this.nAims++] = c.aim.y;
       }
       if (c.ping) {
-        f |= F_PING;
         this.pings = growF64(this.pings, this.nPings * 2 + 2);
         this.pingTargets = growI32(this.pingTargets, this.nPings + 1);
         this.pings[this.nPings * 2] = c.ping.pos.x;
@@ -199,12 +240,9 @@ export class CommandLog {
         this.pingTargets[this.nPings] = c.ping.targetId === null ? -1 : c.ping.targetId;
         this.nPings++;
       }
-      if (c.emote) {
-        f |= F_EMOTE;
-        this.emotes.push(c.emote);
-      }
-      this.flags[base + s] = f;
+      if (c.emote) this.emotes.push(c.emote);
     }
+    this.nBytes = at;
     this.nTicks++;
   }
 
@@ -222,66 +260,78 @@ export class CommandLog {
   }
 
   private rewind(): void {
-    this.cur = { tick: 0, move: 0, aim: 0, ping: 0, emote: 0 };
-    this.curX.fill(0);
-    this.curY.fill(0);
+    this.cur = { tick: 0, byte: 0, aim: 0, ping: 0, emote: 0 };
+    this.dec = newRun(this.slots);
   }
 
   private decodeTick(out: (Command | undefined)[] | null): void {
     const n = this.slots;
-    const base = this.cur.tick * n;
+    const buf = this.buf;
+    const run = this.dec;
+    const maskAt = this.cur.byte;
+    let at = maskAt + this.maskBytes;
     for (let s = 0; s < n; s++) {
-      const f = this.flags[base + s]!;
-      if (!(f & F_PRESENT)) {
+      let h = run.base[s]!;
+      if (buf[maskAt + (s >> 3)]! & (1 << (s & 7))) {
+        h = buf[at++]!;
+        const code = h >> H_MOVE_SHIFT;
+        if (code === M_NIBBLE) {
+          const b = buf[at++]!;
+          run.x[s] = run.x[s]! + ((b >> 4) - 8);
+          run.y[s] = run.y[s]! + ((b & 15) - 8);
+        } else if (code === M_INT8) {
+          run.x[s] = run.x[s]! + ((buf[at++]! << 24) >> 24);
+          run.y[s] = run.y[s]! + ((buf[at++]! << 24) >> 24);
+        } else if (code === M_ABS) {
+          run.x[s] = ((buf[at]! | (buf[at + 1]! << 8)) << 16) >> 16;
+          run.y[s] = ((buf[at + 2]! | (buf[at + 3]! << 8)) << 16) >> 16;
+          at += 4;
+        }
+        run.base[s] = h & (H_PRESENT | H_GRAB | H_DASH);
+      }
+      if (!(h & H_PRESENT)) {
         if (out) out[s] = undefined;
         continue;
       }
-      if (f & F_MOVE) {
-        this.curX[s] = this.moves[this.cur.move++]!;
-        this.curY[s] = this.moves[this.cur.move++]!;
-      }
       let aim: { x: number; y: number } | null = null;
-      if (f & F_AIM) {
-        aim = { x: this.aims[this.cur.aim++]!, y: this.aims[this.cur.aim++]! };
-      }
+      if (h & H_AIM) aim = { x: this.aims[this.cur.aim++]!, y: this.aims[this.cur.aim++]! };
       let ping: { pos: { x: number; y: number }; targetId: EntityId | null } | null = null;
-      if (f & F_PING) {
+      if (h & H_PING) {
         const i = this.cur.ping++;
         const t = this.pingTargets[i]!;
         ping = { pos: { x: this.pings[i * 2]!, y: this.pings[i * 2 + 1]! }, targetId: t < 0 ? null : t };
       }
       let emote: EmoteId | null = null;
-      if (f & F_EMOTE) emote = this.emotes[this.cur.emote++] as EmoteId;
+      if (h & H_EMOTE) emote = this.emotes[this.cur.emote++] as EmoteId;
       if (out) {
-        const mx = this.curX[s]!;
-        const my = this.curY[s]!;
-        const cmd: Command = { move: { x: mx === 0 ? 0 : mx / MOVE_STEPS, y: my === 0 ? 0 : my / MOVE_STEPS }, grab: (f & F_GRAB) !== 0, dash: (f & F_DASH) !== 0, aim, ping };
+        const cmd: Command = { move: { x: intToAxis(run.x[s]!), y: intToAxis(run.y[s]!) }, grab: (h & H_GRAB) !== 0, dash: (h & H_DASH) !== 0, aim, ping };
         if (emote) cmd.emote = emote;
         out[s] = cmd;
       }
     }
+    this.cur.byte = at;
     this.cur.tick++;
   }
 
-  /** Bytes held by the recorded data (typed-array payload actually used + taunt strings). */
+  /** Bytes held by the recorded data (stream + side tables actually used + taunt strings). */
   byteSize(): number {
     let emoteBytes = 0;
     for (const e of this.emotes) emoteBytes += e.length * 2 + 8;
-    return this.nTicks * this.slots + this.nMoves * 2 + this.nAims * 8 + this.nPings * (16 + 4) + emoteBytes;
+    return this.nBytes + this.nAims * 8 + this.nPings * (16 + 4) + emoteBytes;
   }
 
   /** Bytes currently reserved by the backing typed arrays (capacity, incl. headroom). */
   capacityBytes(): number {
-    return this.flags.byteLength + this.moves.byteLength + this.aims.byteLength + this.pings.byteLength + this.pingTargets.byteLength;
+    return this.buf.byteLength + this.aims.byteLength + this.pings.byteLength + this.pingTargets.byteLength;
   }
 
   toJSON(): CommandLogJSON {
     return {
-      v: 1,
+      v: 2,
       slots: this.slots,
       ticks: this.nTicks,
-      flags: Array.from(this.flags.subarray(0, this.nTicks * this.slots)),
-      moves: Array.from(this.moves.subarray(0, this.nMoves)),
+      steps: MOVE_STEPS,
+      bytes: Array.from(this.buf.subarray(0, this.nBytes)),
       aims: Array.from(this.aims.subarray(0, this.nAims)),
       pings: Array.from(this.pings.subarray(0, this.nPings * 2)),
       pingTargets: Array.from(this.pingTargets.subarray(0, this.nPings)),
@@ -290,24 +340,22 @@ export class CommandLog {
   }
 
   static fromJSON(j: CommandLogJSON): CommandLog {
-    if (j.v !== 1) throw new RangeError(`CommandLog: unknown version ${String(j.v)}`);
-    const log = new CommandLog(j.slots, Math.max(1, j.ticks));
+    if (j.v !== 2) throw new RangeError(`CommandLog: unknown version ${String(j.v)}`);
+    if (j.steps !== MOVE_STEPS) throw new RangeError(`CommandLog: recorded on a ${j.steps}-step grid, this build uses ${MOVE_STEPS}`);
+    const log = new CommandLog(j.slots, 1);
     log.nTicks = j.ticks;
-    log.flags = Uint8Array.from(j.flags);
-    log.moves = Int16Array.from(j.moves);
-    log.nMoves = j.moves.length;
+    log.buf = Uint8Array.from(j.bytes);
+    log.nBytes = j.bytes.length;
     log.aims = Float64Array.from(j.aims);
     log.nAims = j.aims.length;
     log.pings = Float64Array.from(j.pings);
     log.pingTargets = Int32Array.from(j.pingTargets);
     log.nPings = j.pingTargets.length;
     log.emotes = [...j.emotes];
-    // restore the change-detection state so recording can continue after a load
+    // restore the encoder state so recording can continue after a load
     for (let t = 0; t < j.ticks; t++) log.decodeTick(null);
-    for (let s = 0; s < log.slots; s++) {
-      log.lastX[s] = log.curX[s]!;
-      log.lastY[s] = log.curY[s]!;
-    }
+    if (log.cur.byte !== log.nBytes) throw new RangeError('CommandLog: corrupt stream (length mismatch)');
+    log.enc = log.dec;
     log.rewind();
     return log;
   }

@@ -106,6 +106,10 @@ export class ItemGoals implements GoalProvider {
         out.push(view.mk('fetchItem', key, it.id, (worth / t) * w, worth, t, { pos: { ...it.pos } }));
       }
     }
+    // ---- be at the axis pad when its scheduled drop lands (public schedule: 45 / 100 s, the
+    // golden hammer at the final countdown + 8 s or 35 s before the end) — the races there are
+    // the drops both teams contest ----
+    if (!me.item && !me.grab) this.proposeAxisWait(view, out, skill, wHammer, left);
     const held = holdsHammer(me);
     if (!held || me.grab) return;
     const lifeLeft = held.expiresTick >= 0x7fffffff ? 999 : (held.expiresTick - st.tick) / TICK_RATE;
@@ -184,7 +188,40 @@ export class ItemGoals implements GoalProvider {
     }
   }
 
+  /** The next scheduled axis-pad landing within a few seconds (public), as a pre-position goal. */
+  private proposeAxisWait(view: BotView, out: Candidate[], skill: number, wHammer: number, left: number): void {
+    const sim = view.sim;
+    const st = sim.state;
+    const pad = sim.layout.v2?.itemPads.find((p) => p.twin === null);
+    if (!pad || sim.rules.items === 'off') return;
+    if (st.items.some((i) => i.padId === pad.id)) return; // announced already: the fetch covers it
+    const D = ITEMS.drop;
+    let land: number | null = null;
+    let kind: 'hammer' | 'goldHammer' = 'hammer';
+    for (const s of D.center) {
+      const t = Math.round(s * TICK_RATE);
+      if (t > st.tick && (land === null || t < land)) land = t;
+    }
+    const gold = st.finalCountdownTick !== null ? st.finalCountdownTick + D.goldHammer.afterCountdownTicks : st.endTick - D.goldHammer.beforeEndTicks;
+    if (gold > st.tick && (land === null || gold < land) && gold < st.endTick) {
+      land = gold;
+      kind = 'goldHammer';
+    }
+    if (land === null) return;
+    const landIn = (land - st.tick) / TICK_RATE;
+    if (landIn > 9) return;
+    const key = `fetch:axis:${land}`;
+    if (view.blacklisted(key) || view.claimedByOther(key)) return;
+    const walk = view.walkDist(pad.pos);
+    if (!Number.isFinite(walk) || walk > 34) return;
+    const t = Math.max(walk / WALK, landIn) + 0.4;
+    const worth = itemWorth(kind, left - t);
+    if (worth <= 0) return;
+    out.push(view.mk('fetchItem', key, null, (worth / t) * wHammer * (0.45 + 0.55 * skill) * 0.9, worth, t, { pos: { ...pad.pos }, sub: 'axis', until: land + D.warnTicks }));
+  }
+
   execute(view: BotView, g: Goal): Command | null {
+    if (g.kind === 'fetchItem' && g.sub === 'axis') return this.execAxisWait(view, g);
     if (g.kind === 'fetchItem') return this.execFetch(view, g);
     if (g.kind === 'bonk') return this.execBonk(view, g);
     return this.execUse(view, g);
@@ -212,6 +249,36 @@ export class ItemGoals implements GoalProvider {
     g.phase = 'travel';
     if (d < 3 && view.nav.segmentClear(me.pos, it.pos, 'walk', -0.05)) return move(V.norm(V.sub(it.pos, me.pos)));
     const m = view.moveTo(it.pos, 'walk', 0.2);
+    if (m.stuck) view.endGoal('stuck', 5 * TICK_RATE);
+    return move(m.move);
+  }
+
+  private execAxisWait(view: BotView, g: Goal): Command {
+    const st = view.sim.state;
+    const me = view.me();
+    if (me.item) {
+      view.endGoal('pocket full');
+      return still();
+    }
+    if (me.grab) return still(false);
+    // the crate is announced: switch to fetching it
+    const it = g.pos ? st.items.find((i) => V.dist(i.pos, g.pos!) < 0.5) : undefined;
+    if (it) {
+      g.sub = undefined;
+      g.targetId = it.id;
+      return this.execFetch(view, g);
+    }
+    if (!g.pos || (g.until !== undefined && st.tick > g.until)) {
+      view.endGoal('no drop');
+      return still();
+    }
+    const d = V.dist(me.pos, g.pos);
+    if (d < 1.4) {
+      g.phase = 'wait';
+      return still();
+    }
+    g.phase = 'travel';
+    const m = view.moveTo(g.pos, 'walk', 1.0);
     if (m.stuck) view.endGoal('stuck', 5 * TICK_RATE);
     return move(m.move);
   }

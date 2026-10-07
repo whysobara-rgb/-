@@ -1966,7 +1966,7 @@ export class Bot implements BotController {
       case 'aim':
         return 6 * s;
       case 'wait':
-        return g.kind === 'fetchItem' ? 8 * s : 1e9;
+        return g.kind === 'fetchItem' ? 12 * s : 1e9;
       case 'itemWindup':
         return 3 * s;
       default:
