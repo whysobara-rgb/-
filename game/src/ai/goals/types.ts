@@ -212,7 +212,7 @@ export interface BotView {
  * shared auction; `execute` runs a goal of one of its `kinds` (null = idle this tick). Optional
  * (C6 add-only extension of content-plan §4.5's `{ kinds; propose; execute }`):
  * `overlay` may replace the command of whatever goal runs (opportunistic swing, scoop detour;
- * bot.ts runs them each tick in this order: items' swing, police reflexes, props' dash-in-passing,
+ * bot.ts runs them each tick in this order: items' swing, police reflexes / grab gate, props' dash-in-passing,
  * coins' scoop detour; the first non-null wins); `onEvents` sees the new sim events once per update.
  */
 export interface GoalProvider {
