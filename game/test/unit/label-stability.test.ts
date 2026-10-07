@@ -4,8 +4,10 @@
  * - declutter hysteresis: a tag overlapping a moving tag keeps its side instead of teleporting a
  *   whole tag height whenever the up / down distances cross; a forced side change across another
  *   tag is a quick fade cut (never a visible slide through it), a short move eases, both settle
- *   in ~150 ms; a nudged tag rides its blocker with no lag; a tag back on its anchor takes the
- *   near way; at most one switch per SIDE_HOLD; un-nudged tags follow their anchor exactly;
+ *   in ~150 ms; a nudged tag is pushed along by its blocker with no lag but keeps a little play
+ *   when pulled back (a vibrating blocker does not pass its shake on); a tag back on its anchor
+ *   takes the near way; at most one switch per SIDE_HOLD, and a second cut waits SIDE_HOLD while
+ *   its drawn spot stays free; un-nudged tags follow their anchor exactly;
  *   equal priorities keep a stable order.
  * - springStep: critically damped, no overshoot, frame-rate independent.
  * - adapters: labels anchor on the drawn (interpolated) pose when the view supplies one, and
@@ -298,9 +300,9 @@ describe('layoutTags (temporal de-overlap)', () => {
     const k: Box = { l: 470, t: 320, r: 540, b: 340 };
     // drawn below k (63 px down): free and within reach of the nearest spot (26 px up) -> kept
     expect(placeLabel([{ ...v }, { ...k }], 505, 300, 60, 20, GAP, { near: 363.01, stick: CUT_HOLD_REACH * 20 })).toBeCloseTo(363.01, 5);
-    // drawn spot taken: the free spot nearest to it (just below the blocker)
+    // drawn spot taken: the free spot nearest to it (just below the new blocker) while in reach
     const k2: Box = { l: 470, t: 350, r: 540, b: 370 };
-    expect(placeLabel([{ ...v }, { ...k }, { ...k2 }], 505, 300, 60, 20, GAP, { near: 363.01, stick: CUT_HOLD_REACH * 20 })).toBeCloseTo(370 + GAP + 20 + 0.01, 5);
+    expect(placeLabel([{ ...v }, { ...k }, { ...k2 }], 505, 300, 60, 20, GAP, { near: 363.01, stick: 4 * 20 })).toBeCloseTo(370 + GAP + 20 + 0.01, 5);
     // ...unless that is more than `stick` farther from the anchor than the nearest spot: nearest it is
     expect(placeLabel([{ ...v }, { ...k }, { ...k2 }], 505, 300, 60, 20, GAP, { near: 363.01, stick: 20 })).toBeCloseTo(277 - GAP - 0.01, 5);
   });
