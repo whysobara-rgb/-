@@ -1,0 +1,250 @@
+/* ======================================================================================== */
+/* 같이 하기 (local multiplayer) join screen                                                  */
+/* Two team boards (별 / 달) with two seats each, a join strip, and the match options that    */
+/* open once everyone is ready. Each player = their colour + P-number (never colour alone).   */
+/* ======================================================================================== */
+
+.uh-together__scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(43, 31, 92, 0.55), rgba(21, 15, 43, 0.78));
+  pointer-events: none;
+}
+.uh-together { gap: 0.9rem; }
+.uh-together .uh-header { margin-bottom: 0.25rem; }
+
+.uh-together__style {
+  margin-left: auto;
+  display: grid;
+  grid-template-columns: auto auto;
+  grid-template-rows: auto auto;
+  column-gap: 0.9rem;
+  align-items: center;
+  padding: 0.6rem 1.3rem 0.7rem;
+  background: var(--pop-cream);
+  border: var(--pop-line) solid var(--pop-ink);
+  border-radius: 1.2rem;
+  box-shadow: var(--pop-shadow);
+  color: var(--pop-ink);
+}
+.uh-together__styleName { grid-row: 1 / span 2; font-family: var(--uh-font-display); font-size: 2.6rem; line-height: 1; color: var(--pop-grape-d); }
+.uh-together__style.is-coop .uh-together__styleName { color: var(--pop-mint-d); }
+.uh-together__styleDesc { font-weight: 800; font-size: var(--uh-fs-sm); }
+.uh-together__count { font-weight: 700; font-size: var(--uh-fs-xs); color: var(--pop-ink-2); }
+
+.uh-together__board {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 1.2rem;
+  align-items: stretch;
+}
+.uh-together__vs {
+  align-self: center;
+  font-family: var(--uh-font-display);
+  font-size: 3rem;
+  color: var(--pop-cream);
+  text-shadow: 0.2rem 0.2rem 0 var(--pop-ink);
+}
+.uh-together__team {
+  display: flex;
+  flex-direction: column;
+  background: var(--team-tint);
+  border: var(--pop-line) solid var(--pop-ink);
+  border-radius: 1.6rem;
+  box-shadow: var(--pop-shadow-lg);
+  overflow: hidden;
+  min-height: 0;
+}
+.uh-together__teamHead {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 1.2rem;
+  background: var(--team);
+  border-bottom: var(--pop-line) solid var(--pop-ink);
+  font-family: var(--uh-font-display);
+  font-size: 2rem;
+  color: #fff9f0;
+  text-shadow: 0.14rem 0.14rem 0 var(--team-dark);
+}
+.uh-together__teamHead .uh-emblem { width: 2.4rem; height: 2.4rem; }
+.uh-together__seats { flex: 1; display: flex; flex-direction: column; gap: 0.9rem; padding: 1rem; min-height: 0; }
+
+/* --- a joined player ---------------------------------------------------------------------- */
+.uh-together__card {
+  position: relative;
+  flex: 1;
+  max-height: 11rem;
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.8rem 1.1rem;
+  background: var(--pop-cream);
+  border: var(--pop-line) solid var(--pop-ink);
+  border-radius: 1.3rem;
+  box-shadow: 0.3rem 0.3rem 0 var(--pop-ink), inset 0 0 0 0.45rem var(--p);
+  animation: uh-together-pop 0.38s var(--uh-ease-bounce) 1;
+}
+@keyframes uh-together-pop { 0% { transform: scale(0.82); } 60% { transform: scale(1.04); } 100% { transform: none; } }
+.uh-together__tag {
+  width: 4.4rem;
+  height: 4.4rem;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--p);
+  border: var(--pop-line) solid var(--pop-ink);
+  font-family: var(--uh-font-display);
+  font-size: 2rem;
+  color: var(--pop-ink);
+  box-shadow: 0.2rem 0.2rem 0 var(--pop-ink);
+}
+.uh-together__face {
+  width: 6.2rem;
+  height: 6.2rem;
+  border-radius: 50%;
+  overflow: hidden;
+  background: radial-gradient(circle at 50% 40%, #fff, var(--team-tint));
+  border: 0.35rem solid var(--p);
+  outline: var(--pop-line-thin) solid var(--pop-ink);
+}
+.uh-together__portrait { width: 100%; height: 100%; object-fit: cover; display: block; }
+.uh-together__info { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
+.uh-together__dev { font-weight: 800; font-size: var(--uh-fs-sm); color: var(--pop-ink-2); }
+.uh-together__how { font-weight: 800; font-size: var(--uh-fs-sm); color: var(--pop-ink); }
+.uh-together__ready {
+  align-self: flex-start;
+  font-family: var(--uh-font-display);
+  font-size: 2rem;
+  color: var(--pop-ink);
+  background: var(--p);
+  border: var(--pop-line-thin) solid var(--pop-ink);
+  border-radius: 0.8rem;
+  padding: 0.05rem 0.8rem 0.15rem;
+  animation: uh-together-stamp 0.32s var(--uh-ease-bounce) 1;
+}
+@keyframes uh-together-stamp { 0% { transform: scale(1.6); opacity: 0; } 100% { transform: none; opacity: 1; } }
+.uh-together__teamPick { display: flex; align-items: center; gap: 0.4rem; }
+.uh-together__arrow,
+.uh-together__readyBtn {
+  display: grid;
+  place-items: center;
+  min-width: 3rem;
+  height: 3rem;
+  padding: 0 0.6rem;
+  border-radius: 0.9rem;
+  border: var(--pop-line-thin) solid var(--pop-ink);
+  background: #fff;
+  color: var(--pop-ink);
+  font-family: var(--uh-font-display);
+  font-size: 1.3rem;
+  cursor: pointer;
+  box-shadow: 0.15rem 0.15rem 0 var(--pop-ink);
+}
+.uh-together__arrow .uh-icon,
+.uh-together__readyBtn .uh-icon { width: 1.6rem; height: 1.6rem; }
+.uh-together__arrow:hover,
+.uh-together__readyBtn:hover { background: var(--pop-sun-l); }
+.uh-together__arrow.is-off { visibility: hidden; }
+.uh-together__card.is-ready .uh-together__readyBtn { background: var(--p); }
+
+/* --- an empty seat ------------------------------------------------------------------------ */
+.uh-together__empty {
+  flex: 1;
+  max-height: 11rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.8rem 1.1rem;
+  border: var(--pop-line) dashed rgba(42, 33, 49, 0.35);
+  border-radius: 1.3rem;
+  font-weight: 800;
+  font-size: var(--uh-fs-md);
+  color: rgba(42, 33, 49, 0.55);
+}
+.uh-together__emptyFace { width: 5rem; height: 5rem; border-radius: 50%; overflow: hidden; opacity: 0.45; }
+
+.uh-together__notice {
+  margin: 0;
+  min-height: 1.6em;
+  text-align: center;
+  font-weight: 800;
+  font-size: var(--uh-fs-md);
+  color: var(--pop-cream);
+  text-shadow: 0.12rem 0.12rem 0 var(--pop-ink);
+}
+
+/* --- join strip ---------------------------------------------------------------------------- */
+.uh-together__join {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.8rem;
+}
+.uh-together__joinLabel { font-family: var(--uh-font-display); font-size: 1.6rem; color: var(--pop-sun); text-shadow: 0.12rem 0.12rem 0 var(--pop-ink); margin-right: 0.4rem; }
+.uh-together__hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 0.5rem 0.4rem 1rem;
+  border-radius: 999px;
+  border: var(--pop-line-thin) solid var(--pop-ink);
+  background: var(--pop-cream);
+  font-weight: 800;
+  font-size: var(--uh-fs-sm);
+  color: var(--pop-ink);
+  cursor: pointer;
+  box-shadow: 0.18rem 0.18rem 0 var(--pop-ink);
+}
+.uh-together__hint:hover { background: var(--pop-sun-l); }
+.uh-together__hint.is-joined { opacity: 0.4; cursor: default; box-shadow: none; }
+.uh-together__key {
+  min-width: 2.2rem;
+  padding: 0.1rem 0.6rem;
+  border-radius: 0.6rem;
+  background: var(--pop-ink);
+  color: var(--pop-cream);
+  font-family: var(--uh-font-display);
+  font-size: 1.2rem;
+  text-align: center;
+}
+
+/* --- match options ------------------------------------------------------------------------- */
+.uh-together__options {
+  display: flex;
+  align-items: center;
+  gap: 1.6rem;
+  padding: 0.8rem 1.2rem;
+}
+.uh-together__options.uh-panel { background-image: none; rotate: none; }
+.uh-together__options.is-closed { justify-content: center; opacity: 0.75; padding: 0.7rem; }
+.uh-together__lock { display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 800; font-size: var(--uh-fs-sm); color: var(--pop-ink-2); }
+.uh-together__lock .uh-icon { width: 1.4rem; height: 1.4rem; }
+.uh-together__rows { flex: 1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.8rem; min-width: 0; }
+.uh-screen--together .uh-row,
+.uh-screen--together .uh-row:nth-child(odd),
+.uh-screen--together .uh-row:nth-child(even) { --tilt: 0deg; }
+.uh-together__noBots { align-self: center; font-weight: 800; color: var(--pop-ink-2); text-align: center; }
+.uh-together__start { min-width: 15rem; }
+.uh-together.is-options .uh-together__start { animation: uh-together-pop 0.4s var(--uh-ease-bounce) 1; }
+
+.uh-together__remote {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 700;
+  font-size: var(--uh-fs-xs);
+  color: var(--pop-cream);
+  opacity: 0.85;
+}
+.uh-together__remote .uh-icon { width: 1.1rem; height: 1.1rem; }
+
+@media (prefers-reduced-motion: reduce) {
+  .uh-together__card,
+  .uh-together__ready,
+  .uh-together.is-options .uh-together__start { animation: none; }
+}
