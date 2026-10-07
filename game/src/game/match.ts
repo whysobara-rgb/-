@@ -147,6 +147,11 @@ export class MatchController {
   readonly myTeam: TeamId;
   /** Human players; seats[0] is P1 (the save owner). */
   readonly seats: Seat[];
+  /**
+   * Teams with a human on them ([myTeam] in single-player and co-op, both in local versus): one
+   * shared screen, so fog of war, pings and ping highlights are what any human's team sees.
+   */
+  private readonly humanTeams: readonly TeamId[];
   readonly observer: RivalObserver | null;
   private readonly proxy: Bot | null;
   private script: MatchScript | null = null;
@@ -242,6 +247,7 @@ export class MatchController {
       };
     });
     this.seats.sort((a, b) => a.index - b.index);
+    this.humanTeams = [...new Set([this.myTeam, ...this.seats.map((s) => s.team)])];
     if (this.seats.length > 1) this.localStats = new LocalStatsTracker(this.seats.map((s) => ({ charId: s.charId, index: s.index, team: s.team })));
     this.time.setEnabled(!svc.settings().reducedMotion);
   }
@@ -420,7 +426,7 @@ export class MatchController {
   focus(): ViewFocus {
     const me = this.sim.getCharacter(this.meId);
     const pingTargetIds: EntityId[] = [];
-    for (const p of this.sim.state.pings) if (p.team === this.myTeam && p.targetId !== null) pingTargetIds.push(p.targetId);
+    for (const p of this.sim.state.pings) if (this.humanTeams.includes(p.team) && p.targetId !== null) pingTargetIds.push(p.targetId);
     if (this.script) for (const id of this.script.focusTargets()) if (!pingTargetIds.includes(id)) pingTargetIds.push(id);
     for (const id of this.funFocusTargets()) if (!pingTargetIds.includes(id)) pingTargetIds.push(id);
     const f: ViewFocus = { charId: this.meId, grabCandidate: me && !me.grab ? this.sim.getGrabCandidate(this.meId) : null, pingTargetIds };
@@ -846,10 +852,12 @@ export class MatchController {
   // ------------------------------------------------------------------------------------------
 
   private isOpponentVisible = (c: CharacterState): boolean => {
+    // Local versus: humans on both teams share one screen, so nobody is hidden from it.
+    if (this.humanTeams.includes(c.team)) return true;
     const st = this.sim.state;
     const r2 = VISION.radius * VISION.radius;
     for (const t of st.characters) {
-      if (t.team !== this.myTeam) continue;
+      if (!this.humanTeams.includes(t.team)) continue;
       const dx = c.pos.x - t.pos.x;
       const dy = c.pos.y - t.pos.y;
       if (dx * dx + dy * dy > r2) continue;
@@ -870,6 +878,7 @@ export class MatchController {
       isOpponentVisible: this.isOpponentVisible,
       nearRadius: NEAR_LABEL_RADIUS,
       players: this.seats.length > 1 ? new Map(this.seats.map((s) => [s.charId, s.index])) : null,
+      pingTeams: this.humanTeams,
     });
     const model: HudModel = { ...m, timeLeftSec: this.phase === 'countdown' || this.phase === 'loaded' ? (this.sim.rules.timeLimit ? this.sim.rules.matchTicks / TICK_RATE : null) : m.timeLeftSec };
     const extra = this.scriptArrows();

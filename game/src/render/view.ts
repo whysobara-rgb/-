@@ -2927,10 +2927,16 @@ export class GameView {
   private updatePings(sim: Simulation, focus: ViewFocus | null): void {
     const st = sim.state;
     const team = focus ? sim.getCharacter(focus.charId)?.team ?? null : null;
+    // (local multiplayer) One shared screen: every human's team pings are shown.
+    const teams = new Set<TeamId>(team !== null ? [team] : []);
+    for (const id of focus?.group ?? []) {
+      const gt = sim.getCharacter(id)?.team;
+      if (gt !== undefined) teams.add(gt);
+    }
     let i = 0;
     if (team !== null && this.viewMode === 'match') {
       for (const p of st.pings) {
-        if (p.team !== team || p.expiresTick <= st.tick) continue;
+        if (!teams.has(p.team) || p.expiresTick <= st.tick) continue;
         if (i >= this.effects.beaconCapacity) break;
         const life = (p.expiresTick - st.tick) / PING.durationTicks;
         let ground = true;

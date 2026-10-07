@@ -78,6 +78,8 @@ export interface HudAdapterOptions {
   nameTags?: boolean;
   /** (local multiplayer) Human character id -> player index (0..3): "P1".."P4" tags in their colour. */
   players?: ReadonlyMap<EntityId, number> | null;
+  /** (local multiplayer) Teams whose pings the shared minimap shows (default: [myTeam]). */
+  pingTeams?: readonly TeamId[];
   /**
    * [F4] Match point to show (e.g. `MomentTracker.snapshot().matchPoint`). Omitted: computed with
    * `matchPointInfo(state, { earlyDecision: rules.earlyDecision })` (the same answer).
@@ -136,7 +138,13 @@ export function carrierTeam(state: SimState, l: LootState): TeamId | null {
   return c ? c.team : null;
 }
 
-export function minimapFromState(state: SimState, myTeam: TeamId, meId: EntityId | null, isOpponentVisible?: (c: CharacterState) => boolean): MinimapModel {
+export function minimapFromState(
+  state: SimState,
+  myTeam: TeamId,
+  meId: EntityId | null,
+  isOpponentVisible?: (c: CharacterState) => boolean,
+  pingTeams: readonly TeamId[] = [myTeam],
+): MinimapModel {
   return {
     banks: state.loot
       .filter((l) => l.kind === 'bank')
@@ -163,7 +171,7 @@ export function minimapFromState(state: SimState, myTeam: TeamId, meId: EntityId
       isMe: c.id === meId,
       visible: c.team === myTeam || (isOpponentVisible ? isOpponentVisible(c) : false),
     })),
-    pings: state.pings.filter((p) => p.team === myTeam).map((p) => ({ id: p.id, team: p.team, x: p.pos.x, y: p.pos.y, kind: p.kind })),
+    pings: state.pings.filter((p) => pingTeams.includes(p.team)).map((p) => ({ id: p.id, team: p.team, x: p.pos.x, y: p.pos.y, kind: p.kind })),
     brokenFences: state.fences.filter((f) => f.broken).map((f) => f.id),
     // Police are public information (they are on everyone's screen): always drawn.
     police: policeMarkers(state),
@@ -363,7 +371,7 @@ export function hudModelFromSim(sim: SimView, o: HudAdapterOptions): HudModel {
     carry: me ? carryFromState(sim, me) : null,
     grab: me ? grabFromState(sim, me) : null,
     dashCooldown: me ? Math.min(1, me.dashCooldown / DASH.cooldownTicks) : 0,
-    minimap: { ...minimapFromState(st, o.myTeam, o.meId, o.isOpponentVisible), itemPads: itemPadMarkers(sim) },
+    minimap: { ...minimapFromState(st, o.myTeam, o.meId, o.isOpponentVisible, o.pingTeams), itemPads: itemPadMarkers(sim) },
     police: policeFromState(st),
     labels: lw?.labels,
     arrows: lw?.arrows,
