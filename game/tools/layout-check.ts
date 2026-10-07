@@ -9,8 +9,10 @@
  * argument or --only id), so a typo can never pass as "nothing checked, all OK".
  *
  * Content 2.0: every layout is checked in its classic composition, and every layout with a
- * `LayoutDef.v2` composition is checked again as v2 (starter sockets, breakables, item pads,
- * event spots, 돈나무 haul, squeeze, hammerable fences, chirality, 4,000 total, …).
+ * `LayoutDef.v2` composition is checked again as v2 (starter sockets incl. the bot haul lane,
+ * breakables, natural-path crates, item pads from each own spawn, event spots, the cash truck's
+ * curb approach, 돈나무 haul, squeeze, hammerable fences, chirality, 4,000 total, …). Rule waivers
+ * a layout declares (LayoutDesignMeta.waivers) print as `[warn] waived` lines with their reason.
  * `--content=classic` / `--content=v2` restricts the run to one of them (default: both).
  */
 import { pathToFileURL } from 'node:url';

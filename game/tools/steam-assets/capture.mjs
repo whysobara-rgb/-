@@ -337,7 +337,8 @@ job('final', {
       const sim = __dir.sim; const z = sim.layout.zones.find(z => z.team === 0);
       const safe = sim.state.loot.find(l => l.kind === 'smallSafe' && l.homeBank === null && !l.recovered);
       sim.debug.setAnchored(safe.id, false);
-      const spot = __dir.freeNear({ x: z.center.x + 3, y: z.center.y - z.half.y - 4.5 }, 1.4);
+      // On the north boulevard, where the getaway wave walks in from its car.
+      const spot = __dir.freeNear({ x: 24, y: 12 }, 1.4);
       __dir.tp(safe.id, spot, 0);
       __dir.tp(__dir.charId(0), { x: spot.x + 0.4 + 0.62, y: spot.y }, Math.PI);
       __dir.set(0, __dir.hold({ x: 0, y: 0 }, { x: -1, y: 0 }));
@@ -359,7 +360,10 @@ job('final', {
     };
     await soft(near(5.5), 1500);
     await S.ev(p, `(() => { const z = __dir.sim.layout.zones.find(z => z.team === 0);
-      __dir.set(0, (s) => { const me = s.state.characters[0]; const d = { x: z.center.x - 1 - me.pos.x, y: z.center.y - 1 - me.pos.y }; const k = Math.hypot(d.x, d.y) || 1;
+      __dir.set(0, (s) => { const me = s.state.characters[0];
+        // West along the boulevard, then down the open west side into the zone.
+        const goal = me.pos.y < 16 && me.pos.x > 13 ? { x: 11, y: 13 } : { x: z.center.x - 1, y: z.center.y - 1 };
+        const d = { x: goal.x - me.pos.x, y: goal.y - me.pos.y }; const k = Math.hypot(d.x, d.y) || 1;
         return __dir.cmd({ x: d.x / k * 0.8, y: d.y / k * 0.8 }, true, { x: -1, y: 0 }); }); })()`);
     await soft(near(4.2), 600);
     await c.save('shot_06_final_a', true);
