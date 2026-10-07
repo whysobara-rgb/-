@@ -1,4 +1,3 @@
-import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/domain/rarity.dart';
@@ -6,25 +5,26 @@ import '../../../core/network/api_client.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/theme/rarity_style.dart';
 import '../../../core/utils/format.dart';
 import '../../../navigation/tab_navigator.dart';
 import '../../../shared/providers/gp_provider.dart';
 import '../../../shared/widgets/collectible_card.dart';
 import '../../../shared/widgets/gp_badge.dart';
 import '../../../shared/widgets/meters.dart';
-import '../../../shared/widgets/product_image.dart';
 import '../../../shared/widgets/rarity_tag.dart';
 import '../../../shared/widgets/ui.dart';
 import '../data/gacha_repository.dart';
 import '../domain/gacha_models.dart';
 import 'gacha_animation_page.dart';
 import 'odds_page.dart';
+import 'widgets/box_thumb.dart';
 
 /// 박스 상세.
 ///
-/// 시네마틱 헤더(박스 아트 + 큰 제목) → 가격·실재고 → 빛나는 천장 게이지 →
-/// 등급별 구성 상품(컬렉터블 카드, SSR 홀로) → 등급별 확률 요약 →
-/// 이용 안내. 하단 고정 바에 "1회"와 "10+1회" 두 버튼.
+/// 밝은 스튜디오 헤더(박스 패키지) → 제목·대표 경품 → 가격·실재고 카드 →
+/// 금빛 천장 게이지 → 등급별 구성 상품(컬렉터블 카드, SR/SSR 포일) →
+/// 등급별 확률 요약 → 이용 안내. 하단 고정 바에 "1회"와 "10+1회".
 class GachaDetailPage extends StatefulWidget {
   final GachaSummary gacha;
 
@@ -46,13 +46,13 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
   final _scroll = ScrollController();
   bool _showTitle = false;
 
-  static const double _headerHeight = 400;
+  static const double _headerHeight = 360;
 
   @override
   void initState() {
     super.initState();
     _scroll.addListener(() {
-      final show = _scroll.hasClients && _scroll.offset > _headerHeight - 120;
+      final show = _scroll.hasClients && _scroll.offset > _headerHeight - 110;
       if (show != _showTitle) setState(() => _showTitle = show);
     });
     _load();
@@ -225,7 +225,10 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
           ? SafeArea(
               child: Column(
                 children: [
-                  const BackButton(),
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: BackButton(),
+                  ),
                   ErrorView(
                     message: _error ?? '박스 정보를 불러오지 못했어요',
                     onRetry: _load,
@@ -244,35 +247,37 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
                     pinned: true,
                     expandedHeight: _headerHeight,
                     backgroundColor: AppColors.canvas,
+                    automaticallyImplyLeading: false,
                     titleSpacing: 0,
+                    leadingWidth: 60,
+                    leading: Center(
+                      child: _showTitle
+                          ? const BackButton()
+                          : CircleIconButton(
+                              icon: Icons.arrow_back_rounded,
+                              tooltip: '뒤로',
+                              onPressed: () => Navigator.of(context).maybePop(),
+                            ),
+                    ),
                     title: AnimatedOpacity(
                       duration: Motion.fast,
                       opacity: _showTitle ? 1 : 0,
                       child: Text(summary.title, style: AppText.headline),
                     ),
                     actions: const [GpBadge()],
-                    flexibleSpace: LayoutBuilder(
-                      builder: (context, c) {
-                        // 접히는 동안 제목 블록이 반쯤 잘려 보이지 않게 먼저 사라진다.
-                        final top = MediaQuery.paddingOf(context).top;
-                        final t =
-                            ((c.maxHeight - kToolbarHeight - top) /
-                                    (_headerHeight - kToolbarHeight - top))
-                                .clamp(0.0, 1.0);
-                        return FlexibleSpaceBar(
-                          collapseMode: CollapseMode.parallax,
-                          background: _CinematicHeader(
-                            detail: detail,
-                            summary: summary,
-                            textOpacity: ((t - 0.45) / 0.4).clamp(0.0, 1.0),
-                          ),
-                        );
-                      },
+                    flexibleSpace: FlexibleSpaceBar(
+                      collapseMode: CollapseMode.parallax,
+                      background: _StudioHeader(summary: summary),
                     ),
+                  ),
+                  SliverToBoxAdapter(
+                    child: _TitleBlock(detail: detail, summary: summary),
                   ),
                   SliverToBoxAdapter(child: _PriceBlock(detail: detail)),
                   if (_pity?.hasPity ?? false)
                     SliverToBoxAdapter(child: _PityMeter(pity: _pity!)),
+                  const SliverToBoxAdapter(child: SizedBox(height: Space.x6)),
+                  const SliverToBoxAdapter(child: SectionBand()),
                   SliverToBoxAdapter(
                     child: _LineupSection(
                       items: detail.lineup,
@@ -285,7 +290,7 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
                   SliverToBoxAdapter(
                     child: _Guide(detail: detail, onOpenOdds: _openOdds),
                   ),
-                  const SliverToBoxAdapter(child: SizedBox(height: 120)),
+                  const SliverToBoxAdapter(child: SizedBox(height: 132)),
                 ],
               ),
             ),
@@ -301,107 +306,95 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
   }
 }
 
-/// 시네마틱 헤더: 박스 아트(박스 색 빛) + 아래로 녹아드는 그라데이션 +
-/// 배지·큰 제목·설명.
-class _CinematicHeader extends StatelessWidget {
-  final GachaDetail detail;
+/// 밝은 스튜디오 헤더: 박스 색을 옅게 깐 배경 + 선버스트 + 큰 패키지.
+/// 아래쪽은 흰 시트가 둥글게 덮어 올라온다.
+class _StudioHeader extends StatelessWidget {
   final GachaSummary summary;
-  final double textOpacity;
-  const _CinematicHeader({
-    required this.detail,
-    required this.summary,
-    this.textOpacity = 1,
-  });
+  const _StudioHeader({required this.summary});
 
   @override
   Widget build(BuildContext context) {
-    final prize = summary.topPrize;
     return Stack(
       fit: StackFit.expand,
       children: [
-        BoxImage(
-          url: detail.imageUrl,
-          tone: summary.accent ?? AppColors.brand,
-          category: summary.category,
-          borderRadius: BorderRadius.zero,
-          artScale: 0.42,
-          artCenterY: 0.4,
-        ),
-        const DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                Color(0x99000000),
-                Color(0x00000000),
-                Color(0x00000000),
-                Color(0xCC09090B),
-                AppColors.canvas,
-              ],
-              stops: [0, 0.22, 0.5, 0.82, 1],
-            ),
-          ),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 20),
+          child: BoxThumb(box: summary, scale: 0.6, centerY: 0.56, rays: true),
         ),
         Positioned(
-          left: Space.gutter,
-          right: Space.gutter,
-          bottom: Space.x5,
-          child: Opacity(
-            opacity: textOpacity,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    if (detail.badgeLabel != null) ...[
-                      BoxBadge(detail.badgeLabel!),
-                      const SizedBox(width: 6),
-                    ],
-                    if (detail.soldOut)
-                      const QuietLabel('품절', color: AppColors.danger)
-                    else if (detail.tagline != null)
-                      Flexible(
-                        child: Text(
-                          detail.tagline!,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppText.caption.copyWith(
-                            color: Colors.white.withValues(alpha: 0.75),
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                  ],
+          left: 0,
+          right: 0,
+          bottom: 0,
+          height: 28,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: AppColors.canvas,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(Radii.xl),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF101828).withValues(alpha: 0.06),
+                  blurRadius: 12,
+                  offset: const Offset(0, -4),
                 ),
-                const SizedBox(height: Space.x2),
-                Text(
-                  detail.title,
-                  style: AppText.hero.copyWith(
-                    fontSize: 32,
-                    color: Colors.white,
-                  ),
-                ),
-                if (detail.description.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    keepAll(detail.description),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppText.callout.copyWith(
-                      color: Colors.white.withValues(alpha: 0.7),
-                    ),
-                  ),
-                ],
-                if (prize != null) ...[
-                  const SizedBox(height: Space.x3),
-                  _TopPrizeLine(prize: prize),
-                ],
               ],
             ),
           ),
         ),
       ],
+    );
+  }
+}
+
+/// 배지·한 줄 소개·큰 제목·설명·대표 경품.
+class _TitleBlock extends StatelessWidget {
+  final GachaDetail detail;
+  final GachaSummary summary;
+  const _TitleBlock({required this.detail, required this.summary});
+
+  @override
+  Widget build(BuildContext context) {
+    final prize = summary.topPrize;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(Space.gutter, 0, Space.gutter, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              if (detail.badgeLabel != null) ...[
+                BoxBadge(detail.badgeLabel!),
+                const SizedBox(width: 8),
+              ],
+              if (detail.soldOut)
+                const QuietLabel('품절', color: AppColors.danger)
+              else if (detail.tagline != null)
+                Flexible(
+                  child: Text(
+                    detail.tagline!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.callout.copyWith(
+                      color: AppColors.brand,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: Space.x2),
+          Text(detail.title, style: AppText.display),
+          if (detail.description.isNotEmpty) ...[
+            const SizedBox(height: Space.x1),
+            Text(keepAll(detail.description), style: AppText.callout),
+          ],
+          if (prize != null) ...[
+            const SizedBox(height: Space.x3),
+            _TopPrizeLine(prize: prize),
+          ],
+        ],
+      ),
     );
   }
 }
@@ -415,9 +408,8 @@ class _TopPrizeLine extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.fromLTRB(5, 5, 12, 5),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.45),
+        color: prize.rarity.color.withValues(alpha: 0.1),
         borderRadius: Radii.pill,
-        border: Border.all(color: prize.rarity.color.withValues(alpha: 0.45)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -432,7 +424,7 @@ class _TopPrizeLine extends StatelessWidget {
                   TextSpan(
                     text: '  ${formatWon(prize.estimatedValue)}',
                     style: TextStyle(
-                      color: prize.rarity.light,
+                      color: prize.rarity.ink,
                       fontWeight: FontWeight.w800,
                     ),
                   ),
@@ -442,7 +434,7 @@ class _TopPrizeLine extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: AppText.num(
                 AppText.caption,
-              ).copyWith(color: Colors.white, fontWeight: FontWeight.w600),
+              ).copyWith(color: AppColors.text, fontWeight: FontWeight.w600),
             ),
           ),
         ],
@@ -451,6 +443,7 @@ class _TopPrizeLine extends StatelessWidget {
   }
 }
 
+/// 가격(큰 숫자) + 구성품 정가 범위 + 실재고.
 class _PriceBlock extends StatelessWidget {
   final GachaDetail detail;
   const _PriceBlock({required this.detail});
@@ -461,106 +454,12 @@ class _PriceBlock extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         Space.gutter,
-        Space.x2,
-        Space.gutter,
         Space.x5,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('1회', style: AppText.caption),
-                    const SizedBox(height: 2),
-                    Text.rich(
-                      TextSpan(
-                        children: [
-                          TextSpan(text: formatNumber(detail.price)),
-                          const TextSpan(
-                            text: ' GP',
-                            style: TextStyle(
-                              fontSize: 18,
-                              color: AppColors.textSecondary,
-                            ),
-                          ),
-                        ],
-                      ),
-                      style: AppText.numeral.copyWith(fontSize: 34),
-                    ),
-                  ],
-                ),
-              ),
-              if (values.isNotEmpty)
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text('구성품 정가', style: AppText.caption),
-                    const SizedBox(height: 2),
-                    Text(
-                      '${formatWonShort(values.first)} ~ ${formatWonShort(values.last)}',
-                      style: AppText.num(
-                        AppText.bodyStrong,
-                      ).copyWith(fontWeight: FontWeight.w800),
-                    ),
-                  ],
-                ),
-            ],
-          ),
-          if (detail.totalStock > 0) ...[
-            const SizedBox(height: Space.x4),
-            SurfaceCard(
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-              child: StockBar(
-                total: detail.totalStock,
-                sold: detail.soldStock,
-                soldOut: detail.soldOut,
-                compact: false,
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-/// 빛나는 천장 게이지.
-class _PityMeter extends StatelessWidget {
-  final PityStatus pity;
-  const _PityMeter({required this.pity});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
         Space.gutter,
         0,
-        Space.gutter,
-        Space.x2,
       ),
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-        decoration: BoxDecoration(
-          borderRadius: Radii.card,
-          border: Border.all(
-            color: AppColors.raritySSR.withValues(alpha: 0.35),
-          ),
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              AppColors.raritySSR.withValues(alpha: 0.13),
-              AppColors.surface,
-              AppColors.surface,
-            ],
-            stops: const [0, 0.55, 1],
-          ),
-        ),
+      child: AppCard(
+        padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -571,53 +470,120 @@ class _PityMeter extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          const RarityTag(Rarity.ssr, holo: true),
-                          const SizedBox(width: 6),
-                          Text(
-                            '천장 · 내 진행도',
-                            style: AppText.caption.copyWith(
-                              color: AppColors.raritySSRLight,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Text.rich(
-                        TextSpan(
-                          children: [
-                            const TextSpan(
-                              text: '확정까지 ',
-                              style: TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.textSecondary,
-                              ),
-                            ),
-                            TextSpan(text: formatNumber(pity.remaining ?? 0)),
-                            const TextSpan(
-                              text: '회',
-                              style: TextStyle(fontSize: 18),
-                            ),
-                          ],
-                        ),
-                        style: AppText.numeral.copyWith(
-                          fontSize: 32,
-                          color: AppColors.raritySSRLight,
+                      Text('1회 가격', style: AppText.caption),
+                      const SizedBox(height: 4),
+                      PriceText(detail.price, size: 34),
+                    ],
+                  ),
+                ),
+                if (values.isNotEmpty)
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text('구성품 정가', style: AppText.caption),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${formatWonShort(values.first)} ~ ${formatWonShort(values.last)}',
+                        style: AppText.num(AppText.headline).copyWith(
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.text,
                         ),
                       ),
                     ],
                   ),
-                ),
+              ],
+            ),
+            if (detail.totalStock > 0) ...[
+              const SizedBox(height: Space.x4),
+              const Hairline(),
+              const SizedBox(height: Space.x3),
+              StockBar(
+                total: detail.totalStock,
+                sold: detail.soldStock,
+                soldOut: detail.soldOut,
+                compact: false,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 천장 게이지: 옅은 금빛 카드 + 큰 남은 횟수 + 금박 막대.
+class _PityMeter extends StatelessWidget {
+  final PityStatus pity;
+  const _PityMeter({required this.pity});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        Space.gutter,
+        Space.x3,
+        Space.gutter,
+        0,
+      ),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
+        decoration: BoxDecoration(
+          borderRadius: Radii.card,
+          border: Border.all(
+            color: AppColors.raritySSR.withValues(alpha: 0.45),
+          ),
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFFFFF8E1), Color(0xFFFFFDF6)],
+          ),
+          boxShadow: Rarity.ssr.glow(0.5),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                const RarityTag(Rarity.ssr, holo: true),
+                const SizedBox(width: 6),
                 Text(
-                  '${formatNumber(pity.drawsSinceTopTier)} / ${formatNumber(pity.threshold!)}',
-                  style: AppText.num(
-                    AppText.caption,
-                  ).copyWith(color: AppColors.textSecondary),
+                  '천장 · 내 진행도',
+                  style: AppText.caption.copyWith(
+                    color: AppColors.raritySSRInk,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  '${formatNumber(pity.drawsSinceTopTier)} / ${formatNumber(pity.threshold!)}회',
+                  style: AppText.num(AppText.caption),
                 ),
               ],
+            ),
+            const SizedBox(height: 10),
+            Text.rich(
+              TextSpan(
+                children: [
+                  const TextSpan(
+                    text: 'SSR 확정까지 ',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -0.3,
+                      color: AppColors.text,
+                    ),
+                  ),
+                  TextSpan(text: formatNumber(pity.remaining ?? 0)),
+                  const TextSpan(
+                    text: '회',
+                    style: TextStyle(fontSize: 18, letterSpacing: 0),
+                  ),
+                ],
+              ),
+              style: AppText.numeral.copyWith(
+                fontSize: 34,
+                color: AppColors.raritySSRInk,
+              ),
             ),
             const SizedBox(height: 10),
             GlowMeter(progress: pity.progress),
@@ -651,16 +617,15 @@ class _LineupSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         SectionHeader(
-          eyebrow: 'LINEUP',
           title: '구성 상품',
           subtitle: '총 ${items.length}종 · 희귀한 순 · 카드의 %는 1회 확률',
           actionLabel: '전체 확률',
           onAction: onOpenOdds,
           padding: const EdgeInsets.fromLTRB(
             Space.gutter,
-            Space.section - 8,
+            Space.x6,
             Space.gutter,
-            Space.x2,
+            Space.x1,
           ),
         ),
         for (final rarity in Rarity.values.reversed)
@@ -683,9 +648,9 @@ class _TierBlock extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         Space.gutter,
-        Space.x3,
+        Space.x5,
         Space.gutter,
-        Space.x2,
+        0,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -696,16 +661,18 @@ class _TierBlock extends StatelessWidget {
               const SizedBox(width: 8),
               Text(
                 rarity.label,
-                style: AppText.caption.copyWith(
-                  color: rarity.light,
-                  fontWeight: FontWeight.w700,
+                style: AppText.bodyStrong.copyWith(
+                  color: rarity.ink,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: Container(
                   height: 1,
-                  color: rarity.color.withValues(alpha: 0.18),
+                  color: rarity == Rarity.n
+                      ? AppColors.hairline
+                      : rarity.color.withValues(alpha: 0.28),
                 ),
               ),
               const SizedBox(width: 8),
@@ -713,15 +680,15 @@ class _TierBlock extends StatelessWidget {
                 '합계 ${formatPercent(total)}',
                 style: AppText.num(
                   AppText.caption,
-                ).copyWith(color: AppColors.text, fontWeight: FontWeight.w700),
+                ).copyWith(color: AppColors.text, fontWeight: FontWeight.w800),
               ),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           LayoutBuilder(
             builder: (context, c) {
               final cols = items.length == 1 ? 1 : 2;
-              const gap = 10.0;
+              const gap = 12.0;
               final w = (c.maxWidth - gap * (cols - 1)) / cols;
               return Wrap(
                 spacing: gap,
@@ -735,7 +702,7 @@ class _TierBlock extends StatelessWidget {
                         name: item.name,
                         imageUrl: item.imageUrl,
                         holo: hero,
-                        imageAspect: cols == 1 ? 1.9 : (hero ? 0.95 : 1.2),
+                        imageAspect: cols == 1 ? 1.7 : (hero ? 0.92 : 1.12),
                         meta: formatWon(item.estimatedValue),
                         trailing: formatPercent(item.probabilityPercent),
                       ),
@@ -762,30 +729,34 @@ class _OddsSummary extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         Space.gutter,
-        Space.section - 8,
+        Space.x8,
         Space.gutter,
         0,
       ),
-      child: SurfaceCard(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+      child: AppCard(
+        padding: const EdgeInsets.fromLTRB(18, 16, 18, 6),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Row(
               children: [
-                Expanded(child: Text('등급별 확률', style: AppText.headline)),
-                Text(
-                  '소수 넷째 자리까지 공개',
-                  style: AppText.micro.copyWith(color: AppColors.textTertiary),
+                Expanded(
+                  child: Text(
+                    '등급별 확률',
+                    style: AppText.headline.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
                 ),
+                Text('소수 넷째 자리까지 공개', style: AppText.micro),
               ],
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             // 한눈에 보는 비율 막대(아주 작은 확률도 보이게 최소 폭).
             ClipRRect(
-              borderRadius: BorderRadius.circular(3),
+              borderRadius: BorderRadius.circular(4),
               child: SizedBox(
-                height: 6,
+                height: 8,
                 child: Row(
                   children: [
                     for (final t in tiers.reversed)
@@ -795,19 +766,24 @@ class _OddsSummary extends StatelessWidget {
                           1000,
                         ),
                         child: Container(
-                          margin: const EdgeInsets.only(right: 1.5),
-                          color: t.rarity.color,
+                          margin: const EdgeInsets.only(right: 2),
+                          decoration: BoxDecoration(
+                            gradient: t.rarity.foilGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                            ),
+                          ),
                         ),
                       ),
                   ],
                 ),
               ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 8),
             for (var i = 0; i < tiers.length; i++) ...[
               if (i > 0) const Hairline(),
               Padding(
-                padding: const EdgeInsets.symmetric(vertical: 10),
+                padding: const EdgeInsets.symmetric(vertical: 11),
                 child: Row(
                   children: [
                     SizedBox(
@@ -818,16 +794,16 @@ class _OddsSummary extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      '${tiers[i].itemCount}종',
-                      style: AppText.num(AppText.caption),
+                      '${tiers[i].rarity.label} · ${tiers[i].itemCount}종',
+                      style: AppText.num(AppText.callout),
                     ),
                     const Spacer(),
                     Text(
                       formatPercent(tiers[i].probabilityPercent),
-                      style: AppText.num(AppText.bodyStrong).copyWith(
+                      style: AppText.num(AppText.headline).copyWith(
                         color: tiers[i].rarity == Rarity.n
                             ? AppColors.text
-                            : tiers[i].rarity.light,
+                            : tiers[i].rarity.ink,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
@@ -839,12 +815,12 @@ class _OddsSummary extends StatelessWidget {
             InkWell(
               onTap: onOpenOdds,
               child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 12),
+                padding: const EdgeInsets.symmetric(vertical: 13),
                 child: Row(
                   children: [
                     const Icon(
-                      Icons.percent_rounded,
-                      size: 16,
+                      Icons.verified_outlined,
+                      size: 17,
                       color: AppColors.brand,
                     ),
                     const SizedBox(width: 6),
@@ -853,13 +829,13 @@ class _OddsSummary extends StatelessWidget {
                         '확률 및 구성 정보 · 천장 · 기대 가치',
                         style: AppText.callout.copyWith(
                           color: AppColors.text,
-                          fontWeight: FontWeight.w600,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                     ),
                     const Icon(
-                      Icons.chevron_right,
-                      size: 18,
+                      Icons.chevron_right_rounded,
+                      size: 20,
                       color: AppColors.textTertiary,
                     ),
                   ],
@@ -894,7 +870,7 @@ class _Guide extends StatelessWidget {
           title: '이용 안내',
           padding: EdgeInsets.fromLTRB(
             Space.gutter,
-            Space.section - 8,
+            Space.x8,
             Space.gutter,
             Space.x3,
           ),
@@ -913,9 +889,12 @@ class _Guide extends StatelessWidget {
                       Padding(
                         padding: const EdgeInsets.only(top: 8, right: Space.x2),
                         child: Container(
-                          width: 3,
-                          height: 3,
-                          color: AppColors.textTertiary,
+                          width: 4,
+                          height: 4,
+                          decoration: const BoxDecoration(
+                            color: AppColors.textTertiary,
+                            shape: BoxShape.circle,
+                          ),
                         ),
                       ),
                       Expanded(
@@ -932,7 +911,7 @@ class _Guide extends StatelessWidget {
   }
 }
 
-/// 하단 고정 CTA: 반투명 유리 바 위 "1회" / "10+1회".
+/// 하단 고정 CTA: 흰 바 위 "1회"(테두리) / "10+1회"(캡슐 레드 + 금박 보너스 꼬리표).
 class _DrawBar extends StatelessWidget {
   final int price;
   final bool soldOut;
@@ -953,117 +932,127 @@ class _DrawBar extends StatelessWidget {
     final left = remaining;
     final canSingle = !soldOut && (left == null || left >= 1);
     final canMulti = !soldOut && (left == null || left >= 11);
-    return ClipRect(
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: AppColors.canvas.withValues(alpha: 0.82),
-            border: const Border(top: BorderSide(color: AppColors.hairline)),
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        color: AppColors.raised,
+        boxShadow: Shadows.bar,
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            Space.gutter,
+            Space.x3,
+            Space.gutter,
+            Space.x3,
           ),
-          child: SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(
-                Space.gutter,
-                Space.x3,
-                Space.gutter,
-                Space.x3,
-              ),
-              child: soldOut
-                  ? OutlinedButton(
-                      onPressed: null,
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size.fromHeight(58),
-                      ),
-                      child: const _TwoLine(
-                        title: '품절',
-                        price: '준비된 수량이 모두 판매됐어요',
-                        color: AppColors.textTertiary,
-                      ),
-                    )
-                  : Row(
-                      children: [
-                        Expanded(
-                          flex: 4,
-                          child: OutlinedButton(
-                            onPressed: canSingle ? () => onDraw(1) : null,
-                            style: OutlinedButton.styleFrom(
-                              minimumSize: const Size(0, 58),
-                              padding: EdgeInsets.zero,
-                              backgroundColor: AppColors.surface,
-                            ),
-                            child: _TwoLine(
-                              title: '1회 뽑기',
-                              price: formatGp(price),
-                              color: canSingle
-                                  ? AppColors.text
-                                  : AppColors.textTertiary,
-                            ),
+          child: soldOut
+              ? OutlinedButton(
+                  onPressed: null,
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(58),
+                  ),
+                  child: const _TwoLine(
+                    title: '품절',
+                    price: '준비된 수량이 모두 판매됐어요',
+                    color: AppColors.textTertiary,
+                  ),
+                )
+              : Row(
+                  children: [
+                    Expanded(
+                      flex: 4,
+                      child: OutlinedButton(
+                        onPressed: canSingle ? () => onDraw(1) : null,
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size(0, 58),
+                          padding: EdgeInsets.zero,
+                          side: const BorderSide(
+                            color: AppColors.text,
+                            width: 1.4,
                           ),
                         ),
-                        const SizedBox(width: Space.x2),
-                        Expanded(
-                          flex: 6,
-                          child: Stack(
-                            clipBehavior: Clip.none,
-                            children: [
-                              SizedBox(
-                                width: double.infinity,
-                                child: FilledButton(
-                                  onPressed: canMulti ? () => onDraw(10) : null,
-                                  style: FilledButton.styleFrom(
-                                    minimumSize: const Size(0, 58),
-                                    padding: EdgeInsets.zero,
+                        child: _TwoLine(
+                          title: '1회 뽑기',
+                          price: formatGp(price),
+                          color: canSingle
+                              ? AppColors.text
+                              : AppColors.textTertiary,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: Space.x2),
+                    Expanded(
+                      flex: 6,
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          DecoratedBox(
+                            decoration: BoxDecoration(
+                              borderRadius: Radii.button,
+                              boxShadow: canMulti
+                                  ? Shadows.tinted(
+                                      AppColors.brand,
+                                      strength: 0.8,
+                                    )
+                                  : null,
+                            ),
+                            child: SizedBox(
+                              width: double.infinity,
+                              child: FilledButton(
+                                onPressed: canMulti ? () => onDraw(10) : null,
+                                style: FilledButton.styleFrom(
+                                  minimumSize: const Size(0, 58),
+                                  padding: EdgeInsets.zero,
+                                ),
+                                child: _TwoLine(
+                                  title: '10+1회 뽑기',
+                                  price: canMulti
+                                      ? formatGp(price * 10)
+                                      : '남은 수량 ${formatNumber(left ?? 0)}개',
+                                  color: canMulti
+                                      ? AppColors.onBrand
+                                      : AppColors.textTertiary,
+                                ),
+                              ),
+                            ),
+                          ),
+                          if (canMulti)
+                            Positioned(
+                              right: 10,
+                              top: -10,
+                              child: Container(
+                                height: 20,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 7,
+                                ),
+                                decoration: BoxDecoration(
+                                  gradient: Rarity.ssr.foilGradient(
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
                                   ),
-                                  child: _TwoLine(
-                                    title: '10+1회 뽑기',
-                                    price: canMulti
-                                        ? formatGp(price * 10)
-                                        : '남은 수량 ${formatNumber(left ?? 0)}개',
-                                    color: canMulti
-                                        ? AppColors.onBrand
-                                        : AppColors.textTertiary,
+                                  borderRadius: Radii.pill,
+                                  boxShadow: Shadows.small,
+                                ),
+                                child: Center(
+                                  widthFactor: 1,
+                                  child: Text(
+                                    '+1 보너스',
+                                    style: AppText.micro.copyWith(
+                                      color: Rarity.ssr.onColor,
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.w900,
+                                      height: 1,
+                                    ),
                                   ),
                                 ),
                               ),
-                              if (canMulti)
-                                Positioned(
-                                  right: 8,
-                                  top: -9,
-                                  child: Container(
-                                    height: 18,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 6,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      gradient: Rarity.ssr.foilGradient(
-                                        begin: Alignment.topCenter,
-                                        end: Alignment.bottomCenter,
-                                      ),
-                                      borderRadius: Radii.chip,
-                                    ),
-                                    child: Center(
-                                      widthFactor: 1,
-                                      child: Text(
-                                        '+1 보너스',
-                                        style: AppText.micro.copyWith(
-                                          color: Rarity.ssr.onColor,
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.w900,
-                                          height: 1,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                      ],
+                            ),
+                        ],
+                      ),
                     ),
-            ),
-          ),
+                  ],
+                ),
         ),
       ),
     );
@@ -1097,7 +1086,7 @@ class _TwoLine extends StatelessWidget {
         Text(
           price,
           style: AppText.num(AppText.caption).copyWith(
-            color: color.withValues(alpha: 0.75),
+            color: color.withValues(alpha: 0.8),
             height: 1.2,
             fontWeight: FontWeight.w700,
           ),

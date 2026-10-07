@@ -3,6 +3,7 @@ import '../../../core/network/api_client.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/theme/rarity_style.dart';
 import '../../../core/utils/format.dart';
 import '../../../core/domain/rarity.dart';
 import '../../../shared/widgets/collectible_card.dart';
@@ -91,12 +92,38 @@ class _OddsBody extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('ODDS DISCLOSURE', style: AppText.eyebrow),
-              const SizedBox(height: 6),
+              Container(
+                height: 24,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                decoration: const BoxDecoration(
+                  color: AppColors.brandSoft,
+                  borderRadius: Radii.pill,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.verified_rounded,
+                      size: 14,
+                      color: AppColors.brand,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      '확률 공개 · 서버 추첨 가중치 그대로',
+                      style: AppText.micro.copyWith(
+                        color: AppColors.brand,
+                        fontWeight: FontWeight.w800,
+                        height: 1,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
               Text(odds.title, style: AppText.display),
-              const SizedBox(height: Space.x1),
+              const SizedBox(height: 2),
               Text(
-                '1회 ${formatGp(odds.price)} · 서버 추첨 가중치를 그대로 환산',
+                '1회 ${formatGp(odds.price)}',
                 style: AppText.num(AppText.callout),
               ),
             ],
@@ -111,13 +138,13 @@ class _OddsBody extends StatelessWidget {
               _Figure(
                 'SSR 기본 확률',
                 formatPercent(pity?.baseRatePercent ?? ssrBase),
-                color: AppColors.raritySSRLight,
+                color: AppColors.raritySSRInk,
               ),
               if (pity != null)
                 _Figure(
                   '천장 반영 SSR 확률',
                   formatPercent(pity.effectiveRatePercent),
-                  color: AppColors.raritySSRLight,
+                  color: AppColors.raritySSRInk,
                 )
               else
                 _Figure('천장', '없음'),
@@ -325,9 +352,12 @@ class _FigureGrid extends StatelessWidget {
             alignment: Alignment.centerLeft,
             child: Text(
               f.value,
-              style: AppText.num(
-                AppText.title1,
-              ).copyWith(color: f.color, fontWeight: FontWeight.w900),
+              style: AppText.num(AppText.title1).copyWith(
+                color: f.color ?? AppColors.text,
+                fontWeight: FontWeight.w800,
+                fontSize: 23,
+                letterSpacing: -0.8,
+              ),
             ),
           ),
           if (f.sub != null) ...[
@@ -368,12 +398,8 @@ class _FigureGrid extends StatelessWidget {
         ),
       );
     }
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        border: Border.all(color: AppColors.hairline),
-        borderRadius: Radii.card,
-      ),
+    return AppCard(
+      padding: EdgeInsets.zero,
       child: Column(children: rows),
     );
   }
@@ -412,7 +438,7 @@ class _Table extends StatelessWidget {
         Container(
           decoration: const BoxDecoration(
             border: Border(
-              top: BorderSide(color: AppColors.hairlineStrong),
+              top: BorderSide(color: AppColors.text, width: 1.4),
               bottom: BorderSide(color: AppColors.hairline),
             ),
           ),
@@ -421,9 +447,9 @@ class _Table extends StatelessWidget {
               Text(
                 columns[i],
                 textAlign: i == 0 ? TextAlign.left : TextAlign.right,
-                style: AppText.caption,
+                style: AppText.caption.copyWith(fontWeight: FontWeight.w700),
               ),
-          ], padding: const EdgeInsets.symmetric(vertical: 9)),
+          ], padding: const EdgeInsets.symmetric(vertical: 10)),
         ),
         for (var i = 0; i < rows.length; i++) ...[
           if (i > 0) const Hairline(),
@@ -509,9 +535,7 @@ class _ItemOddsRow extends StatelessWidget {
           Text(
             formatPercent(item.probabilityPercent),
             style: AppText.num(AppText.bodyStrong).copyWith(
-              color: item.rarity == Rarity.n
-                  ? AppColors.text
-                  : item.rarity.light,
+              color: item.rarity == Rarity.n ? AppColors.text : item.rarity.ink,
               fontWeight: FontWeight.w800,
             ),
           ),
@@ -537,7 +561,10 @@ class _RuleBlock extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(title, style: AppText.headline),
+        Text(
+          title,
+          style: AppText.headline.copyWith(fontWeight: FontWeight.w800),
+        ),
         const SizedBox(height: Space.x1),
         Text(keepAll(body), style: AppText.callout),
         if (rows.isNotEmpty) ...[
@@ -547,10 +574,9 @@ class _RuleBlock extends StatelessWidget {
               horizontal: Space.x4,
               vertical: Space.x1,
             ),
-            decoration: BoxDecoration(
+            decoration: const BoxDecoration(
               color: AppColors.surface,
               borderRadius: Radii.card,
-              border: Border.all(color: AppColors.hairline),
             ),
             child: Column(children: rows),
           ),
