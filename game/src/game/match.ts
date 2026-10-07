@@ -26,6 +26,7 @@ import { MatchAudioDirector, type AudioEngine } from '../audio';
 import { DT, EMOTE, TICK_RATE, VISION, Simulation, type CharacterState, type Command, type EmoteId, type EmoteState, type EntityId, type MatchResult, type SimEvent, type TeamId, type Vec2 } from '../sim';
 import type { GameView, ViewCallout, ViewFocus } from '../render';
 import { GrabLatch, buildCommand, type InputManager, type MatchFrame } from '../platform/input';
+import type { LocalDeviceId, LocalInputRouter } from '../platform/localInput';
 import { EMOTE_IDS, EmoteWheelController, unlockedEmotes, wheelSlotAngle } from '../platform/emotes';
 import { getSaveManager } from '../platform/save';
 import type { Settings } from '../platform/settings';
@@ -94,6 +95,34 @@ export interface MatchServices {
   params: LaunchParams;
   /** Logged instead of thrown for non-fatal problems. */
   log?: (msg: string) => void;
+  /** Local multiplayer: per-device input (required when MatchConfig.local has seats). */
+  local?: LocalInputRouter | null;
+}
+
+/**
+ * One human player of this match. Single-player: one seat (P1) reading the InputManager. Local
+ * multiplayer: one seat per joined device, each with its own grab latch, taunt wheel and taunt
+ * cooldown.
+ */
+export interface Seat {
+  slot: number;
+  charId: EntityId;
+  team: TeamId;
+  /** 0..3 = P1..P4. */
+  index: number;
+  /** null = the InputManager (single-player). */
+  device: LocalDeviceId | null;
+  latch: GrabLatch;
+  wheel: EmoteWheelController;
+  /** After a wheel pick, movement stays off until the stick / keys go back to neutral. */
+  holdStill: boolean;
+  /** The taunt state at the last tick (start / end detection). */
+  prevEmote: EmoteState | null;
+  /** Tick the last taunt ended (cooldown display). */
+  emoteEndedTick: number;
+  lastFrame: MatchFrame | null;
+  /** Last frame the wheel was opened (the HUD draws the most recently opened wheel). */
+  wheelOpenedAt: number;
 }
 
 export interface MatchHooks {
@@ -110,14 +139,16 @@ export class MatchController {
   readonly sim: Simulation;
   readonly bots: BotController[];
   readonly meId: EntityId;
-  readonly myTeam: TeamId = 0;
+  /** P1's team (0 in single-player). */
+  readonly myTeam: TeamId;
+  /** Human players; seats[0] is P1 (the save owner). */
+  readonly seats: Seat[];
   readonly observer: RivalObserver | null;
   private readonly proxy: Bot | null;
   private script: MatchScript | null = null;
   private readonly svc: MatchServices;
   private readonly hooks: MatchHooks;
   private readonly director: MatchAudioDirector;
-  private readonly latch: GrabLatch;
   readonly time = new TimeScale();
 
   private phase: Phase = 'loaded';
@@ -138,14 +169,7 @@ export class MatchController {
   private policeExplained = false;
   private lastFrame: MatchFrame | null = null;
   // --- taunts (owner addition) ---
-  private readonly wheel: EmoteWheelController;
   private readonly unlocked: ReadonlySet<EmoteId>;
-  /** After a wheel pick, movement stays off until the stick / keys go back to neutral. */
-  private holdStill = false;
-  /** The human's taunt state at the last tick (start / end detection). */
-  private prevEmote: EmoteState | null = null;
-  /** Tick the human's last taunt ended (cooldown display). */
-  private emoteEndedTick = -Infinity;
   private forcedResult: MatchResult | null = null;
   private summaryCache: MatchSummary | null = null;
   private pauseRequested = false;
@@ -172,6 +196,7 @@ export class MatchController {
     const built = buildMatch(config);
     this.sim = new Simulation(built.setup);
     this.meId = this.sim.characterBySlot(built.humanSlot).id;
+    this.myTeam = this.sim.characterBySlot(built.humanSlot).team;
     // createBot warms the shared nav caches (10-40 ms): this runs behind the loading screen.
     this.bots = built.bots.map((b) => createBot(this.sim, { slot: b.slot, personality: b.personality, difficulty: b.difficulty, adaptation: b.adaptation, seed: b.seed, params: b.params }));
     this.proxy =
@@ -192,8 +217,25 @@ export class MatchController {
       owned = unlockedEmotes(null);
     }
     this.unlocked = new Set(owned);
-    this.wheel = new EmoteWheelController(owned);
-    this.latch = new GrabLatch(svc.settings().grabMode);
+    const grabMode = svc.settings().grabMode;
+    this.seats = built.humans.map((h) => {
+      const c = this.sim.characterBySlot(h.slot);
+      return {
+        slot: h.slot,
+        charId: c.id,
+        team: c.team,
+        index: h.seat ? h.seat.index : 0,
+        device: h.seat && svc.local ? h.seat.device : null,
+        latch: new GrabLatch(grabMode),
+        wheel: new EmoteWheelController(owned),
+        holdStill: false,
+        prevEmote: null,
+        emoteEndedTick: -Infinity,
+        lastFrame: null,
+        wheelOpenedAt: -1,
+      };
+    });
+    this.seats.sort((a, b) => a.index - b.index);
     this.time.setEnabled(!svc.settings().reducedMotion);
   }
 
@@ -211,6 +253,16 @@ export class MatchController {
 
   get isPaused(): boolean {
     return this.paused;
+  }
+
+  /** P1's taunt wheel (tests / e2e). */
+  get wheel(): EmoteWheelController {
+    return this.seats[0]!.wheel;
+  }
+
+  /** Local multiplayer match (seats read per-device input). */
+  get isLocal(): boolean {
+    return this.seats.some((s) => s.device !== null);
   }
 
   get isPractice(): boolean {
@@ -326,8 +378,12 @@ export class MatchController {
 
   private countdownFrame(realDt: number): void {
     // Watch for pause during the countdown (the match consumer owns input in this context).
-    const f = this.svc.input.pollMatch();
-    if (f.pausePressed) {
+    let paused = false;
+    for (const seat of this.seats) {
+      const f = seat.device ? this.svc.local!.matchFrame(seat.device) : this.svc.input.pollMatch();
+      if (f.pausePressed) paused = true;
+    }
+    if (paused) {
       this.hooks.onPauseRequest();
       return;
     }
@@ -340,7 +396,7 @@ export class MatchController {
       if (n === 0) {
         this.phase = 'playing';
         this.acc = 0;
-        this.latch.reset();
+        for (const seat of this.seats) seat.latch.reset();
       }
     }
   }
@@ -371,12 +427,12 @@ export class MatchController {
     const sim = this.sim;
     const cmds = this.cmds;
     cmds.length = sim.state.characters.length;
-    cmds[0] = this.humanCommand();
+    for (const seat of this.seats) cmds[seat.slot] = this.humanCommand(seat);
     for (const b of this.bots) cmds[b.slot] = b.update(sim);
     canonicalizeCommands(cmds); // [WP5/F5] the sim consumes exactly what the command log stores
     const events = sim.step(cmds);
     this.stats.steps++;
-    this.trackEmote();
+    for (const seat of this.seats) this.trackEmote(seat);
     const { view } = this.svc;
     view.captureTick(sim);
     view.onEvents(events, sim);
@@ -399,31 +455,40 @@ export class MatchController {
     if (sim.state.over && this.phase === 'playing') this.beginEnding();
   }
 
-  private humanCommand(): Command {
+  private humanCommand(seat: Seat): Command {
     const sim = this.sim;
-    const me = sim.getCharacter(this.meId)!;
-    // Exactly one match poll per tick, also under autotest (pause must keep working).
-    const f = this.svc.input.pollMatch();
-    this.lastFrame = f;
-    // Pause after this tick (the command still applies so nothing is dropped).
+    const me = sim.getCharacter(seat.charId)!;
+    const p1 = seat === this.seats[0];
+    // Exactly one match poll per tick and device, also under autotest (pause must keep working).
+    const f = seat.device ? this.svc.local!.matchFrame(seat.device) : this.svc.input.pollMatch();
+    seat.lastFrame = f;
+    if (p1) this.lastFrame = f;
+    // Pause after this tick (the command still applies so nothing is dropped). Any player may pause.
     // (taunt wheel open: Esc / Start only closes the wheel, see tauntInput)
-    if (f.pausePressed && !this.wheel.open) this.pauseRequested = true;
-    if (this.proxy) return this.proxy.update(sim);
-    const auto = this.script?.autopilot?.(sim);
+    if (f.pausePressed && !seat.wheel.open) this.pauseRequested = true;
+    if (this.proxy && p1 && !seat.device) return this.proxy.update(sim);
+    const auto = p1 ? this.script?.autopilot?.(sim) : null;
     if (auto) return auto;
-    const grab = this.latch.update(f, me.grab !== null);
-    let ping = this.pendingPing;
-    this.pendingPing = null;
+    const grab = seat.latch.update(f, me.grab !== null);
+    let ping = p1 ? this.pendingPing : null;
+    if (p1) this.pendingPing = null;
     // a right-click while the taunt wheel is open cancels the wheel instead of pinging
-    if (!ping && f.pingPressed && !(this.wheel.open && f.pingAtPointer)) ping = this.resolvePing(me, f);
-    const emote = this.tauntInput(f, me);
+    if (!ping && f.pingPressed && !(seat.wheel.open && f.pingAtPointer)) ping = this.resolvePing(me, f);
+    const emote = this.tauntInput(f, me, seat);
     const cmd = buildCommand(f, grab, ping);
     // The raccoon stands still once a slot is picked on the open wheel (not before: a player who
     // tapped the wheel button mid-run keeps running; not while a taunt could not start anyway:
     // a carrier keeps running) and, after a pick, until the stick / keys go back to neutral.
-    if ((this.wheel.open && this.wheel.hover !== null && !this.tauntBlocked(me)) || this.holdStill) cmd.move = { x: 0, y: 0 };
+    if ((seat.wheel.open && seat.wheel.hover !== null && !this.tauntBlocked(me)) || seat.holdStill) cmd.move = { x: 0, y: 0 };
     cmd.emote = emote;
     return cmd;
+  }
+
+  /** The seat whose taunt wheel the HUD draws (the most recently opened one that is open). */
+  private wheelSeat(): Seat {
+    let best: Seat | null = null;
+    for (const s of this.seats) if (s.wheel.open && (!best || s.wheelOpenedAt > best.wheelOpenedAt)) best = s;
+    return best ?? this.seats[0]!;
   }
 
   /** A taunt cannot start now: holding something, dashing, boosting or knocked down. */
@@ -432,10 +497,10 @@ export class MatchController {
   }
 
   /** Still in the gap after the last taunt ended (a taunt playing right now does not count). */
-  private tauntCooling(me: CharacterState): boolean {
+  private tauntCooling(me: CharacterState, seat: Seat): boolean {
     const tick = this.sim.state.tick;
     if (me.emote && tick < me.emote.endTick) return false;
-    return tick < this.emoteEndedTick + EMOTE.cooldownTicks;
+    return tick < seat.emoteEndedTick + EMOTE.cooldownTicks;
   }
 
   /**
@@ -444,18 +509,22 @@ export class MatchController {
    * busy, still cooling down, or — for the direct keys — running) is not sent; the taunt chip says
    * why instead.
    */
-  private tauntInput(f: MatchFrame, me: CharacterState): EmoteId | null {
-    const p = this.svc.input.pointer;
-    const step = this.wheel.update({
+  private tauntInput(f: MatchFrame, me: CharacterState, seat: Seat): EmoteId | null {
+    // The mouse belongs to keyboard player A (single-player: the one player).
+    const mouse = seat.device === null || seat.device === 'kbA';
+    const p = !mouse ? null : seat.device ? this.svc.local!.pointer : this.svc.input.pointer;
+    const wasOpen = seat.wheel.open;
+    const step = seat.wheel.update({
       held: f.emoteWheelDown,
       stick: f.wheelStick,
       keys: f.wheelKeys,
       pointer: p ? { x: p.clientX, y: p.clientY } : null,
       // the mouse picks by direction from the wheel as drawn (HUD center), not from the cursor
-      center: f.emoteWheelDown || this.wheel.open ? (this.svc.hud.taunts.geometry?.() ?? null) : null,
-      click: f.wheelClick ? { x: f.wheelClick.clientX, y: f.wheelClick.clientY } : null,
-      cancel: f.grabPressed || f.dashPressed || f.pausePressed || (this.wheel.open && f.pingAtPointer !== null),
+      center: mouse && (f.emoteWheelDown || seat.wheel.open) ? (this.svc.hud.taunts.geometry?.() ?? null) : null,
+      click: mouse && f.wheelClick ? { x: f.wheelClick.clientX, y: f.wheelClick.clientY } : null,
+      cancel: f.grabPressed || f.dashPressed || f.pausePressed || (seat.wheel.open && f.pingAtPointer !== null),
     });
+    if (seat.wheel.open && !wasOpen) seat.wheelOpenedAt = this.frameNo * 1000 + this.sim.state.tick;
     let want: EmoteId | null = null;
     let fromWheel = false;
     if (f.emotePressed !== null) {
@@ -471,44 +540,46 @@ export class MatchController {
     if (want) {
       const moving = Math.hypot(f.move.x, f.move.y) > EMOTE.cancelMove;
       if (this.tauntBlocked(me)) this.svc.hud.taunts.nope('taunt.wheel.blocked');
-      else if (this.tauntCooling(me)) this.svc.hud.taunts.nope('taunt.nope.cooling');
+      else if (this.tauntCooling(me, seat)) this.svc.hud.taunts.nope('taunt.nope.cooling');
       else if (!fromWheel && moving) this.svc.hud.taunts.nope('taunt.nope.moving');
       else {
         emote = want;
         // A wheel pick: hold still until the stick / keys that picked it are back to neutral.
-        if (fromWheel) this.holdStill = true;
+        if (fromWheel) seat.holdStill = true;
       }
     }
-    if (this.holdStill && !this.wheel.open && Math.hypot(f.move.x, f.move.y) <= EMOTE.cancelMove) this.holdStill = false;
+    if (seat.holdStill && !seat.wheel.open && Math.hypot(f.move.x, f.move.y) <= EMOTE.cancelMove) seat.holdStill = false;
     return emote;
   }
 
   /** Follow the human's taunt state (chip pop on start, cooldown from its end). */
-  private trackEmote(): void {
-    const me = this.sim.getCharacter(this.meId);
+  private trackEmote(seat: Seat): void {
+    const me = this.sim.getCharacter(seat.charId);
     const em = me?.emote ?? null;
-    const prev = this.prevEmote;
+    const prev = seat.prevEmote;
     const tick = this.sim.state.tick;
     if (em && (!prev || prev.startTick !== em.startTick || prev.id !== em.id)) this.svc.hud.taunts.fired();
-    if (prev && (!em || em.startTick !== prev.startTick)) this.emoteEndedTick = Math.min(tick, prev.endTick);
-    else if (em && tick >= em.endTick && this.emoteEndedTick < em.endTick) this.emoteEndedTick = em.endTick;
-    this.prevEmote = em && tick < em.endTick ? { ...em } : null;
+    if (prev && (!em || em.startTick !== prev.startTick)) seat.emoteEndedTick = Math.min(tick, prev.endTick);
+    else if (em && tick >= em.endTick && seat.emoteEndedTick < em.endTick) seat.emoteEndedTick = em.endTick;
+    seat.prevEmote = em && tick < em.endTick ? { ...em } : null;
   }
 
   /** HUD taunt wheel model for this frame. */
   private tauntWheelModel(): Parameters<Hud['setTauntWheel']>[0] {
-    const me = this.sim.getCharacter(this.meId);
+    const seat = this.wheelSeat();
+    const me = this.sim.getCharacter(seat.charId);
     const tick = this.sim.state.tick;
     const playing = !!me?.emote && tick < me.emote.endTick;
-    const cool = playing ? 1 : Math.max(0, Math.min(1, (this.emoteEndedTick + EMOTE.cooldownTicks - tick) / EMOTE.cooldownTicks));
+    const cool = playing ? 1 : Math.max(0, Math.min(1, (seat.emoteEndedTick + EMOTE.cooldownTicks - tick) / EMOTE.cooldownTicks));
     const blocked = !me || this.tauntBlocked(me);
     return {
-      open: this.wheel.open && !this.paused,
-      hover: this.wheel.hover,
+      open: seat.wheel.open && !this.paused,
+      hover: seat.wheel.hover,
       slots: EMOTE_IDS.map((id, i) => ({ id, unlocked: this.unlocked.has(id), angle: (wheelSlotAngle(i, EMOTE_IDS.length) * 180) / Math.PI })),
       cooldown: cool,
       blocked,
-      showKeys: this.svc.input.glyphDevice === 'keyboard',
+      showKeys: seat.device ? seat.device === 'kbA' || seat.device === 'kbB' : this.svc.input.glyphDevice === 'keyboard',
+      ...(this.isLocal ? { owner: { index: seat.index } } : {}),
     };
   }
 
@@ -555,8 +626,10 @@ export class MatchController {
     const { hud } = this.svc;
     let checkAch = false;
     for (const e of events) {
-      const r = rumbleFor(e, sim, this.meId, this.myTeam);
-      if (r) this.rumble(r);
+      for (const seat of this.seats) {
+        const r = rumbleFor(e, sim, seat.charId, seat.team);
+        if (r) this.rumble(r, seat);
+      }
       switch (e.type) {
         case 'recovered': {
           checkAch = true;
@@ -678,14 +751,20 @@ export class MatchController {
     this.time.slowmo();
   }
 
-  private rumble(name: RumbleName): void {
+  private rumble(name: RumbleName, seat?: Seat): void {
     const s = this.svc.settings();
     if (!s.vibration) return;
+    const dev = seat?.device ?? null;
+    if (seat && seat.device !== null && !seat.device.startsWith('pad:')) return; // keyboards do not rumble
+    const buzz = (strength: number, ms: number): void => {
+      if (dev) this.svc.local?.vibrate(dev, strength, ms);
+      else this.svc.input.vibrate(strength, ms);
+    };
     let at = 0;
     for (const p of RUMBLE[name]) {
       at += p.delayMs ?? 0;
-      if (at === 0) this.svc.input.vibrate(p.strength, p.ms);
-      else this.rumbleTimers.push(window.setTimeout(() => !this.disposed && this.svc.input.vibrate(p.strength, p.ms), at));
+      if (at === 0) buzz(p.strength, p.ms);
+      else this.rumbleTimers.push(window.setTimeout(() => !this.disposed && buzz(p.strength, p.ms), at));
     }
   }
 
@@ -1021,8 +1100,10 @@ export class MatchController {
   pause(): void {
     if (this.paused || this.disposed) return;
     this.paused = true;
-    this.wheel.close();
-    this.holdStill = false;
+    for (const seat of this.seats) {
+      seat.wheel.close();
+      seat.holdStill = false;
+    }
     this.director.stop();
     this.svc.audio.setMuffled(true);
     this.svc.hud.hide();
@@ -1033,13 +1114,14 @@ export class MatchController {
     if (!this.paused || this.disposed) return;
     this.paused = false;
     this.acc = 0;
+    if (this.isLocal) this.svc.local?.resume();
     this.svc.audio.setMuffled(false);
     this.svc.hud.show();
   }
 
   applySettings(s: Readonly<Settings>): void {
     this.applyViewSettings(s);
-    this.latch.setMode(s.grabMode);
+    for (const seat of this.seats) seat.latch.setMode(s.grabMode);
     this.time.setEnabled(!s.reducedMotion);
     this.svc.hud.setCaptionsEnabled(s.subtitles);
   }

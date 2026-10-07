@@ -20,3 +20,9 @@
 - e2e tutorial/match/kickoff screenshot timeouts under load → re-run when idle.
 - Hideout scene props removed globally (settings/credits slightly plainer) — acceptable.
 - Quick setup lower-left empty deck under shade — minor.
+## From C6/C11 (bots use Content 2.0 + balance scorecard) — 2026-10-07
+- v2 vs classic (C11 scorecard, n≈1,560): drama/min 9.3 vs 3.3, draws 1% vs 13%, variety 1.63×, lead changes 2.61 vs 2.11, full countdown played 47% vs 34%, proxy wins 47%. → Recommend flipping CONTENT_V2_BY_DEFAULT = true (director call; update default-dependent tests/fixtures).
+- v2 misses: first score worst map 18.1 s (CI spans 18), longest no-score 34 s (≤28), blowouts 10% (≤8%), drops contested 14% (≥25%), rematch-worthy 70% (classic 86%, gate ≥78%), dead-time definition open.
+- Piggy jackpot almost never happens (1.9%): bots skip kick/smash while holding a hammer; intact haul pays same 300 → make smash pay more or bots go for opponent-carried piggy (C6/C3).
+- Race-the-siren tuning set: land police-dispatch half alone, re-measure (it changes classic fixture).
+- Human proxy opening noise changed → classic proxy baseline shifted.
