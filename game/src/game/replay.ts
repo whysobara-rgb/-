@@ -112,10 +112,10 @@ export function canonicalizeCommands(cmds: (Command | undefined)[]): void {
   }
 }
 
-/** Grow by 1.5x (keeps the reserved capacity close to the payload for long matches). */
+/** Grow by 1.25x (keeps the reserved capacity close to the payload for long matches). */
 function growU8(a: Uint8Array, need: number): Uint8Array {
   if (need <= a.length) return a;
-  const b = new Uint8Array(Math.max(need, Math.ceil(a.length * 1.5)));
+  const b = new Uint8Array(Math.max(need, Math.ceil(a.length * 1.25)));
   b.set(a);
   return b;
 }
@@ -199,8 +199,9 @@ export class CommandLog {
     if (!(slots >= 1 && slots <= 255)) throw new RangeError(`CommandLog: bad slot count ${slots}`);
     this.slots = slots;
     this.maskBytes = Math.ceil(slots / 8);
-    // typical payload is ~1-2 bytes per slot-tick; grows by 1.5x past that
-    this.buf = new Uint8Array(Math.max(64, expectedTicks * (this.maskBytes + slots)));
+    // measured payload is ~1.5-2 bytes per slot-tick (+ the mask): reserve 2 per slot-tick for
+    // the expected length (2:2, 4 min: 127 KiB), grow by 1.25x past that
+    this.buf = new Uint8Array(Math.max(64, expectedTicks * (this.maskBytes + 2 * slots)));
     this.pings = new Float64Array(16);
     this.pingTargets = new Int32Array(8);
     this.enc = newRun(slots);

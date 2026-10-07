@@ -67,7 +67,7 @@
   height: 3rem;
   border-radius: 50%;
   background: var(--pop-cream);
-  border: var(--pop-line-thin) solid var(--pop-ink);
+  border: var(--pop-line) solid var(--pop-ink);
   display: grid;
   place-items: center;
   overflow: hidden;

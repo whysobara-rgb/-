@@ -69,6 +69,71 @@ export function hudMatchPointFromState(state: Readonly<SimState>, myTeam: TeamId
   return hudMatchPoint(matchPointInfo(state, { earlyDecision }), state, myTeam);
 }
 
+/**
+ * How long (ticks) the prompt stays on a decisive load that was dropped and lies loose: a hauler
+ * knocked down (0.7 s), stunned or re-gripping a bank usually picks it up again within ~1-1.5 s
+ * (P block: most prompt gaps before an ending were 0.75-1.25 s drops of the very load that then
+ * decided it). While it lies there the prompt is still literally true — if that team gets it in,
+ * the match is over — so it stays up instead of blinking off and on.
+ */
+export const LOOSE_HOLD_TICKS = 2 * 60;
+
+/**
+ * Keeps the decisive-load prompt on a dropped load (presentation only; `matchPointInfo` and every
+ * consumer of it are unchanged). Fed every tick (or every frame) with that tick's
+ * `matchPointInfo`; returns what the prompt shows. While the info is null, the last announced
+ * loot load is held for up to LOOSE_HOLD_TICKS after it was last decisive, and only while nothing
+ * changed the arithmetic: same scores, same remaining value, same load value, the load not
+ * recovered / anchored / loaded into a bank / dormant, and nobody of the other team holding it or
+ * recovering it. Loads with coin bags are never held (a bag that stops counting has spilled).
+ */
+export class PromptLatch {
+  private held: { info: MatchPointInfo; tick: number; s0: number; s1: number; rem: number; value: number } | null = null;
+
+  update(info: Readonly<MatchPointInfo> | null, state: Readonly<Pick<SimState, 'loot' | 'characters' | 'scores' | 'remainingValue' | 'tick' | 'over'>>): MatchPointInfo | null {
+    if (state.over) {
+      this.held = null;
+      return null;
+    }
+    if (info) {
+      const id = info.lootIds[0];
+      const l = id === undefined ? undefined : state.loot.find((x) => x.id === id);
+      this.held = l && !info.bagCharIds?.length ? { info: { ...info, carrierIds: [] }, tick: state.tick, s0: state.scores[0], s1: state.scores[1], rem: state.remainingValue, value: l.estimatedValue } : null;
+      return info as MatchPointInfo;
+    }
+    const h = this.held;
+    if (!h) return null;
+    const l = state.loot.find((x) => x.id === h.info.lootIds[0]);
+    const team = h.info.team;
+    const ok =
+      state.tick >= h.tick &&
+      state.tick - h.tick <= LOOSE_HOLD_TICKS &&
+      state.scores[0] === h.s0 &&
+      state.scores[1] === h.s1 &&
+      state.remainingValue === h.rem &&
+      !!l &&
+      !l.recovered &&
+      !l.anchored &&
+      l.loadedIn === null &&
+      !l.dormant &&
+      l.estimatedValue === h.value &&
+      !(l.recovery && l.recovery.team !== team) &&
+      !l.grabbedBy.some((cid) => {
+        const c = state.characters.find((x) => x.id === cid);
+        return c !== undefined && c.team !== team;
+      });
+    if (!ok) {
+      this.held = null;
+      return null;
+    }
+    return h.info;
+  }
+
+  reset(): void {
+    this.held = null;
+  }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Swing readout
 // ---------------------------------------------------------------------------------------------
@@ -231,6 +296,19 @@ export function momentStamps(moments: readonly Readonly<Moment>[], ctx: MomentSt
 }
 
 /**
+ * Stamp column slot policy (cap 2 on screen). `liveBig[i]` = the i-th live stamp (oldest first)
+ * is a big one (역전! / 동점! / 막았다! / 잭팟 / 크레인). A new stamp pushes out the oldest small
+ * stamp; a big one is pushed out only by another big one (the oldest); a small stamp arriving
+ * while every live stamp is big is dropped, so routine callouts never cut a lead change short.
+ */
+export function stampEviction(liveBig: readonly boolean[], incomingBig: boolean, cap = 2): { evict: number | null; drop: boolean } {
+  if (liveBig.length < cap) return { evict: null, drop: false };
+  const small = liveBig.indexOf(false);
+  if (small >= 0) return { evict: small, drop: false };
+  return incomingBig ? { evict: 0, drop: false } : { evict: null, drop: true };
+}
+
+/**
  * Per-(stamp, team) cooldowns in ticks: a tug-of-war over the last load can stop the same match
  * point again and again (P block: up to 20 "막았다!" in one match); after one stamp the next
  * stop of that team within the window stays silent (the prompt disappearing still says it).
@@ -243,16 +321,47 @@ export const MOMENT_STAMP_COOLDOWN_TICKS: Partial<Record<MomentStampKind, number
   counterDash: 6 * 60,
 };
 
+/**
+ * "막았다!" / "막혔다!" only for a match point the HUD actually prompted: the prompt is the single
+ * largest load (`matchPointInfo`), while MomentTracker also follows the other team's own match
+ * point, so a stop of a load the player never saw announced would read as coming from nowhere.
+ * The stopped team must have held the prompt for at least PROMPT_SEEN_TICKS in a row, ending no
+ * more than STOP_AFTER_PROMPT_TICKS before the stop (the tracker confirms a stop 2 s after the
+ * load stops being decisive, plus up to 1 s of cause window).
+ */
+export const PROMPT_SEEN_TICKS = 12;
+export const STOP_AFTER_PROMPT_TICKS = 3 * 60;
+
 /** Stateful wrapper of momentStamps with the cooldowns above (one per match; reset on rematch). */
 export class MomentStamper {
   private readonly last = new Map<string, number>();
+  /** Per team: last tick its prompt had been up for >= PROMPT_SEEN_TICKS in a row. */
+  private readonly prompted: [number, number] = [-Infinity, -Infinity];
+  private promptTeam: TeamId | null = null;
+  private promptRun = 0;
 
   constructor(private readonly ctx: MomentStampContext) {}
+
+  /**
+   * Feed the team whose match point the HUD prompt shows this tick (`matchPointInfo(state).team`,
+   * i.e. the MomentTracker snapshot's `matchPoint`), or null. Call every tick before `next`.
+   */
+  notePrompt(team: TeamId | null, tick: number): void {
+    if (team === null) {
+      this.promptTeam = null;
+      this.promptRun = 0;
+      return;
+    }
+    this.promptRun = team === this.promptTeam ? this.promptRun + 1 : 1;
+    this.promptTeam = team;
+    if (this.promptRun >= PROMPT_SEEN_TICKS) this.prompted[team] = tick;
+  }
 
   next(moments: readonly Readonly<Moment>[], tick: number, teamOf?: (id: EntityId) => TeamId | undefined): MomentStampSpec[] {
     if (!moments.length) return [];
     const out: MomentStampSpec[] = [];
-    for (const sp of momentStamps(moments, this.ctx, teamOf)) {
+    const shown = moments.filter((m) => m.kind !== 'matchPointStopped' || tick - this.prompted[m.team] <= STOP_AFTER_PROMPT_TICKS);
+    for (const sp of momentStamps(shown, this.ctx, teamOf)) {
       const cd = MOMENT_STAMP_COOLDOWN_TICKS[sp.kind];
       if (cd !== undefined) {
         const k = `${sp.kind}|${sp.team}`;
@@ -267,6 +376,9 @@ export class MomentStamper {
 
   reset(): void {
     this.last.clear();
+    this.prompted[0] = this.prompted[1] = -Infinity;
+    this.promptTeam = null;
+    this.promptRun = 0;
   }
 }
 

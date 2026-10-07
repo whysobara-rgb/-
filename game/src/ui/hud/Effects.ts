@@ -11,7 +11,7 @@ import { icon, lootIcon, teamEmblem, type IconName } from '../core/icons';
 import { fmtScore } from '../core/format';
 import { chunky, slamIn, type StampTone } from '../core/juice';
 import type { BannerKind, CaptionOptions, HudBannerSpec, HudStampKind, HudStampOptions, ScorePopupOptions } from './types';
-import { BannerQueue, MOMENT_STAMP_LOOK, type BannerPriority } from './tension';
+import { BannerQueue, MOMENT_STAMP_LOOK, stampEviction, type BannerPriority } from './tension';
 
 // ---------------------------------------------------------------------------------------------
 // Score popups ('+100', '+300', '건물 500 + 금고 500 = +1,000')
@@ -329,6 +329,12 @@ export class Stamps {
     // The same callout twice within a beat reads as one.
     const k = `${kind}|${o.team ?? '-'}|${o.key ?? ''}`;
     if (k === this.lastKey && now - this.lastAt < 900) return;
+    // Keep at most two on screen: a new stamp pushes out the oldest small one first. A big one
+    // (역전! / 막았다! ...) is pushed out only by another big one; a small callout arriving while
+    // both live stamps are big is dropped, so routine callouts never cut a lead-change short.
+    const big = BIG_STAMPS.has(kind);
+    const slot = stampEviction(this.live.map((x) => BIG_STAMPS.has(x.kind)), big);
+    if (slot.drop) return;
     this.lastKey = k;
     this.lastAt = now;
     const mine = o.team === undefined || o.team === null ? null : o.team === myTeam;
@@ -351,16 +357,13 @@ export class Stamps {
       el.style.left = `${o.x}px`;
       el.style.top = `${o.y}px`;
     }
-    // Keep at most two on screen: drop the oldest small one first, a big one only if both are big.
-    while (this.live.length >= 2) {
-      const i = BIG_STAMPS.has(kind) ? Math.max(0, this.live.findIndex((x) => !BIG_STAMPS.has(x.kind))) : 0;
-      this.live.splice(i, 1)[0]?.el.remove();
-    }
+    if (slot.evict !== null) this.live.splice(slot.evict, 1)[0]?.el.remove();
+    while (this.live.length >= 2) this.live.shift()?.el.remove(); // defensive: never more than 2
     (world ? this.worldEl : this.el).appendChild(el);
     this.live.push({ el, kind });
     this.shownCount++;
     slamIn(el, 0, rot);
-    const life = o.durationMs ?? (kind === 'bankWhole' || o.sub ? 2000 : BIG_STAMPS.has(kind) ? 1800 : 1600);
+    const life = o.durationMs ?? (kind === 'bankWhole' || o.sub ? 2000 : big ? 1800 : 1600);
     window.setTimeout(() => {
       el.classList.add('is-leaving');
       window.setTimeout(() => {

@@ -19,6 +19,9 @@ import {
   MOMENT_STAMP_COOLDOWN_TICKS,
   MOMENT_STAMP_LOOK,
   MomentStamper,
+  PROMPT_SEEN_TICKS,
+  STOP_AFTER_PROMPT_TICKS,
+  stampEviction,
   hudMatchPoint,
   hudSwing,
   matchPointText,
@@ -160,7 +163,14 @@ describe('moment stamps', () => {
   it('MomentStamper: a tug-of-war over one load stamps "막았다!" once per cooldown window', () => {
     const sp = new MomentStamper(ctx);
     const cd = MOMENT_STAMP_COOLDOWN_TICKS.mpStopped!;
+    // both teams' match points were prompted (the stop gate is its own test below)
+    const prompt = (team: TeamId, at: number): void => {
+      for (let i = 0; i < PROMPT_SEEN_TICKS; i++) sp.notePrompt(team, at - PROMPT_SEEN_TICKS + 1 + i);
+    };
+    prompt(1, 99);
+    prompt(0, 199);
     expect(sp.next([m('matchPointStopped', 1)], 100)).toHaveLength(1);
+    prompt(1, 100 + cd - 2);
     expect(sp.next([m('matchPointStopped', 1)], 100 + cd - 1)).toHaveLength(0);
     // the other team's stop is its own window
     expect(sp.next([m('matchPointStopped', 0)], 200)).toHaveLength(1);
@@ -169,7 +179,42 @@ describe('moment stamps', () => {
     expect(sp.next([m('leadTaken', 0)], 300)).toHaveLength(1);
     expect(sp.next([m('leadTaken', 1)], 301)).toHaveLength(1);
     sp.reset();
+    prompt(1, 301);
     expect(sp.next([m('matchPointStopped', 1)], 302)).toHaveLength(1);
+  });
+
+  it('MomentStamper: "막았다!" / "막혔다!" only for a match point the prompt showed', () => {
+    const sp = new MomentStamper(ctx);
+    // never prompted (the tracker followed team 1's own load behind a bigger team-0 prompt)
+    for (let t = 0; t < 100; t++) sp.notePrompt(0, t);
+    expect(sp.next([m('matchPointStopped', 1)], 200)).toEqual([]);
+    // a flicker shorter than PROMPT_SEEN_TICKS does not count as shown
+    for (let t = 300; t < 300 + PROMPT_SEEN_TICKS - 1; t++) sp.notePrompt(1, t);
+    sp.notePrompt(null, 300 + PROMPT_SEEN_TICKS);
+    expect(sp.next([m('matchPointStopped', 1)], 400)).toEqual([]);
+    // shown long enough, stop confirmed within the window -> stamped (other moments unaffected)
+    for (let t = 500; t < 560; t++) sp.notePrompt(1, t);
+    for (let t = 560; t < 680; t++) sp.notePrompt(null, t);
+    expect(sp.next([m('matchPointStopped', 1), m('equalized', 0)], 559 + STOP_AFTER_PROMPT_TICKS).map((x) => x.kind)).toEqual(['mpStopped', 'equalized']);
+    // too long after the prompt went away -> silent
+    const sp2 = new MomentStamper(ctx);
+    for (let t = 0; t < 60; t++) sp2.notePrompt(0, t);
+    expect(sp2.next([m('matchPointStopped', 0)], 59 + STOP_AFTER_PROMPT_TICKS + 1)).toEqual([]);
+    expect(sp2.next([m('leadTaken', 1)], 400)).toHaveLength(1);
+  });
+
+  it('stamp column: a small callout never evicts a big stamp; big evicts the oldest small first', () => {
+    expect(stampEviction([], false)).toEqual({ evict: null, drop: false });
+    expect(stampEviction([true], false)).toEqual({ evict: null, drop: false });
+    // 역전! (big) + 잭팟 (big) live, 뽑았다! (small) arrives -> dropped, 역전! stays
+    expect(stampEviction([true, true], false)).toEqual({ evict: null, drop: true });
+    // big + small live, small arrives -> the small one goes, the big one stays
+    expect(stampEviction([true, false], false)).toEqual({ evict: 1, drop: false });
+    expect(stampEviction([false, true], false)).toEqual({ evict: 0, drop: false });
+    expect(stampEviction([false, false], false)).toEqual({ evict: 0, drop: false });
+    // big arrives: oldest small first, else the oldest big
+    expect(stampEviction([true, false], true)).toEqual({ evict: 1, drop: false });
+    expect(stampEviction([true, true], true)).toEqual({ evict: 0, drop: false });
   });
 
   it('every stamp text key exists in ko and en', () => {

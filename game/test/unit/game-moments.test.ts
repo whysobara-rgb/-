@@ -4,7 +4,7 @@
  * exactly like the scorecard).
  */
 import { describe, expect, it } from 'vitest';
-import { runMatch } from '../../src/ai/harness';
+import { createMatch, runMatch } from '../../src/ai/harness';
 import type { BotIntent } from '../../src/ai/types';
 import { KICKOFF_CUE_TICKS, MOMENT_KINDS, MOMENT_RULES, MomentTracker, kickoffTarget, type BotIntentSample, type Moment } from '../../src/game/moments';
 import type { CharacterState, LootState, SimEvent, SimState, TeamId, Vec2 } from '../../src/sim/types';
@@ -104,7 +104,7 @@ describe('MomentTracker: one event log per moment kind', () => {
     expect(dep.find((m) => m.kind === 'leadTaken')).toMatchObject({ team: 0, ids: [] });
   });
 
-  it('matchPointOn after a short hold; matchPointStopped when the decisive load is let go for 0.75 s', () => {
+  it('matchPointOn after a short hold; matchPointStopped only when an opponent brought the load down (2 s grace)', () => {
     const tr = tracker();
     const safe = (held: boolean) => loot(3, 'largeSafe', { x: 12, y: 10 }, { anchored: false, grabbedBy: held ? [1] : [] });
     const st = (tick: number, held: boolean) =>
@@ -120,14 +120,57 @@ describe('MomentTracker: one event log per moment kind', () => {
     for (let i = 0; i < 10; i++) all.push(...tr.observe(st(tick++, false), [], []));
     for (let i = 0; i < 5; i++) all.push(...tr.observe(st(tick++, true), [], []));
     expect(kinds(all)).toEqual(['matchPointOn']);
+    // let go with nobody on the other team doing anything: the episode ends silently ("막았다!" would be a lie)
+    for (let i = 0; i < MOMENT_RULES.mpStopTicks + 5; i++) all.push(...tr.observe(st(tick++, false), [], []));
+    expect(kinds(all)).toEqual(['matchPointOn']);
+    // ... and a police tackle is not the other team either
+    for (let i = 0; i < 20; i++) all.push(...tr.observe(st(tick++, true), [], []));
+    expect(kinds(all)).toEqual(['matchPointOn', 'matchPointOn']);
+    all.push(...tr.observe(st(tick, false), [{ type: 'policeTackle', tick, officerId: 90, victimId: 1, hit: true }, { type: 'release', tick, charId: 1, targetId: 3, forced: true }], []));
+    tick++;
+    for (let i = 0; i < MOMENT_RULES.mpStopTicks + 5; i++) all.push(...tr.observe(st(tick++, false), [], []));
+    expect(kinds(all)).toEqual(['matchPointOn', 'matchPointOn']);
+    // an opposing knockdown on the carrier: stopped, credited to the dasher
+    for (let i = 0; i < 20; i++) all.push(...tr.observe(st(tick++, true), [], []));
+    all.push(...tr.observe(st(tick, false), [{ type: 'dashHit', tick, attackerId: 2, victimId: 1, knockdown: true }], []));
+    tick++;
     for (let i = 0; i < MOMENT_RULES.mpStopTicks; i++) all.push(...tr.observe(st(tick++, false), [], []));
-    expect(kinds(all)).toEqual(['matchPointOn', 'matchPointStopped']);
-    expect(all[1]).toMatchObject({ team: 0, value: 300, ids: [3] });
+    expect(kinds(all)).toEqual(['matchPointOn', 'matchPointOn', 'matchPointOn', 'matchPointStopped']);
+    expect(all[3]).toMatchObject({ team: 0, value: 300, ids: [3], lootKind: 'largeSafe', cause: 'hit', by: 2 });
+    // an opponent grabbing the load also stops it
+    for (let i = 0; i < 20; i++) all.push(...tr.observe(st(tick++, true), [], []));
+    all.push(...tr.observe(st(tick, false), [{ type: 'grab', tick, charId: 2, targetId: 3, part: 'safe' }], []));
+    tick++;
+    for (let i = 0; i < MOMENT_RULES.mpStopTicks; i++) all.push(...tr.observe(st(tick++, false), [], []));
+    expect(all[all.length - 1]).toMatchObject({ kind: 'matchPointStopped', team: 0, cause: 'grab', by: 2 });
     // the match ending with match point on is not a stop
     const tr2 = tracker();
     for (let t = 1; t <= 20; t++) tr2.observe(st(t, true), [], []);
     const end = mkState({ tick: 21, over: true, characters: duo(), loot: [{ ...safe(false), recovered: true }], scores: [1300, 900], remainingValue: 0 });
     expect(kinds(tr2.observe(end, [recovered(21, 3, 0, 300, 'largeSafe')], []))).not.toContain('matchPointStopped');
+  });
+
+  it('a decisive coin bag: matchPointOn names its carrier; knocking it loose is a stop, depositing it is not', () => {
+    const st = (tick: number, bag: number, over = false) =>
+      mkState({ tick, over, characters: [ch(1, 0, { x: 3, y: 4 }, { bag }), ch(2, 1, { x: 20, y: 10 })], scores: [1900, 1800], remainingValue: 300, totalValue: 4000 });
+    const tr = tracker(2, 1);
+    const all: Moment[] = [];
+    let tick = 1;
+    for (; tick <= 20; tick++) all.push(...tr.observe(st(tick, 200), [], []));
+    expect(kinds(all)).toEqual(['matchPointOn']);
+    expect(all[0]).toMatchObject({ team: 0, value: 200, ids: [], bagCharIds: [1], pos: { x: 3, y: 4 } });
+    all.push(...tr.observe(st(tick, 0), [{ type: 'bagSpilled', tick, charId: 1, value: 200, byId: 2, cause: 'hammer' }], []));
+    tick++;
+    for (let i = 0; i < MOMENT_RULES.mpStopTicks + 60; i++) all.push(...tr.observe(st(tick++, 0), [], []));
+    expect(kinds(all)).toEqual(['matchPointOn', 'coinSplash', 'matchPointStopped']);
+    expect(all[2]).toMatchObject({ team: 0, value: 200, ids: [], bagCharIds: [1], cause: 'spill', by: 2, pos: { x: 3, y: 4 } });
+    // deposited (the match goes on, e.g. not decisive after all): not a stop
+    const tr2 = tracker(2, 1);
+    const out: Moment[] = [];
+    for (let t = 1; t <= 20; t++) out.push(...tr2.observe(st(t, 200), [], []));
+    out.push(...tr2.observe(mkState({ tick: 21, characters: [ch(1, 0, { x: 3, y: 4 }), ch(2, 1, { x: 20, y: 10 })], scores: [2100, 1800], remainingValue: 100, totalValue: 4000 }), [{ type: 'coinsBanked', tick: 21, charId: 1, team: 0, value: 200 }], []));
+    for (let t = 22; t < 22 + MOMENT_RULES.mpStopTicks + 10; t++) out.push(...tr2.observe(mkState({ tick: t, characters: [ch(1, 0, { x: 3, y: 4 }), ch(2, 1, { x: 20, y: 10 })], scores: [2100, 1800], remainingValue: 100, totalValue: 4000 }), [], []));
+    expect(kinds(out)).not.toContain('matchPointStopped');
   });
 
   it('streakTier 1 at four unanswered recoveries, 2 at 31% of totalValue; streakBroken when answered; lapses after 25 s', () => {
@@ -419,6 +462,17 @@ describe('MomentTracker contract', () => {
     expect(kickoffTarget(v2, 1)).toMatchObject({ id: 'crate:w1', kind: 'crate' });
     expect(kickoffTarget(v2, 1, { lootOnly: true })).toMatchObject({ id: 7, kind: 'atm' });
     expect(KICKOFF_CUE_TICKS).toBe(300);
+    // the real plaza v2 start: the cue (match.ts uses no lootOnly) sends each side to its nearest
+    // starter, a crate when that is closer than the ATM (review: ATM 18.2 m vs crate 7.8 m)
+    const { sim } = createMatch({ layout: 'plaza', team0: [{ personality: 'hodadak', difficulty: 'normal' }], team1: [{ personality: 'nunchi', difficulty: 'normal' }], seed: 1, rules: { content: 'v2' } });
+    for (const c of sim.state.characters) {
+      const k = kickoffTarget(sim.state, c.id)!;
+      const atm = kickoffTarget(sim.state, c.id, { lootOnly: true })!;
+      const d = (p: Vec2) => Math.hypot(p.x - c.pos.x, p.y - c.pos.y);
+      expect(['crate', 'atm']).toContain(k.kind);
+      expect(d(k.pos)).toBeLessThanOrEqual(d(atm.pos));
+      expect(d(k.pos)).toBeLessThan(10);
+    }
   });
 });
 

@@ -28,7 +28,7 @@ import type {
 import { BANK_MODEL, BREAKABLE_SPECS, COINS, DASH, ITEMS, ITEM_FOREVER, PROP_SPECS, SAFE_SPECS, SCORE, TICK_RATE, UNANCHOR_TICKS } from '../../sim/config';
 import { hasKey, type TextRef } from '../i18n';
 import { matchPointInfo, type MatchPointInfo } from '../../sim/queries';
-import { hudMatchPoint, hudSwing } from './tension';
+import { PromptLatch, hudMatchPoint, hudSwing } from './tension';
 import type {
   HudBank,
   HudCarry,
@@ -340,10 +340,18 @@ export function hudModelFromSim(sim: SimView, o: HudAdapterOptions): HudModel {
  */
 export function tensionFromSim(sim: SimView, myTeam: TeamId, mp?: MatchPointInfo | null): Pick<HudModel, 'matchPoint' | 'swing'> {
   const st = sim.state;
-  if (st.over) return { matchPoint: null, swing: null };
-  const info = mp === undefined ? matchPointInfo(st, { earlyDecision: sim.rules.earlyDecision }) : mp;
+  let latch = promptLatches.get(sim);
+  if (!latch) promptLatches.set(sim, (latch = new PromptLatch()));
+  if (st.over) {
+    latch.reset();
+    return { matchPoint: null, swing: null };
+  }
+  const info = latch.update(mp === undefined ? matchPointInfo(st, { earlyDecision: sim.rules.earlyDecision }) : mp, st);
   return { matchPoint: hudMatchPoint(info, st, myTeam), swing: hudSwing(st, myTeam) };
 }
+
+/** [F4] One prompt latch per simulation (a dropped decisive load keeps its prompt; see PromptLatch). */
+const promptLatches = new WeakMap<SimView, PromptLatch>();
 
 // ---------------------------------------------------------------------------------------------
 // [C8] Content 2.0 (content-plan §6 C8 wave 1): item slot, bag chip, deposit ring, world tags,

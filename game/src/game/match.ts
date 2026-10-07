@@ -836,20 +836,23 @@ export class MatchController {
     const { hud } = this.svc;
     if (this.isPractice) return;
     // crown: fed every tick from the snapshot (it lasts while the lead lasts)
-    hud.setLeader(this.momentSnapshot().leader);
+    const snap = this.momentSnapshot();
+    hud.setLeader(snap.leader);
+    // "막았다!" only for a match point the prompt showed (snapshot.matchPoint = the prompt's load)
+    this.stamper ??= new MomentStamper({ myTeam: this.myTeam, meId: this.meId });
+    this.stamper.notePrompt(snap.matchPoint ? snap.matchPoint.team : null, this.sim.state.tick);
     if (!moments.length) return;
     // stamps: at most 2 per tick, merged ("역전!" + "은행째!"), "involved" ones only when the local
     // team is on one side (src/ui/hud/tension.ts momentStamps). The decisive-load prompt and the
     // swing readout come from the HudModel (adapters: matchPointInfo / swingInfo) every frame.
     const sim = this.sim;
-    this.stamper ??= new MomentStamper({ myTeam: this.myTeam, meId: this.meId });
     for (const sp of this.stamper.next(moments, sim.state.tick, (id) => sim.getCharacter(id)?.team)) {
       const v = sp.params?.value;
       hud.stamp(sp.kind, { team: sp.team, key: sp.key, sub: sp.sub, params: v === undefined ? undefined : { value: fmtScore4(Number(v)) } });
     }
   }
 
-  /** [WP5] Extra ping-pulse ids for the view (kickoff cue: the nearest small safe, first 5 s). */
+  /** [WP5] Extra ping-pulse ids for the view (kickoff cue: the nearest small safe / ATM, first 5 s). */
   private funFocusTargets(): readonly EntityId[] {
     const k = this.kickoffCue();
     return k && typeof k.id === 'number' ? [k.id] : [];
@@ -859,6 +862,14 @@ export class MatchController {
   private funArrows(): OffscreenTarget[] {
     const k = this.kickoffCue();
     if (!k) return [];
+    if (!this.kickoffArrowEligible()) return [];
+    const p = this.svc.view.project(k.pos, 1);
+    // a small safe gets the safe arrow; an ATM / crate the neutral "look here" pointer
+    return [{ id: 'kickoff', x: p.x, y: p.y, kind: k.kind === 'smallSafe' ? 'safe' : 'ping', team: this.myTeam }];
+  }
+
+  /** [WP5/F5] The kickoff arrow is for new players: fewer than 10 finished matches on this save. */
+  private kickoffArrowEligible(): boolean {
     if (this.finishedMatches === null) {
       try {
         this.finishedMatches = getSaveManager().data.stats.matches;
@@ -866,24 +877,38 @@ export class MatchController {
         this.finishedMatches = 0;
       }
     }
-    if (this.finishedMatches >= KICKOFF_ARROW_MATCHES) return [];
-    const p = this.svc.view.project(k.pos, 1);
-    return [{ id: 'kickoff', x: p.x, y: p.y, kind: 'safe', team: this.myTeam }];
+    return this.finishedMatches < KICKOFF_ARROW_MATCHES;
   }
 
   /**
    * [WP5/F5] Kickoff cue target for the first 5 s of a real match (never in practice): classic —
-   * the nearest outdoor small safe; v2 — the nearest ATM (the view's pulse highlights loot ids,
-   * so crates are left to the content render). Chosen once; dropped early once it is grabbed.
+   * the nearest outdoor small safe; v2 — the nearest unbroken crate or ATM (content-plan F5).
+   * The view pulses loot ids only, so an ATM pulses and a crate gets the arrow alone (a crate
+   * highlight needs a view hook). Chosen once; dropped early once it is grabbed / broken.
    */
   private kickoffCue(): KickoffTarget | null {
     if (this.isPractice || this.sim.state.tick >= KICKOFF_CUE_TICKS || this.phase === 'ending') return null;
-    if (this.kickoff === undefined) this.kickoff = kickoffTarget(this.sim.state, this.meId, { lootOnly: true });
+    if (this.kickoff === undefined) this.kickoff = kickoffTarget(this.sim.state, this.meId);
     const k = this.kickoff;
-    if (!k || typeof k.id !== 'number') return k;
+    if (!k) return null;
+    if (typeof k.id !== 'number') {
+      const id = k.id;
+      const b = this.sim.state.breakables.find((x) => x.id === id);
+      return b && !b.broken ? k : null;
+    }
     const l = this.sim.getLoot(k.id);
     if (!l || l.recovered || !l.anchored || l.grabbedBy.length) return null;
     return k;
+  }
+
+  /**
+   * [WP5/F5] Kickoff cue as of now (tests / e2e): the target, whether the view pulses it and
+   * whether this save gets the arrow (shown by the HUD while the target is off screen).
+   */
+  kickoffCueInfo(): { target: KickoffTarget; pulse: boolean; arrowEligible: boolean; arrows: number } | null {
+    const k = this.kickoffCue();
+    if (!k) return null;
+    return { target: k, pulse: this.funFocusTargets().length > 0, arrowEligible: this.kickoffArrowEligible(), arrows: this.funArrows().length };
   }
 
   /** [WP5/F5] Current MomentTracker snapshot (WP4 funHud reads it; neutral before the first tick). */
