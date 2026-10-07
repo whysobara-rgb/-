@@ -28,6 +28,44 @@ const gameVersion = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 
 
 const RULE = '='.repeat(78);
 
+/** Upstream copyright statement of Noto Sans KR (Google Fonts OFL.txt / Source Han Sans). */
+const NOTO_COPYRIGHT = 'Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name \'Source\'.';
+
+/**
+ * Rust crates compiled into steamworks.js's native addon (identified from the crate paths the
+ * shipped steamworks.js 0.4.0 binaries carry). Re-check when steamworks.js is updated.
+ */
+const RUST_CRATES = [
+  { name: 'steamworks (steamworks-rs)', version: 'git fbb7963', license: 'MIT OR Apache-2.0', url: 'https://github.com/Noxime/steamworks-rs' },
+  { name: 'steamworks-sys', version: 'git fbb7963', license: 'MIT OR Apache-2.0', url: 'https://github.com/Noxime/steamworks-rs' },
+  { name: 'napi (napi-rs)', version: '2.16.8', license: 'MIT', url: 'https://github.com/napi-rs/napi-rs' },
+  { name: 'napi-sys', version: '2.4.0', license: 'MIT', url: 'https://github.com/napi-rs/napi-rs' },
+  { name: 'tokio', version: '1.39.2', license: 'MIT', url: 'https://github.com/tokio-rs/tokio' },
+  { name: 'serde_json', version: '1.0.122', license: 'MIT OR Apache-2.0', url: 'https://github.com/serde-rs/json' },
+  { name: 'once_cell', version: '1.19.0', license: 'MIT OR Apache-2.0', url: 'https://github.com/matklad/once_cell' },
+  { name: 'lazy_static', version: '1.5.0', license: 'MIT OR Apache-2.0', url: 'https://github.com/rust-lang-nursery/lazy-static.rs' },
+];
+
+const MIT_TEXT = `MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.`;
+
 /** Each entry: one section of the notices file (the in-game Licenses view splits on RULE). */
 const entries = [
   {
@@ -45,6 +83,20 @@ const entries = [
     url: 'https://github.com/ceifa/steamworks.js',
     usage: 'Steam integration (achievements, overlay, Steam Cloud). The package also carries the Steamworks SDK redistributable libraries (steam_api64.dll / libsteam_api.so), (c) Valve Corporation, redistributed with Steam games under the Steamworks SDK Access Agreement; they are not covered by the MIT License below.',
     text: read(nm('steamworks.js/LICENSE')),
+  },
+  {
+    name: 'steamworks.js native addon: Rust crates',
+    version: `steamworks.js ${version('steamworks.js')}`,
+    license: 'MIT License (crates offered under "MIT OR Apache-2.0" are used under MIT)',
+    url: 'https://github.com/ceifa/steamworks.js',
+    usage: 'The steamworks.js native addon (steamworksjs.*.node) statically links these Rust crates. List taken from the shipped binaries; each crate\'s copyright notice is in its repository.',
+    text: [
+      ...RUST_CRATES.map((c) => `${c.name} ${c.version} - ${c.license} - ${c.url}`),
+      '',
+      'Copyright (c) the respective authors of the crates listed above.',
+      '',
+      MIT_TEXT,
+    ].join('\n'),
   },
   {
     name: 'Electron',
@@ -67,8 +119,10 @@ const entries = [
     version: `@fontsource/noto-sans-kr ${version('@fontsource/noto-sans-kr')}`,
     license: 'SIL Open Font License, Version 1.1',
     url: 'https://fonts.google.com/noto/specimen/Noto+Sans+KR',
-    usage: 'Body text typeface (weights 400, 700, 900). Font files are bundled unmodified. Upstream copyright: Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name "Source". The license text below is the one distributed with the @fontsource package.',
-    text: read(nm('@fontsource/noto-sans-kr/LICENSE')),
+    usage: 'Body text typeface (weights 400, 700, 900). Font files are bundled unmodified.',
+    // The @fontsource LICENSE starts with a bare "Google Inc." line instead of the font's own
+    // copyright statement; use the upstream one (Noto Sans KR OFL.txt) and keep the rest verbatim.
+    text: read(nm('@fontsource/noto-sans-kr/LICENSE')).replace(/^Google Inc\.\s*\n/, `${NOTO_COPYRIGHT}\n`),
   },
 ];
 
@@ -85,7 +139,7 @@ function build() {
   const sections = entries.map((e) =>
     [
       RULE,
-      `${e.name} ${e.version.startsWith('@') ? `(${e.version})` : e.version}`,
+      `${e.name} ${e.version.includes(' ') ? `(${e.version})` : e.version}`,
       `License: ${e.license}`,
       `Website: ${e.url}`,
       `Used for: ${e.usage}`,

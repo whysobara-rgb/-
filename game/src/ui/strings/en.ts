@@ -251,7 +251,7 @@ export const en: Record<StringKey, string> = {
   'credits.team.title': 'Made by',
   'credits.team.body': 'The Uproot Heist team, one bank at a time.',
   'credits.thanks.title': 'Thanks',
-  'credits.thanks.body': 'To the friends who played early and told us the truth, everyone who builds and shares open source, and you, uprooting banks right now. Thank you!',
+  'credits.thanks.body': 'To everyone who builds and shares open source, and to you, uprooting banks right now. Thank you!',
   'credits.licenses': 'Licenses',
   'credits.licenses.title': 'Licenses',
   'credits.licenses.sub': 'Full license texts of the third-party software and fonts in this game.',

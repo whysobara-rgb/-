@@ -88,8 +88,10 @@ const CREDIT_CARDS: readonly { id: string; icon: IconName; tone: string; tilt: n
 const STYLE_ID = 'uh-credits-style';
 const CSS = `
 .uh-credits { gap: 1rem; }
-.uh-credits__panel { --tilt: -0.4deg; flex: 0 1 auto; min-height: 0; width: min(72rem, 100%); margin: 0 auto; padding: 1.25rem; display: flex; flex-direction: column; }
-.uh-credits__scroll { flex: 0 1 auto; padding: 0.75rem 1rem 1rem; }
+/* The panel is a bounded, clipping box: only the inner .uh-scroll ever holds the long text, so
+   the shrink-to-fit check (UiScreen.fitToViewport) never sees the notices as overflow. */
+.uh-credits__panel { --tilt: -0.4deg; flex: 0 1 auto; min-height: 0; overflow: hidden; width: min(72rem, 100%); margin: 0 auto; padding: 1.25rem; display: flex; flex-direction: column; }
+.uh-credits__scroll { flex: 0 1 auto; min-height: 0; padding: 0.75rem 1rem 1rem; }
 .uh-credits .uh-promptbar { margin-top: auto; padding-top: 1rem; }
 .uh-credits__hero { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; margin: 0.25rem 0 1.5rem; }
 .uh-credits__logo { font-size: var(--uh-fs-3xl); rotate: -3deg; }
@@ -225,7 +227,7 @@ export class CreditsScreen extends UiScreen<CreditsScreenProps> {
 
   private renderLicenses(): HTMLElement {
     let n = 0;
-    const blocks = this.notices.sections.map((s, i) =>
+    const blocks = this.notices.sections.map((s) =>
       h(
         'section',
         { class: 'uh-credits__lic' },
@@ -234,7 +236,7 @@ export class CreditsScreen extends UiScreen<CreditsScreenProps> {
             'header',
             { class: 'uh-credits__licHead' },
             h('span', { class: 'uh-credits__licName' }, s.name),
-            chip({ text: s.license }, i < 3 ? 'sky' : 'mint'),
+            chip({ text: s.license }, /font license/i.test(s.license) ? 'mint' : 'sky'),
             h('span', { class: 'uh-credits__licUrl' }, s.website),
             s.usedFor ? h('p', { class: 'uh-credits__licUse' }, s.usedFor) : null,
           ),

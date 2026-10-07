@@ -257,7 +257,7 @@ export const ko = {
   'credits.team.title': '만든 사람들',
   'credits.team.body': '뿌리째 털어라 팀이 은행을 하나씩 뽑아 가며 만들었어요.',
   'credits.thanks.title': '고마운 분들',
-  'credits.thanks.body': '먼저 해 보고 솔직하게 말해 준 친구들, 오픈소스를 만들어 나눠 주는 모든 분, 그리고 지금 은행을 뽑고 있는 당신. 고마워요!',
+  'credits.thanks.body': '오픈소스를 만들어 나눠 주는 모든 분, 그리고 지금 은행을 뽑고 있는 당신. 고마워요!',
   'credits.licenses': '라이선스 보기',
   'credits.licenses.title': '라이선스',
   'credits.licenses.sub': '게임에 들어간 외부 소프트웨어와 글꼴의 라이선스 전문이에요.',

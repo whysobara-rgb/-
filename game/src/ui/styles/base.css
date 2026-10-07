@@ -62,6 +62,12 @@
   animation: none !important;
   transition: none !important;
   transform: none !important;
+}
+/* Separate rule on purpose: the production CSS minifier folds rotate/scale/translate that sit
+   next to `transform` into one `transform` shorthand, which leaves the individual properties
+   (rotated stamps and stickers) in place and makes every results-like screen shrink to 0.5. */
+.uh-measuring :where(*),
+.uh-measuring :where(*)::before {
   rotate: none !important;
   scale: none !important;
   translate: none !important;
