@@ -72,10 +72,10 @@ class AuthProvider extends ChangeNotifier {
       await _fetchProfile();
       return true;
     } on ApiException catch (e) {
-      _errorMessage = e.message;
+      _errorMessage = e.displayMessage;
       return false;
     } catch (e) {
-      _errorMessage = '로그인 중 오류가 발생했습니다';
+      _errorMessage = '로그인하지 못했어요. 잠시 후 다시 시도해 주세요';
       return false;
     } finally {
       _setLoading(false);
@@ -115,10 +115,10 @@ class AuthProvider extends ChangeNotifier {
       await _fetchProfile();
       return true;
     } on ApiException catch (e) {
-      _errorMessage = e.message;
+      _errorMessage = e.displayMessage;
       return false;
     } catch (e) {
-      _errorMessage = '소셜 로그인 중 오류가 발생했습니다';
+      _errorMessage = '소셜 로그인에 실패했어요';
       return false;
     } finally {
       _setLoading(false);
@@ -142,10 +142,10 @@ class AuthProvider extends ChangeNotifier {
       // 회원가입 성공 후 곧바로 로그인 처리.
       return await login(email: email, password: password);
     } on ApiException catch (e) {
-      _errorMessage = e.message;
+      _errorMessage = e.displayMessage;
       return false;
     } catch (e) {
-      _errorMessage = '회원가입 중 오류가 발생했습니다';
+      _errorMessage = '가입하지 못했어요. 잠시 후 다시 시도해 주세요';
       return false;
     } finally {
       _setLoading(false);
@@ -161,6 +161,15 @@ class AuthProvider extends ChangeNotifier {
     } catch (_) {
       // 네트워크 일시 오류 등은 조용히 무시(다음 새로고침에서 재시도).
     }
+  }
+
+  /// 뽑기·전환·출석·충전 응답의 `balanceAfter`를 즉시 반영한다.
+  /// (GpProvider는 currentUser를 따라가므로 여기서 한 번만 바꾼다.)
+  void applyBalance(int balance) {
+    final user = _currentUser;
+    if (user == null || user.coinBalance == balance) return;
+    _currentUser = user.copyWith(coinBalance: balance);
+    notifyListeners();
   }
 
   Future<void> _fetchProfile() async {

@@ -1,225 +1,79 @@
 import 'package:flutter/material.dart';
 
-/// 가치가차 - 앱 전역 컬러 상수.
+/// 가치가차 컬러 토큰.
 ///
-/// "비비드 파스텔 팝(Vivid Pastel Pop)" 디자인 시스템.
-/// 따뜻한 크림 화이트를 기본 배경으로 하고, 코랄·바이올렛·민트·옐로우 등
-/// 여러 비비드 포인트 컬러를 함께 사용해 단조롭지 않으면서도 과하게
-/// 어둡지 않은 트렌디한 MZ 감성의 라이트 테마를 구성한다.
+/// 셸(홈·상세·보관함·충전·MY)은 거의 흰 화면에 잉크색 텍스트와 헤어라인만
+/// 쓰고, 색은 두 군데에만 쓴다.
+///
+/// 1. 브랜드 액센트 [accent] — CTA, 활성 탭, 강조 가격에만.
+///    딥 볼트 그린(#0B6E4F)을 고른 이유:
+///    - "가치를 보관하는 금고(vault)"라는 이름과 맞고, 돈·신뢰를 연상시키는
+///      색이라 확률 공개·충전 한도 같은 신뢰 기능과 결이 같다.
+///    - 코랄/바이올렛 일색인 가챠 앱들 사이에서 바로 구분되고, 빨강처럼
+///      '세일·긴급'을 연상시키지 않는다(긴박감 연출을 하지 않는 앱이다).
+///    - 레어도 색(회색·파랑·보라·금색) 어느 것과도 겹치지 않고,
+///      특히 SSR 금색과 나란히 놓였을 때 고급 시계 브랜드처럼 정돈돼 보인다.
+/// 2. 레어도 스케일 [rarityN]…[raritySSR] — 오직 레어도 표시에만.
+///
+/// 셸에는 그라데이션을 쓰지 않는다. 화려함은 뽑기 연출 화면이 전담한다.
 class AppColors {
   AppColors._();
 
-  // ===== 배경 (크림 화이트 베이스) =====
-  /// 전체 앱 배경 (따뜻한 크림톤, 순백색보다 부드러운 느낌)
-  static const Color scaffoldBg = Color(0xFFFFF8EF);
+  // ── Surface ──────────────────────────────────────────────
+  /// 기본 화면 배경.
+  static const Color bg = Color(0xFFFFFFFF);
 
-  /// AppBar / 하단 네비게이션 등 셸 배경 (선명한 화이트)
-  static const Color surfaceShell = Color(0xFFFFFFFF);
+  /// 섹션 구분용 오프화이트(살짝 따뜻한 중성 회색).
+  static const Color bgSubtle = Color(0xFFF5F5F3);
 
-  /// 카드/타일 표면 (화이트, 그림자로 배경과 구분)
-  static const Color surfaceElevated = Color(0xFFFFFFFF);
+  /// 이미지 플레이스홀더·눌림 상태 등 한 단계 더 진한 바탕.
+  static const Color bgMuted = Color(0xFFEDEDEB);
 
-  /// 카드보다 한 단계 톤 다운된 표면 (입력창, 비활성 칩, 구분 섹션 배경 등)
-  static const Color surfaceElevated2 = Color(0xFFF7F1E6);
+  /// 헤어라인 보더/디바이더.
+  static const Color line = Color(0xFFEBEBEB);
 
-  /// 크림 배경 위 얇은 구분선/보더 (매우 연한 웜그레이)
-  static const Color surfaceBorder = Color(0xFFF0E7D8);
+  /// 입력창 포커스 등 조금 더 진한 선.
+  static const Color lineStrong = Color(0xFFD4D4D4);
 
-  /// 히어로 배너/포인트 카드 등에 쓰이는 비비드 딥 톤 (검정이 아닌 딥 플럼).
-  /// 필요한 곳에서만 제한적으로 사용해 "너무 어두운" 느낌을 피한다.
-  static const Color heroDeep = Color(0xFF3A2358);
+  // ── Ink (text & icons) ───────────────────────────────────
+  static const Color ink = Color(0xFF111111);
+  static const Color inkSecondary = Color(0xFF6B6B6B);
+  static const Color inkTertiary = Color(0xFFA3A3A3);
+  static const Color inkDisabled = Color(0xFFC7C7C7);
+  static const Color onInk = Color(0xFFFFFFFF);
 
-  /// 레거시 alias — 예전 다크 테마의 "다크 배경" 개념을 가리키던 이름들을
-  /// 새 라이트 팔레트에 맞게 매핑해 기존 코드가 계속 동작하도록 유지.
-  static const Color darkSurface = heroDeep;
-  static const Color surface = surfaceElevated;
-  static const Color background = scaffoldBg;
+  // ── Brand accent (sparingly) ─────────────────────────────
+  static const Color accent = Color(0xFF0B6E4F);
+  static const Color accentPressed = Color(0xFF085A40);
 
-  // ===== 메인 액센트 - 비비드 코랄 =====
-  /// 메인 강조 컬러 (가격, CTA 버튼, 선택된 탭/뱃지 등)
-  static const Color primary = Color(0xFFFF6B4A);
-  static const Color primaryDark = Color(0xFFE24E2E);
-  static const Color primaryLight = Color(0xFFFF9478);
+  /// 액센트 위 아주 옅은 틴트(선택 행, 오늘 출석 칸 등).
+  static const Color accentTint = Color(0xFFE7F2ED);
 
-  /// 레거시 alias — 기존 코드가 goldPrimary/neonPrimary 등을 참조하므로
-  /// 새 코랄 강조색으로 매핑한다.
-  static const Color goldPrimary = primary;
-  static const Color goldSecondary = primaryDark;
-  static const Color neonPrimary = primary;
-  static const Color neonPrimaryDark = primaryDark;
-  static const Color gold = primary;
-  static const Color goldDark = primaryDark;
+  // ── Semantic ─────────────────────────────────────────────
+  /// 오류·차감 금액. 브랜드 액센트와 구분되는 차분한 레드.
+  static const Color negative = Color(0xFFD93A2B);
 
-  // ===== 서브 액센트 (멀티 비비드 컬러 - 단조로움 방지) =====
-  static const Color accentViolet = Color(0xFF8B5CF6);
-  static const Color accentMint = Color(0xFF17B894);
-  static const Color accentSky = Color(0xFF4FA8FF);
-  static const Color accentYellow = Color(0xFFFFC93C);
+  /// 적립 금액 등 긍정 수치. 별도 색을 늘리지 않고 액센트를 재사용한다.
+  static const Color positive = accent;
 
-  /// 퀵메뉴/아이콘 로우 등에서 순환 사용할 멀티 액센트 팔레트.
-  static const List<Color> multiAccents = [
-    primary,
-    accentViolet,
-    accentMint,
-    accentYellow,
-    accentSky,
-  ];
+  // ── Rarity scale (rarity only) ───────────────────────────
+  static const Color rarityN = Color(0xFF8A8A8E);
+  static const Color rarityR = Color(0xFF2F6FEB);
+  static const Color raritySR = Color(0xFF7A3FE0);
+  static const Color raritySSR = Color(0xFFB8862B);
 
-  // ===== 텍스트 =====
-  /// 기본 텍스트 (완전한 검정이 아닌 부드러운 다크 차콜)
-  static const Color textPrimary = Color(0xFF2B2430);
+  /// SSR 금속 표현용 하이라이트/섀도 톤. SSR 배지와 연출에서만 쓴다.
+  static const Color raritySSRLight = Color(0xFFE8C877);
+  static const Color raritySSRDeep = Color(0xFF8A6116);
 
-  /// 보조 텍스트 (뮤트 웜그레이)
-  static const Color textSecondary = Color(0xFF8D8593);
+  /// 레어도 배지의 옅은 바탕.
+  static const Color rarityNTint = Color(0xFFF1F1F2);
+  static const Color rarityRTint = Color(0xFFEAF1FE);
+  static const Color raritySRTint = Color(0xFFF2ECFD);
+  static const Color raritySSRTint = Color(0xFFF8F1E2);
 
-  static const Color textDisabled = Color(0xFFD6CFDA);
-
-  /// 비비드 그라데이션/딥 톤 카드(히어로 배너, GP 카드 등) 위에서 쓰는
-  /// 전용 텍스트 컬러. 크림 배경용 textPrimary/textSecondary와 달리
-  /// 채도 높은 배경 위에서도 또렷하게 보이도록 화이트 계열로 고정한다.
-  static const Color textOnDark = Colors.white;
-  static const Color textOnDarkSecondary = Color(0xFFF0E6FA);
-
-  // ===== 뱃지/상태 컬러 =====
-  static const Color badgeSpecial = Color(0xFFFF4D6D);
-  static const Color badgeNew = accentMint;
-  static const Color badgeHot = Color(0xFFFF7A45);
-
-  static const Color success = accentMint;
-  static const Color error = Color(0xFFE63950);
-
-  // ===== 레어도 컬러 (럭키 라인업 등에서 사용) =====
-  static const Color rarityN = Color(0xFF9A94A0);
-  static const Color rarityR = accentSky;
-  static const Color raritySR = accentViolet;
-  static const Color raritySSR = Color(0xFFFFC94A);
-
-  // ===== Gradients =====
-  /// 메인 CTA 버튼/로고 등에 쓰이는 코랄 그라데이션.
-  static const LinearGradient primaryGradient = LinearGradient(
-    colors: [Color(0xFFFF8A65), primaryDark],
-    begin: Alignment.centerLeft,
-    end: Alignment.centerRight,
-  );
-
-  static LinearGradient get goldGradient => primaryGradient;
-
-  /// 히어로 배너/GP 잔액 카드/캡슐 오픈 연출 등 "비비드하지만 어둡지 않은"
-  /// 강조 표면에 쓰이는 코랄→바이올렛 대각선 그라데이션.
-  static const LinearGradient heroGradient = LinearGradient(
-    colors: [Color(0xFFFF7A59), accentViolet],
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-  );
-
-  /// 두 번째 히어로 배리에이션 (민트→스카이블루) - 배너 카루셀 등에서
-  /// 여러 장을 넘길 때 색이 반복되지 않도록 다양성을 준다.
-  static const LinearGradient heroGradientMint = LinearGradient(
-    colors: [accentMint, accentSky],
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-  );
-
-  /// 세 번째 히어로 배리에이션 (옐로우→코랄).
-  static const LinearGradient heroGradientYellow = LinearGradient(
-    colors: [accentYellow, primary],
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-  );
-
-  /// 상세 페이지 상단 비주얼 배너 등에 사용되는 크림 그라데이션 (다크 X).
-  static const LinearGradient backgroundGradient = LinearGradient(
-    colors: [Color(0xFFFFF1DE), scaffoldBg],
-    begin: Alignment.topCenter,
-    end: Alignment.bottomCenter,
-  );
-
-  // ===== Claymorphism & Pastel 3D 전용 토큰 =====
-
-  /// 로고 워드마크 (오렌지 → 바이올렛)
-  static const LinearGradient logoGradient = LinearGradient(
-    colors: [Color(0xFFFF7A45), Color(0xFF8B5CF6)],
-    begin: Alignment.centerLeft,
-    end: Alignment.centerRight,
-  );
-
-  /// 메인 럭키 PICK 배너용 오가닉 멀티스톱 그라데이션
-  /// (코랄 오렌지 → 핑크 마젠타 → 바이올렛 → 스카이블루)
-  /// 중간 톤에 화사한 핑크/마젠타를 추가해 탁한 보라 뭉침을 방지하고
-  /// 축제 느낌의 톡톡 튀는 색감을 낸다.
-  static const LinearGradient luckyBannerGradient = LinearGradient(
-    colors: [
-      Color(0xFFFF7A59), // 코랄 오렌지
-      Color(0xFFFF5FA8), // 핑크 마젠타
-      Color(0xFFB05CE0), // 라이트 바이올렛
-      Color(0xFF7C6EF5), // 바이올렛-블루
-      Color(0xFF4FA8FF), // 스카이블루
-    ],
-    stops: [0.0, 0.28, 0.52, 0.75, 1.0],
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-  );
-
-  /// GP 포인트 뱃지 (노란 오벌 3D 코인칩) 그라데이션
-  static const LinearGradient coinGradient = LinearGradient(
-    colors: [Color(0xFFFFE08A), accentYellow],
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-  );
-
-  /// 퀵메뉴 클레이 원형 배경 - 무료뽑기(주황)
-  static const LinearGradient clayOrange = LinearGradient(
-    colors: [Color(0xFFFFA26B), Color(0xFFFF6B3D)],
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-  );
-
-  /// 퀵메뉴 클레이 원형 배경 - 컬렉션(민트)
-  static const LinearGradient clayMint = LinearGradient(
-    colors: [Color(0xFF6EE7C8), Color(0xFF17B894)],
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-  );
-
-  /// 퀵메뉴 클레이 원형 배경 - 가게(보라)
-  static const LinearGradient clayViolet = LinearGradient(
-    colors: [Color(0xFFB08CF9), accentViolet],
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-  );
-
-  /// 퀵메뉴 클레이 원형 배경 - 혜택(노랑)
-  static const LinearGradient clayYellow = LinearGradient(
-    colors: [Color(0xFFFFDD7A), accentYellow],
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-  );
-
-  /// 퀵메뉴 클레이 원형 배경 - 커뮤니티(하늘)
-  static const LinearGradient claySky = LinearGradient(
-    colors: [Color(0xFF8BCBFF), accentSky],
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-  );
-
-  /// 상품 카드 HOT 리본 (주황)
-  static const LinearGradient ribbonHot = LinearGradient(
-    colors: [Color(0xFFFF9457), Color(0xFFFF6B3D)],
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-  );
-
-  /// 상품 카드 NEW 리본 (민트)
-  static const LinearGradient ribbonNew = LinearGradient(
-    colors: [Color(0xFF6EE7C8), Color(0xFF12A37E)],
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-  );
-
-  /// 하단 네비게이션 선택 아이템 소프트 원형 배경 그라데이션
-  static const LinearGradient navActiveGradient = LinearGradient(
-    colors: [Color(0xFFFF8A65), accentViolet],
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-  );
+  // ── Reveal stage (dark) ──────────────────────────────────
+  /// 뽑기 연출 화면 전용 배경. 셸과 대비되는 깊은 무채색.
+  static const Color stage = Color(0xFF0A0A0B);
+  static const Color stageRaised = Color(0xFF17171A);
 }
