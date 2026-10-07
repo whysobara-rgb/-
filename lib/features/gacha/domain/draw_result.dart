@@ -65,6 +65,9 @@ class DrawOutcome {
   final PityStatus? pity;
   final List<DrawResult> results;
 
+  /// 뽑기 후 남은 재고(서버가 주면).
+  final int? remainingStock;
+
   const DrawOutcome({
     required this.gachaId,
     required this.count,
@@ -74,6 +77,7 @@ class DrawOutcome {
     required this.highestRarity,
     required this.pity,
     required this.results,
+    this.remainingStock,
   });
 
   factory DrawOutcome.fromJson(Map<String, dynamic> json) {
@@ -99,6 +103,7 @@ class DrawOutcome {
           ? PityStatus.fromJson(pityRaw)
           : null,
       results: results,
+      remainingStock: asIntOrNull(asMap(json['stock'])['remaining']),
     );
   }
 

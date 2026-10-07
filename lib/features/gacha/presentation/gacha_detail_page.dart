@@ -40,10 +40,26 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
   bool _loading = true;
   String? _error;
 
+  /// 사진을 지나 스크롤하면 앱바에 박스명을 보여준다.
+  final _scroll = ScrollController();
+  bool _showTitle = false;
+
   @override
   void initState() {
     super.initState();
+    _scroll.addListener(() {
+      final show =
+          _scroll.hasClients &&
+          _scroll.offset > MediaQuery.sizeOf(context).width * 0.9;
+      if (show != _showTitle) setState(() => _showTitle = show);
+    });
     _load();
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -89,6 +105,9 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
       badgeLabel: d.badgeLabel,
       imageUrl: d.imageUrl,
       pityThreshold: d.pityThreshold,
+      totalStock: d.totalStock,
+      soldStock: d.soldStock,
+      soldOut: d.soldOut,
     );
   }
 
@@ -102,6 +121,15 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
     final summary = _summary;
     final cost = summary.price * count;
     final bonus = count ~/ 10;
+    final remaining = _detail?.remaining;
+    if (_detail?.soldOut ?? false) {
+      showToast(context, '품절된 박스예요');
+      return;
+    }
+    if (remaining != null && remaining < count + bonus) {
+      showToast(context, '남은 수량이 ${formatNumber(remaining)}개라 이만큼 뽑을 수 없어요');
+      return;
+    }
     final balance = context.read<GpProvider>().balance;
 
     if (balance < cost) {
@@ -185,7 +213,11 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
-        title: Text(summary.title, style: AppText.headline),
+        title: AnimatedOpacity(
+          duration: Motion.fast,
+          opacity: _showTitle ? 1 : 0,
+          child: Text(summary.title, style: AppText.headline),
+        ),
         actions: const [GpBadge()],
       ),
       body: _loading
@@ -196,6 +228,7 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
               color: AppColors.ink,
               onRefresh: _load,
               child: ListView(
+                controller: _scroll,
                 padding: const EdgeInsets.only(bottom: Space.x10),
                 children: [
                   AspectRatio(
@@ -218,7 +251,12 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
             ),
       bottomNavigationBar: detail == null
           ? null
-          : _DrawBar(price: detail.price, onDraw: _onDraw),
+          : _DrawBar(
+              price: detail.price,
+              soldOut: detail.soldOut,
+              remaining: detail.remaining,
+              onDraw: _onDraw,
+            ),
     );
   }
 }
@@ -247,11 +285,16 @@ class _Headline extends StatelessWidget {
           Text(detail.title, style: AppText.title1),
           if (detail.description.isNotEmpty) ...[
             const SizedBox(height: Space.x1),
-            Text(detail.description, style: AppText.callout),
+            Text(keepAll(detail.description), style: AppText.callout),
           ],
           const SizedBox(height: Space.x4),
+          if (detail.soldOut) ...[
+            const QuietLabel('품절', color: AppColors.negative),
+            const SizedBox(height: Space.x2),
+          ],
           Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
             children: [
               Text('1회', style: AppText.callout),
               const SizedBox(width: 6),
@@ -263,17 +306,61 @@ class _Headline extends StatelessWidget {
               ),
               const Spacer(),
               if (values.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 3),
-                  child: Text(
-                    '구성품 정가 ${formatNumber(values.first)}~${formatWon(values.last)}',
-                    style: AppText.num(AppText.caption),
-                  ),
+                Text(
+                  '구성품 정가 ${formatNumber(values.first)}~${formatWon(values.last)}',
+                  style: AppText.num(AppText.caption),
                 ),
             ],
           ),
+          if (detail.totalStock > 0) ...[
+            const SizedBox(height: Space.x5),
+            _StockLine(detail: detail),
+          ],
         ],
       ),
+    );
+  }
+}
+
+/// 실재고: 판매 수량 / 전체 수량.
+class _StockLine extends StatelessWidget {
+  final GachaDetail detail;
+  const _StockLine({required this.detail});
+
+  @override
+  Widget build(BuildContext context) {
+    final total = detail.totalStock;
+    final sold = detail.soldStock.clamp(0, total);
+    final left = detail.remaining ?? 0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Text('판매 현황', style: AppText.callout),
+            const Spacer(),
+            Text(
+              '${formatNumber(sold)} / ${formatNumber(total)}개',
+              style: AppText.num(AppText.bodyStrong),
+            ),
+          ],
+        ),
+        const SizedBox(height: Space.x2),
+        ClipRRect(
+          borderRadius: const BorderRadius.all(Radius.circular(2)),
+          child: LinearProgressIndicator(
+            value: total == 0 ? 0 : sold / total,
+            minHeight: 4,
+            color: AppColors.ink,
+            backgroundColor: AppColors.bgMuted,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          detail.soldOut ? '모두 판매됐어요' : '남은 수량 ${formatNumber(left)}개',
+          style: AppText.num(AppText.caption),
+        ),
+      ],
     );
   }
 }
@@ -326,7 +413,7 @@ class _PitySection extends StatelessWidget {
           PityBar(progress: pity.progress),
           const SizedBox(height: Space.x2),
           Text(
-            '이 박스에서 SSR 없이 ${pity.threshold}회째가 되면 그 회차는 SSR로 확정돼요.',
+            keepAll('이 박스에서 SSR 없이 ${pity.threshold}회째가 되면 그 회차는 SSR로 확정돼요.'),
             style: AppText.caption,
           ),
         ],
@@ -363,7 +450,7 @@ class _OddsSummary extends StatelessWidget {
                   child: Row(
                     children: [
                       SizedBox(
-                        width: 40,
+                        width: 44,
                         child: Align(
                           alignment: Alignment.centerLeft,
                           child: RarityTag(tiers[i].rarity),
@@ -371,16 +458,10 @@ class _OddsSummary extends StatelessWidget {
                       ),
                       const SizedBox(width: Space.x2),
                       Expanded(
-                        child: Text(
-                          tiers[i].rarity.label,
-                          style: AppText.body.copyWith(
-                            color: AppColors.inkSecondary,
-                          ),
+                        child: _OddsBar(
+                          percent: tiers[i].probabilityPercent,
+                          color: tiers[i].rarity.color,
                         ),
-                      ),
-                      _OddsBar(
-                        percent: tiers[i].probabilityPercent,
-                        color: tiers[i].rarity.color,
                       ),
                       const SizedBox(width: Space.x3),
                       SizedBox(
@@ -414,7 +495,6 @@ class _OddsBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final factor = (percent / 100).clamp(0.0, 1.0);
     return SizedBox(
-      width: 64,
       height: 4,
       child: Stack(
         fit: StackFit.expand,
@@ -541,19 +621,12 @@ class _Guide extends StatelessWidget {
                           color: AppColors.inkTertiary,
                         ),
                       ),
-                      Expanded(child: Text(line, style: AppText.callout)),
+                      Expanded(
+                        child: Text(keepAll(line), style: AppText.callout),
+                      ),
                     ],
                   ),
                 ),
-              const SizedBox(height: Space.x2),
-              InfoRow(
-                label: '판매 현황',
-                value:
-                    '${formatNumber(detail.soldStock)} / ${formatNumber(detail.totalStock)}개',
-                valueStyle: AppText.num(
-                  AppText.callout,
-                ).copyWith(color: AppColors.ink),
-              ),
               const SizedBox(height: Space.x3),
               OutlinedButton.icon(
                 onPressed: onOpenOdds,
@@ -573,12 +646,24 @@ class _Guide extends StatelessWidget {
 
 class _DrawBar extends StatelessWidget {
   final int price;
+  final bool soldOut;
+
+  /// 남은 수량(없으면 제한 없음). 10+1은 11개를 쓰므로 11개 미만이면 막는다.
+  final int? remaining;
   final ValueChanged<int> onDraw;
 
-  const _DrawBar({required this.price, required this.onDraw});
+  const _DrawBar({
+    required this.price,
+    required this.soldOut,
+    required this.remaining,
+    required this.onDraw,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final left = remaining;
+    final canSingle = !soldOut && (left == null || left >= 1);
+    final canMulti = !soldOut && (left == null || left >= 11);
     return DecoratedBox(
       decoration: const BoxDecoration(
         color: AppColors.bg,
@@ -598,15 +683,15 @@ class _DrawBar extends StatelessWidget {
               Expanded(
                 flex: 4,
                 child: OutlinedButton(
-                  onPressed: () => onDraw(1),
+                  onPressed: canSingle ? () => onDraw(1) : null,
                   style: OutlinedButton.styleFrom(
                     minimumSize: const Size(0, 56),
                     padding: EdgeInsets.zero,
                   ),
                   child: _TwoLine(
-                    title: '1회 뽑기',
-                    price: formatGp(price),
-                    color: AppColors.ink,
+                    title: soldOut ? '품절' : '1회 뽑기',
+                    price: soldOut ? '재입고 전까지 뽑을 수 없어요' : formatGp(price),
+                    color: canSingle ? AppColors.ink : AppColors.inkTertiary,
                   ),
                 ),
               ),
@@ -614,15 +699,19 @@ class _DrawBar extends StatelessWidget {
               Expanded(
                 flex: 6,
                 child: FilledButton(
-                  onPressed: () => onDraw(10),
+                  onPressed: canMulti ? () => onDraw(10) : null,
                   style: FilledButton.styleFrom(
                     minimumSize: const Size(0, 56),
                     padding: EdgeInsets.zero,
                   ),
                   child: _TwoLine(
                     title: '10+1회 뽑기',
-                    price: formatGp(price * 10),
-                    color: AppColors.onInk,
+                    price: canMulti
+                        ? formatGp(price * 10)
+                        : soldOut
+                        ? '품절'
+                        : '남은 수량 ${formatNumber(left ?? 0)}개',
+                    color: canMulti ? AppColors.onInk : AppColors.inkTertiary,
                   ),
                 ),
               ),

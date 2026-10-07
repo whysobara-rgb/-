@@ -379,12 +379,6 @@ class _InventoryPageState extends State<InventoryPage> {
                                   color: AppColors.ink,
                                 ),
                               ),
-                              const Spacer(),
-                              if (_selected.isNotEmpty)
-                                Text(
-                                  '${_selected.length}개 선택',
-                                  style: AppText.num(AppText.callout),
-                                ),
                             ],
                           ),
                         ),
@@ -499,7 +493,7 @@ class _ItemRow extends StatelessWidget {
       onTap: actionable ? onTap : null,
       child: AnimatedContainer(
         duration: Motion.fast,
-        color: selected ? AppColors.bgSubtle : AppColors.bg,
+        color: AppColors.bg,
         padding: const EdgeInsets.fromLTRB(
           Space.x3,
           Space.x3,

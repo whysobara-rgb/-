@@ -126,8 +126,8 @@ class _OddsBody extends StatelessWidget {
               ),
               _Figure(
                 '정가 환급률',
-                '${formatPercent(odds.payoutSinglePercent, maxDecimals: 1)} · 10+1 ${formatPercent(odds.payoutMultiPercent, maxDecimals: 1)}',
-                sub: '1회 · 10+1회',
+                '${formatPercent(odds.payoutSinglePercent, maxDecimals: 1)} / ${formatPercent(odds.payoutMultiPercent, maxDecimals: 1)}',
+                sub: '1회 / 10+1회',
               ),
             ],
           ),
@@ -281,8 +281,10 @@ class _OddsBody extends StatelessWidget {
             0,
           ),
           child: Text(
-            '표시된 확률은 서버 추첨에 쓰는 가중치를 그대로 환산한 값이며, 소수점 넷째 자리에서 반올림했어요. '
-            '설정이 바뀌면 이 화면에 바로 반영돼요.',
+            keepAll(
+              '표시된 확률은 서버 추첨에 쓰는 가중치를 그대로 환산한 값이며, 소수점 넷째 자리까지 보여드려요. '
+              '설정이 바뀌면 이 화면에 바로 반영돼요.',
+            ),
             style: AppText.caption.copyWith(color: AppColors.inkTertiary),
           ),
         ),
@@ -509,7 +511,7 @@ class _RuleBlock extends StatelessWidget {
       children: [
         Text(title, style: AppText.headline),
         const SizedBox(height: Space.x1),
-        Text(body, style: AppText.callout),
+        Text(keepAll(body), style: AppText.callout),
         if (rows.isNotEmpty) ...[
           const SizedBox(height: Space.x2),
           Container(

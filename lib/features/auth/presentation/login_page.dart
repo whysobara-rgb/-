@@ -134,7 +134,7 @@ class _LoginPageState extends State<LoginPage> {
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(
             Space.gutter,
-            Space.x10,
+            Space.x10 + Space.x6,
             Space.gutter,
             Space.x8,
           ),
@@ -164,7 +164,7 @@ class _LoginPageState extends State<LoginPage> {
                 ),
                 const SizedBox(height: Space.x2),
                 Text('모든 박스의 확률을 공개해요.', style: AppText.callout),
-                const SizedBox(height: Space.x8),
+                const SizedBox(height: Space.x10),
                 SocialLoginButton(
                   label: '카카오로 시작하기',
                   backgroundColor: const Color(0xFFFEE500),

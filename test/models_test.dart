@@ -234,4 +234,39 @@ void main() {
       '서버 점검 중이에요',
     );
   });
+
+  test('재고: soldOut 필드가 없으면 숫자로 판단, 품절 오류 문구', () {
+    final a = GachaSummary.fromJson({
+      'id': 1,
+      'title': 'a',
+      'price': 500,
+      'totalStock': 10,
+      'soldStock': 10,
+    });
+    expect(a.soldOut, isTrue);
+    expect(a.remaining, 0);
+    final b = GachaSummary.fromJson({'id': 2, 'title': 'b', 'price': 500});
+    expect(b.soldOut, isFalse);
+    expect(b.remaining, isNull, reason: '구버전 서버는 재고 제한 없음으로 취급');
+    final d = GachaDetail.fromJson({
+      'id': 3,
+      'title': 'c',
+      'price': 500,
+      'totalStock': 100,
+      'soldStock': 95,
+      'soldOut': false,
+    });
+    expect(d.remaining, 5);
+    final e = ApiException(
+      statusCode: 10009,
+      message: 'Only 5 boxes left',
+      errors: ['remaining:5'],
+    );
+    expect(e.remainingStock, 5);
+    expect(e.displayMessage, '남은 수량이 5개라 이만큼 뽑을 수 없어요');
+    expect(
+      ApiException(statusCode: 10009, message: 'Sold out').displayMessage,
+      '품절됐어요',
+    );
+  });
 }

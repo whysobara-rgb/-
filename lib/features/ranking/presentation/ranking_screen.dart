@@ -47,11 +47,15 @@ class _AsyncList<T> extends StatefulWidget {
   final Widget? header;
   final Widget Function(BuildContext, T) itemBuilder;
   final String emptyTitle;
+  final String? emptyMessage;
+  final String? sparseNote;
 
   const _AsyncList({
     required this.loader,
     required this.itemBuilder,
     required this.emptyTitle,
+    this.emptyMessage,
+    this.sparseNote,
     this.header,
   });
 
@@ -94,21 +98,38 @@ class _AsyncListState<T> extends State<_AsyncList<T>>
       return ErrorView(message: _error!, onRetry: _load);
     }
     if (items == null) return const LoadingView();
+    final sparse = items.isNotEmpty && items.length < 5;
     return RefreshIndicator(
       color: AppColors.ink,
       onRefresh: _load,
       child: ListView.separated(
         padding: const EdgeInsets.only(bottom: Space.x8),
-        itemCount: items.isEmpty ? 2 : items.length + 1,
+        // 기록이 적을 때는 마지막에 짧은 안내를 붙인다(빈칸을 가짜로 채우지 않는다).
+        itemCount: items.isEmpty ? 2 : items.length + (sparse ? 2 : 1),
         separatorBuilder: (_, i) => i == 0
             ? const SizedBox.shrink()
             : const Hairline(inset: Space.gutter),
         itemBuilder: (context, i) {
           if (i == 0) return widget.header ?? const SizedBox(height: Space.x2);
+          if (sparse && i == items.length + 1) {
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(
+                Space.gutter,
+                Space.x5,
+                Space.gutter,
+                0,
+              ),
+              child: Text(
+                widget.sparseNote ?? '기록이 쌓이면 더 채워져요.',
+                style: AppText.caption.copyWith(color: AppColors.inkTertiary),
+              ),
+            );
+          }
           if (items.isEmpty) {
             return EmptyView(
               icon: Icons.leaderboard_outlined,
               title: widget.emptyTitle,
+              message: widget.emptyMessage,
             );
           }
           return widget.itemBuilder(context, items[i - 1]);
@@ -160,6 +181,8 @@ class _UserTab extends StatelessWidget {
     return _AsyncList<UserRankingItem>(
       loader: _repo.users,
       emptyTitle: '아직 순위가 없어요',
+      emptyMessage: '박스를 연 기록이 생기면 여기에 순위가 매겨져요.',
+      sparseNote: '실제 뽑기 기록만으로 순위를 매겨요. 기록이 쌓이면 더 채워져요.',
       header: const _Note('받은 상품의 정가 합계 순이에요.'),
       itemBuilder: (context, u) => Padding(
         padding: const EdgeInsets.symmetric(
@@ -203,6 +226,8 @@ class _GachaTab extends StatelessWidget {
     return _AsyncList<GachaRankingItem>(
       loader: _repo.gachas,
       emptyTitle: '아직 순위가 없어요',
+      emptyMessage: '박스를 연 기록이 생기면 여기에 순위가 매겨져요.',
+      sparseNote: '실제 뽑기 기록만으로 순위를 매겨요. 기록이 쌓이면 더 채워져요.',
       header: const _Note('누적 뽑기 횟수 순이에요.'),
       itemBuilder: (context, g) => InkWell(
         onTap: () => Navigator.of(context).push(
@@ -271,6 +296,8 @@ class _WinsTab extends StatelessWidget {
     return _AsyncList<WinFeedItem>(
       loader: _repo.wins,
       emptyTitle: '최근 당첨 기록이 없어요',
+      emptyMessage: '누군가 박스를 열면 여기에 바로 보여요.',
+      sparseNote: '실제 당첨 기록만 보여드려요.',
       header: const _Note('최근 당첨 기록이에요. 닉네임 일부는 가려서 보여드려요.'),
       itemBuilder: (context, w) => Padding(
         padding: const EdgeInsets.symmetric(

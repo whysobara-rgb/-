@@ -31,7 +31,6 @@ class RarityTag extends StatelessWidget {
     return Container(
       height: dense ? 16 : 18,
       padding: EdgeInsets.symmetric(horizontal: dense ? 4 : 5),
-      alignment: Alignment.center,
       decoration: BoxDecoration(
         color: useSolid && !isSsr ? rarity.color : (isSsr ? null : rarity.tint),
         gradient: isSsr
@@ -48,14 +47,17 @@ class RarityTag extends StatelessWidget {
             : null,
         borderRadius: Radii.chip,
       ),
-      child: Text(
-        rarity.code,
-        style: AppText.micro.copyWith(
-          color: textColor,
-          fontSize: dense ? 10 : 11,
-          fontWeight: FontWeight.w800,
-          letterSpacing: 0.2,
-          height: 1,
+      child: Center(
+        widthFactor: 1,
+        child: Text(
+          rarity.code,
+          style: AppText.micro.copyWith(
+            color: textColor,
+            fontSize: dense ? 10 : 11,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.2,
+            height: 1,
+          ),
         ),
       ),
     );
@@ -76,7 +78,6 @@ class QuietLabel extends StatelessWidget {
     return Container(
       height: 18,
       padding: const EdgeInsets.symmetric(horizontal: 5),
-      alignment: Alignment.center,
       decoration: BoxDecoration(
         color: outlined ? AppColors.bg : c,
         border: outlined
@@ -84,13 +85,16 @@ class QuietLabel extends StatelessWidget {
             : null,
         borderRadius: Radii.chip,
       ),
-      child: Text(
-        text,
-        style: AppText.micro.copyWith(
-          color: outlined ? c : AppColors.onInk,
-          fontSize: 10.5,
-          fontWeight: FontWeight.w700,
-          height: 1,
+      child: Center(
+        widthFactor: 1,
+        child: Text(
+          text,
+          style: AppText.micro.copyWith(
+            color: outlined ? c : AppColors.onInk,
+            fontSize: 10.5,
+            fontWeight: FontWeight.w700,
+            height: 1,
+          ),
         ),
       ),
     );

@@ -4,6 +4,7 @@ import '../../../core/network/api_client.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/utils/format.dart';
 import '../../../navigation/tab_navigator.dart';
 import '../../../shared/widgets/gp_badge.dart';
 import '../../../shared/widgets/ui.dart';
@@ -73,9 +74,11 @@ class _HomePageState extends State<HomePage> {
 
   GachaSummary? get _featured {
     if (_boxes.isEmpty) return null;
-    return _boxes.firstWhere(
+    final available = _boxes.where((b) => !b.soldOut).toList();
+    if (available.isEmpty) return null;
+    return available.firstWhere(
       (b) => b.badgeLabel?.toUpperCase() == 'SPECIAL',
-      orElse: () => _boxes.first,
+      orElse: () => available.first,
     );
   }
 
@@ -89,7 +92,8 @@ class _HomePageState extends State<HomePage> {
       case _Sort.priceHigh:
         list.sort((a, b) => b.price.compareTo(a.price));
     }
-    return list;
+    // 품절 박스는 정렬과 상관없이 맨 뒤로 (안정 정렬).
+    return [...list.where((b) => !b.soldOut), ...list.where((b) => b.soldOut)];
   }
 
   void _open(GachaSummary box) {
@@ -165,7 +169,7 @@ class _HomePageState extends State<HomePage> {
                     crossAxisCount: 2,
                     crossAxisSpacing: Space.x3,
                     mainAxisSpacing: Space.x6,
-                    childAspectRatio: 0.68,
+                    childAspectRatio: 0.7,
                   ),
                   delegate: SliverChildBuilderDelegate((context, i) {
                     final box = _sorted[i];
@@ -292,8 +296,10 @@ class _TrustFooter extends StatelessWidget {
           Text('알고 뽑으세요', style: AppText.bodyStrong),
           const SizedBox(height: Space.x2),
           Text(
-            '모든 박스의 등급별·상품별 확률과 천장 규칙은 박스 상세의 '
-            '‘확률 및 구성 정보’에서 볼 수 있어요.',
+            keepAll(
+              '모든 박스의 등급별·상품별 확률과 천장 규칙은 박스 상세의 '
+              '‘확률 및 구성 정보’에서 볼 수 있어요.',
+            ),
             style: AppText.caption,
           ),
           const SizedBox(height: Space.x1),

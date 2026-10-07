@@ -15,6 +15,11 @@ class GachaSummary {
   /// 천장(SSR 확정) 횟수. 없으면 천장 없음.
   final int? pityThreshold;
 
+  /// 실재고. 구버전 서버면 null.
+  final int? totalStock;
+  final int? soldStock;
+  final bool soldOut;
+
   const GachaSummary({
     required this.id,
     required this.title,
@@ -25,7 +30,13 @@ class GachaSummary {
     this.imageUrl,
     this.iconName,
     this.pityThreshold,
+    this.totalStock,
+    this.soldStock,
+    this.soldOut = false,
   });
+
+  /// 남은 수량. 재고 정보가 없으면 null(제한 없음으로 취급).
+  int? get remaining => remainingStock(totalStock, soldStock);
 
   factory GachaSummary.fromJson(Map<String, dynamic> json) => GachaSummary(
     id: asInt(json['id']),
@@ -37,7 +48,25 @@ class GachaSummary {
     imageUrl: asStringOrNull(json['imageUrl']),
     iconName: asStringOrNull(json['iconName']),
     pityThreshold: _positiveOrNull(json['pityThreshold']),
+    totalStock: asIntOrNull(json['totalStock']),
+    soldStock: asIntOrNull(json['soldStock']),
+    soldOut: _soldOut(json),
   );
+}
+
+/// soldOut 필드가 없으면 재고 숫자로 판단한다.
+bool _soldOut(Map<String, dynamic> json) {
+  if (json['soldOut'] != null) return asBool(json['soldOut']);
+  final left = remainingStock(
+    asIntOrNull(json['totalStock']),
+    asIntOrNull(json['soldStock']),
+  );
+  return left != null && left <= 0;
+}
+
+int? remainingStock(int? total, int? sold) {
+  if (total == null || sold == null || total <= 0) return null;
+  return (total - sold).clamp(0, total);
 }
 
 int? _positiveOrNull(Object? value) {
@@ -158,6 +187,7 @@ class GachaDetail {
   final String? imageUrl;
   final int totalStock;
   final int soldStock;
+  final bool soldOut;
   final int? pityThreshold;
   final List<LineupItem> lineup;
 
@@ -173,6 +203,7 @@ class GachaDetail {
     this.badgeLabel,
     this.imageUrl,
     this.pityThreshold,
+    this.soldOut = false,
   });
 
   factory GachaDetail.fromJson(Map<String, dynamic> json) => GachaDetail(
@@ -185,11 +216,13 @@ class GachaDetail {
     imageUrl: asStringOrNull(json['imageUrl']),
     totalStock: asInt(json['totalStock']),
     soldStock: asInt(json['soldStock']),
+    soldOut: _soldOut(json),
     pityThreshold: _positiveOrNull(json['pityThreshold']),
     lineup: LineupItem.listFromJson(json['lineup']),
   );
 
-  int get remainingStock => (totalStock - soldStock).clamp(0, totalStock);
+  /// 남은 수량. 재고 정보가 없으면 null(제한 없음).
+  int? get remaining => remainingStock(totalStock, soldStock);
 
   List<RarityOdds> get rarityOdds => RarityOdds.fromLineup(lineup);
 

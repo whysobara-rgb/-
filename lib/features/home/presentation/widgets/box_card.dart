@@ -28,7 +28,32 @@ class BoxCard extends StatelessWidget {
               fit: StackFit.expand,
               children: [
                 ProductImage(url: box.imageUrl),
-                if (box.badgeLabel != null)
+                if (box.soldOut)
+                  Container(
+                    decoration: BoxDecoration(
+                      color: AppColors.bg.withValues(alpha: 0.6),
+                      borderRadius: Radii.thumb,
+                    ),
+                    alignment: Alignment.center,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
+                      decoration: const BoxDecoration(
+                        color: AppColors.ink,
+                        borderRadius: Radii.chip,
+                      ),
+                      child: Text(
+                        '품절',
+                        style: AppText.caption.copyWith(
+                          color: AppColors.onInk,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+                if (box.badgeLabel != null && !box.soldOut)
                   Positioned(
                     left: 8,
                     top: 8,
@@ -42,14 +67,18 @@ class BoxCard extends StatelessWidget {
             box.title,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: AppText.body.copyWith(height: 1.35),
+            style: AppText.body.copyWith(
+              height: 1.35,
+              color: box.soldOut ? AppColors.inkTertiary : AppColors.ink,
+            ),
           ),
           const SizedBox(height: 2),
           Text(
             formatGp(box.price),
-            style: AppText.num(
-              AppText.headline,
-            ).copyWith(fontWeight: FontWeight.w700),
+            style: AppText.num(AppText.headline).copyWith(
+              fontWeight: FontWeight.w700,
+              color: box.soldOut ? AppColors.inkTertiary : AppColors.ink,
+            ),
           ),
           if (box.pityThreshold != null) ...[
             const SizedBox(height: 2),

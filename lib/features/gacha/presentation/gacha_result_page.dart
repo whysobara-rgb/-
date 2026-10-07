@@ -188,12 +188,18 @@ class _GachaResultPageState extends State<GachaResultPage> {
         body: ListView(
           padding: const EdgeInsets.only(bottom: Space.x8),
           children: [
-            _Summary(gacha: widget.gacha, outcome: _o),
-            const SectionBand(),
-            if (isSingle && best != null)
-              _SingleResult(result: best)
-            else
+            if (isSingle && best != null) ...[
+              _SingleResult(
+                result: best,
+                caption: '${widget.gacha.title} · 1회',
+              ),
+              const SectionBand(),
+              _Summary(gacha: widget.gacha, outcome: _o, compact: true),
+            ] else ...[
+              _Summary(gacha: widget.gacha, outcome: _o),
+              const SectionBand(),
               _ResultGrid(results: sorted),
+            ],
             if (_o.pity?.hasPity ?? false) ...[
               const SectionBand(),
               _PityLine(pity: _o.pity!),
@@ -206,7 +212,7 @@ class _GachaResultPageState extends State<GachaResultPage> {
                 0,
               ),
               child: Text(
-                '보관한 상품은 보관함에서 언제든 배송 신청하거나 포인트로 전환할 수 있어요.',
+                keepAll('보관한 상품은 보관함에서 언제든 배송 신청하거나 포인트로 전환할 수 있어요.'),
                 style: AppText.caption.copyWith(color: AppColors.inkTertiary),
               ),
             ),
@@ -229,7 +235,14 @@ class _Summary extends StatelessWidget {
   final GachaSummary gacha;
   final DrawOutcome outcome;
 
-  const _Summary({required this.gacha, required this.outcome});
+  /// 단일 결과 화면에서는 금액 행만 보여준다.
+  final bool compact;
+
+  const _Summary({
+    required this.gacha,
+    required this.outcome,
+    this.compact = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -242,39 +255,41 @@ class _Summary extends StatelessWidget {
         : '${outcome.count}회';
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(
+      padding: EdgeInsets.fromLTRB(
         Space.gutter,
-        Space.x2,
+        compact ? Space.x4 : Space.x2,
         Space.gutter,
-        Space.x5,
+        compact ? Space.x2 : Space.x5,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('${gacha.title} · $drawLabel', style: AppText.callout),
-          const SizedBox(height: Space.x1),
-          Text('${outcome.results.length}개를 받았어요', style: AppText.title1),
-          const SizedBox(height: Space.x3),
-          Wrap(
-            spacing: Space.x3,
-            runSpacing: Space.x2,
-            children: [
-              for (final rarity in Rarity.values.reversed)
-                if ((counts[rarity] ?? 0) > 0)
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      RarityTag(rarity),
-                      const SizedBox(width: 4),
-                      Text(
-                        '${counts[rarity]}',
-                        style: AppText.num(AppText.bodyStrong),
-                      ),
-                    ],
-                  ),
-            ],
-          ),
-          const SizedBox(height: Space.x4),
+          if (!compact) ...[
+            Text('${gacha.title} · $drawLabel', style: AppText.callout),
+            const SizedBox(height: Space.x1),
+            Text('${outcome.results.length}개를 받았어요', style: AppText.title1),
+            const SizedBox(height: Space.x3),
+            Wrap(
+              spacing: Space.x3,
+              runSpacing: Space.x2,
+              children: [
+                for (final rarity in Rarity.values.reversed)
+                  if ((counts[rarity] ?? 0) > 0)
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        RarityTag(rarity),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${counts[rarity]}',
+                          style: AppText.num(AppText.bodyStrong),
+                        ),
+                      ],
+                    ),
+              ],
+            ),
+            const SizedBox(height: Space.x4),
+          ],
           InfoRow(label: '사용', value: formatGp(outcome.spent)),
           InfoRow(label: '받은 상품 정가', value: formatWon(outcome.totalValue)),
           if (outcome.totalExchange > 0)
@@ -293,20 +308,23 @@ class _Summary extends StatelessWidget {
 
 class _SingleResult extends StatelessWidget {
   final DrawResult result;
-  const _SingleResult({required this.result});
+  final String caption;
+  const _SingleResult({required this.result, required this.caption});
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         Space.gutter,
-        Space.x5,
+        Space.x2,
         Space.gutter,
         Space.x5,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Text(caption, style: AppText.callout),
+          const SizedBox(height: Space.x3),
           AspectRatio(
             aspectRatio: 1,
             child: Container(

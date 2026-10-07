@@ -38,4 +38,10 @@ void main() {
       1,
     );
   });
+
+  test('keepAll은 공백에서만 줄이 바뀌게 단어 안에 WORD JOINER를 넣는다', () {
+    expect(keepAll('배송 신청'), '배\u2060송 신\u2060청');
+    expect(keepAll('a b').contains('\u2060'), isFalse);
+    expect(keepAll('배송 신청').replaceAll('\u2060', ''), '배송 신청');
+  });
 }

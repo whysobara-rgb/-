@@ -16,6 +16,9 @@ class ApiCode {
 
   /// 오늘 이미 출석함 (POST /rewards/attendance).
   static const int alreadyCheckedIn = 10008;
+
+  /// 품절 또는 남은 수량 부족 (POST /draws). errors[]에 "remaining:N".
+  static const int soldOut = 10009;
 }
 
 /// 백엔드 에러 응답 `{statusCode, message, errors[], url}`.
@@ -44,6 +47,11 @@ class ApiException implements Exception {
       return remaining == null
           ? '이번 달 충전 한도를 넘어요'
           : '이번 달 충전 한도를 넘어요. 남은 한도는 ${_comma(remaining)}원이에요';
+    }
+    if (message == 'Sold out') return '품절됐어요';
+    final onlyLeft = RegExp(r'^Only (\d+) boxes? left').firstMatch(message);
+    if (onlyLeft != null) {
+      return '남은 수량이 ${_comma(onlyLeft.group(1)!)}개라 이만큼 뽑을 수 없어요';
     }
     if (message.contains('not eligible for exchange')) {
       return '보관 중인 상품만 전환할 수 있어요';
@@ -89,7 +97,17 @@ class ApiException implements Exception {
     ApiCode.insufficientBalance: 'GP가 부족해요',
     ApiCode.topupLimitExceeded: '이번 달 충전 한도를 넘어요',
     ApiCode.alreadyCheckedIn: '오늘은 이미 출석했어요',
+    ApiCode.soldOut: '남은 수량이 부족해요',
   };
+
+  /// 품절 오류의 남은 수량("remaining:N").
+  int? get remainingStock {
+    for (final e in errors) {
+      final m = RegExp(r'remaining:(\d+)').firstMatch(e);
+      if (m != null) return int.tryParse(m.group(1)!);
+    }
+    return null;
+  }
 
   @override
   String toString() => message;

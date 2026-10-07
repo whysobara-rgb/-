@@ -42,7 +42,7 @@ class FeaturedBox extends StatelessWidget {
             if (box.description.isNotEmpty) ...[
               const SizedBox(height: Space.x1),
               Text(
-                box.description,
+                keepAll(box.description),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: AppText.callout,

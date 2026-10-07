@@ -53,12 +53,34 @@ String formatMonthDay(DateTime date) {
       '${local.day.toString().padLeft(2, '0')}';
 }
 
-/// "2026.10.07 14:03"
-String formatDateTime(DateTime date) {
+/// "10.07 14:03" (올해) / "2025.10.07 14:03" (다른 해)
+String formatDateTime(DateTime date, {DateTime? now}) {
   final d = date.toLocal();
+  final current = (now ?? DateTime.now()).toLocal();
   String two(int v) => v.toString().padLeft(2, '0');
-  return '${d.year}.${two(d.month)}.${two(d.day)} ${two(d.hour)}:${two(d.minute)}';
+  final day = '${two(d.month)}.${two(d.day)} ${two(d.hour)}:${two(d.minute)}';
+  return d.year == current.year ? day : '${d.year}.$day';
 }
+
+/// 한국어 문단이 단어 중간에서 줄바꿈되지 않게 한다(CSS `word-break: keep-all`).
+///
+/// 단어 안의 글자 사이에 WORD JOINER(U+2060)를 넣어, 공백에서만 줄이 바뀌게 한다.
+String keepAll(String text) {
+  final runes = text.runes.toList();
+  final buffer = StringBuffer();
+  for (var i = 0; i < runes.length; i++) {
+    buffer.writeCharCode(runes[i]);
+    if (i + 1 < runes.length &&
+        !_isSpace(runes[i]) &&
+        !_isSpace(runes[i + 1])) {
+      buffer.writeCharCode(0x2060);
+    }
+  }
+  return buffer.toString();
+}
+
+bool _isSpace(int rune) =>
+    rune == 0x20 || rune == 0x0A || rune == 0x09 || rune == 0xA0;
 
 /// 방어적 JSON 파싱 헬퍼. 구버전 백엔드에서 필드가 없거나 타입이 달라도
 /// 앱이 죽지 않도록 null/기본값으로 떨어뜨린다.
