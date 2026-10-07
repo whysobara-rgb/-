@@ -230,6 +230,8 @@ export class NavGrid {
   private epoch = 0;
   private readonly bankPose = new Map<number, { x: number; y: number; a: number; recovered: boolean }>();
   private fenceBroken: boolean[] = [];
+  /** (C6) Broken breakables seen at the last refresh. */
+  private breakablesBroken = 0;
   private safeSig = 0;
   private readonly zoneFields = new Map<string, ZoneField>();
   private readonly zoneJobs = new Map<string, FieldJob>();
@@ -263,7 +265,10 @@ export class NavGrid {
         this.staticDist[j * this.nx + i] = Math.min(CAP, x, y, size.x - x, size.y - y);
       }
     }
-    for (const o of sim.staticOBBs()) this.stampOBB(this.staticDist, o);
+    // (C6, Content 2.0) breakables are statics only until broken: they live in the dynamic layer
+    const brk = sim.state.breakables ?? [];
+    const isBreakable = (o: OBB): boolean => brk.some((b) => Math.abs(b.center.x - o.center.x) < 1e-6 && Math.abs(b.center.y - o.center.y) < 1e-6 && Math.abs(b.half.x - o.half.x) < 1e-6 && Math.abs(b.half.y - o.half.y) < 1e-6);
+    for (const o of sim.staticOBBs()) if (!brk.length || !isBreakable(o)) this.stampOBB(this.staticDist, o);
     for (const c of sim.staticCircles()) this.stampCircle(this.staticDist, c.center, c.radius);
     this.update(sim, true);
     // warm the hot loops up while the match loads (the first in-match re-stamp / re-label would
@@ -458,6 +463,14 @@ export class NavGrid {
     this.lastSeenTick = st.tick;
     if (!force && st.tick === this.lastStampTick) return false;
     let dirty = force;
+    // (C6) a breakable broke: its box leaves the grid
+    const brk = st.breakables ?? [];
+    let brokenN = 0;
+    for (const b of brk) if (b.broken) brokenN++;
+    if (brokenN !== this.breakablesBroken) {
+      this.breakablesBroken = brokenN;
+      dirty = true;
+    }
     if (this.fenceBroken.length !== st.fences.length) {
       this.fenceBroken = st.fences.map((f) => f.broken);
       dirty = true;
@@ -503,7 +516,9 @@ export class NavGrid {
    * Safes the grid treats as obstacles: anchored ones, and loose ones nobody holds that rest in
    * a bank doorway (a safe wedged in a door plugs it: paths must use the other door).
    */
-  private safeBlocks(l: { anchored: boolean; pos: Vec2; vel: Vec2; grabbedBy: readonly number[] }): boolean {
+  private safeBlocks(l: { anchored: boolean; pos: Vec2; vel: Vec2; grabbedBy: readonly number[]; dormant?: boolean; airborne?: unknown }): boolean {
+    // (C6) dormant event loot has no body yet; loot in flight is above everyone's head
+    if (l.dormant || l.airborne) return false;
     // anchored safes are as solid as statics until someone unanchors them; other loose safes are
     // pushable and handled by local avoidance (stamping them would also wall in the very
     // safe a bot is carrying)
@@ -533,6 +548,7 @@ export class NavGrid {
     const dyn = this.dynDist;
     dyn.fill(CAP);
     for (const f of st.fences) if (!f.broken) this.stampOBB(dyn, f);
+    for (const b of st.breakables ?? []) if (!b.broken) this.stampOBB(dyn, b);
     const sd = this.safeDist;
     sd.fill(CAP);
     for (const l of st.loot) {

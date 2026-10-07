@@ -55,6 +55,12 @@ export type PropSfxId =
   | 'vendingHit'
   | 'vendingBreak';
 
+/**
+ * Scale degree of the coin / bill pickup note at climb step 0 (the director's `step` adds one
+ * degree per pile within 1.5 s). Shared by both pickups and independent of the variant.
+ */
+export const PICKUP_DEGREE = 9;
+
 /** Seconds of the deposit dwell (COINS.depositTicks = 30 at 60 Hz); the depositStart riser lasts this long. */
 export const DEPOSIT_SECONDS = 0.5;
 
@@ -206,10 +212,14 @@ export const PROP_RECIPES: Record<PropSfxId, SfxRecipe> = {
     bus: 'sfx', variants: 3, gain: 1.08, maxVoices: 4, minInterval: 0.025, priority: 5, length: 0.5,
     play(v) {
       // One coin into the bag: a light "tink" climbing one degree per pile taken within 1.5 s.
-      const f = deg(v, [9, 9, 10][v.variant]!) * jitter(v.rnd, 0.004);
+      // The pitch is PICKUP_DEGREE + step for every variant (the engine picks variants at random,
+      // so they only vary the timbre; otherwise a scoop would repeat or skip notes).
+      const f = deg(v, PICKUP_DEGREE) * jitter(v.rnd, 0.004);
       coin(v, 0, f, 0.2, 0.22, rpan(v, 0.15), true);
-      // The coin dropping onto the others in the bag.
+      // The coin dropping onto the others in the bag (a fifth above, after the main note).
       if (v.variant === 1) coin(v, 0.045, f * 1.5, 0.07, 0.08, 0, true);
+      // A brighter, glassier coin: a faint octave ring on top of the same note.
+      if (v.variant === 2) coin(v, 0.004, f * 2, 0.06, 0.07, 0, true);
       noise(v, { color: 'white', filters: [{ type: 'bandpass', freq: rrange(v.rnd, 4500, 6500), q: 3 }], amp: perc(0.0005, 0.05, 0.015), at: 0.03 });
       return 0.3;
     },
@@ -220,9 +230,11 @@ export const PROP_RECIPES: Record<PropSfxId, SfxRecipe> = {
       // A bundle of bills: a crisp paper snap and a rounder bell note (worth five coins).
       noise(v, { color: 'white', filters: [{ type: 'bandpass', freq: rrange(v.rnd, 2600, 3600), q: 1.6 }], amp: perc(0.001, 0.22, 0.03) });
       noise(v, { color: 'pink', filters: [{ type: 'bandpass', freq: 1500, q: 1.2 }], amp: perc(0.003, 0.12, 0.06), at: 0.012 });
-      const m = degMidi(v, [7, 8, 7][v.variant]!);
+      // Same note as the coin tink at the same step (one shared climb, coins and bills mixed).
+      const m = degMidi(v, PICKUP_DEGREE);
       glock(v, 0.02, m, 0.1, hv(v, 0.4));
       marimba(v, 0.02, m - 12, 0.1, hv(v, 0.3));
+      if (v.variant === 1) marimba(v, 0.05, m - 12, 0.08, hv(v, 0.12));
       if (v.variant === 2) glock(v, 0.07, m + 12, 0.1, hv(v, 0.15));
       return 0.45;
     },

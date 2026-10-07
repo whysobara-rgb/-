@@ -15,7 +15,7 @@ import { createMixer } from '../../src/audio/mixer';
 import { makeRng } from '../../src/audio/rng';
 import { SFX_RECIPES } from '../../src/audio/sfx';
 import { GOLD_STEP, ITEM_RECIPES } from '../../src/audio/sfxItems';
-import { DEPOSIT_SECONDS, PROP_RECIPES } from '../../src/audio/sfxProps';
+import { DEPOSIT_SECONDS, PICKUP_DEGREE, PROP_RECIPES } from '../../src/audio/sfxProps';
 import { spatialMix } from '../../src/audio/spatial';
 import { midiToHz, scaleNote } from '../../src/audio/theory';
 import { spawnSfx } from '../../src/audio/voice';
@@ -178,15 +178,44 @@ describe('content recipes', () => {
   }
   const near = (f: number, target: number, tol: number): boolean => Math.abs(f / target - 1) <= tol;
 
-  it('coin pickups climb the key one pentatonic degree per pile (ART_DIRECTION §1)', () => {
-    let prev = 0;
-    for (let step = 0; step <= CONTENT_AUDIO.climbMax; step++) {
-      const target = midiToHz(scaleNote(65, 9 + step));
-      // The coin's FM carrier is the first oscillator of variant 0.
-      const f = oscFreqs('coinPickup', step, 0)[0]!.first;
-      expect(near(f, target, 0.006), `step ${step}: ${f} vs ${target}`).toBe(true);
-      expect(f).toBeGreaterThan(prev);
-      prev = f;
+  /**
+   * The note a pile pickup sounds: the coin's FM carrier is its lowest oscillator; the bill's
+   * lowest is the marimba an octave under its glock note.
+   */
+  function pickupNote(id: 'coinPickup' | 'billPickup', step: number, variant: number): number {
+    const lowest = Math.min(...oscFreqs(id, step, variant).map((o) => o.first));
+    return id === 'billPickup' ? lowest * 2 : lowest;
+  }
+
+  it('coin and bill pickups climb the key one pentatonic degree per pile, whatever the variant (ART_DIRECTION §1)', () => {
+    for (const id of ['coinPickup', 'billPickup'] as const) {
+      for (let variant = 0; variant < SFX_RECIPES[id].variants; variant++) {
+        let prev = 0;
+        for (let step = 0; step <= CONTENT_AUDIO.climbMax; step++) {
+          const target = midiToHz(scaleNote(65, PICKUP_DEGREE + step));
+          const f = pickupNote(id, step, variant);
+          expect(near(f, target, 0.006), `${id} v${variant} step ${step}: ${f} vs ${target}`).toBe(true);
+          expect(f, `${id} v${variant} step ${step}`).toBeGreaterThan(prev);
+          prev = f;
+        }
+      }
+    }
+  });
+
+  it('a mixed coin / bill scoop on random variants always rises (the engine picks the variant, never the director)', () => {
+    const rnd = makeRng(11);
+    for (let scoop = 0; scoop < 40; scoop++) {
+      let prev = 0;
+      let lastVariant = -1;
+      for (let step = 0; step < 5; step++) {
+        const id = rnd() < 0.3 ? 'billPickup' : 'coinPickup';
+        let variant = Math.floor(rnd() * 3);
+        if (variant === lastVariant) variant = (variant + 1) % 3; // like the engine's VariantPicker
+        lastVariant = variant;
+        const f = pickupNote(id, step, variant);
+        expect(f, `scoop ${scoop} step ${step} ${id} v${variant}`).toBeGreaterThan(prev * 1.05);
+        prev = f;
+      }
     }
   });
 
@@ -334,6 +363,7 @@ describe('director [C9] mapping', () => {
     expect(eng.played('goldHammerSting')).toEqual([]);
     dir.onEvents([{ type: 'itemIncoming', tick: 20, padId: 'p1', kind: 'goldHammer', landTick: 200 }], sim);
     expect(eng.played('goldHammerSting').length).toBe(1);
+    expect(eng.played('stingGoldHammer')).toEqual([]);
     dir.onEvents([{ type: 'itemSpawn', tick: 200, itemId: 2001, kind: 'hammer', pos: { x: 20, y: 5 } }], sim);
     expect(eng.played('supplyLand')[0]!.o!.pos).toEqual({ x: 20, y: 5 });
     // The ground item vanishes from the state before its expiry is heard: the remembered spot poofs.
@@ -347,6 +377,24 @@ describe('director [C9] mapping', () => {
     // A held item running out poofs at its holder.
     dir.onEvents([{ type: 'itemExpired', tick: 500, charId: 3, itemId: null, kind: 'hammer' }], sim);
     expect(eng.played('itemPoof')[1]!.o!.pos).toEqual(RIVAL.pos);
+  });
+
+  it('golden hammer: one light "coming" cue on the announcement, one "landed" sting (F8) on touch-down, never two fanfares', () => {
+    const { eng, dir } = setup();
+    const items: ItemPickupState[] = [{ id: 2009, kind: 'goldHammer', padId: 'axis', pos: { x: 25, y: 12 }, phase: 'incoming', landTick: 380, expiresTick: 99999, uses: 8 }];
+    const sim = view(chars(), [], { items });
+    dir.onEvents([{ type: 'itemIncoming', tick: 200, padId: 'axis', kind: 'goldHammer', landTick: 380 }], sim);
+    expect(eng.plays().filter((id) => id === 'goldHammerSting' || id === 'stingGoldHammer')).toEqual(['goldHammerSting']);
+    eng.clear();
+    dir.onEvents([{ type: 'itemSpawn', tick: 380, itemId: 2009, kind: 'goldHammer', pos: { x: 25, y: 12 } }], sim);
+    expect(eng.plays().filter((id) => id === 'goldHammerSting' || id === 'stingGoldHammer')).toEqual(['stingGoldHammer']);
+    // The "coming" cue is the lighter half: no music duck, lower priority and level than the landing.
+    const coming = SFX_RECIPES.goldHammerSting;
+    const landed = SFX_RECIPES.stingGoldHammer;
+    expect(coming.duck).toBeUndefined();
+    expect(landed.duck).toBeDefined();
+    expect(coming.priority).toBeLessThan(landed.priority);
+    expect(coming.gain).toBeLessThan(landed.gain);
   });
 
   it('props: ATM spurt / bonk, money-tree rip + flutter, piggy kick / crack / jackpot', () => {

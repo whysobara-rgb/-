@@ -75,6 +75,8 @@ export interface CharRec {
   gotGoldHammer: boolean;
   dead: DeadStats;
   deadPayoff: DeadStats;
+  /** Payoff definition, with holding / straining loot also counted as engaged (info). */
+  deadPayHold: DeadStats;
   firstActionTick: number | null;
   firstScoreTick: number | null;
   verbs: Verb[];
@@ -155,6 +157,7 @@ export class FunCollector {
   private chars: CharRec[] = [];
   private readonly deadRun: number[] = [];
   private readonly payRun: number[] = [];
+  private readonly payHoldRun: number[] = [];
   private readonly payoffThisTick = new Set<EntityId>();
   private readonly carryTicks: number[] = [];
   private readonly verbs: Set<Verb>[] = [];
@@ -214,6 +217,7 @@ export class FunCollector {
       gotGoldHammer: false,
       dead: { stretches: 0, seconds: 0, longest: 0 },
       deadPayoff: { stretches: 0, seconds: 0, longest: 0 },
+      deadPayHold: { stretches: 0, seconds: 0, longest: 0 },
       firstActionTick: null,
       firstScoreTick: null,
       verbs: [],
@@ -223,6 +227,7 @@ export class FunCollector {
     for (let i = 0; i < this.n; i++) {
       this.deadRun.push(0);
       this.payRun.push(0);
+      this.payHoldRun.push(0);
       this.carryTicks.push(0);
       this.verbs.push(new Set());
       this.sources.push(new Set());
@@ -324,6 +329,8 @@ export class FunCollector {
       }
       if (this.payoffThisTick.has(ch.id)) this.closeDead(c.deadPayoff, this.payRun, i);
       else this.payRun[i]!++;
+      if (this.payoffThisTick.has(ch.id) || holding) this.closeDead(c.deadPayHold, this.payHoldRun, i);
+      else this.payHoldRun[i]!++;
       if (ch.item) {
         c.itemHeldTicks++;
         if (ch.item.kind === 'hammer' || ch.item.kind === 'goldHammer') c.heldHammer = true;
@@ -678,6 +685,7 @@ export class FunCollector {
       const c = this.chars[i]!;
       this.closeDead(c.dead, this.deadRun, i);
       this.closeDead(c.deadPayoff, this.payRun, i);
+      this.closeDead(c.deadPayHold, this.payHoldRun, i);
       c.verbs = VERBS.filter((v) => this.verbs[i]!.has(v));
       c.sources = SOURCES.filter((s) => this.sources[i]!.has(s));
     }
@@ -692,6 +700,7 @@ export class FunCollector {
       c.points = r(c.points);
       c.dead = { stretches: c.dead.stretches, seconds: r(c.dead.seconds), longest: r(c.dead.longest) };
       c.deadPayoff = { stretches: c.deadPayoff.stretches, seconds: r(c.deadPayoff.seconds), longest: r(c.deadPayoff.longest) };
+      c.deadPayHold = { stretches: c.deadPayHold.stretches, seconds: r(c.deadPayHold.seconds), longest: r(c.deadPayHold.longest) };
     }
     return {
       ...this.info,

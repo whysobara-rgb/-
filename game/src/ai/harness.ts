@@ -10,7 +10,7 @@ import { LAYOUTS } from '../sim/layouts/index';
 import type { Command, EntityId, LayoutDef, LayoutId, MatchResult, RosterEntry, RuleConfig, SimEvent, TeamId } from '../sim/types';
 import { Bot } from './bot';
 import { TeamBoard } from './board';
-import { RIVALS } from './params';
+import { RIVALS, type DifficultyParams } from './params';
 import type { Adaptation, Difficulty, RivalId } from './types';
 
 export interface SlotSpec {
@@ -19,6 +19,13 @@ export interface SlotSpec {
   /** Scripted stand-in for a human player (roster isBot=false). */
   humanProxy?: boolean;
   adaptation?: Adaptation | null;
+  /**
+   * [C11] Per-slot difficulty-parameter override (experiments, e.g. a proxy item-skill sweep). The
+   * proxy's "human-ish" content skill (C11 proxy upgrade: item skill 0.7, gimmick skill 0.7, aim
+   * error 12°, police awareness 0.55) lives in HUMAN_PROXY_PARAMS, so the proxy runs the same C6
+   * goal providers as the rivals.
+   */
+  tuning?: Partial<DifficultyParams>;
 }
 
 export interface MatchSpec {
@@ -174,6 +181,7 @@ export function createMatch(spec: MatchSpec): { sim: Simulation; bots: Bot[] } {
         adaptation: s.adaptation ?? null,
         seed: (spec.seed * 7919 + slot * 104729) >>> 0,
         humanProxy: s.humanProxy === true,
+        tuning: s.tuning,
       }),
   );
   return { sim, bots };

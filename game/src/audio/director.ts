@@ -1111,6 +1111,8 @@ class ContentSfx {
       case 'itemIncoming': {
         const pos = st.items.find((i) => i.padId === e.padId)?.pos;
         a.play('supplyIncoming', { pos, volume: 0.9 });
+        // The "coming" half of the golden hammer pair (a light, open drumroll; no duck). The
+        // "landed" half is F8's stingGoldHammer on 'itemSpawn' (TensionCues below), 3 s later.
         if (e.kind === 'goldHammer') a.play('goldHammerSting', { delay: 0.05 });
         break;
       }

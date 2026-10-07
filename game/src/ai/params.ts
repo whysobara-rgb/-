@@ -94,6 +94,17 @@ export interface PersonalityWeights {
    * (worth more, slower, more exposed through the open door). 0 = never.
    */
   greed: number;
+  /**
+   * (Content 2.0, C6; add-only, optional = 1) Loose coins: scooping piles / spill scavenging and
+   * keeping the bag topped up (호다닥 loves coins, 통큰이 hardly bends down for them).
+   */
+  coins?: number;
+  /** (C6; optional = 1) Picking up and swinging the 뿅망치 (통큰이 on banks, 눈치왕 on carriers). */
+  hammer?: number;
+  /** (C6; optional = 1) Uprooting / hauling the props (ATM tug-spurt, 돈나무 careful carry, 돼지 kick). */
+  props?: number;
+  /** (C6; optional = 1) Dashing at crates / vending machines / the ATM for coin pops. */
+  smash?: number;
 }
 
 export const PERSONALITY: Readonly<Record<RivalId, PersonalityWeights>> = {
@@ -112,6 +123,10 @@ export const PERSONALITY: Readonly<Record<RivalId, PersonalityWeights>> = {
     assist: 0.7,
     travelDash: 1,
     greed: 0,
+    coins: 1.35,
+    hammer: 0.9,
+    props: 1.1,
+    smash: 1.2,
   },
   // 통큰이: goes for banks with contents and hauls them.
   tongkeun: {
@@ -128,6 +143,10 @@ export const PERSONALITY: Readonly<Record<RivalId, PersonalityWeights>> = {
     assist: 1.2,
     travelDash: 0.5,
     greed: 1,
+    coins: 0.75,
+    hammer: 1.1,
+    props: 1.15,
+    smash: 0.8,
   },
   // 눈치왕: waits for the opponent to commit to a big haul, then intercepts / steals.
   nunchi: {
@@ -144,6 +163,10 @@ export const PERSONALITY: Readonly<Record<RivalId, PersonalityWeights>> = {
     assist: 0.8,
     travelDash: 0.3,
     greed: 0,
+    coins: 1.1,
+    hammer: 1.2,
+    props: 0.9,
+    smash: 0.9,
   },
 };
 
@@ -187,6 +210,21 @@ export interface DifficultyParams {
    * bot's intent phase is 'windup'. Absent = no wind-up (today's behaviour).
    */
   dashWindupTicks?: number;
+  /**
+   * (Content 2.0 contract, owner C6; optional, add-only) How readily / how well the bot uses items
+   * (pick-up interest and how often it takes a valid swing), 0..1: novice 0.4 / normal 0.75 /
+   * challenge 1.0. Decision rate only, never physics. Absent = 0.75.
+   */
+  itemSkill?: number;
+  /** (C6; optional) Same for map gimmicks (wave 2): 0.4 / 0.8 / 1.0. Absent = 0.8. */
+  gimmickSkill?: number;
+  /** (C6; optional) Aim error of item use (radians, uniform ±): 25° / 10° / 4°. Absent = 10°. */
+  aimErrorRad?: number;
+}
+
+/** (C6) Content 2.0 difficulty fields with their defaults (absent on older param sets). */
+export function contentSkill(P: DifficultyParams): { item: number; gimmick: number; aimError: number } {
+  return { item: P.itemSkill ?? 0.75, gimmick: P.gimmickSkill ?? 0.8, aimError: P.aimErrorRad ?? (10 * Math.PI) / 180 };
 }
 
 export const DIFFICULTY_PARAMS: Readonly<Record<Difficulty, DifficultyParams>> = {
@@ -203,6 +241,9 @@ export const DIFFICULTY_PARAMS: Readonly<Record<Difficulty, DifficultyParams>> =
     carryBoost: 0.05,
     estimateNoise: 0.35,
     policeAwareness: 0.3,
+    itemSkill: 0.4,
+    gimmickSkill: 0.4,
+    aimErrorRad: 25 * Math.PI / 180,
   },
   normal: {
     decisionInterval: 36,
@@ -217,6 +258,9 @@ export const DIFFICULTY_PARAMS: Readonly<Record<Difficulty, DifficultyParams>> =
     carryBoost: 0.75,
     estimateNoise: 0.07,
     policeAwareness: 0.75,
+    itemSkill: 0.75,
+    gimmickSkill: 0.8,
+    aimErrorRad: 10 * Math.PI / 180,
   },
   challenge: {
     decisionInterval: 18,
@@ -231,6 +275,9 @@ export const DIFFICULTY_PARAMS: Readonly<Record<Difficulty, DifficultyParams>> =
     carryBoost: 1,
     estimateNoise: 0,
     policeAwareness: 1,
+    itemSkill: 1,
+    gimmickSkill: 1,
+    aimErrorRad: 4 * Math.PI / 180,
   },
 };
 
@@ -253,6 +300,10 @@ export const HUMAN_PROXY_PARAMS: DifficultyParams = {
   carryBoost: 0.55,
   estimateNoise: 0.18,
   policeAwareness: 0.55,
+  // (C6 / C11 proxy upgrade: "human-ish" item use)
+  itemSkill: 0.7,
+  gimmickSkill: 0.7,
+  aimErrorRad: 12 * Math.PI / 180,
 };
 
 /**
@@ -268,7 +319,7 @@ export function humanProxyWeights(rng: () => number): PersonalityWeights {
   const out = {} as Record<keyof PersonalityWeights, number>;
   for (const k of Object.keys(PERSONALITY.hodadak) as (keyof PersonalityWeights)[]) {
     let v = 0;
-    ids.forEach((id, i) => (v += (PERSONALITY[id][k] * raw[i]!) / sum));
+    ids.forEach((id, i) => (v += ((PERSONALITY[id][k] ?? 1) * raw[i]!) / sum));
     out[k] = v * (0.8 + 0.4 * rng());
   }
   out.routeReuse = Math.min(0.4, out.routeReuse);

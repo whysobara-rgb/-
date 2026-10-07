@@ -14,7 +14,7 @@
  *
  * One instance per Simulation, refreshed once per tick (shared by all bots of the match).
  */
-import { POLICE, TICK_RATE } from '../sim/config';
+import { COINS, POLICE, TICK_RATE } from '../sim/config';
 import type { Simulation } from '../sim/sim';
 import type { CharacterState, EntityId, PolicePhase, Vec2 } from '../sim/types';
 
@@ -53,6 +53,14 @@ const MEMORY_TICKS = 4 * TICK_RATE;
 const STEP_OUT_S = 0.6;
 /** Rough walk back to the car at the end of a shift before the car leaves (s). */
 const WALK_BACK_S = 6;
+
+/**
+ * (C6, Content 2.0) Whom officers go for, as anyone sees it: a raccoon holding loot, or carrying a
+ * visible coin bag of at least COINS.policeBagMin (sim: `policeCarrying`). The bag is 0 in classic.
+ */
+function marked(c: Readonly<CharacterState>): boolean {
+  return c.grab !== null || (c.bag ?? 0) >= COINS.policeBagMin;
+}
 
 export class PoliceSense {
   private static readonly cache = new WeakMap<Simulation, PoliceSense>();
@@ -126,7 +134,7 @@ export class PoliceSense {
     let t = now;
     if (now === null && prev && (o.phase === 'chase' || o.phase === 'tackle' || o.phase === 'tired') && this.tick - prev.tick <= MEMORY_TICKS) {
       const c = chars.find((x) => x.id === prev.id);
-      if (c && (c.grab !== null || c.knockdownTicks > 0)) t = prev.id;
+      if (c && (marked(c) || c.knockdownTicks > 0)) t = prev.id;
     }
     if (now !== null) this.memo.set(o.id, { id: now, tick: this.tick });
     else if (t === null) this.memo.delete(o.id);
@@ -146,7 +154,7 @@ export class PoliceSense {
       let best: EntityId | null = null;
       let bd = TIRED_R;
       for (const c of chars) {
-        if (c.grab === null && c.knockdownTicks <= 0) continue;
+        if (!marked(c) && c.knockdownTicks <= 0) continue;
         const d = Math.hypot(c.pos.x - o.pos.x, c.pos.y - o.pos.y);
         if (d < bd) {
           bd = d;
@@ -161,8 +169,9 @@ export class PoliceSense {
     let best: EntityId | null = null;
     let bs = Infinity;
     for (const c of chars) {
-      // (officers only run at raccoons holding loot; one just knocked loose is still its mark)
-      if (c.grab === null && c.knockdownTicks <= 0) continue;
+      // (officers only run at raccoons holding loot — or a coin bag, Content 2.0 — ; one just
+      // knocked loose is still its mark)
+      if (!marked(c) && c.knockdownTicks <= 0) continue;
       const rx = c.pos.x - o.pos.x;
       const ry = c.pos.y - o.pos.y;
       const d = Math.hypot(rx, ry);

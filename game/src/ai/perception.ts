@@ -13,7 +13,7 @@
  */
 import type { Simulation } from '../sim/sim';
 import { VISION } from '../sim/config';
-import type { CharacterState, EntityId, LootState, TeamId, Vec2 } from '../sim/types';
+import type { CharacterState, EntityId, ItemKind, LootState, TeamId, Vec2 } from '../sim/types';
 
 /** Instrumentation for tests: >0 while perception is reading opponent state. */
 export const perceptionAccess = { depth: 0 };
@@ -30,6 +30,13 @@ export interface Sighting {
   /** Seen with knockdown protection active (render shows it). */
   protectedNow: boolean;
   onFloorOf: EntityId | null;
+  /**
+   * (Content 2.0, C6; add-only) Coin bag value when seen (the bag on the raccoon's back grows with
+   * its value: public at sight, like what it holds). 0 in classic.
+   */
+  bag: number;
+  /** (C6; add-only) Item in its pocket when seen (held in paw, public), null = none. */
+  item: ItemKind | null;
 }
 
 export interface OpponentView {
@@ -121,6 +128,8 @@ export class TeamPerception {
             knockedDown: ch.knockdownTicks > 0,
             protectedNow: ch.protectTicks > 0,
             onFloorOf: ch.floorOf,
+            bag: ch.bag ?? 0,
+            item: ch.item ? ch.item.kind : null,
           };
         }
         const i = tick % HISTORY;

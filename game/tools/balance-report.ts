@@ -12,20 +12,37 @@
  *   npx tsx tools/balance-report.ts --json out.json # also dump per-match records
  *   npx tsx tools/balance-report.ts --tune stripLooseBank=0.5,police.shiftTicks=2700   # experiment knobs
  *
+ *   npx tsx tools/balance-report.ts --tune coins.bagCap=150,items.hammer.knockdownTicks=50,items.drop.pairs=15/70/125/160
+ *
  * Blocks: equal (1v1 bot vs bot, equal difficulty), ladder (difficulty ladder), team (2v2 bots),
  * proxy (2v2 human proxy + bot mate vs 2 bots), proxy1v1 (1v1 human proxy vs each rival at normal).
+ *
+ * Fun / content scorecard (C11; fun-plan WP1 step 0, content-plan §8), police on, alternating sides:
+ *   npx tsx tools/balance-report.ts --fun                       # classic fun block (re-baseline)
+ *   npx tsx tools/balance-report.ts --fun --content             # v2 (everything on) + §8 content block + gates
+ *   npx tsx tools/balance-report.ts --fun --content --variants "classic v2"   # A/B, classic column = baseline
+ *   npx tsx tools/balance-report.ts --fun --content --variants "v2:items=off v2:items=hammerOnly v2"
+ *   npx tsx tools/balance-report.ts --fun --fun-json recs.jsonl # also dump per-match FunRec lines
+ *   npx tsx tools/balance-report.ts --fun --content --fun-from a.jsonl,b.jsonl   # report only, no runs
+ * Fun blocks: P = proxy vs each rival at normal (layouts x 3 rivals x --fun-seeds, default n >= 300),
+ * B = normal bot vs bot (same size), T2 = 2:2 smoke (layouts x --fun-seeds-t2, default 10);
+ * --fun-blocks P,B selects blocks (lever experiments skip T2). With
+ * --fun the legacy blocks run only when --blocks is given. Variant = content[:rule=value,...]
+ * (rules: items off|hammerOnly|on, events off|on, gimmicks true|false).
  *
  * Default output: <os tmpdir>/balance-report.md (path printed at the end).
  */
 import { spawn } from 'node:child_process';
-import { mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { FLOW_HEADER, aggregate, flowMetrics, flowRow, runMatch, type SeriesMatch, type SlotSpec, type SeriesAggregate } from '../src/ai/harness';
 import type { Difficulty, RivalId } from '../src/ai/types';
 import { BOT_TUNING } from '../src/ai/params';
-import { POLICE } from '../src/sim/config';
-import type { LayoutId, TeamId } from '../src/sim/types';
+import { COINS, EVENTS, ITEMS, POLICE } from '../src/sim/config';
+import type { LayoutId, RuleConfig, TeamId } from '../src/sim/types';
+import { FunCollector, type FunRec } from './fun/collect';
+import { funReport } from './fun/report';
 
 const DEFAULT_OUT = join(tmpdir(), 'balance-report.md');
 const LAYOUTS: LayoutId[] = ['plaza', 'shortcut', 'counter'];
@@ -42,11 +59,16 @@ interface Job {
   a: SlotSpec[];
   b: SlotSpec[];
   police: boolean;
+  /** Extra rules (content variant). */
+  rules?: Partial<RuleConfig>;
+  /** Fun-scorecard job: variant label (collects a FunRec). */
+  fun?: { variant: string; label: string };
 }
 
 interface JobResult {
   id: number;
   match: SeriesMatch;
+  fun?: FunRec;
 }
 
 function s(p: RivalId, d: Difficulty, proxy = false): SlotSpec {
@@ -115,11 +137,16 @@ function buildJobs(blocks: Set<string>, seedsEq: number, seedsLadder: number, se
 }
 
 function runJob(j: Job): SeriesMatch {
+  return runJobFun(j).match;
+}
+
+function runJobFun(j: Job): { match: SeriesMatch; fun?: FunRec } {
   const team0 = j.aTeam === 0 ? j.a : j.b;
   const team1 = j.aTeam === 0 ? j.b : j.a;
-  const stats = runMatch({ layout: j.layout, team0, team1, seed: j.seed, timing: true, rules: { police: j.police } });
+  const col = j.fun ? new FunCollector({ id: j.id, block: j.block, group: j.group, variant: j.fun.variant, layout: j.layout, seed: j.seed, aTeam: j.aTeam }) : null;
+  const stats = runMatch({ layout: j.layout, team0, team1, seed: j.seed, timing: true, rules: { police: j.police, ...j.rules }, onTick: col ? col.onTick : undefined });
   const w = stats.result.winner;
-  return {
+  const match: SeriesMatch = {
     layout: j.layout,
     seed: j.seed,
     aTeam: j.aTeam,
@@ -128,6 +155,62 @@ function runJob(j: Job): SeriesMatch {
     scoreB: stats.teamScores[(1 - j.aTeam) as TeamId],
     stats,
   };
+  return { match, fun: col ? col.finish(stats) : undefined };
+}
+
+/** Fun / content scorecard jobs (C11): blocks P, B, T2 per variant, police on, alternating sides. */
+function buildFunJobs(variants: string[], layouts: LayoutId[], seedsP: number, seedsB: number, seedsT2: number, seedBase: number, firstId: number): Job[] {
+  const jobs: Job[] = [];
+  let id = firstId;
+  const pairs: [RivalId, RivalId][] = [
+    ['hodadak', 'tongkeun'],
+    ['tongkeun', 'nunchi'],
+    ['nunchi', 'hodadak'],
+  ];
+  const comps: [RivalId, RivalId][] = [
+    ['hodadak', 'tongkeun'],
+    ['tongkeun', 'nunchi'],
+    ['nunchi', 'hodadak'],
+  ];
+  for (const v of variants) {
+    const rules = parseVariant(v);
+    const fun = (label: string): Job['fun'] => ({ variant: v, label });
+    for (const layout of layouts)
+      for (const r of PERS)
+        for (let k = 1; k <= seedsP; k++) {
+          const seed = seedBase + k;
+          jobs.push({ id: id++, block: 'P', group: `proxy vs ${r}`, layout, seed, aTeam: (seed % 2) as TeamId, a: [s('hodadak', 'normal', true)], b: [s(r, 'normal')], police: true, rules, fun: fun(`proxy vs ${r}`) });
+        }
+    for (const layout of layouts)
+      for (const [x, y] of pairs)
+        for (let k = 1; k <= seedsB; k++) {
+          const seed = seedBase + k + 100;
+          jobs.push({ id: id++, block: 'B', group: `${x} vs ${y}`, layout, seed, aTeam: (k % 2) as TeamId, a: [s(x, 'normal')], b: [s(y, 'normal')], police: true, rules, fun: fun(`${x} vs ${y}`) });
+        }
+    for (const layout of layouts)
+      for (let k = 1; k <= seedsT2; k++) {
+        const seed = seedBase + k + 200;
+        const A = comps[k % 3]!;
+        const B = comps[(k + 1) % 3]!;
+        jobs.push({ id: id++, block: 'T2', group: `${A.join('+')} vs ${B.join('+')}`, layout, seed, aTeam: (k % 2) as TeamId, a: [s(A[0], 'normal'), s(A[1], 'normal')], b: [s(B[0], 'normal'), s(B[1], 'normal')], police: true, rules, fun: fun('2v2') });
+      }
+  }
+  return jobs;
+}
+
+/** Variant label -> rules: `classic`, `v2`, `v2:items=off,events=off,gimmicks=false`. */
+function parseVariant(v: string): Partial<RuleConfig> {
+  const [content, rest] = v.split(':');
+  if (content !== 'classic' && content !== 'v2') throw new Error(`unknown content variant "${v}"`);
+  const rules: Partial<RuleConfig> = { content };
+  for (const kv of (rest ?? '').split(',').filter(Boolean)) {
+    const [k, val] = kv.split('=');
+    if (k === 'items' && (val === 'off' || val === 'hammerOnly' || val === 'on')) rules.items = val;
+    else if (k === 'events' && (val === 'off' || val === 'on')) rules.events = val;
+    else if (k === 'gimmicks' && (val === 'true' || val === 'false')) rules.gimmicks = val === 'true';
+    else throw new Error(`unknown variant rule "${kv}" in "${v}"`);
+  }
+  return rules;
 }
 
 // ---------------------------------------------------------------------------
@@ -137,6 +220,25 @@ function runJob(j: Job): SeriesMatch {
 async function worker(jobsJson: string): Promise<void> {
   const jobs = JSON.parse(jobsJson) as Job[];
   for (const j of jobs) {
+    if (j.fun) {
+      // fun jobs: a crash is a scorecard number (content-plan §8 "0 crashes"), not a dead worker
+      let r: { match: SeriesMatch; fun?: FunRec } | null = null;
+      let err: string | null = null;
+      try {
+        r = runJobFun(j);
+      } catch (e) {
+        err = String((e as Error)?.stack ?? e);
+      }
+      if (r) {
+        r.match.stats.finalLog = r.match.stats.finalLog.slice(0, 6);
+        r.match.stats.slots.forEach((x) => ((x.incidents = x.incidents.slice(0, 3)), (x.idleIncidents = [])));
+        process.stdout.write(JSON.stringify({ id: j.id, match: r.match, fun: r.fun } satisfies JobResult) + '\n');
+      } else {
+        const fun = { id: j.id, block: j.block, group: j.group, variant: j.fun.variant, layout: j.layout, seed: j.seed, aTeam: j.aTeam, error: err } as unknown as FunRec;
+        process.stdout.write(JSON.stringify({ id: j.id, match: null as unknown as SeriesMatch, fun } satisfies JobResult) + '\n');
+      }
+      continue;
+    }
     const m = runJob(j);
     // drop bulky logs
     m.stats.finalLog = m.stats.finalLog.slice(0, 6);
@@ -144,11 +246,12 @@ async function worker(jobsJson: string): Promise<void> {
   }
 }
 
-function runWorkers(jobs: Job[], workers: number, onProgress: (done: number) => void): Promise<Map<number, SeriesMatch>> {
+function runWorkers(jobs: Job[], workers: number, onProgress: (done: number) => void, onFun?: (r: FunRec) => void): Promise<Map<number, SeriesMatch>> {
   const chunks: Job[][] = Array.from({ length: workers }, () => []);
   // interleave so heavy blocks spread across workers
   jobs.forEach((j, i) => chunks[i % workers]!.push(j));
   const results = new Map<number, SeriesMatch>();
+  let done = 0;
   const self = resolve(process.argv[1]!);
   return new Promise((res, rej) => {
     let alive = 0;
@@ -169,8 +272,10 @@ function runWorkers(jobs: Job[], workers: number, onProgress: (done: number) => 
           buf = buf.slice(nl + 1);
           if (!line.trim()) continue;
           const r = JSON.parse(line) as JobResult;
-          results.set(r.id, r.match);
-          onProgress(results.size);
+          if (r.match) results.set(r.id, r.match);
+          if (r.fun) onFun?.(r.fun);
+          done++;
+          onProgress(done);
         }
       });
       child.on('exit', (code) => {
@@ -561,14 +666,33 @@ function buildReport(jobs: Job[], results: Map<number, SeriesMatch>, elapsed: nu
   return { md: L.join('\n'), checks };
 }
 
+/**
+ * Experiment knobs: `--tune key=value,...`. `police.<key>`, `coins.<key>`, `items.<path>`,
+ * `events.<path>` set config values (dotted paths into the C11-tuned blocks; `a/b/c` = a number
+ * list), any other key is a BOT_TUNING field. Applied in every worker before any match is built.
+ */
 function applyTune(spec: string): void {
+  const roots: Record<string, Record<string, unknown>> = {
+    police: POLICE as unknown as Record<string, unknown>,
+    coins: COINS as unknown as Record<string, unknown>,
+    items: ITEMS as unknown as Record<string, unknown>,
+    events: EVENTS as unknown as Record<string, unknown>,
+  };
   for (const kv of spec.split(',').filter(Boolean)) {
     const [k, v] = kv.split('=');
     if (!k || v === undefined) continue;
-    if (k.startsWith('police.')) {
-      const key = k.slice(7) as keyof typeof POLICE;
-      if (!(key in POLICE)) throw new Error(`unknown police knob ${key}`);
-      (POLICE as unknown as Record<string, unknown>)[key] = v.includes('/') ? v.split('/').map(Number) : Number(v);
+    const parts = k.split('.');
+    const root = roots[parts[0]!];
+    if (root && parts.length >= 2) {
+      let o = root;
+      for (const p of parts.slice(1, -1)) {
+        const next = o[p];
+        if (typeof next !== 'object' || next === null) throw new Error(`unknown knob ${k}`);
+        o = next as Record<string, unknown>;
+      }
+      const key = parts[parts.length - 1]!;
+      if (!(key in o)) throw new Error(`unknown knob ${k}`);
+      o[key] = v.includes('/') ? v.split('/').map(Number) : Number(v);
     } else {
       if (!(k in BOT_TUNING)) throw new Error(`unknown bot knob ${k}`);
       BOT_TUNING[k as keyof typeof BOT_TUNING] = Number(v);
@@ -577,7 +701,7 @@ function applyTune(spec: string): void {
 }
 
 async function main(argv: string[]): Promise<void> {
-  // experiment knobs (bot tuning / police overrides): --tune key=value,key=value
+  // experiment knobs (bot tuning / config overrides): --tune key=value,key=value
   const ti = argv.indexOf('--tune');
   if (ti >= 0) applyTune(argv[ti + 1] ?? '');
   const wi = argv.indexOf('--worker');
@@ -591,25 +715,80 @@ async function main(argv: string[]): Promise<void> {
     return i >= 0 ? argv[i + 1] : undefined;
   };
   const quick = argv.includes('--quick');
-  const blocks = new Set((get('blocks') ?? 'equal,ladder,team,proxy,proxy1v1').split(','));
+  const fun = argv.includes('--fun');
+  const content = argv.includes('--content');
+  const out = get('out') ?? DEFAULT_OUT;
+  const funFrom = get('fun-from');
+  if (funFrom) {
+    // report only, from saved FunRec lines
+    const { readFileSync } = await import('node:fs');
+    const recs: FunRec[] = [];
+    for (const f of funFrom.split(',')) for (const l of readFileSync(f, 'utf8').split('\n')) if (l.trim()) recs.push(JSON.parse(l) as FunRec);
+    const md = `# Fun / content scorecard (뿌리째 털어라)\n\nFrom ${funFrom}.\n\n${funReport(recs, { content })}`;
+    mkdirSync(dirname(out), { recursive: true });
+    writeFileSync(out, md);
+    console.log(md);
+    console.log(`\nwritten ${out}`);
+    return;
+  }
+  const blocks = new Set((get('blocks') ?? (fun ? '' : 'equal,ladder,team,proxy,proxy1v1')).split(',').filter(Boolean));
   const seeds = Number(get('seeds') ?? (quick ? 1 : 3));
   const diffs = (get('diffs')?.split(',') ?? DIFFS) as Difficulty[];
   const layouts = (get('layouts')?.split(',') ?? LAYOUTS) as LayoutId[];
   const seedBase = Number(get('seed-base') ?? 0);
   const police = get('police') !== 'off';
   const jobs = buildJobs(blocks, seeds, Math.max(1, Math.round(seeds / 2)), Math.max(1, Math.round(seeds / 2)), diffs, layouts, seedBase, police, Number(get('seeds-proxy1') ?? seeds * 2));
+  let funJobs: Job[] = [];
+  if (fun) {
+    const variants = (get('variants') ?? (content ? 'v2' : 'classic')).split(/\s+/).filter(Boolean);
+    // n >= 300 per block (content-plan §7 single-lever rule): seeds per (layout, rival)
+    const seedsP = Number(get('fun-seeds') ?? (quick ? 2 : Math.ceil(300 / (layouts.length * PERS.length))));
+    const seedsB = Number(get('fun-seeds-b') ?? seedsP);
+    const seedsT2 = Number(get('fun-seeds-t2') ?? (quick ? 1 : 10));
+    const fb = new Set((get('fun-blocks') ?? 'P,B,T2').split(','));
+    funJobs = buildFunJobs(variants, layouts, fb.has('P') ? seedsP : 0, fb.has('B') ? seedsB : 0, fb.has('T2') ? seedsT2 : 0, seedBase, jobs.length);
+  }
+  const allJobs = [...jobs, ...funJobs];
   const workers = Number(get('workers') ?? 3);
-  const out = get('out') ?? DEFAULT_OUT;
   const t0 = Date.now();
-  process.stderr.write(`balance-report: ${jobs.length} matches on ${workers} workers\n`);
+  process.stderr.write(`balance-report: ${allJobs.length} matches on ${workers} workers${fun ? ` (${funJobs.length} fun-scorecard)` : ''}\n`);
   let last = 0;
-  const results = await runWorkers(jobs, workers, (done) => {
-    if (done - last >= 20 || done === jobs.length) {
-      last = done;
-      process.stderr.write(`  ${done}/${jobs.length} (${((Date.now() - t0) / 1000).toFixed(0)} s)\n`);
-    }
-  });
-  const { md, checks } = buildReport(jobs, results, Date.now() - t0, workers);
+  const funRecs: FunRec[] = [];
+  const funJson = get('fun-json');
+  if (funJson) writeFileSync(funJson, '');
+  const results = await runWorkers(
+    allJobs,
+    workers,
+    (done) => {
+      if (done - last >= 20 || done === allJobs.length) {
+        last = done;
+        process.stderr.write(`  ${done}/${allJobs.length} (${((Date.now() - t0) / 1000).toFixed(0)} s)\n`);
+      }
+    },
+    (r) => {
+      funRecs.push(r);
+      if (funJson) appendFileSync(funJson, JSON.stringify(r) + '\n');
+    },
+  );
+  const parts: string[] = [];
+  let checks: Record<string, boolean | string> = {};
+  if (jobs.length) {
+    const rep = buildReport(jobs, results, Date.now() - t0, workers);
+    parts.push(rep.md);
+    checks = rep.checks;
+  }
+  if (fun) {
+    const tune = get('tune');
+    const head = [
+      '# Fun / content scorecard (뿌리째 털어라)',
+      '',
+      `${new Date().toISOString()} · ${funJobs.length} matches · wall time ${((Date.now() - t0) / 1000).toFixed(0)} s on ${workers} workers · police on · seeds base ${seedBase}${tune ? ` · tune \`${tune}\`` : ''}`,
+      `Config: police dispatch ${(POLICE.dispatchDelayTicks / 60).toFixed(0)} s · bankPoliceDrag ${BOT_TUNING.bankPoliceDrag} · waveDefer ${BOT_TUNING.waveDefer} · bagCap ${COINS.bagCap} · spill ${COINS.spillFraction} · hammer KD ${ITEMS.hammer.knockdownTicks} ticks · drops ${ITEMS.drop.pairs.join('/')} + axis ${ITEMS.drop.center.join('/')} s`,
+      '',
+    ].join('\n');
+    parts.unshift(head + funReport(funRecs, { content }));
+  }
+  const md = parts.join('\n\n');
   mkdirSync(dirname(out), { recursive: true });
   writeFileSync(out, md);
   const jsonOut = get('json');

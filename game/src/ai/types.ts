@@ -73,7 +73,20 @@ export type GoalKind =
   | 'ambush'
   | 'followPing'
   | 'reposition'
-  | 'idle';
+  | 'idle'
+  // (Content 2.0 contract, owner C6; add-only) goals of the content providers (src/ai/goals/*):
+  // wave 1: coins / props / items; wave 2: gimmicks / events
+  | 'smash'
+  | 'scoop'
+  | 'deposit'
+  | 'fetchItem'
+  | 'bonk'
+  | 'useItem'
+  | 'kickPiggy'
+  | 'useGimmick'
+  | 'collectEvent'
+  | 'stunCraneCat'
+  | 'grabGondola';
 
 /**
  * What a bot is doing, for the renderer/HUD (doc §11 "짧은 준비 동작"): while `telegraph` is
@@ -91,6 +104,8 @@ export interface BotIntent {
    * wind-up telegraph (crouch + spark ring) from it and MomentTracker detects `dodged` from it,
    * so the intent must say 'windup' on EVERY tick the wind-up runs (from the update that starts
    * it to the one that fires or cancels it), not only on decision ticks.
+   * (Content 2.0 contract, owner C6) 'itemWindup' = the bot pressed an item (뿅망치 wind-up / swing,
+   * sim-enforced for everyone); `windupTargetId` names the character it swings at, if any.
    */
   phase: string;
   /** (fun round contract, owner WP2; add-only) Character targeted by a 'windup' dash; null / absent otherwise. */

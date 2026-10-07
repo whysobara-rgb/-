@@ -14,8 +14,10 @@
  *   supplyIncoming   the 3 s drop warning: a "ding-dong" motif, balloon rubber creak and a slide
  *                    whistle gliding down while the crate descends
  *   supplyLand       the crate touching down: thud, the balloon popping, a sparkle
- *   goldHammerSting  the golden hammer is announced (3 s before it lands on the axis pad): a short
- *                    brass + glock fanfare, global
+ *   goldHammerSting  the golden hammer is announced (3 s before it lands on the axis pad): a
+ *                    timpani roll + glock tremolo left unresolved, global, no duck. The "coming"
+ *                    half of a pair: F8's stingGoldHammer (brass + bell, ducked) is the "landed"
+ *                    half and resolves it
  *
  * Tonal parts use the current music key (`v.key`, the F major pentatonic of every track, see
  * ./theory.ts) so the squeaks sit inside the music. Convention: `step <= GOLD_STEP` marks the
@@ -25,7 +27,7 @@
  * swings well under it, the gold sting under the bank callout.
  */
 import { noise, partials, perc, tone, type Partial } from './dsp';
-import { brass, glock, kick, marimba, snare, timpani } from './instruments';
+import { glock, marimba, snare, timpani } from './instruments';
 import { jitter, rrange } from './rng';
 import { crackles, thump, type SfxRecipe, type SfxVoice } from './sfxkit';
 import { midiToHz, scaleNote } from './theory';
@@ -278,29 +280,28 @@ export const ITEM_RECIPES: Record<ItemSfxId, SfxRecipe> = {
     },
   },
   goldHammerSting: {
-    bus: 'sfx', variants: 2, gain: 0.51, maxVoices: 1, minInterval: 1, priority: 8, length: 2.2, reverb: 0.3, global: true,
-    duck: { db: -4, hold: 0.7 },
+    bus: 'sfx', variants: 2, gain: 0.51, maxVoices: 1, minInterval: 1, priority: 7, length: 2.0, reverb: 0.3, global: true,
     play(v) {
-      // 황금 뿅망치 on its way: a pickup squeak, a brass "빰빠밤!" climbing to the tonic chord, a
-      // timpani and a glittering glock run. Short: the drop's own warning carries the 3 s.
+      // 황금 뿅망치 on its way (3 s before it lands): the "coming" half of a deliberate pair. The
+      // "landed" half is F8's stingGoldHammer (sfxTension.ts: glock run + bell + brass on the
+      // tonic, with a duck). So this one is lighter and left OPEN: no brass, no duck, a timpani
+      // roll swelling on the dominant, a glock tremolo hanging on the 5th / 6th degrees, a gold
+      // shimmer and a short rising squeak. The landing sting resolves it.
       const k = v.key;
-      squeak(v, 0, deg(v, 7), [[0, 0.75], [0.08, 1.0]], 0.1, 0.05);
-      // V -> vi (or IV -> V) -> I, as semitones above the key's tonic.
-      const hits: readonly (readonly [number, readonly number[]])[] =
-        v.variant === 0
-          ? [[0.1, [7, 11, 14]], [0.24, [9, 12, 16]], [0.4, [12, 16, 19]]]
-          : [[0.1, [5, 9, 12]], [0.24, [7, 11, 14]], [0.4, [12, 16, 19]]];
-      for (const [at, chord] of hits) {
-        for (const st of chord) brass(v, ht(v, at), k + st - 12, at < 0.3 ? 0.1 : 0.5, hv(v, at < 0.3 ? 0.5 : 0.7));
+      squeak(v, 0, deg(v, 7), [[0, 0.75], [0.08, 1.0]], 0.1, 0.045);
+      // Timpani roll on the dominant (a fifth above the low tonic), crescendo then a soft accent.
+      const n = 12;
+      for (let i = 0; i < n; i++) {
+        const u = i / (n - 1);
+        timpani(v, 0.08 + i * 0.055, k - 24 + 7, 0.3, hv(v, 0.12 + 0.3 * u), i % 2 ? 0.12 : -0.12);
       }
-      brass(v, ht(v, 0.4), k - 12, 0.5, hv(v, 0.6));
-      snare(v, 0.1, 0, 0.1, hv(v, 0.25));
-      snare(v, 0.24, 0, 0.1, hv(v, 0.3));
-      kick(v, 0.4, 0, 0.2, hv(v, 0.5));
-      timpani(v, 0.4, k - 24, 1, hv(v, 0.7));
-      for (let i = 0; i < 7; i++) glock(v, 0.44 + i * 0.035, scaleNote(k, 10 + i), 0.1, hv(v, 0.3), (i / 6) * 1.2 - 0.6);
-      goldShimmer(v, 0.7, 0.8);
-      return 1.75;
+      timpani(v, 0.08 + n * 0.055, k - 24 + 7, 0.8, hv(v, 0.5));
+      snare(v, 0.08 + n * 0.055, 0, 0.1, hv(v, 0.18));
+      // Glock tremolo between two upper degrees, getting louder, never landing on the tonic.
+      const [a, b] = v.variant === 0 ? [11, 12] : [12, 13];
+      for (let i = 0; i < 8; i++) glock(v, ht(v, 0.12 + i * 0.07), scaleNote(k, i % 2 ? b : a), 0.08, hv(v, 0.1 + i * 0.022), i % 2 ? 0.3 : -0.3);
+      goldShimmer(v, 0.1 + n * 0.055, 0.55);
+      return 0.1 + n * 0.055 + 0.9;
     },
   },
 };
