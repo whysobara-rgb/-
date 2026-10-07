@@ -65,7 +65,9 @@ void main() {
     );
     await expectLater(
       api.get('/x'),
-      throwsA(isA<ApiException>().having((e) => e.isNetwork, 'isNetwork', true)),
+      throwsA(
+        isA<ApiException>().having((e) => e.isNetwork, 'isNetwork', true),
+      ),
     );
   });
 

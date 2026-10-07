@@ -29,9 +29,7 @@ class AppConfig {
   /// 네이버 키는 네이티브 설정(strings.xml / Info.plist)에서 읽힌다.
   /// 빌드 스크립트가 같은 dart-define에서 그 값을 채우고, 앱은 이 값이
   /// 있을 때만 네이버 버튼을 보여준다.
-  static const String naverClientId = String.fromEnvironment(
-    'NAVER_CLIENT_ID',
-  );
+  static const String naverClientId = String.fromEnvironment('NAVER_CLIENT_ID');
 
   // ── 구글 ────────────────────────────────────────────────
   /// 서버가 ID 토큰의 aud로 확인하는 웹(서버) 클라이언트 ID.
