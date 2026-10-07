@@ -1669,6 +1669,11 @@ export class Bot implements BotController {
       return cmd({ x: 0, y: 0 }, false);
     }
     const m = this.moveTo(sim, g.pos, 'walk', 1.2);
+    // (no headway toward the spot — an officer or a bank in a narrow way: watch from here)
+    if (this.progFails > 0 && !m.arrived) {
+      g.pos = { ...me.pos };
+      this.progFails = 0;
+    }
     if (m.arrived || m.stuck) {
       g.phase = 'guard';
       const opp = this.opponents(sim).find((o) => o.visible && o.last);
@@ -1923,19 +1928,28 @@ export class Bot implements BotController {
     // slow progress check: oscillating in front of a gap (steer in, back off, steer in) keeps
     // resetting the short watchdog; no net approach to the same goal over 3 s -> mark the spot
     // ahead costly and re-plan
+    // (each further failure on the same goal makes the spot dearer; the third one gives the goal up
+    // for a few seconds — e.g. a gap between two loose banks that the grid calls passable)
     if (!this.progGoal || V.dist(this.progGoal, goal) > 1.0 || me.straining || (this.goal !== null && this.goal.key.startsWith('copguard:'))) {
       this.progGoal = { ...goal };
       this.progD = dGoal;
       this.progTick = tick;
+      this.progFails = 0;
     } else if (dGoal < this.progD - 1.0) {
       this.progD = dGoal;
       this.progTick = tick;
+      this.progFails = 0;
     } else if (tick - this.progTick > 3 * TICK_RATE) {
       this.progD = dGoal;
       this.progTick = tick;
+      this.progFails++;
       this.stats.stuckRepaths++;
-      this.avoidSpots.push({ x: me.pos.x + dir.x * 0.9, y: me.pos.y + dir.y * 0.9, r: 1.3, cost: 8, until: tick + 360 });
+      this.avoidSpots.push({ x: me.pos.x + dir.x * 0.9, y: me.pos.y + dir.y * 0.9, r: 1.3, cost: Math.min(200, 8 * 4 ** (this.progFails - 1)), until: tick + 360 });
       this.path = null;
+      if (this.progFails >= 3 && this.goal && !me.grab) {
+        this.progFails = 0;
+        this.endGoal(sim, 'no way through', 5 * TICK_RATE);
+      }
     }
     // watchdog
     const w = this.watchdog(sim, move);
@@ -2035,6 +2049,7 @@ export class Bot implements BotController {
   private progGoal: Vec2 | null = null;
   private progD = 0;
   private progTick = 0;
+  private progFails = 0;
   private backoffUntil = -1;
   private backoffWindow = 0;
   private backoffCount = 0;

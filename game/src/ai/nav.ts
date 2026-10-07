@@ -415,7 +415,7 @@ export class NavGrid {
   }
 
   /** Keep the door corridors of a bank open (clearance = true half door width). */
-  private openDoors(field: Float32Array, pos: Vec2, angle: number): void {
+  private openDoors(field: Float32Array, pos: Vec2, angle: number, foreign: ReadonlyArray<OBB> = []): void {
     const c = Math.cos(angle);
     const s = Math.sin(angle);
     const half = BANK_MODEL.doorWidth / 2;
@@ -437,7 +437,12 @@ export class NavGrid {
           const lat = Math.abs(-dx * ny + dy * nx); // along the wall
           if (Math.abs(along) > 1.2 || lat > 0.4) continue;
           const k = j * this.nx + i;
-          const v = half - lat;
+          let v = half - lat;
+          if (v <= field[k]!) continue;
+          for (const o of foreign) {
+            const d = sdOBB(o, i * NAV_CELL, j * NAV_CELL);
+            if (d < v) v = d > 0 ? d : 0;
+          }
           if (v > field[k]!) field[k] = Math.min(v, CAP);
         }
       }
@@ -542,7 +547,15 @@ export class NavGrid {
     }
     for (const l of st.loot) {
       if (l.kind !== 'bank' || l.recovered) continue;
-      this.openDoors(dyn, l.pos, l.angle);
+      // (another bank shoved against this one, or an intact fence across the doorway, still
+      // blocks it: the door corridor only overrides this bank's own walls)
+      const foreign: OBB[] = [];
+      for (const f of st.fences) if (!f.broken && Math.hypot(f.center.x - l.pos.x, f.center.y - l.pos.y) < 12) foreign.push(f);
+      for (const o of st.loot) {
+        if (o === l || o.kind !== 'bank' || o.recovered || Math.hypot(o.pos.x - l.pos.x, o.pos.y - l.pos.y) > 14) continue;
+        for (const w of sim.bankWallOBBs(o.id)) foreign.push(w);
+      }
+      this.openDoors(dyn, l.pos, l.angle, foreign);
     }
     const stat = this.staticDist;
     const cl = this.clear;
