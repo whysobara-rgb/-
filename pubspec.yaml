@@ -58,6 +58,9 @@ dependencies:
   # GP 충전 결제위젯(Android·iOS). 웹에서는 불러오지 않는다(조건부 import).
   tosspayments_widget_sdk_flutter: 2.2.0
 
+  # 체험판(DEMO_MODE) 로컬 계정의 비밀번호 해시. 플래그가 꺼진 빌드에서는 쓰지 않는다.
+  crypto: 3.0.7
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
