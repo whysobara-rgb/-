@@ -16,10 +16,10 @@ void main() {
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.light,
-      statusBarBrightness: Brightness.dark,
+      statusBarIconBrightness: Brightness.dark,
+      statusBarBrightness: Brightness.light,
       systemNavigationBarColor: AppColors.canvas,
-      systemNavigationBarIconBrightness: Brightness.light,
+      systemNavigationBarIconBrightness: Brightness.dark,
     ),
   );
   runApp(const GachaVaultApp());
@@ -41,30 +41,26 @@ class GachaVaultApp extends StatelessWidget {
               (gp ?? GpProvider())..syncFromUser(auth.currentUser),
         ),
       ],
-      // 로그인 전(로그인·가입)은 1차의 페이퍼 테마, 로그인 후는 나이트 볼트.
-      // auth 화면은 흰 바탕을 전제로 색을 직접 지정하고 있어 테마만 바꾼다.
-      child: Selector<AuthProvider, bool>(
-        selector: (_, auth) => auth.isLoggedIn || auth.isInitializing,
-        builder: (context, vault, _) => MaterialApp(
-          title: '가치가차',
-          debugShowCheckedModeBanner: false,
-          theme: vault ? AppTheme.vault : AppTheme.paper,
-          // 넓은 화면(웹)에서도 모바일 폭으로 가운데 정렬한다.
-          builder: (context, child) => Listener(
-            // 웹 자동재생 규칙: 첫 터치 전에는 효과음을 내지 않는다.
-            onPointerDown: (_) => SfxPlayer.instance.markUserGesture(),
-            child: ColoredBox(
-              color: vault ? Colors.black : AppColors.bgSubtle,
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 480),
-                  child: child,
-                ),
+      // 로그인·가입부터 뽑기 결과까지 앱 전체가 밝은 테마 한 벌이다.
+      child: MaterialApp(
+        title: '가치가차',
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.light,
+        // 넓은 화면(웹)에서도 모바일 폭으로 가운데 정렬한다.
+        builder: (context, child) => Listener(
+          // 웹 자동재생 규칙: 첫 터치 전에는 효과음을 내지 않는다.
+          onPointerDown: (_) => SfxPlayer.instance.markUserGesture(),
+          child: ColoredBox(
+            color: AppColors.section,
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 480),
+                child: child,
               ),
             ),
           ),
-          home: const AuthGate(),
         ),
+        home: const AuthGate(),
       ),
     );
   }

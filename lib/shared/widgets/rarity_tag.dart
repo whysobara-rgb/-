@@ -3,12 +3,15 @@ import '../../core/domain/rarity.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/rarity_style.dart';
 import 'holo.dart';
+import 'pack_art.dart';
 
 /// 레어도 코드 배지 ("SSR", "SR", "R", "N").
 ///
-/// N은 스틸 테두리, R은 코발트 면, SR은 자수정 금속 그라데이션,
-/// SSR은 금박 그라데이션 + (선택) 움직이는 홀로 반사광.
+/// N은 옅은 회색 면 + 회색 글자(깨끗하게), R은 블루 면, SR은 퍼플 포일,
+/// SSR은 금박 포일 + (선택) 움직이는 홀로 반사광. 포일 배지는 윗변에
+/// 가는 반사선이 있어 종이 위 박 인쇄처럼 보인다.
 class RarityTag extends StatelessWidget {
   final Rarity rarity;
   final bool dense;
@@ -36,28 +39,33 @@ class RarityTag extends StatelessWidget {
     final label = Text(
       rarity.code,
       style: AppText.micro.copyWith(
-        color: isN ? AppColors.rarityNLight : rarity.onColor,
+        color: isN ? AppColors.rarityNInk : rarity.onColor,
         fontSize: fs,
         fontWeight: FontWeight.w900,
-        letterSpacing: large ? 1.2 : 0.5,
+        letterSpacing: large ? 1.0 : 0.4,
         height: 1,
       ),
     );
-    final radius = BorderRadius.circular(large ? 6 : 3.5);
+    final radius = BorderRadius.circular(large ? 7 : (dense ? 4 : 5));
     Widget tag = Container(
       height: h,
-      padding: EdgeInsets.symmetric(horizontal: large ? 9 : (dense ? 4 : 5.5)),
+      padding: EdgeInsets.symmetric(horizontal: large ? 9 : (dense ? 4.5 : 6)),
       decoration: BoxDecoration(
-        color: isN ? AppColors.rarityN.withValues(alpha: 0.14) : null,
+        color: isN ? AppColors.rarityNLight : null,
         gradient: isN
             ? null
             : rarity.foilGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
         border: isN
-            ? Border.all(color: AppColors.rarityN.withValues(alpha: 0.45))
-            : null,
+            ? Border.all(color: AppColors.rarityN.withValues(alpha: 0.35))
+            : Border(
+                top: BorderSide(
+                  color: Colors.white.withValues(alpha: 0.55),
+                  width: 0.8,
+                ),
+              ),
         borderRadius: radius,
       ),
       child: Center(widthFactor: 1, child: label),
@@ -74,12 +82,13 @@ class RarityTag extends StatelessWidget {
   }
 }
 
-/// 작은 텍스트 라벨 ("보너스", "천장", "NEW" 등).
+/// 작은 텍스트 라벨 ("보너스", "천장", "NEW" 등). 사진·그림 위에 얹어도
+/// 읽히도록 흰 면 + 그림자.
 class QuietLabel extends StatelessWidget {
   final String text;
   final Color? color;
 
-  /// true면 면 채움(진한 바탕 + 어두운 글씨).
+  /// true면 면 채움(색 바탕 + 흰 글씨).
   final bool filled;
 
   const QuietLabel(this.text, {super.key, this.color, this.filled = false});
@@ -91,16 +100,17 @@ class QuietLabel extends StatelessWidget {
       height: 19,
       padding: const EdgeInsets.symmetric(horizontal: 6),
       decoration: BoxDecoration(
-        color: filled ? c : AppColors.canvas.withValues(alpha: 0.72),
-        border: filled ? null : Border.all(color: c.withValues(alpha: 0.5)),
-        borderRadius: const BorderRadius.all(Radius.circular(3.5)),
+        color: filled ? c : Colors.white.withValues(alpha: 0.94),
+        border: filled ? null : Border.all(color: c.withValues(alpha: 0.18)),
+        borderRadius: const BorderRadius.all(Radius.circular(5)),
+        boxShadow: filled ? null : Shadows.small,
       ),
       child: Center(
         widthFactor: 1,
         child: Text(
           text,
           style: AppText.micro.copyWith(
-            color: filled ? AppColors.canvas : c,
+            color: filled ? Colors.white : c,
             fontSize: 10.5,
             fontWeight: FontWeight.w800,
             height: 1,
@@ -111,8 +121,10 @@ class QuietLabel extends StatelessWidget {
   }
 }
 
-/// 서버 박스 배지(OPEN 기념 / NEW / HOT / DREAM / SPECIAL)를 그린다.
-/// 금고 톤에 맞춰 대부분은 먹색 바탕 + 흰 글씨, DREAM만 금박.
+/// 서버 박스 배지(OPEN 기념 / NEW / HOT / DREAM / SPECIAL).
+///
+/// HOT은 브랜드 레드, NEW는 잉크, DREAM은 먹색 바탕에 금박 글자(등급 SSR과
+/// 헷갈리지 않게 면은 칠하지 않는다), 그 밖은 흰 바탕 + 레드 글자.
 class BoxBadge extends StatelessWidget {
   final String raw;
   const BoxBadge(this.raw, {super.key});
@@ -129,39 +141,73 @@ class BoxBadge extends StatelessWidget {
     final upper = raw.toUpperCase();
     final dream = upper == 'DREAM';
     final hot = upper == 'HOT';
+    final isNew = upper == 'NEW';
+    final Color bg = hot
+        ? AppColors.brand
+        : (dream || isNew)
+        ? AppColors.text
+        : Colors.white;
+    final Color fg = hot || isNew
+        ? Colors.white
+        : dream
+        ? const Color(0xFFF2C75C)
+        : AppColors.brand;
+    final text = Text(
+      labelOf(raw),
+      style: AppText.micro.copyWith(
+        color: fg,
+        fontSize: 10.5,
+        fontWeight: FontWeight.w900,
+        letterSpacing: 0.4,
+        height: 1,
+        foreground: dream
+            ? (Paint()
+                ..shader = FoilTone.gold.gradient().createShader(
+                  const Rect.fromLTWH(0, 0, 40, 12),
+                ))
+            : null,
+      ),
+    );
     return Container(
       height: 20,
       padding: const EdgeInsets.symmetric(horizontal: 7),
       decoration: BoxDecoration(
-        color: dream
-            ? null
-            : hot
-            ? AppColors.brand
-            : AppColors.canvas.withValues(alpha: 0.78),
-        gradient: dream
-            ? Rarity.ssr.foilGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-              )
-            : null,
-        border: dream || hot
-            ? null
-            : Border.all(color: Colors.white.withValues(alpha: 0.22)),
-        borderRadius: Radii.chip,
+        color: bg,
+        borderRadius: const BorderRadius.all(Radius.circular(5)),
+        boxShadow: Shadows.small,
+      ),
+      child: Center(widthFactor: 1, child: text),
+    );
+  }
+}
+
+/// 확률·정가 같은 짧은 수치 알약(레어도 색 옅은 면 + 진한 글자).
+class RarityPill extends StatelessWidget {
+  final Rarity rarity;
+  final String text;
+  final bool dense;
+
+  const RarityPill(this.rarity, this.text, {super.key, this.dense = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: dense ? 18 : 22,
+      padding: EdgeInsets.symmetric(horizontal: dense ? 5 : 7),
+      decoration: BoxDecoration(
+        color: rarity == Rarity.n
+            ? AppColors.surface
+            : rarity.color.withValues(alpha: 0.12),
+        borderRadius: Radii.pill,
       ),
       child: Center(
         widthFactor: 1,
         child: Text(
-          labelOf(raw),
-          style: AppText.micro.copyWith(
-            color: dream
-                ? Rarity.ssr.onColor
-                : hot
-                ? AppColors.onBrand
-                : AppColors.text,
-            fontSize: 10.5,
-            fontWeight: FontWeight.w900,
-            letterSpacing: 0.6,
+          text,
+          style: AppText.num(AppText.micro).copyWith(
+            color: rarity.ink,
+            fontSize: dense ? 10 : 11.5,
+            fontWeight: FontWeight.w800,
             height: 1,
           ),
         ),

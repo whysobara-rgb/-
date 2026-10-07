@@ -7,6 +7,7 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/utils/format.dart';
+import '../../../../shared/widgets/pack_art.dart';
 import '../../../../shared/widgets/vault_art.dart';
 import '../../domain/home_banner.dart';
 
@@ -387,13 +388,14 @@ class _MotifPainter extends CustomPainter {
     final h = size.height;
     switch (motif) {
       case _Motif.vault:
-        paintIsoVault(
-          canvas,
-          focus + Offset(0, h * 0.02),
-          h * 0.25,
-          tone: tone,
-          glyph: (category ?? ProductCategory.jewel).icon,
-        );
+        PackPainter(
+          style: PackStyle.of(
+            category: category ?? ProductCategory.jewel,
+            accent: tone,
+          ),
+          scale: 0.5,
+          center: Offset(focus.dx / size.width, focus.dy / size.height),
+        ).paint(canvas, size);
       case _Motif.attendance:
         _paintCoinArc(canvas, focus, h);
       case _Motif.coins:
