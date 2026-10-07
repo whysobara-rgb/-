@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gacha_vault/core/network/api_client.dart';
 import 'package:gacha_vault/core/theme/app_theme.dart';
+import 'package:gacha_vault/core/utils/format.dart';
 import 'package:gacha_vault/features/auth/domain/agreements.dart';
 import 'package:gacha_vault/features/auth/domain/social_login_result.dart';
 import 'package:gacha_vault/features/auth/presentation/login_page.dart';
@@ -375,7 +376,7 @@ void main() {
       await tester.tap(find.text('카카오로 시작하기'));
       await tester.pumpAndSettle();
       expect(find.text('이미 네이버로 가입된 이메일이에요'), findsOneWidget);
-      expect(find.text('처음 가입한 네이버 로그인으로 들어와 주세요.'), findsOneWidget);
+      expect(find.text(keepAll('처음 가입한 네이버 로그인으로 들어와 주세요.')), findsOneWidget);
     });
   });
 }

@@ -416,8 +416,10 @@ class _AppOnlyNote extends StatelessWidget {
           const SizedBox(width: Space.x2),
           Expanded(
             child: Text(
-              '웹에서는 토스 결제창을 열 수 없어요. 가치가차 앱에서 충전해 주세요. '
-              '충전한 GP는 웹에서도 그대로 보여요.',
+              keepAll(
+                '웹에서는 토스 결제창을 열 수 없어요. 가치가차 앱에서 충전해 주세요. '
+                '충전한 GP는 웹에서도 그대로 보여요.',
+              ),
               style: AppText.caption.copyWith(color: AppColors.text),
             ),
           ),

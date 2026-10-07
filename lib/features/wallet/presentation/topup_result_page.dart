@@ -247,8 +247,10 @@ class _Pending extends StatelessWidget {
         ),
         const SizedBox(height: Space.x2),
         Text(
-          '토스에서 아직 승인 결과가 오지 않았어요. 승인되면 GP가 들어오고, '
-          '승인되지 않으면 결제되지 않아요. 잠시 후 다시 확인해 주세요.',
+          keepAll(
+            '토스에서 아직 승인 결과가 오지 않았어요. 승인되면 GP가 들어오고, '
+            '승인되지 않으면 결제되지 않아요. 잠시 후 다시 확인해 주세요.',
+          ),
           style: AppText.callout,
           textAlign: TextAlign.center,
         ),
@@ -277,13 +279,13 @@ class _Failed extends StatelessWidget {
         Text('결제하지 못했어요', style: AppText.title2, textAlign: TextAlign.center),
         const SizedBox(height: Space.x2),
         Text(
-          message,
+          keepAll(message),
           style: AppText.body.copyWith(color: AppColors.text),
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: Space.x1),
         Text(
-          'GP는 들어오지 않았어요. 결제 내역에서 상태를 확인할 수 있어요.',
+          keepAll('GP는 들어오지 않았어요. 결제 내역에서 상태를 확인할 수 있어요.'),
           style: AppText.callout,
           textAlign: TextAlign.center,
         ),

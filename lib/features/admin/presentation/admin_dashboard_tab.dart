@@ -98,7 +98,7 @@ class _AdminDashboardTabState extends State<AdminDashboardTab>
               KpiTile(
                 label: '확인 필요 결제',
                 value: '${formatNumber(s.paymentsToReview)}건',
-                note: '환불·금액 불일치·10분 넘게 확인 중',
+                note: '환불·불일치·지연',
                 accent: s.paymentsToReview > 0,
                 onTap: () => widget.onOpenPayments(null),
               ),

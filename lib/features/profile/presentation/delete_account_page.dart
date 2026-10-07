@@ -252,8 +252,10 @@ class _DeleteAccountPageState extends State<DeleteAccountPage> {
                     child: Padding(
                       padding: const EdgeInsets.only(top: 10),
                       child: Text(
-                        '위 내용을 확인했고, ${formatGp(balance)}와 보관함 상품이 '
-                        '사라지는 데 동의해요.',
+                        keepAll(
+                          '위 내용을 확인했고, ${formatGp(balance)}와 보관함 상품이 '
+                          '사라지는 데 동의해요.',
+                        ),
                         style: AppText.body.copyWith(color: AppColors.text),
                       ),
                     ),
@@ -330,7 +332,7 @@ class _Bullet extends StatelessWidget {
             ),
           ),
         ),
-        Expanded(child: Text(text, style: AppText.callout)),
+        Expanded(child: Text(keepAll(text), style: AppText.callout)),
       ],
     ),
   );
@@ -366,7 +368,7 @@ class _Blocked extends StatelessWidget {
           ),
           const SizedBox(height: Space.x1),
           Text(
-            '받는 분 정보가 배송을 마치는 데 필요해요. 배송이 끝나면 다시 시도해 주세요.',
+            keepAll('받는 분 정보가 배송을 마치는 데 필요해요. 배송이 끝나면 다시 시도해 주세요.'),
             style: AppText.caption,
           ),
           if (onOpenShipments != null) ...[

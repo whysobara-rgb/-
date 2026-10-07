@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/utils/format.dart';
 
 /// 운영자 화면 공용 조각. 촘촘하고 실용적으로, 앱 토큰만 쓴다.
 
@@ -105,25 +106,29 @@ class AdminFilterBar<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.fromLTRB(
-        Space.gutter,
-        Space.x3,
-        Space.gutter,
-        Space.x2,
-      ),
-      child: Row(
-        children: [
-          for (final (label, v) in options) ...[
-            AdminChip(
-              label: label,
-              selected: v == value,
-              onTap: () => onChanged(v),
-            ),
-            const SizedBox(width: 6),
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        // 칩이 적어도 왼쪽부터 놓이게 한다.
+        padding: const EdgeInsets.fromLTRB(
+          Space.gutter,
+          Space.x3,
+          Space.gutter,
+          Space.x2,
+        ),
+        child: Row(
+          children: [
+            for (final (label, v) in options) ...[
+              AdminChip(
+                label: label,
+                selected: v == value,
+                onTap: () => onChanged(v),
+              ),
+              const SizedBox(width: 6),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -153,7 +158,6 @@ class AdminChip extends StatelessWidget {
         child: Container(
           height: 30,
           padding: const EdgeInsets.symmetric(horizontal: 12),
-          alignment: Alignment.center,
           decoration: BoxDecoration(
             color: selected ? AppColors.text : AppColors.surface,
             borderRadius: Radii.pill,
@@ -161,11 +165,15 @@ class AdminChip extends StatelessWidget {
               color: selected ? AppColors.text : AppColors.hairlineStrong,
             ),
           ),
-          child: Text(
-            label,
-            style: AppText.num(AppText.caption).copyWith(
-              color: selected ? AppColors.canvas : AppColors.text,
-              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+          // Wrap 안에서도 글자 폭만큼만 차지하게 한다.
+          child: Center(
+            widthFactor: 1,
+            child: Text(
+              label,
+              style: AppText.num(AppText.caption).copyWith(
+                color: selected ? AppColors.canvas : AppColors.text,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+              ),
             ),
           ),
         ),
@@ -195,7 +203,7 @@ class InlineError extends StatelessWidget {
           const SizedBox(width: 6),
           Expanded(
             child: Text(
-              message,
+              keepAll(message),
               style: AppText.caption.copyWith(color: AppColors.danger),
             ),
           ),
@@ -216,18 +224,20 @@ class StatusTag extends StatelessWidget {
     return Container(
       height: 19,
       padding: const EdgeInsets.symmetric(horizontal: 6),
-      alignment: Alignment.center,
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.12),
         borderRadius: Radii.chip,
         border: Border.all(color: color.withValues(alpha: 0.45)),
       ),
-      child: Text(
-        text,
-        style: AppText.micro.copyWith(
-          color: color,
-          fontWeight: FontWeight.w800,
-          height: 1,
+      child: Center(
+        widthFactor: 1,
+        child: Text(
+          text,
+          style: AppText.micro.copyWith(
+            color: color,
+            fontWeight: FontWeight.w800,
+            height: 1,
+          ),
         ),
       ),
     );

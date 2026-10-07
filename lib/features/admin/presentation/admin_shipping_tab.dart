@@ -461,12 +461,16 @@ class _ShipSheetState extends State<ShipSheet> {
                   onTap: () => setState(() {
                     _custom = false;
                     _company = c;
+                    _errors = {..._errors}..remove('company');
                   }),
                 ),
               AdminChip(
                 label: '직접 입력',
                 selected: _custom,
-                onTap: () => setState(() => _custom = true),
+                onTap: () => setState(() {
+                  _custom = true;
+                  _errors = {..._errors}..remove('company');
+                }),
               ),
             ],
           ),
@@ -491,6 +495,13 @@ class _ShipSheetState extends State<ShipSheet> {
           TextField(
             controller: _number,
             keyboardType: TextInputType.number,
+            onChanged: (_) {
+              if (_errors.containsKey('trackingNumber')) {
+                setState(
+                  () => _errors = {..._errors}..remove('trackingNumber'),
+                );
+              }
+            },
             style: AppText.num(AppText.body),
             decoration: InputDecoration(
               labelText: '송장번호',

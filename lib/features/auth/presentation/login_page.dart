@@ -15,8 +15,9 @@ import 'terms_page.dart';
 import 'welcome_gp_page.dart';
 import 'widgets/social_button.dart';
 import 'widgets/social_consent_sheet.dart';
+import '../../../core/utils/format.dart';
 
-/// 로그인. 위는 금고 일러스트, 아래는 소셜 로그인(있으면)과 이메일 로그인.
+/// 로그인. 위는 워드마크와 금고 일러스트, 아래는 소셜 로그인(있으면)과 이메일 로그인.
 ///
 /// 소셜 버튼은 서버 `GET /auth/providers`가 돌려주고 이 빌드에 키가 있는
 /// 제공자만 나온다. 하나도 없으면 이메일 로그인만 보인다.
@@ -135,7 +136,7 @@ class _LoginPageState extends State<LoginPage> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     LoginHero(
-                      height: (constraints.maxHeight * 0.4).clamp(260, 360),
+                      height: (constraints.maxHeight * 0.3).clamp(180, 300),
                     ),
                     Padding(padding: Space.page, child: _form(isLoading)),
                     const Spacer(),
@@ -270,60 +271,54 @@ class _LoginPageState extends State<LoginPage> {
   }
 }
 
-/// 로그인 상단: 브랜드 색으로 빛나는 금고 상자 + 워드마크. 아래로 바탕색에 녹아든다.
+/// 로그인 상단: 워드마크 + 브랜드 색으로 빛나는 금고 상자 카드.
 class LoginHero extends StatelessWidget {
+  /// 일러스트 카드 높이.
   final double height;
-  const LoginHero({super.key, this.height = 300});
+  const LoginHero({super.key, this.height = 220});
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final top = MediaQuery.paddingOf(context).top;
-    return SizedBox(
-      height: height + top,
-      child: Stack(
-        fit: StackFit.expand,
+    // 워드마크는 화면 바탕 위에, 일러스트는 카드 안에 둔다. 어떤 테마에서도
+    // 글자가 그림 위에 겹치지 않는다.
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        Space.gutter,
+        top + Space.x5,
+        Space.gutter,
+        Space.x5,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // 기요셰가 상자 밖까지 그려지지 않게 자른다.
-          ClipRect(
-            child: BoxArt(
-              tone: cs.primary,
-              category: ProductCategory.jewel,
-              scale: 0.5,
-              centerY: 0.58,
+          Text.rich(
+            TextSpan(
+              children: [
+                const TextSpan(text: '가치가차'),
+                TextSpan(
+                  text: '.',
+                  style: TextStyle(color: cs.primary),
+                ),
+              ],
+            ),
+            style: AppText.display.copyWith(
+              fontSize: 26,
+              fontWeight: FontWeight.w900,
+              letterSpacing: -1.1,
             ),
           ),
-          DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  cs.surface.withValues(alpha: 0),
-                  cs.surface.withValues(alpha: 0),
-                  cs.surface,
-                ],
-                stops: const [0, 0.62, 1],
-              ),
-            ),
-          ),
-          Positioned(
-            left: Space.gutter,
-            top: top + Space.x5,
-            child: Text.rich(
-              TextSpan(
-                children: [
-                  const TextSpan(text: '가치가차'),
-                  TextSpan(
-                    text: '.',
-                    style: TextStyle(color: cs.primary),
-                  ),
-                ],
-              ),
-              style: AppText.display.copyWith(
-                fontSize: 26,
-                fontWeight: FontWeight.w900,
-                letterSpacing: -1.1,
+          const SizedBox(height: Space.x4),
+          ClipRRect(
+            borderRadius: Radii.hero,
+            child: SizedBox(
+              height: height,
+              child: BoxArt(
+                tone: cs.primary,
+                category: ProductCategory.jewel,
+                scale: 0.62,
+                centerY: 0.54,
               ),
             ),
           ),
@@ -475,7 +470,7 @@ class _NoticeCard extends StatelessWidget {
               children: [
                 Text(notice.title, style: AppText.bodyStrong),
                 const SizedBox(height: 2),
-                Text(notice.message, style: AppText.caption),
+                Text(keepAll(notice.message), style: AppText.caption),
               ],
             ),
           ),

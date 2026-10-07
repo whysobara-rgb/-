@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../domain/agreements.dart';
+import '../../../core/utils/format.dart';
 
 /// 약관 보기.
 ///
@@ -36,7 +37,7 @@ class TermsPage extends StatelessWidget {
             Text(heading, style: AppText.headline),
             const SizedBox(height: Space.x2),
             Text(
-              body,
+              keepAll(body),
               style: AppText.body.copyWith(color: cs.onSurfaceVariant),
             ),
             const SizedBox(height: Space.x6),
@@ -79,8 +80,10 @@ class _PlaceholderNotice extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '이 화면의 내용은 자리표시용 견본이에요. 출시 전에 법률 검토를 '
-                  '거친 실제 문서로 바꿔야 해요.',
+                  keepAll(
+                    '이 화면의 내용은 자리표시용 견본이에요. 출시 전에 법률 검토를 '
+                    '거친 실제 문서로 바꿔야 해요.',
+                  ),
                   style: AppText.caption.copyWith(color: cs.onSurface),
                 ),
               ],

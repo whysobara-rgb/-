@@ -111,7 +111,7 @@ class _PaymentHistoryPageState extends State<PaymentHistoryPage> {
                         0,
                       ),
                       child: Text(
-                        '최근 50건까지 보여요. 결제 취소·환불은 고객센터로 문의해 주세요.',
+                        '최근 50건까지 보여요.',
                         style: AppText.caption.copyWith(
                           color: AppColors.textTertiary,
                         ),

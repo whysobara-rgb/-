@@ -5,6 +5,7 @@ import '../../../../shared/widgets/ui.dart';
 import '../../domain/agreements.dart';
 import '../../social/social_auth_client.dart';
 import 'agreement_panel.dart';
+import '../../../../core/utils/format.dart';
 
 /// 소셜 최초 가입 시트에서 받은 값.
 class SocialConsent {
@@ -89,8 +90,10 @@ class _SocialConsentSheetState extends State<SocialConsentSheet> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            '$label 계정으로 처음 오셨어요. 약관에 동의하면 가치가차 계정이 '
-            '만들어지고 축하 GP가 들어와요.',
+            keepAll(
+              '$label 계정으로 처음 오셨어요. 약관에 동의하면 가치가차 계정이 '
+              '만들어지고 축하 GP가 들어와요.',
+            ),
             style: AppText.callout,
           ),
           const SizedBox(height: Space.x5),

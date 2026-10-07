@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gacha_vault/core/network/api_client.dart';
 import 'package:gacha_vault/core/theme/app_theme.dart';
+import 'package:gacha_vault/core/utils/format.dart';
 import 'package:gacha_vault/features/admin/data/admin_repository.dart';
 import 'package:gacha_vault/features/admin/domain/admin_forms.dart';
 import 'package:gacha_vault/features/admin/domain/admin_models.dart';
@@ -224,6 +225,9 @@ void main() {
       'trackingCompany': 'CJ대한통운',
       'trackingNumber': '123456789012',
     });
-    expect(find.text('지금 상태(배송 완료)에서는 배송 중(으)로 바꿀 수 없어요'), findsOneWidget);
+    expect(
+      find.text(keepAll('지금 상태(배송 완료)에서는 배송 중(으)로 바꿀 수 없어요')),
+      findsOneWidget,
+    );
   });
 }
