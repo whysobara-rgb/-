@@ -405,6 +405,12 @@ export class App {
 
   private pollMenu(): void {
     let nav = this.d.input.pollMenu();
+    // Local match paused: keyboard player B's grab / dash keys confirm / back out as well.
+    if (this.stateValue === 'paused' && this.match?.isLocal && this.localRouter) {
+      const b = this.localRouter.pauseMenuFrame();
+      if (b.confirm) nav = { ...nav, confirm: true };
+      if (b.back) nav = { ...nav, back: true };
+    }
     if (this.stateValue === 'paused' && nav.pause && !this.overlay) {
       // Esc / Start closes the pause menu only when the pause menu itself has focus. With its
       // own confirm dialog (restart / leave) on top, the same press backs out of the dialog.
@@ -862,6 +868,7 @@ export class App {
     r.flush(); // the press that opened this screen does not also join
     this.hideout('left')?.setFocus('quickMatch');
     this.lobby = { players: this.lobby.players.map((p) => ({ ...p, ready: false })) };
+    r.enterOwner = this.lobby.players.some((p) => p.device === 'kbB') ? 'kbB' : 'kbA';
     this.lobbyPhase = 'join';
     this.lobbyNotice = null;
     this.lobbyPads = r.connectedPads().join(',');
@@ -958,6 +965,8 @@ export class App {
 
   /** Lobby changed: everyone ready -> match options; otherwise back to joining. */
   private afterLobbyChange(): void {
+    // Enter is player A's confirm while A is alone on the keyboard, player B's once B has joined.
+    this.localInput().enterOwner = this.lobby.players.some((p) => p.device === 'kbB') ? 'kbB' : 'kbA';
     const ready = allReady(this.lobby);
     const was = this.lobbyPhase;
     this.lobbyPhase = ready ? 'options' : 'join';

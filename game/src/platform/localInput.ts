@@ -45,9 +45,13 @@ export const KEYBOARD_B_DEFAULTS: Readonly<ActionBindings> = Object.freeze({
 /** Keys only player B may use while two keyboard players share the board (A's right-hand alternates). */
 const RIGHT_HAND_RESERVED = ['KeyJ', 'KeyK', 'KeyL', 'KeyP', 'ShiftRight', 'Enter', 'NumpadEnter', 'Backspace'];
 
-/** Extra join-screen keys per keyboard player (on top of grab = join/ready, dash = back). */
+/**
+ * Extra join-screen keys per keyboard player (on top of grab = join/ready, dash = back). Enter is
+ * not listed: it goes to `LocalInputRouter.enterOwner` (A until B has joined, then B — it sits
+ * next to the arrows and is one of B's reserved keys in a match).
+ */
 export const LOBBY_KEYS: Readonly<Record<KeyboardDeviceId, { confirm: readonly string[]; back: readonly string[] }>> = {
-  kbA: { confirm: ['Enter'], back: ['Escape'] },
+  kbA: { confirm: [], back: ['Escape'] },
   kbB: { confirm: ['NumpadEnter'], back: ['Backspace'] },
 };
 
@@ -177,6 +181,12 @@ export class LocalInputRouter {
   private readonly cleanups: Array<() => void> = [];
   /** Keyboard device that typed last (glyph hints). */
   lastKeyboard: KeyboardDeviceId | null = null;
+  /**
+   * Who the plain Enter key belongs to on the join screen: player A while they are alone (a solo
+   * keyboard player confirms with Enter as everywhere else), player B once B has joined (Enter is
+   * the right-hand confirm next to the arrows). Set by the join screen.
+   */
+  enterOwner: KeyboardDeviceId = 'kbA';
 
   constructor(opts: LocalInputOptions = {}) {
     this.bindings = cloneBindings(opts.bindings ?? DEFAULT_BINDINGS);
@@ -351,7 +361,7 @@ export class LocalInputRouter {
       const code = q.shift()!;
       const is = (codes: readonly string[]): boolean => codes.includes(code);
       const out: LobbyFrame = {
-        confirm: (!isMouseCode(code) && is(ks.grab)) || is(LOBBY_KEYS[dev].confirm),
+        confirm: (!isMouseCode(code) && is(ks.grab)) || is(LOBBY_KEYS[dev].confirm) || (code === 'Enter' && dev === this.enterOwner),
         back: (!isMouseCode(code) && is(ks.dash)) || is(LOBBY_KEYS[dev].back),
         left: is(ks.moveLeft),
         right: is(ks.moveRight),
@@ -362,6 +372,25 @@ export class LocalInputRouter {
       if (out.confirm || out.back || out.left || out.right || out.up || out.down || out.start) return out;
     }
     return { ...EMPTY_LOBBY_FRAME };
+  }
+
+  /**
+   * Pause menu of a local match (the menus read the shared keyboard / pad input): player B's own
+   * grab / dash keys confirm / back out too, so B can pick an item without reaching for Enter.
+   * Drains the keyboard presses queued since the last match frame.
+   */
+  pauseMenuFrame(): { confirm: boolean; back: boolean } {
+    const MENU = ['Enter', 'NumpadEnter', 'Space', 'Escape', 'Backspace'];
+    const ks = this.sets.kbB;
+    const out = { confirm: false, back: false };
+    for (const code of this.queue.kbB) {
+      if (MENU.includes(code)) continue; // the menu input reads those already
+      if (ks.grab.includes(code)) out.confirm = true;
+      else if (ks.dash.includes(code)) out.back = true;
+    }
+    this.queue.kbA.length = 0;
+    this.queue.kbB.length = 0;
+    return out;
   }
 
   /** Every device that pressed something this poll, with its join-screen frame. */
@@ -433,7 +462,7 @@ export class LocalInputRouter {
     const code = e.code;
     if (!code || e.repeat) return;
     this.held.add(code);
-    const dev = keyboardDeviceOf(code, this.sets);
+    const dev = code === 'Enter' ? this.enterOwner : keyboardDeviceOf(code, this.sets);
     if (dev) {
       this.pressed[dev].add(code);
       if (this.queue[dev].length < 32) this.queue[dev].push(code);

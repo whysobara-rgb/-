@@ -280,7 +280,7 @@ describe('in-world lettering faces the camera the right way round', () => {
       root.add(rig.root);
       placeOnSim(rig.root, { x: 0, y: 0 }, a);
       root.updateMatrixWorld(true);
-      const sign = rig.root.children[0]!.children.find((m) => m instanceof THREE.Mesh && (m as THREE.Mesh).geometry instanceof THREE.PlaneGeometry && (m as THREE.Mesh).geometry.parameters.height === 0.22)!;
+      const sign = rig.root.children[0]!.children.find((m) => m instanceof THREE.Mesh && (m as THREE.Mesh).geometry instanceof THREE.PlaneGeometry && ((m as THREE.Mesh).geometry as THREE.PlaneGeometry).parameters.height === 0.22)!;
       expect(sign, `angle ${a}`).toBeTruthy();
       const n = new THREE.Vector3(0, 0, 1).transformDirection(sign.matrixWorld);
       const r = new THREE.Vector3(1, 0, 0).transformDirection(sign.matrixWorld);

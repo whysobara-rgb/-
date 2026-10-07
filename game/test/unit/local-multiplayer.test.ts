@@ -46,7 +46,8 @@ describe('keyboard key sets', () => {
     expect(keyboardDeviceOf('KeyW', sets)).toBe('kbA');
     expect(keyboardDeviceOf('Space', sets)).toBe('kbA');
     expect(keyboardDeviceOf('Mouse0', sets)).toBe('kbA');
-    expect(keyboardDeviceOf('Enter', sets)).toBe('kbA');
+    // Enter is decided by the router (A alone, B once B has joined)
+    expect(keyboardDeviceOf('Enter', sets)).toBeNull();
     expect(keyboardDeviceOf('ArrowLeft', sets)).toBe('kbB');
     expect(keyboardDeviceOf('Period', sets)).toBe('kbB');
     expect(keyboardDeviceOf('KeyZ', sets)).toBeNull();
@@ -104,6 +105,24 @@ describe('LocalInputRouter', () => {
     expect(by('kbB')?.left).toBe(true);
     expect(by('pad:0')?.confirm).toBe(true);
     expect(r.pollLobby()).toEqual([]);
+  });
+
+  it("Enter confirms for A while A is alone, for B once B has joined; B's grab confirms in the pause menu", () => {
+    const r = new LocalInputRouter({ target: null, getGamepads: () => [] });
+    r.keyDown({ code: 'Enter' });
+    let got = r.pollLobby();
+    expect(got.map((g) => [g.device, g.frame.confirm])).toEqual([['kbA', true]]);
+    r.enterOwner = 'kbB';
+    r.keyDown({ code: 'Enter' });
+    got = r.pollLobby();
+    expect(got.map((g) => [g.device, g.frame.confirm])).toEqual([['kbB', true]]);
+    // pause menu: B's '.' confirms, '/' backs out; Enter / Esc are left to the menu input
+    r.keyDown({ code: 'Period' });
+    expect(r.pauseMenuFrame()).toEqual({ confirm: true, back: false });
+    r.keyDown({ code: 'Slash' });
+    expect(r.pauseMenuFrame()).toEqual({ confirm: false, back: true });
+    r.keyDown({ code: 'Enter' });
+    expect(r.pauseMenuFrame()).toEqual({ confirm: false, back: false });
   });
 
   it('keeps two quick taps inside one slow frame as two join-screen presses', () => {
