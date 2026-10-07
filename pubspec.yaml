@@ -83,6 +83,8 @@ flutter:
   # 뽑기 연출 효과음 — tool/sfx/generate_sfx.py로 직접 합성한 WAV
   assets:
     - assets/sfx/
+    # 체험판(DEMO_MODE) 카탈로그 스냅샷. tool/demo/snapshot_catalog.py로 갱신한다.
+    - assets/demo/catalog.json
 
   # Pretendard — 앱 전체 서체 (타입 스케일은 lib/core/theme/app_typography.dart)
   fonts:
