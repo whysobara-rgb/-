@@ -26,7 +26,7 @@ export const mean = (a: number[]): number => (a.length ? a.reduce((x, y) => x + 
 const pct = (x: number): string => (Number.isFinite(x) ? `${(100 * x).toFixed(0)}%` : '-');
 const f1 = (x: number): string => (Number.isFinite(x) ? x.toFixed(1) : '-');
 const f2 = (x: number): string => (Number.isFinite(x) ? x.toFixed(2) : '-');
-const f0 = (x: number): string => (Number.isFinite(x) ? x.toFixed(0) : '-');
+const f0 = (x: number): string => (Number.isFinite(x) ? (Math.round(x) || 0).toFixed(0) : '-');
 const share = <X>(ms: X[], p: (m: X) => boolean): number => (ms.length ? ms.filter(p).length / ms.length : NaN);
 const sign = (x: number): number => (x > 0 ? 1 : x < 0 ? -1 : 0);
 
@@ -337,6 +337,8 @@ export interface GroupNumbers {
   bankGroupShare: number;
   /** Rematch-worthy among decided matches only (draws always count as rematch-worthy). */
   rematchDecided: number;
+  /** Decided and rematch-worthy, as a share of all matches (= rematch-worthy minus draws). */
+  rematchNonDraw: number;
   /** fun-plan WP1 proxy rows. */
   proxyTackled5: number | null;
   proxyBankHaulBroken4: number | null;
@@ -465,6 +467,7 @@ export function numbers(ms: M[]): GroupNumbers {
     proxyActBy10ByLayout: byLayout((xs) => share(xs, (m) => fa(m) <= 10)),
     bankGroupShare: ((src.bank ?? 0) + (src.bankSafe ?? 0)) / Math.max(1, totPts),
     rematchDecided: share(dec, (m) => m.rematchWorthy),
+    rematchNonDraw: share(ms, (m) => m.r.winner !== null && m.rematchWorthy),
     proxyTackled5: proxy.length ? share(proxy, (m) => ep(m, 'tackled') >= 5) : null,
     proxyBankHaulBroken4: proxy.length ? share(proxy, (m) => ep(m, 'bankHaulBroken') >= 4) : null,
     proxyHaulBroken4: proxy.length ? share(proxy, (m) => ep(m, 'haulBroken') >= 4) : null,
@@ -752,7 +755,7 @@ const G: Gate[] = [
   { metric: 'Win-rate delta, won the first drop (pts)', value: (c) => (c.P.firstDropDelta === null ? null : 100 * c.P.firstDropDelta), fmt: f0, gate: (x) => x <= 10, target: (x) => x <= 6, gateText: '≤ +10', targetText: '≤ +6', v2Only: true },
   { metric: 'Proxy wins vs normal', value: (c) => c.P.proxyW, fmt: pct, gate: (x) => x >= 0.32, target: (x) => x >= 0.35, gateText: '≥ 32%', targetText: '≥ 35%' },
   { metric: 'Rematch-worthy', value: (c) => c.P.rematch, fmt: pct, gate: (x) => x >= 0.78, target: (x) => x >= 0.82, gateText: '≥ 78%', targetText: '≥ 82%' },
-  { metric: 'Rematch-worthy among decided matches (info: draws always count)', value: (c) => c.P.rematchDecided, note: (c) => `draws ${pct(c.P.draws)}`, fmt: pct, ...INFO, target: () => true, targetText: '–' },
+  { metric: 'Rematch-worthy among decided matches (info: draws always count)', value: (c) => c.P.rematchDecided, note: (c) => `draws ${pct(c.P.draws)}; decided & rematch-worthy ${pct(c.P.rematchNonDraw)} of all`, fmt: pct, ...INFO, target: () => true, targetText: '–' },
   { metric: 'Crashes + invariant violations (P + B + T2)', value: (c) => c.P.errors + c.P.invariant, fmt: f0, gate: (x) => x === 0, target: (x) => x === 0, gateText: '0', targetText: '0' },
   { metric: 'Sim step median, 2:2 every system on (T2), ms', value: (c) => (c.T2 ? c.T2.stepMsMed : null), fmt: (x) => x.toFixed(3), gate: (x) => x <= 1.5, target: (x) => x <= 1.0, gateText: '≤ 1.5', targetText: '≤ 1.0' },
   { metric: 'Sim step median, 1v1 (info, P), ms', value: (c) => c.P.stepMsMed, fmt: (x) => x.toFixed(3), ...INFO, target: () => true, targetText: '–' },
