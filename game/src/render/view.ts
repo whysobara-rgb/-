@@ -156,6 +156,8 @@ export interface ViewFocus {
   pingTargetIds: EntityId[];
   /** (local multiplayer) Every human player: 2+ ids = one shared camera frames them all. */
   group?: EntityId[];
+  /** (local multiplayer) Player colour per `group` entry (ground ring). */
+  groupColors?: string[];
 }
 
 /**
@@ -2645,7 +2647,9 @@ export class GameView {
     cv.marker.root.visible = showMarker;
     if (showMarker) {
       placeOnSim(cv.marker.root, cv.pose, cv.facing, cv.y + 0.02);
-      cv.marker.setFocus(!!focus && focus.charId === c.id);
+      cv.marker.setFocus(!!focus && (focus.charId === c.id || !!focus.group?.includes(c.id)));
+      const gi = focus?.group ? focus.group.indexOf(c.id) : -1;
+      cv.marker.setPlayer?.(gi >= 0 ? focus?.groupColors?.[gi] ?? null : null);
     }
 
     // Footstep puffs.

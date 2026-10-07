@@ -106,6 +106,18 @@ describe('LocalInputRouter', () => {
     expect(r.pollLobby()).toEqual([]);
   });
 
+  it('keeps two quick taps inside one slow frame as two join-screen presses', () => {
+    const r = new LocalInputRouter({ target: null, getGamepads: () => [] });
+    r.keyDown({ code: 'Space' });
+    r.keyUp('Space');
+    r.keyDown({ code: 'Space' });
+    r.keyUp('Space');
+    r.keyDown({ code: 'ArrowRight' });
+    const got = r.pollLobby();
+    expect(got.filter((g) => g.device === 'kbA' && g.frame.confirm)).toHaveLength(2);
+    expect(got.filter((g) => g.device === 'kbB' && g.frame.right)).toHaveLength(1);
+  });
+
   it('ignores keys held through a pause until released', () => {
     const r = new LocalInputRouter({ target: null, getGamepads: () => [] });
     r.matchFrame('kbA');

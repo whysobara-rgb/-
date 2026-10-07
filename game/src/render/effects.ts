@@ -55,6 +55,8 @@ interface Flight {
 export interface CharMarker {
   readonly root: THREE.Group;
   setFocus(focus: boolean): void;
+  /** (local multiplayer) A wider ring in the player's colour (null = none). */
+  setPlayer?(color: string | null): void;
 }
 
 /** Pulsing additive glow on the ground around a van while its siren runs. */
@@ -297,6 +299,8 @@ export class ViewEffects {
     notch.visible = false;
     root.add(ring, notch);
     let focus = false;
+    let playerRing: THREE.Mesh | null = null;
+    let playerColor: string | null = null;
     return {
       root,
       setFocus: (f: boolean) => {
@@ -305,6 +309,27 @@ export class ViewEffects {
         ring.geometry = f ? this.markerGeo.focusRing : this.markerGeo.ring;
         ring.material = f ? mats.bright : mats.dim;
         notch.visible = f;
+      },
+      setPlayer: (color: string | null) => {
+        if (color === playerColor) return;
+        playerColor = color;
+        if (!color) {
+          if (playerRing) playerRing.visible = false;
+          return;
+        }
+        if (!playerRing) {
+          const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95, depthWrite: false, toneMapped: false });
+          this.owned.push(mat);
+          playerRing = new THREE.Mesh(this.markerGeo.focusRing, mat);
+          playerRing.scale.setScalar(1.22);
+          playerRing.position.y = 0.005;
+          playerRing.userData.noOutline = true;
+          playerRing.renderOrder = 1;
+          playerRing.raycast = () => {};
+          root.add(playerRing);
+        }
+        (playerRing.material as THREE.MeshBasicMaterial).color.set(color);
+        playerRing.visible = true;
       },
     };
   }

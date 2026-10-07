@@ -167,6 +167,8 @@ export class LocalInputRouter {
   private readonly getPads: () => ArrayLike<GamepadLike | null> | null | undefined;
   private readonly held = new Set<string>();
   private readonly pressed: Record<KeyboardDeviceId, Set<string>> = { kbA: new Set(), kbB: new Set() };
+  /** Join screen: every keyboard press in order (two taps inside one slow frame are two presses). */
+  private readonly queue: Record<KeyboardDeviceId, string[]> = { kbA: [], kbB: [] };
   private readonly kbSuppressed = new Set<string>();
   private readonly pads = new Map<number, PadState>();
   private readonly pressPointer = new Map<string, PointerPos>();
@@ -210,6 +212,7 @@ export class LocalInputRouter {
   /** Drop pending presses; everything held right now is ignored until released. */
   flush(): void {
     for (const s of Object.values(this.pressed)) s.clear();
+    for (const q of Object.values(this.queue)) q.length = 0;
     for (const c of this.held) this.kbSuppressed.add(c);
     for (const p of this.padList()) {
       const st = this.padState(p.index);
@@ -224,11 +227,11 @@ export class LocalInputRouter {
    * pressed in the meantime until released; holds that started before keep going.
    */
   resume(): void {
-    for (const [dev, s] of Object.entries(this.pressed)) {
+    for (const s of Object.values(this.pressed)) {
       for (const c of s) if (this.held.has(c)) this.kbSuppressed.add(c);
       s.clear();
-      void dev;
     }
+    for (const q of Object.values(this.queue)) q.length = 0;
     for (const p of this.padList()) {
       const st = this.padState(p.index);
       const r = this.readPad(p.index);
@@ -274,6 +277,7 @@ export class LocalInputRouter {
       wheelClick: dev === 'kbA' && pressed.has('Mouse0') ? (this.pressPointer.get('Mouse0') ?? this.pointerPos) : null,
     };
     pressed.clear();
+    this.queue[dev].length = 0;
     return frame;
   }
 
@@ -339,19 +343,24 @@ export class LocalInputRouter {
     }
     const dev = device as KeyboardDeviceId;
     const ks = this.sets[dev];
-    const p = this.pressed[dev];
-    const has = (codes: readonly string[]): boolean => codes.some((c) => p.has(c));
-    const out: LobbyFrame = {
-      confirm: has(ks.grab.filter((c) => !isMouseCode(c))) || has(LOBBY_KEYS[dev].confirm),
-      back: has(ks.dash.filter((c) => !isMouseCode(c))) || has(LOBBY_KEYS[dev].back),
-      left: has(ks.moveLeft),
-      right: has(ks.moveRight),
-      up: has(ks.moveUp),
-      down: has(ks.moveDown),
-      start: has(ks.pause.filter((c) => !LOBBY_KEYS[dev].back.includes(c) && c !== 'Escape')),
-    };
-    p.clear();
-    return out;
+    const q = this.queue[dev];
+    this.pressed[dev].clear();
+    // One action per call, in press order (pollLobby calls again while presses remain).
+    while (q.length) {
+      const code = q.shift()!;
+      const is = (codes: readonly string[]): boolean => codes.includes(code);
+      const out: LobbyFrame = {
+        confirm: (!isMouseCode(code) && is(ks.grab)) || is(LOBBY_KEYS[dev].confirm),
+        back: (!isMouseCode(code) && is(ks.dash)) || is(LOBBY_KEYS[dev].back),
+        left: is(ks.moveLeft),
+        right: is(ks.moveRight),
+        up: is(ks.moveUp),
+        down: is(ks.moveDown),
+        start: is(ks.pause) && !is(LOBBY_KEYS[dev].back) && code !== 'Escape',
+      };
+      if (out.confirm || out.back || out.left || out.right || out.up || out.down || out.start) return out;
+    }
+    return { ...EMPTY_LOBBY_FRAME };
   }
 
   /** Every device that pressed something this poll, with its join-screen frame. */
@@ -359,8 +368,12 @@ export class LocalInputRouter {
     const out: Array<{ device: LocalDeviceId; frame: LobbyFrame }> = [];
     const devs: LocalDeviceId[] = ['kbA', 'kbB', ...this.connectedPads().map((i) => `pad:${i}` as LocalDeviceId)];
     for (const d of devs) {
-      const f = this.lobbyFrame(d);
-      if (f.confirm || f.back || f.left || f.right || f.up || f.down || f.start) out.push({ device: d, frame: f });
+      for (let i = 0; i < 8; i++) {
+        const f = this.lobbyFrame(d);
+        if (!(f.confirm || f.back || f.left || f.right || f.up || f.down || f.start)) break;
+        out.push({ device: d, frame: f });
+        if (isPadDevice(d)) break;
+      }
     }
     return out;
   }
@@ -401,6 +414,7 @@ export class LocalInputRouter {
       this.pressPointer.set(code, ptr);
       this.held.add(code);
       this.pressed.kbA.add(code);
+      if (this.queue.kbA.length < 32) this.queue.kbA.push(code);
     });
     on('mouseup', (e) => this.keyUp(`Mouse${(e as MouseEvent).button}`));
     on('mousemove', (e) => {
@@ -421,6 +435,7 @@ export class LocalInputRouter {
     const dev = keyboardDeviceOf(code, this.sets);
     if (dev) {
       this.pressed[dev].add(code);
+      if (this.queue[dev].length < 32) this.queue[dev].push(code);
       this.lastKeyboard = dev;
     }
   }

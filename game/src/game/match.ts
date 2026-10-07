@@ -27,6 +27,7 @@ import { DT, EMOTE, TICK_RATE, VISION, Simulation, type CharacterState, type Com
 import type { GameView, ViewCallout, ViewFocus } from '../render';
 import { GrabLatch, buildCommand, type InputManager, type MatchFrame } from '../platform/input';
 import type { LocalDeviceId, LocalInputRouter } from '../platform/localInput';
+import { playerColor } from '../shared/players';
 import { EMOTE_IDS, EmoteWheelController, unlockedEmotes, wheelSlotAngle } from '../platform/emotes';
 import { getSaveManager } from '../platform/save';
 import type { Settings } from '../platform/settings';
@@ -418,7 +419,10 @@ export class MatchController {
     for (const id of this.funFocusTargets()) if (!pingTargetIds.includes(id)) pingTargetIds.push(id);
     const f: ViewFocus = { charId: this.meId, grabCandidate: me && !me.grab ? this.sim.getGrabCandidate(this.meId) : null, pingTargetIds };
     // Local multiplayer: one shared camera frames every human.
-    if (this.seats.length > 1) f.group = this.seats.map((s) => s.charId);
+    if (this.seats.length > 1) {
+      f.group = this.seats.map((s) => s.charId);
+      f.groupColors = this.seats.map((s) => playerColor(s.index));
+    }
     return f;
   }
 
