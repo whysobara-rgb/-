@@ -16,6 +16,7 @@ import { h, setClass, setText } from '../core/dom';
 import { lootIcon, teamEmblem } from '../core/icons';
 import { clamp01, fmtScore, finiteOrNull } from '../core/format';
 import type { WorldLabelModel } from './types';
+import { playerColor } from '../../shared/players';
 import { layoutTags, newTagMemory, tagOpacity, type Box, type Tag } from '../core/declutter';
 
 type Kind = WorldLabelModel['kind'];
@@ -350,12 +351,20 @@ export class WorldLabels {
           e.a = ref;
           setText(e.text!, trName(m.text));
         }
-        const k = `${m.team}${m.isMe ? 'm' : ''}`;
+        const k = `${m.team}${m.isMe ? 'm' : ''}${m.player ?? ''}`;
         if (e.b !== k) {
           e.b = k;
           e.el.dataset.team = String(m.team);
           setClass(e.el, 'is-me', !!m.isMe);
           e.art!.replaceChildren(teamEmblem(m.team as TeamId));
+          // (local multiplayer) P1..P4 tag in the player's colour
+          if (m.player !== undefined) {
+            e.el.dataset.player = String(m.player + 1);
+            e.el.style.setProperty('--p', playerColor(m.player));
+          } else {
+            delete e.el.dataset.player;
+            e.el.style.removeProperty('--p');
+          }
         }
         break;
       }

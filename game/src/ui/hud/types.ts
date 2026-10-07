@@ -193,6 +193,8 @@ export interface NameLabel extends LabelBase {
   text: TextRef;
   team: TeamId;
   isMe?: boolean;
+  /** (local multiplayer) 0..3 = P1..P4: the tag takes that player's colour. */
+  player?: number;
 }
 
 export type WorldLabelModel = ValueLabel | BankLabel | RecoveryLabel | PingLabel | NameLabel;

@@ -76,6 +76,8 @@ export interface HudAdapterOptions {
   nearRadius?: number;
   /** Show name tags over characters (default: only in 2:2, i.e. more than 2 characters). */
   nameTags?: boolean;
+  /** (local multiplayer) Human character id -> player index (0..3): "P1".."P4" tags in their colour. */
+  players?: ReadonlyMap<EntityId, number> | null;
   /**
    * [F4] Match point to show (e.g. `MomentTracker.snapshot().matchPoint`). Omitted: computed with
    * `matchPointInfo(state, { earlyDecision: rules.earlyDecision })` (the same answer).
@@ -254,7 +256,7 @@ export function labelsFromSim(
   sim: SimView,
   me: CharacterState,
   project: Projector,
-  o: { nearRadius?: number; nameTags?: boolean; posOf?: PoseLookup } = {},
+  o: { nearRadius?: number; nameTags?: boolean; posOf?: PoseLookup; players?: ReadonlyMap<EntityId, number> | null } = {},
 ): { labels: WorldLabelModel[]; arrows: OffscreenTarget[] } {
   const st = sim.state;
   const labels: WorldLabelModel[] = [];
@@ -326,10 +328,13 @@ export function labelsFromSim(
     if (p.onScreen) labels.push({ kind: 'ping', id: ping.id, x: p.x, y: p.y, ping: ping.kind, team: ping.team });
     else if (ping.targetId === null) arrows.push({ id: `pingpos:${ping.id}`, x: p.x, y: p.y, kind: 'ping', team: ping.team });
   }
-  if (o.nameTags ?? st.characters.length > 2) {
+  if (o.nameTags ?? (st.characters.length > 2 || !!o.players)) {
     for (const c of st.characters) {
       const p = project(at(c.id, 'char', c.pos), 2.3);
-      if (p.onScreen) labels.push({ kind: 'name', id: c.id, x: p.x, y: p.y, text: characterNameRef(c, me.id, me.team), team: c.team, isMe: c.id === me.id });
+      const pi = o.players?.get(c.id);
+      if (!p.onScreen) continue;
+      if (pi !== undefined) labels.push({ kind: 'name', id: c.id, x: p.x, y: p.y, text: { text: `P${pi + 1}` }, team: c.team, player: pi });
+      else labels.push({ kind: 'name', id: c.id, x: p.x, y: p.y, text: characterNameRef(c, o.players ? null : me.id, me.team), team: c.team, isMe: !o.players && c.id === me.id });
     }
   }
   return { labels, arrows };
@@ -343,7 +348,7 @@ export function hudModelFromSim(sim: SimView, o: HudAdapterOptions): HudModel {
   const remainingBank = banks.find((b) => !b.recovered);
   const remainingLoot = remainingBank ? sim.getLoot(remainingBank.id) : undefined;
   const timeLeftSec = Number.isFinite(st.endTick) ? Math.max(0, st.endTick - st.tick) / TICK_RATE : null;
-  const lw = me && o.project ? labelsFromSim(sim, me, o.project, { nearRadius: o.nearRadius, nameTags: o.nameTags, posOf: o.posOf }) : null;
+  const lw = me && o.project ? labelsFromSim(sim, me, o.project, { nearRadius: o.nearRadius, nameTags: o.nameTags, posOf: o.posOf, players: o.players }) : null;
   const mode = o.mode ?? (sim.rules.timeLimit ? 'match' : 'practice');
   const tension = mode === 'match' ? tensionFromSim(sim, o.myTeam, o.matchPoint) : { matchPoint: null, swing: null };
   return {

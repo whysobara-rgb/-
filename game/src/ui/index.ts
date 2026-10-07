@@ -110,6 +110,7 @@ export type { LoadingScreenProps } from './screens/LoadingScreen';
 
 // HUD
 export { Hud } from './hud/Hud';
+export type { PlayerChipModel } from './hud/PlayerChips';
 export { EmoteWheel, type EmoteWheelModel, type EmoteWheelSlot } from './hud/EmoteWheel';
 export { Minimap } from './hud/Minimap';
 export { WorldLabels } from './hud/WorldLabels';

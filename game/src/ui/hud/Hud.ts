@@ -45,6 +45,7 @@ import { matchPointText, type HudMatchPoint, type HudSwing } from './tension';
 import '../styles/hud-tension.css';
 // [C8] Content 2.0 HUD (item slot, bag chip, deposit ring, prop / item tags): one mount point
 import { ContentHud } from './ContentHud';
+import { PlayerChips, type PlayerChipModel } from './PlayerChips';
 import { propGlyph, propNameKey } from './contentIcons';
 
 const DASH_R = 26;
@@ -95,6 +96,8 @@ export class Hud {
   readonly stamps: Stamps;
   /** Taunt wheel + taunt chip (owner addition). */
   readonly taunts: EmoteWheel;
+  /** (local multiplayer) per-player corner chips. */
+  readonly players: PlayerChips = new PlayerChips();
   /** [C8] Content 2.0 HUD parts (item slot in the dash button, bag chip, deposit ring, world tags). */
   readonly content: ContentHud;
 
@@ -224,6 +227,7 @@ export class Hud {
         h('div', { class: 'uh-hud__bc' }, this.captions.el, this.carryEl, this.grabEl),
         h('div', { class: 'uh-hud__br' }, actions),
         this.taunts.el,
+        this.players.el,
         this.banners.el,
       ),
       this.fxEl,
@@ -260,6 +264,7 @@ export class Hud {
 
   /** Clear transient effects and cached state between matches. */
   reset(): void {
+    this.setPlayerChips(null);
     this.popups.clear();
     this.banners.dismiss();
     this.captions.clear();
@@ -378,6 +383,15 @@ export class Hud {
 
   caption(key: string, o?: CaptionOptions): void {
     this.captions.show(key, o);
+  }
+
+  /**
+   * (local multiplayer) Per-player corner chips; null = single-player (hidden). A local match also
+   * hides the single-player action cluster / grab prompt (each player's chip carries that state).
+   */
+  setPlayerChips(list: readonly PlayerChipModel[] | null): void {
+    setClass(this.el, 'is-local', !!list && list.length > 1);
+    this.players.update(list);
   }
 
   /** Taunt wheel state (open / hover / cooldown); null hides the wheel. */

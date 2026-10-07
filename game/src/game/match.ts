@@ -23,7 +23,7 @@
  */
 import { Bot, RivalObserver, createBot, type BotController, type ObservationSummary } from '../ai';
 import { MatchAudioDirector, type AudioEngine } from '../audio';
-import { DT, EMOTE, TICK_RATE, VISION, Simulation, type CharacterState, type Command, type EmoteId, type EmoteState, type EntityId, type MatchResult, type SimEvent, type TeamId, type Vec2 } from '../sim';
+import { DASH, DT, EMOTE, TICK_RATE, VISION, Simulation, type CharacterState, type Command, type EmoteId, type EmoteState, type EntityId, type MatchResult, type SimEvent, type TeamId, type Vec2 } from '../sim';
 import type { GameView, ViewCallout, ViewFocus } from '../render';
 import { GrabLatch, buildCommand, type InputManager, type MatchFrame } from '../platform/input';
 import type { LocalDeviceId, LocalInputRouter } from '../platform/localInput';
@@ -32,7 +32,7 @@ import { EMOTE_IDS, EmoteWheelController, unlockedEmotes, wheelSlotAngle } from 
 import { getSaveManager } from '../platform/save';
 import type { Settings } from '../platform/settings';
 import { unlockAchievement } from '../platform/steam';
-import { hudModelFromSim, type Hud, type HudModel, type OffscreenTarget, type Toasts } from '../ui';
+import { hudModelFromSim, type Hud, type HudModel, type OffscreenTarget, type PlayerChipModel, type Toasts } from '../ui';
 import { evaluateMatchAchievements } from './achievements';
 import { RUMBLE, TimeScale, rumbleFor, type RumbleName } from './feel';
 import type { LaunchParams } from './params';
@@ -424,6 +424,26 @@ export class MatchController {
       f.groupColors = this.seats.map((s) => playerColor(s.index));
     }
     return f;
+  }
+
+  /** (local multiplayer) One corner chip per human: dash ring, carried loot, item pocket. */
+  private playerChips(): PlayerChipModel[] {
+    const out: PlayerChipModel[] = [];
+    for (const s of this.seats) {
+      const c = this.sim.getCharacter(s.charId);
+      if (!c) continue;
+      const held = c.grab ? this.sim.getLoot(c.grab.targetId) : undefined;
+      out.push({
+        index: s.index,
+        team: s.team,
+        dashCooldown: Math.min(1, c.dashCooldown / DASH.cooldownTicks),
+        dashing: c.dashTicks > 0 || c.boostTicks > 0,
+        carry: held && !held.recovered ? held.kind : null,
+        item: c.item ? c.item.kind : null,
+        down: c.knockdownTicks > 0,
+      });
+    }
+    return out;
   }
 
   /** (local multiplayer) Edge arrows in each player's colour for players outside the shared frame. */
@@ -838,6 +858,7 @@ export class MatchController {
       posOf: (id, kind) => view.renderedPos(id, kind), // labels ride the drawn (interpolated) pose
       isOpponentVisible: this.isOpponentVisible,
       nearRadius: NEAR_LABEL_RADIUS,
+      players: this.seats.length > 1 ? new Map(this.seats.map((s) => [s.charId, s.index])) : null,
     });
     const model: HudModel = { ...m, timeLeftSec: this.phase === 'countdown' || this.phase === 'loaded' ? (this.sim.rules.timeLimit ? this.sim.rules.matchTicks / TICK_RATE : null) : m.timeLeftSec };
     const extra = this.scriptArrows();
@@ -852,6 +873,7 @@ export class MatchController {
     }
     hud.update(model);
     hud.setTauntWheel(this.phase === 'playing' ? this.tauntWheelModel() : null);
+    hud.setPlayerChips(this.seats.length > 1 ? this.playerChips() : null);
   }
 
   private scriptArrows(): OffscreenTarget[] {

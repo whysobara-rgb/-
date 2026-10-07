@@ -6,3 +6,91 @@
 .uh-arrow[data-kind='player'] .uh-arrow__body { background: var(--p); border-color: var(--pop-ink); }
 .uh-arrow[data-kind='player'] .uh-arrow__pointer { color: var(--p); }
 .uh-arrow__ptag { font-family: var(--uh-font-display); font-size: 1.15rem; line-height: 1; color: var(--pop-ink); }
+
+/* "P1".."P4" over each human (world labels): the player's colour, bigger than bot names. */
+.uh-wl--name[data-player] .uh-wl__in {
+  background: var(--p);
+  color: var(--pop-ink);
+  border: 0.15rem solid var(--pop-ink);
+  font-family: var(--uh-font-display);
+  font-weight: 400;
+  font-size: var(--uh-fs-sm);
+  padding: 0 0.6rem 0.05rem 0.3rem;
+  box-shadow: 0.12rem 0.12rem 0 var(--pop-ink);
+}
+.uh-wl--name[data-player] .uh-emblem { width: 1.25rem; height: 1.25rem; }
+
+/* Taunt wheel owner (local multiplayer): the disc rim and a tag in that player's colour. */
+.uh-ewheel[data-player] .uh-ewheel__disc { box-shadow: 0 0 0 0.45rem var(--p), 0 0 0 0.7rem var(--pop-ink); }
+.uh-ewheel__owner {
+  position: absolute;
+  left: 50%;
+  top: -1.4rem;
+  translate: -50% 0;
+  padding: 0.1rem 0.8rem 0.2rem;
+  border-radius: 999px;
+  background: var(--p, var(--pop-sun));
+  border: 0.18rem solid var(--pop-ink);
+  font-family: var(--uh-font-display);
+  font-size: 1.4rem;
+  line-height: 1.1;
+  color: var(--pop-ink);
+  box-shadow: 0.15rem 0.15rem 0 var(--pop-ink);
+  z-index: 2;
+}
+
+/* Corner chips: P1 / P3 top-left, P2 / P4 top-right (the scoreboard owns the middle). */
+.uh-pchips { position: absolute; inset: 0; pointer-events: none; }
+.uh-pchips[hidden] { display: none; }
+.uh-pchips__col { position: absolute; top: 0.6rem; display: flex; flex-direction: column; gap: 0.6rem; }
+.uh-pchips__col--l { left: 0.6rem; align-items: flex-start; }
+.uh-pchips__col--r { right: 0.6rem; align-items: flex-end; }
+.uh-pchip {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.3rem 0.6rem 0.3rem 0.3rem;
+  border-radius: 999px;
+  background: var(--pop-cream);
+  border: 0.2rem solid var(--pop-ink);
+  box-shadow: 0.2rem 0.2rem 0 var(--pop-ink), inset 0 0 0 0.25rem var(--p);
+}
+.uh-pchips__col--r .uh-pchip { flex-direction: row-reverse; padding: 0.3rem 0.3rem 0.3rem 0.6rem; }
+.uh-pchip__tag {
+  min-width: 2.9rem;
+  height: 2.9rem;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--p);
+  border: 0.18rem solid var(--pop-ink);
+  font-family: var(--uh-font-display);
+  font-size: 1.35rem;
+  color: var(--pop-ink);
+}
+.uh-pchip__dash { position: relative; width: 2.6rem; height: 2.6rem; display: grid; place-items: center; }
+.uh-pchip__ringSvg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+.uh-pchip__ringBg { fill: #fff; stroke: rgba(42, 33, 49, 0.18); stroke-width: 4; }
+.uh-pchip__ringFg { fill: none; stroke: var(--p-ink); stroke-width: 4; stroke-linecap: round; transition: stroke-dashoffset 0.1s linear; }
+.uh-pchip__bolt { position: relative; color: rgba(42, 33, 49, 0.35); }
+.uh-pchip__bolt .uh-icon { width: 1.3rem; height: 1.3rem; }
+.uh-pchip.is-ready .uh-pchip__bolt { color: var(--pop-ink); }
+.uh-pchip.is-ready .uh-pchip__ringBg { fill: var(--p); }
+.uh-pchip.is-dashing .uh-pchip__dash { animation: uh-pchip-zip 0.3s ease-out 1; }
+@keyframes uh-pchip-zip { 0% { scale: 1.25; } 100% { scale: 1; } }
+.uh-pchip__carry, .uh-pchip__item { width: 2.3rem; height: 2.3rem; display: grid; place-items: center; }
+.uh-pchip__carry[hidden], .uh-pchip__item[hidden] { display: none; }
+.uh-pchip__carry .uh-loot-icon, .uh-pchip__item .uh-cglyph { width: 2.1rem; height: 2.1rem; }
+.uh-pchip.is-down { filter: saturate(0.4); }
+.uh-pchip.is-down .uh-pchip__tag { animation: uh-pchip-dizzy 0.6s ease-in-out infinite alternate; }
+@keyframes uh-pchip-dizzy { from { translate: -0.12rem 0; } to { translate: 0.12rem 0; } }
+
+/* A local match: no single-player action cluster / grab prompt / "우리" badge (whose would it be?). */
+.uh-hud.is-local .uh-hud__br,
+.uh-hud.is-local .uh-grab,
+.uh-hud.is-local .uh-sb__mine { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .uh-pchip.is-dashing .uh-pchip__dash,
+  .uh-pchip.is-down .uh-pchip__tag { animation: none; }
+}

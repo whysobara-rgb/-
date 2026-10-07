@@ -19,6 +19,7 @@ import { icon } from '../core/icons';
 import { objectPortrait } from '../core/portrait';
 import { glyphChip, type PromptAction } from '../core/prompts';
 import { tauntIcon } from '../core/tauntIcons';
+import { playerColor, playerTag } from '../../shared/players';
 
 export interface EmoteWheelSlot {
   id: EmoteId;
@@ -38,6 +39,8 @@ export interface EmoteWheelModel {
   blocked: boolean;
   /** Show the direct-key glyphs on the base slots (keyboard players). */
   showKeys: boolean;
+  /** (local multiplayer) Whose wheel this is: "P2" tag in that player's colour. */
+  owner?: { index: number } | null;
 }
 
 /** Direct-key prompt per base slot (emote1..emote4). */
@@ -94,6 +97,9 @@ export class EmoteWheel {
   private noteTimer: ReturnType<typeof setTimeout> | null = null;
   private nopeKey = '';
   private nopeAt = -Infinity;
+  /** (local multiplayer) owner tag on the disc. */
+  private ownerEl: HTMLElement | null = null;
+  private cOwner = -2;
 
   constructor() {
     const r = ring(RING_R, 'uh-ewheel__ring', 100);
@@ -129,6 +135,24 @@ export class EmoteWheel {
 
   update(m: EmoteWheelModel): void {
     this.model = m;
+    const owner = m.owner ? m.owner.index : -1;
+    if (owner !== this.cOwner) {
+      this.cOwner = owner;
+      if (owner >= 0) {
+        if (!this.ownerEl) {
+          this.ownerEl = h('div', { class: 'uh-ewheel__owner' });
+          this.disc.appendChild(this.ownerEl);
+        }
+        setText(this.ownerEl, playerTag(owner));
+        this.ownerEl.hidden = false;
+        this.el.dataset.player = String(owner + 1);
+        this.el.style.setProperty('--p', playerColor(owner));
+      } else {
+        if (this.ownerEl) this.ownerEl.hidden = true;
+        delete this.el.dataset.player;
+        this.el.style.removeProperty('--p');
+      }
+    }
     const key = m.slots.map((s) => `${s.id}:${s.unlocked ? 1 : 0}:${s.angle ?? ''}`).join('|');
     if (key !== this.cKey) {
       this.cKey = key;
