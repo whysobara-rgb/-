@@ -56,7 +56,12 @@ export const MOMENT_KINDS: readonly MomentKind[] = [
   'eventHaul',
 ];
 
-/** Scoring-run tier (plan WP5: tier 1 = three recoveries in a row or 800 pts, tier 2 = 1000). */
+/**
+ * Scoring-run tier of an unanswered run (MOMENT_RULES in src/game/moments.ts; tuned on the P block
+ * to tier 1 in 30-40 % / tier 2 in 15-25 % of matches): tier 1 = 4 recoveries, or 25 % of
+ * `state.totalValue` over >= 3 recoveries; tier 2 = 31 % of `state.totalValue` over >= 2
+ * recoveries (classic 3200: 800 / ~1000). A coin deposit >= 50 counts as a recovery.
+ */
 export type StreakTier = 1 | 2;
 
 /**
@@ -67,7 +72,7 @@ export type StreakTier = 1 | 2;
  * | leadTaken          | the new leader                          | the flipping recovery   | –                | points of that recovery        | –    |
  * | equalized          | the team that drew level                | the levelling recovery  | –                | points of that recovery        | –    |
  * | matchPointOn       | team on match point (matchPointInfo)    | the decisive load       | –                | its value                      | –    |
- * | matchPointStopped  | team whose match point was STOPPED      | where the load ended up | –                | its value                      | –    |
+ * | matchPointStopped  | team whose match point was STOPPED (by the other team: `cause` / `by`) | where the load ended up | – | its value  | –    |
  * | streakTier         | team on the unanswered scoring run      | last recovery           | –                | run points so far              | 1/2  |
  * | streakBroken       | team whose run was broken               | the breaking recovery   | –                | run points it had              | –    |
  * | bigPlay            | team that made the play                 | where it happened       | big-play rating (≥ 6) | points involved           | –    |
@@ -87,7 +92,8 @@ export type StreakTier = 1 | 2;
  * `ids` (optional) names the entities involved, most relevant first:
  * - leadTaken / equalized / streakTier / streakBroken: [recovered loot id] of the recovery that
  *   caused it;
- * - matchPointOn / matchPointStopped: `matchPointInfo().lootIds` (load first, then a bank's safes);
+ * - matchPointOn / matchPointStopped: `matchPointInfo().lootIds` (load first, then a bank's safes;
+ *   [] for a coin-bag load — its carriers are in `bagCharIds`);
  * - stealChance: [bank id];
  * - bigPlay: [actor character id, ...loot id(s) involved];
  * - tauntPunished / dodged / counterDash: [actor, other] character ids (tauntPunished: [dasher,
@@ -95,9 +101,13 @@ export type StreakTier = 1 | 2;
  * - Content 2.0: coinSplash / hammerBonk / homeRun: [actor, victim]; jackpot: [actor, piggy loot
  *   id] (truck: [actor]); goldHammer: [picker]; tossScore: [recovered loot id]; craneDrop: [cat
  *   stunner, bank id]; eventHaul: [event loot id(s)] (coins: []).
- * Content 2.0 timing (F5): streak tiers become fractions of `state.totalValue` (tier 1 25%,
- * tier 2 31%); a deposit (`coinsBanked`) >= 50 counts as a recovery for runs; `bigPlay` adds
- * jackpot 3, hammerBonk on a bank hauler 4, craneDrop 4, homeRun 3.
+ * Content 2.0 timing (F5): streak tiers are fractions of `state.totalValue` (see StreakTier); a
+ * deposit (`coinsBanked`) >= 50 counts as a recovery for runs; `bigPlay` adds jackpot 3,
+ * hammerBonk on a bank hauler 4, craneDrop 4, homeRun 3.
+ *
+ * `matchPointStopped` is only produced when an opposing action brought the load down (see
+ * `cause`); a load let go, swapped or lost to a police tackle ends the match point silently, so
+ * "막았다!" credited to the other team is always true.
  *
  * `lootKind` (optional) is the kind of the load involved (leadTaken / equalized / matchPoint* /
  * streak* / bigPlay / stealChance), so HUD (WP4) and audio (WP8) can merge "은행째!" + "역전!" into
@@ -117,4 +127,15 @@ export interface Moment {
   tier?: StreakTier;
   ids?: EntityId[];
   lootKind?: LootKind;
+  /**
+   * (add-only, F5) matchPointStopped: what the other team did — 'hit' (knockdown / hammer on a
+   * carrier, or a hammer on the load), 'spill' (knocked a decisive bag loose), 'steal' (pulled a
+   * safe out of the hauled bank), 'grab' (grabbed the load), 'score' (scored, so the load is no
+   * longer decisive).
+   */
+  cause?: 'hit' | 'spill' | 'steal' | 'grab' | 'score';
+  /** (add-only, F5) matchPointStopped: the opposing character who did it (absent if unknown). */
+  by?: EntityId;
+  /** (add-only, F5) matchPointOn / matchPointStopped: carriers of the decisive coin bags. */
+  bagCharIds?: EntityId[];
 }

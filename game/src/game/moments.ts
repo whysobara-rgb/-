@@ -29,9 +29,14 @@
  *   recoveries and coin deposits count alike (same-tick batch, doc §8).
  * - matchPointOn / matchPointStopped: one episode per team. A team's match point (from
  *   `matchPointInfo`; for the team it does not name, `matchPointInfo` over that team's holders /
- *   zone only) held for >= `mpOnTicks` starts its episode; it ends silently when the match ends
- *   or the load is recovered, and as `matchPointStopped` when it stays gone for `mpStopTicks`
- *   while the match goes on.
+ *   zone only) held for >= `mpOnTicks` starts its episode — a loot load or a coin-bag load
+ *   (`bagCharIds`). It ends silently when the match ends or the load is scored. When it stays
+ *   gone for `mpStopTicks` while the match goes on, it is `matchPointStopped` ONLY if an
+ *   opposing action brought it down (from `mpStopCauseTicks` before the drop up to the stop):
+ *   a knockdown / hammer hit on a carrier of the load, a bag spill caused by an opponent, a safe
+ *   pulled out of the hauled bank, an opponent grabbing the load, or an opposing score. The
+ *   moment names it (`cause`, `by`). A load let go, swapped or lost to a police tackle ends the
+ *   episode silently: "막았다!" is never claimed for something nobody on the other team did.
  * - Scoring runs ("unanswered"): a recovery, or a deposit >= `runDepositMin`, extends the scoring
  *   team's run and answers (ends) the other team's; a run lapses silently `runGapTicks` after its
  *   latest recovery. Tier 1 at `runTier1Recoveries` (4) recoveries, or `runTier1Share` x
@@ -160,6 +165,8 @@ export const MOMENT_RULES = {
    * grabs again within it continues the same episode, so "막았다!" is only claimed for real stops.
    */
   mpStopTicks: s2t(2),
+  /** An opposing action this long before the load stopped being decisive still caused the stop. */
+  mpStopCauseTicks: s2t(1),
   runGapTicks: s2t(25),
   runTier1Recoveries: 4,
   runTier1Share: 0.25,
@@ -220,6 +227,28 @@ interface MpEpisode {
   value: number;
   lootIds: EntityId[];
   lootKind: LootKind | null;
+  /** Carriers of the decisive coin bags (`matchPointInfo().bagCharIds`; [] = none). */
+  bagCharIds: EntityId[];
+  /** Characters of the team carrying the load as of the last decisive tick (grabbers + bags). */
+  holders: EntityId[];
+  /** Where the load was on the last decisive tick (a bag-only load has no loot to look up). */
+  pos: Vec2;
+  /** The team scored the load (silent end). */
+  scored: boolean;
+}
+
+/** Why a match point was stopped (Moment.cause). */
+type StopCause = NonNullable<Moment['cause']>;
+
+/** An opposing action this tick that can stop `team`'s match point. */
+interface MpAct {
+  team: TeamId;
+  by: EntityId | null;
+  cause: StopCause;
+  /** The character it hit (hit / spill), if any. */
+  victimId?: EntityId;
+  /** The loot it touched (grab / steal / hammer on the load), if any. */
+  lootIds?: EntityId[];
 }
 
 interface MpTeamState {
@@ -228,9 +257,13 @@ interface MpTeamState {
   since: number | null;
   /** Ticks without it while an episode runs (stop grace). */
   nullTicks: number;
+  /** First tick of the current grace (the load stopped being decisive). */
+  dropTick: number;
+  /** Latest opposing action against the episode's load. */
+  act: { tick: number; by: EntityId | null; cause: StopCause } | null;
 }
 
-const newMpTeam = (): MpTeamState => ({ ep: null, since: null, nullTicks: 0 });
+const newMpTeam = (): MpTeamState => ({ ep: null, since: null, nullTicks: 0, dropTick: 0, act: null });
 
 interface WindupRec {
   botId: EntityId;
@@ -319,6 +352,8 @@ export class MomentTracker {
     const dashed = new Set<EntityId>();
     const hitsOnMe = new Set<EntityId>();
     const truckCoins = { total: 0, by: null as EntityId | null };
+    const mpActs: MpAct[] = [];
+    const teamOf = (id: EntityId | null | undefined): TeamId | undefined => charOf(id)?.team;
     const smashTotals = new Map<EntityId, number>();
 
     // ---------------------------------------------------------------------------------------
@@ -340,11 +375,15 @@ export class MomentTracker {
           const l = lootById.get(e.lootId);
           scorings.push({ team: e.team, value: e.value, counts: true, lootId: e.lootId, lootKind: e.kind, pos: l ? { ...l.pos } : { x: 0, y: 0 }, holders: e.holders });
           if (e.variant === 'goldSafe') this.eventRecovered[e.team] += e.value;
+          mpActs.push({ team: other(e.team), by: e.holders.find((id) => teamOf(id) === e.team) ?? null, cause: 'score' });
           break;
         }
         case 'coinsBanked': {
           const c = charOf(e.charId);
           scorings.push({ team: e.team, value: e.value, counts: e.value >= R.runDepositMin, lootId: null, lootKind: null, pos: c ? { ...c.pos } : { x: 0, y: 0 }, holders: [e.charId] });
+          mpActs.push({ team: other(e.team), by: e.charId, cause: 'score' });
+          const ep = this.mpTeam[e.team].ep;
+          if (ep && ep.bagCharIds.includes(e.charId)) ep.scored = true;
           const ev = Math.min(this.eventInBag.get(e.charId) ?? 0, e.value);
           if (ev > 0) {
             this.eventRecovered[e.team] += ev;
@@ -359,6 +398,7 @@ export class MomentTracker {
           if (e.byCharId === null || e.bankCarrierTeam === null) break;
           const thief = charOf(e.byCharId);
           if (!thief || thief.team === e.bankCarrierTeam) break;
+          mpActs.push({ team: e.bankCarrierTeam, by: thief.id, cause: 'steal', lootIds: [e.safeId, e.bankId] });
           const safe = lootById.get(e.safeId);
           const v = safe ? safe.baseValue : 0;
           const rating = v / 100 + R.bigPlay.steal;
@@ -375,6 +415,7 @@ export class MomentTracker {
           const att = charOf(e.attackerId);
           const vic = charOf(e.victimId);
           if (!att || !vic || att.team === vic.team) break;
+          mpActs.push({ team: vic.team, by: att.id, cause: 'hit', victimId: vic.id });
           const held = this.prevHeld.get(e.victimId);
           if (held && held.lootId !== null) {
             const bank = held.lootKind === 'bank';
@@ -388,11 +429,16 @@ export class MomentTracker {
         case 'itemHit': {
           if (e.target === 'event') this.lastTruckHitter = e.charId;
           if (e.target === 'gimmick' && typeof e.targetId === 'string') this.lastHitOnGimmick.set(e.targetId, { charId: e.charId, tick });
+          if (e.target === 'loot' && typeof e.targetId === 'number') {
+            const t = teamOf(e.charId);
+            if (t !== undefined) mpActs.push({ team: other(t), by: e.charId, cause: 'hit', lootIds: [e.targetId] });
+          }
           if (e.target !== 'char' || (e.kind !== 'hammer' && e.kind !== 'goldHammer') || typeof e.targetId !== 'number') break;
           if (e.targetId === me) hitsOnMe.add(e.charId);
           const att = charOf(e.charId);
           const vic = charOf(e.targetId);
           if (!att || !vic || att.team === vic.team) break;
+          if (e.knockdown) mpActs.push({ team: vic.team, by: att.id, cause: 'hit', victimId: vic.id });
           const held = this.prevHeld.get(vic.id) ?? { lootId: null, lootKind: null, value: 0, bag: 0 };
           const carrier = held.lootId !== null;
           const bank = held.lootKind === 'bank';
@@ -427,10 +473,11 @@ export class MomentTracker {
           break;
         }
         case 'bagSpilled': {
-          if (e.value < R.coinSplashMin) break;
           const by = charOf(e.byId);
           const vic = charOf(e.charId);
           if (!by || !vic || by.team === vic.team) break;
+          mpActs.push({ team: vic.team, by: by.id, cause: 'spill', victimId: vic.id });
+          if (e.value < R.coinSplashMin) break;
           push({ kind: 'coinSplash', team: by.team, pos: { ...vic.pos }, value: e.value, ids: [by.id, vic.id] });
           break;
         }
@@ -453,6 +500,11 @@ export class MomentTracker {
           const pos = e.pos ? { ...e.pos } : { ...by.pos };
           push({ kind: 'jackpot', team: by.team, pos, value: v, ids: [by.id] });
           cands.push({ rating: v / 100 + R.bigPlay.jackpot, what: 'jackpot', team: by.team, pos, value: v, ids: [by.id] });
+          break;
+        }
+        case 'grab': {
+          const t = teamOf(e.charId);
+          if (t !== undefined) mpActs.push({ team: other(t), by: e.charId, cause: 'grab', lootIds: [e.targetId] });
           break;
         }
         case 'itemPickup':
@@ -627,44 +679,87 @@ export class MomentTracker {
     // ---------------------------------------------------------------------------------------
     const early = this.options.earlyDecision ?? true;
     const info = matchPointInfo(state, { earlyDecision: early });
-    const loadKind = (i: MatchPointInfo | null): LootKind | null => (i ? lootById.get(i.lootIds[0]!)?.kind ?? null : null);
+    const loadKind = (i: MatchPointInfo | null): LootKind | null => (i && i.lootIds.length ? lootById.get(i.lootIds[0]!)?.kind ?? null : null);
+    /** Where a decisive load is: its loot, else its first bag carrier. */
+    const loadPos = (lootIds: readonly EntityId[], bagCharIds: readonly EntityId[]): Vec2 | undefined => {
+      const l = lootIds.length ? lootById.get(lootIds[0]!) : undefined;
+      if (l) return { ...l.pos };
+      const c = charOf(bagCharIds[0]);
+      return c ? { ...c.pos } : undefined;
+    };
     // One episode per team: a load both teams pull on (or a team pulling the other's zone load)
     // can be decisive for both at once, and matchPointInfo names only the larger one.
     for (const team of [0, 1] as TeamId[]) {
       const T = this.mpTeam[team];
       const ti = state.over || !info ? null : info.team === team ? info : this.teamMatchPoint(state, team, early);
+      // opposing actions against the episode's load (read against last tick's carriers)
+      const ep0 = T.ep;
+      if (ep0) {
+        for (const a of mpActs) {
+          if (a.team !== team) continue;
+          const relevant =
+            a.cause === 'score' ||
+            (a.victimId !== undefined && (ep0.holders.includes(a.victimId) || (this.prevHeld.get(a.victimId)?.lootId ?? null) === ep0.lootIds[0])) ||
+            (a.lootIds !== undefined && a.lootIds.some((id) => ep0.lootIds.includes(id)));
+          if (relevant) T.act = { tick, by: a.by, cause: a.cause };
+        }
+        for (const sc of scorings) if (sc.team === team && sc.lootId !== null && ep0.lootIds.includes(sc.lootId)) ep0.scored = true;
+      }
       const stop = (): void => {
         const ep = T.ep;
+        const act = T.act;
         T.ep = null;
-        if (!ep) return;
-        const l = lootById.get(ep.lootIds[0]!);
-        if (state.over || !l || l.recovered) return;
-        push({ kind: 'matchPointStopped', team, pos: { ...l.pos }, value: ep.value, ids: [...ep.lootIds], lootKind: ep.lootKind ?? undefined });
+        T.act = null;
+        if (!ep || state.over) return;
+        // nobody on the other team brought it down (let go, swapped, police): ends silently
+        if (!act || act.tick < T.dropTick - R.mpStopCauseTicks) return;
+        const m: Omit<Moment, 'tick'> = { kind: 'matchPointStopped', team, pos: loadPos(ep.lootIds, ep.bagCharIds) ?? { ...ep.pos }, value: ep.value, ids: [...ep.lootIds], cause: act.cause };
+        if (ep.lootKind) m.lootKind = ep.lootKind;
+        if (ep.bagCharIds.length) m.bagCharIds = [...ep.bagCharIds];
+        if (act.by !== null) m.by = act.by;
+        push(m);
       };
       if (state.over) {
         T.ep = null;
+        T.act = null;
         T.since = null;
       } else if (ti) {
         T.nullTicks = 0;
+        const bagIds = ti.bagCharIds ?? [];
+        const holders = [...bagIds];
+        for (const id of ti.lootIds) for (const g of lootById.get(id)?.grabbedBy ?? []) if (teamOf(g) === team && !holders.includes(g)) holders.push(g);
+        const pos = loadPos(ti.lootIds, bagIds);
         if (T.ep) {
           T.ep.value = ti.value;
           T.ep.lootIds = [...ti.lootIds];
           T.ep.lootKind = loadKind(ti);
+          T.ep.bagCharIds = [...bagIds];
+          T.ep.holders = holders;
+          if (pos) T.ep.pos = pos;
         } else {
           T.since ??= tick;
           if (tick - T.since + 1 >= R.mpOnTicks) {
-            const l = lootById.get(ti.lootIds[0]!);
-            T.ep = { team, value: ti.value, lootIds: [...ti.lootIds], lootKind: loadKind(ti) };
+            T.ep = { team, value: ti.value, lootIds: [...ti.lootIds], lootKind: loadKind(ti), bagCharIds: [...bagIds], holders, pos: pos ?? { x: 0, y: 0 }, scored: false };
+            T.act = null;
             T.since = null;
-            push({ kind: 'matchPointOn', team, pos: l ? { ...l.pos } : undefined, value: ti.value, ids: [...ti.lootIds], lootKind: T.ep.lootKind ?? undefined });
+            const m: Omit<Moment, 'tick'> = { kind: 'matchPointOn', team, pos, value: ti.value, ids: [...ti.lootIds] };
+            if (T.ep.lootKind) m.lootKind = T.ep.lootKind;
+            if (bagIds.length) m.bagCharIds = [...bagIds];
+            push(m);
           }
         }
       } else {
         T.since = null;
-        if (T.ep) {
-          const l = lootById.get(T.ep.lootIds[0]!);
-          if (!l || l.recovered) T.ep = null;
-          else if (++T.nullTicks >= R.mpStopTicks) stop();
+        const ep = T.ep;
+        if (ep) {
+          const l = ep.lootIds.length ? lootById.get(ep.lootIds[0]!) : undefined;
+          if (ep.scored || (ep.lootIds.length > 0 && (!l || l.recovered))) {
+            T.ep = null; // scored: not a stop
+            T.act = null;
+          } else {
+            if (T.nullTicks === 0) T.dropTick = tick;
+            if (++T.nullTicks >= R.mpStopTicks) stop();
+          }
         }
       }
     }

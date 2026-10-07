@@ -40,6 +40,8 @@ import { contentSkill } from '../params';
 import type { BotView, Candidate, Goal, GoalProvider } from './types';
 
 const WALK = 5;
+/** Axis-pad drops are worth this much more (taking one also keeps it from the other team). */
+const AXIS_RACE = 1.6;
 /** Hammer swing worth on anchored loot (uproot progress per hit, content-plan §5.2). */
 function hammerProgress(l: Readonly<LootState>): number {
   if (l.variant === 'atm') return ITEMS.hammer.progress.largeSafe;
@@ -103,6 +105,8 @@ export class ItemGoals implements GoalProvider {
             }
           }
         }
+        // (the axis pad is the one drop both teams race for: whoever gets it also denies it)
+        if (axis) w *= AXIS_RACE;
         out.push(view.mk('fetchItem', key, it.id, (worth / t) * w, worth, t, { pos: { ...it.pos } }));
       }
     }
@@ -217,7 +221,7 @@ export class ItemGoals implements GoalProvider {
     const t = Math.max(walk / WALK, landIn) + 0.4;
     const worth = itemWorth(kind, left - t);
     if (worth <= 0) return;
-    out.push(view.mk('fetchItem', key, null, (worth / t) * wHammer * (0.45 + 0.55 * skill) * 0.9, worth, t, { pos: { ...pad.pos }, sub: 'axis', until: land + D.warnTicks }));
+    out.push(view.mk('fetchItem', key, null, (worth / t) * wHammer * (0.45 + 0.55 * skill) * AXIS_RACE * 0.9, worth, t, { pos: { ...pad.pos }, sub: 'axis', until: land + D.warnTicks }));
   }
 
   execute(view: BotView, g: Goal): Command | null {

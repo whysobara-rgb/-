@@ -9,7 +9,9 @@
  *   top right     a small chip with the player's portrait and rank title (not a control)
  *   bottom left   one quiet line saying what the focused item does
  *
- * The 3D gang stands in the right half; a soft scrim on the left keeps the UI readable. Focus
+ * The 3D gang stands in the right half. Under the UI the scene goes a touch softer (a fading
+ * blur behind the column, slightly less saturation / contrast, a dusk scrim) so text reads at
+ * a glance. Focus
  * starts on 게임 시작. Back returns to the title. Game flow forwards `onFocusItem` to the 3D
  * scene (only 게임 시작 gets a reaction) and runs the play ceremony + `vanWipe` on 게임 시작.
  *
@@ -40,7 +42,7 @@ export interface MainMenuProps {
   onBack?: () => void;
   /** Show 종료 (desktop builds). Default true. */
   showQuit?: boolean;
-  /** Player look (portrait on the corner chip when `player` is omitted). */
+  /** Player look: a plain corner chip (rookie title) when `player` is omitted. */
   hat?: HatId;
   team?: TeamId;
   /** Small badge per list item, e.g. { wardrobe: 'common.new' }. */
@@ -123,7 +125,7 @@ export class MainMenu extends UiScreen<MainMenuProps> {
     const play = navigable(
       h(
         'div',
-        { class: ['uh-play', p.firstRun ? 'is-first' : ''], role: 'button', 'aria-describedby': 'uh-front-caption' },
+        { class: 'uh-play', role: 'button', 'aria-describedby': p.playSub ? 'uh-front-caption' : null },
         h('span', { class: 'uh-play__icon', 'aria-hidden': 'true' }, icon('play')),
         h('span', { class: 'uh-play__label' }, t('front.play')),
       ),
@@ -185,7 +187,8 @@ export class MainMenu extends UiScreen<MainMenuProps> {
 
     // --- frame -------------------------------------------------------------------------------------
     const logo = logoLockup({ compact: true, cls: 'uh-front__logo' });
-    const chip = p.player ? playerChip(p.player) : null;
+    const me = p.player === undefined ? (p.hat ? { hat: p.hat, team: p.team ?? 0, rank: 'front.player.rank.0' } : null) : p.player;
+    const chip = me ? playerChip(me) : null;
     this.hint = h('p', { class: 'uh-front__hint', 'aria-live': 'polite' });
     this.zoomEl = h(
       'div',

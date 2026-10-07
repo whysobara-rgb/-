@@ -130,7 +130,11 @@ export class CoinGoals implements GoalProvider {
       let w = wCoins;
       // fresh spills: the opportunist's moment (and anyone's: they lie right there, and what the
       // other team does not get back is a swing both ways)
-      if (spill > 0) w *= 1 + (0.8 + 0.8 * W.opportunism) * (spill / value);
+      if (spill > 0) {
+        w *= 1 + (0.8 + 0.8 * W.opportunism) * (spill / value);
+        // right at my feet (I just knocked them over): a second's work before anything else
+        if (walk < 4) w *= 1.8;
+      }
       // an opponent much closer gets there first
       for (const o of opps) {
         const od = V.dist(o.last!.pos, seed.pos) * 1.1 + (o.age / TICK_RATE) * 2.5;
