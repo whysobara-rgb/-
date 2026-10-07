@@ -314,13 +314,16 @@ export class GrabJoint {
   private steerW = 0;
   private steerAcc = 0;
   private steerLimit = 0;
-  // push "wheel" scratch (see prepare)
+  // cart push travel "wheel" scratch (see prepare)
   private emassW = 0;
-  private rtw = 0;
+  private wtx = 0;
+  private wty = 1;
   private accW = 0;
   private limitW = 0;
   private fvxW = 0;
   private fvyW = 0;
+  /** Cart push: the bearing follows the load's translation only (the grip slides along the face). */
+  private slide = false;
   /**
    * Push / pull mode of the previous tick (hysteresis of the push cone, kept by the game:
    * entering push needs the stick closer to the push line than staying in push).
@@ -331,6 +334,14 @@ export class GrabJoint {
    * points at the anchor), or null when pulling / idle.
    */
   pushHeading: number | null = null;
+  /**
+   * Cart push inputs, set by the game each tick: the cap of the steering yaw rate (rad/s; it grows
+   * with the load's speed and shrinks as a pusher's grip nears the end of its face), and whether
+   * the load is pressed against a wall / post / fence (the steering and the travel wheel let go
+   * then, so the contacts can swing it free).
+   */
+  steerMaxW = 0;
+  pushSnag = false;
 
   /**
    * @param hlx,hly unit direction from the anchor to the holder, in the target's local frame,
@@ -411,38 +422,53 @@ export class GrabJoint {
     // A force applied behind the drag center is unstable (jackknife); a person pushing a
     // box or cart steers it with their hands. Bounded torque = lateral grip x lever arm.
     this.steerLimit = 0;
+    this.emassW = 0;
+    this.slide = false;
     const lever = Math.max(0.5, Math.hypot(this.alx, this.aly));
-    // "cart" steering for long levers (a bank's grip is ~4 m from its centre; safes and props are
+    // "cart" push for long levers (a bank's grip is ~4 m from its centre; safes and props are
     // under 1.3 m and keep the plain assist, which already tracks the stick within ~1 degree)
     const cart = lever >= GrabJoint.CART_MIN_LEVER;
     if (this.pushHeading !== null && b.motion === 'dynamic' && b.solverInvI > 0 && lateralLimit > 0) {
       const pushAng = Math.atan2(-hy, -hx); // holder -> anchor along the handle line
       let err = this.pushHeading - pushAng;
       err = Math.atan2(Math.sin(err), Math.cos(err));
-      let w = GrabJoint.STEER_GAIN * err;
-      // cart: yaw-rate cap by lever, so the swing of the load about the push point stays slow
-      // (it adds to the load's speed) and the far end of a bank never whips
-      const wMax = cart ? Math.min(GrabJoint.STEER_MAX_W, GrabJoint.CART_MAX_SWING_SPEED / lever) : GrabJoint.STEER_MAX_W;
-      if (w > wMax) w = wMax;
-      else if (w < -wMax) w = -wMax;
-      this.steerW = w;
-      this.steerAcc = 0;
-      this.steerLimit = (cart ? GrabJoint.CART_TORQUE_SCALE : 1) * lateralLimit * lever;
-    }
-    // cart push "wheel": while pushed, the gripped point does not skid along the face (sideways to
-    // the handle line) relative to the ground, so the load turns about the push point like a
-    // cart instead of spinning about its centre - a pure steering torque swung the grip point (and
-    // the pusher) of a bank 1 m/s against the stick for seconds. A bounded, workless velocity
-    // constraint between the target and the ground: it never adds speed along the push.
-    this.emassW = 0;
-    if (cart && this.pushHeading !== null && b.motion === 'dynamic' && b.solverInvMass > 0) {
-      this.rtw = this.rbx * this.ty - this.rby * this.tx;
-      const kw = b.solverInvMass + b.solverInvI * this.rtw * this.rtw;
-      this.emassW = kw > 0 ? 1 / kw : 0;
-      this.accW = 0;
-      this.limitW = (GrabJoint.WHEEL_ACCEL / b.solverInvMass) * h;
-      this.fvxW = b.fvx;
-      this.fvyW = b.fvy;
+      if (!cart) {
+        let w = GrabJoint.STEER_GAIN * err;
+        if (w > GrabJoint.STEER_MAX_W) w = GrabJoint.STEER_MAX_W;
+        else if (w < -GrabJoint.STEER_MAX_W) w = -GrabJoint.STEER_MAX_W;
+        this.steerW = w;
+        this.steerAcc = 0;
+        this.steerLimit = lateralLimit * lever;
+      } else {
+        // Cart push (a bank). The game drives the pusher along the stick, so the load travels
+        // where the stick points (the travel wheel below kills the old sideways momentum within
+        // ~0.3 s), and a yaw-rate servo about the load's centre swings its nose round toward the
+        // stick (the pushed face turns to face the stick). The pusher's grip slides along the face
+        // (the bearing follows the load's translation only, its reaction at the centre), so the
+        // face turns under the pusher's hands instead of swinging the pusher round with it. (The
+        // old cart - a wheel at the push point, the face pivoting about it at ~6 deg/s - kept bank
+        // and pusher running along the face's old normal, 40-50 degrees off a turned stick.)
+        this.slide = true;
+        this.emassT = 1 / (c.solverInvMass + b.solverInvMass);
+        this.limitT = GrabJoint.CART_GRIP_SCALE * lateralLimit;
+        if (!this.pushSnag && b.solverInvMass > 0) {
+          let w = GrabJoint.CART_STEER_GAIN * err;
+          if (w > this.steerMaxW) w = this.steerMaxW;
+          else if (w < -this.steerMaxW) w = -this.steerMaxW;
+          this.steerW = w;
+          this.steerAcc = 0;
+          this.steerLimit = (GrabJoint.CART_YAW_ACCEL / b.solverInvI) * h;
+          // travel wheel: a bounded, workless velocity constraint between the load's centre and
+          // the ground across the push heading; it never adds speed along the push
+          this.wtx = -Math.sin(this.pushHeading);
+          this.wty = Math.cos(this.pushHeading);
+          this.emassW = 1 / b.solverInvMass;
+          this.accW = 0;
+          this.limitW = (GrabJoint.CART_TRAVEL_ACCEL / b.solverInvMass) * h;
+          this.fvxW = b.fvx;
+          this.fvyW = b.fvy;
+        }
+      }
     }
   }
 
@@ -450,12 +476,14 @@ export class GrabJoint {
   static readonly STEER_MAX_W = 2.5;
   /** Grip lever (m, anchor to target centre) from which a pushed load steers like a cart. */
   static readonly CART_MIN_LEVER = 2;
-  /** Cart: max swing speed (m/s) of the load about the push point from the steering yaw rate. */
-  static readonly CART_MAX_SWING_SPEED = 0.4;
-  /** Cart: steering torque budget, in units of (lateral grip x lever). */
-  static readonly CART_TORQUE_SCALE = 3;
-  /** Cart wheel: max sideways grip of the pushed point (m/s^2 times the target's mass). */
-  static readonly WHEEL_ACCEL = 30;
+  /** Cart: gain (1/s) of the yaw-rate servo turning the pushed face toward the stick. */
+  static readonly CART_STEER_GAIN = 2;
+  /** Cart: angular acceleration budget of that servo (rad/s^2). */
+  static readonly CART_YAW_ACCEL = 1.5;
+  /** Cart travel wheel: max sideways grip of the pushed load's centre (m/s^2 times its mass). */
+  static readonly CART_TRAVEL_ACCEL = 2;
+  /** Cart push: budget of the pusher's sliding grip bearing, in units of the lateral grip. */
+  static readonly CART_GRIP_SCALE = 3;
 
   solve(): void {
     if (this.emass === 0) return;
@@ -499,21 +527,21 @@ export class GrabJoint {
       b.w += ls * b.solverInvI;
     }
     if (this.emassW > 0) {
-      const vw = (b.vx - b.w * this.rby - this.fvxW) * this.tx + (b.vy + b.w * this.rbx - this.fvyW) * this.ty;
+      const vw = (b.vx - this.fvxW) * this.wtx + (b.vy - this.fvyW) * this.wty;
       let lw = -this.emassW * vw;
       let nw = this.accW + lw;
       if (nw > this.limitW) nw = this.limitW;
       else if (nw < -this.limitW) nw = -this.limitW;
       lw = nw - this.accW;
       this.accW = nw;
-      b.vx += lw * this.tx * b.solverInvMass;
-      b.vy += lw * this.ty * b.solverInvMass;
-      b.w += b.solverInvI * this.rtw * lw;
+      b.vx += lw * this.wtx * b.solverInvMass;
+      b.vy += lw * this.wty * b.solverInvMass;
     }
     if (this.emassT === 0) return;
-    // bearing (bounded)
-    const wax = b.vx - b.w * this.rcy;
-    const way = b.vy + b.w * this.rcx;
+    // bearing (bounded); a sliding cart grip follows the load's translation only
+    const sl = this.slide;
+    const wax = sl ? b.vx : b.vx - b.w * this.rcy;
+    const way = sl ? b.vy : b.vy + b.w * this.rcx;
     const vt = (c.vx - wax) * this.tx + (c.vy - way) * this.ty;
     let lt = this.emassT * (this.targetT - vt);
     let nt = this.accT + lt;
@@ -528,7 +556,7 @@ export class GrabJoint {
     if (imb > 0) {
       b.vx -= qx * imb;
       b.vy -= qy * imb;
-      b.w -= b.solverInvI * (this.rcx * qy - this.rcy * qx);
+      if (!sl) b.w -= b.solverInvI * (this.rcx * qy - this.rcy * qx);
     }
   }
 

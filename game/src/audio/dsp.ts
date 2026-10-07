@@ -946,20 +946,20 @@ export function groanBuffer(ctx: BaseAudioContext): AudioBuffer {
       const n = Math.min(len - s0, Math.floor(dur * sr));
       const vib = 4 + rnd() * 1.2;
       let ph = rnd() * N;
-      // Pitch and swell move slowly: updated every 16 samples (the phase stays continuous).
+      // Pitch moves slowly: updated every 16 samples (the phase stays continuous).
       let inc = 0;
-      let env = 0;
       for (let i = 0; i < n; i++) {
+        const u = i / n;
         if ((i & 15) === 0) {
-          const u = i / n;
-          const swell = Math.sin(Math.PI * u);
           // A soft scoop up into the note over the first quarter (from 25 cents flat), then
           // exactly on the chord tone for the rest of the swell.
           const scoop = Math.max(0, 1 - u / 0.25);
           inc = (f0 * (1 - 0.0145 * scoop * scoop) * (1 + 0.006 * Math.sin((2 * Math.PI * vib * i) / sr)) * N) / sr;
-          // A broad swell: a quick soft rise, a long plateau and a soft fall.
-          env = 0.46 * Math.sqrt(swell);
         }
+        // A broad swell, per sample: a soft rise, a long plateau and a soft fall (finite slope
+        // at both ends, so the groan never starts or stops with a click).
+        const swell = Math.sin(Math.PI * u);
+        const env = 0.46 * swell * (2 - swell);
         ph += inc;
         if (ph >= N) ph -= N;
         const j = Math.floor(ph);

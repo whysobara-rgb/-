@@ -14,7 +14,10 @@
  *   5. a pulled bank swung ~3x more across than along (no yaw grip): the hauler veered 20-28 deg;
  *   6. the push drive aimed at the instantaneous holder->anchor vector, not the grip's handle line:
  *      two pushers on one face drifted 15 degrees off the stick forever;
- *   7. a grab landing during a dash kept the 11 m/s no-drag burst running and yanked the load.
+ *   7. a grab landing during a dash kept the 11 m/s no-drag burst running and yanked the load;
+ *   8. a pushed bank (the bug 4 cart) kept running along its face's old normal after the stick
+ *      turned: the pusher went 40-50 deg off the stick while the bank turned at ~6 deg/s (now the
+ *      bank travels where the stick points, its face swings round and the grip slides along it).
  */
 import { describe, expect, it } from 'vitest';
 import { CHARACTER } from '../../src/sim/config';
@@ -239,8 +242,9 @@ describe('control bug 4: pushing a bank steers like a cart (the pusher never swi
     const turn = r.windows.filter((w) => w.deg === 135);
     for (const w of turn) expect(w.dy).toBeGreaterThan(-0.05);
     expect(Math.max(...turn.map((w) => w.err))).toBeLessThan(50);
-    // a steady arc toward the stick (a bank turns slowly, like a heavy cart)
-    for (let i = 1; i < turn.length; i++) expect(turn[i]!.err).toBeLessThan(turn[i - 1]!.err + 0.5);
+    // a steady arc toward the stick: the error never grows again (since bug 8 the pusher follows the
+    // turned stick within a few degrees at once, so window-to-window noise below 6 deg is fine)
+    for (let i = 1; i < turn.length; i++) expect(turn[i]!.err).toBeLessThan(Math.max(turn[i - 1]!.err + 0.5, 6));
     expect(turn[turn.length - 1]!.err).toBeLessThan(40);
     // turning never adds speed: the bank stays within its 1-holder carry speed (1.03 m/s) +15%
     expect(lootSpeed(sim, id)).toBeLessThan(1.03 * 1.15);
@@ -329,4 +333,122 @@ describe('control bug 7: grabbing during a dash does not slingshot the load', ()
       }
     });
   }
+});
+
+/**
+ * Hold the stick at each heading (degrees) for `secs` with every holder pushing; per 0.5 s window
+ * (skipping the first window after each change) the angle between the stick and the displacement of
+ * the first holder and of the load's centre, and the load's top speed after the first window.
+ */
+function pushTrack(sim: Simulation, id: number, holders: 1 | 2, degs: number[], secs = 3): { char: number[]; load: number[]; vmax: number } {
+  let pc = { ...sim.state.characters[0]!.pos };
+  let pl = { ...sim.getLoot(id)!.pos };
+  const char: number[] = [];
+  const load: number[] = [];
+  let vmax = 0;
+  for (const deg of degs) {
+    const th = deg / D;
+    const c = cmd(Math.round(Math.cos(th) * 1e6) / 1e6, Math.round(Math.sin(th) * 1e6) / 1e6, true);
+    for (let t = 1; t <= secs * 60; t++) {
+      sim.step(holders === 2 ? [c, c] : [c]);
+      expect(sim.state.characters[0]!.grab).not.toBeNull();
+      if (t > 30) vmax = Math.max(vmax, lootSpeed(sim, id));
+      if (t % 30 === 0) {
+        const p = sim.state.characters[0]!.pos;
+        const q = sim.getLoot(id)!.pos;
+        if (t > 30) {
+          char.push(Math.abs(wrap(Math.atan2(p.y - pc.y, p.x - pc.x) - th)) * D);
+          load.push(Math.abs(wrap(Math.atan2(q.y - pl.y, q.x - pl.x) - th)) * D);
+        }
+        pc = { ...p };
+        pl = { ...q };
+      }
+    }
+  }
+  return { char, load, vmax };
+}
+
+const mean = (a: number[]): number => a.reduce((x, y) => x + y, 0) / a.length;
+
+describe('control bug 8: a pushed bank goes where the stick points, the pusher with it', () => {
+  // before (cart pivoting at the push point, steering 6 deg/s): push west then stick 135 -> the
+  // pusher ran on west, per-window errors 45, 40, 35 ... (mean 19.4, max 45), the bank 6.3 / 18 and
+  // it had turned 17 deg after 3 s
+  for (const deg of [135, 225]) {
+    it(`push west, then stick ${deg}: bank and pusher follow within a few degrees, the bank's nose swings round`, () => {
+      const { sim, id } = eastGrip('bank', 1);
+      const r = pushTrack(sim, id, 1, [180, deg]);
+      expect(mean(r.char)).toBeLessThan(4);
+      expect(Math.max(...r.char)).toBeLessThan(10);
+      expect(mean(r.load)).toBeLessThan(4);
+      expect(Math.max(...r.load)).toBeLessThan(10);
+      // the pushed face turns toward the stick (45 deg away): most of the way within 3 s
+      const yaw = wrap(sim.getLoot(id)!.angle) * D;
+      expect(yaw * Math.sign(deg - 180)).toBeGreaterThan(25);
+      // the pusher stays on the east wall, its grip slid along it
+      const g = sim.state.characters[0]!.grab!;
+      expect(g.anchorLocal.x).toBeCloseTo(4, 6);
+      expect(Math.abs(g.anchorLocal.y)).toBeLessThanOrEqual(2.5 + 1e-9);
+    });
+  }
+
+  // before: two pushers 18.8 / 43 (bank 11.1 / 27); push + pull pair 15.8 / 43 (bank 8.4 / 26)
+  it('two pushers, and a pusher with a puller on the far wall, follow a turned stick', () => {
+    const two = eastGrip('bank', 2);
+    const a = pushTrack(two.sim, two.id, 2, [180, 135]);
+    expect(mean(a.char)).toBeLessThan(5);
+    expect(mean(a.load)).toBeLessThan(5);
+    const { sim, bank } = bankSim([0, 0]);
+    sim.debug.teleport(1, { x: 54.55, y: 30 }, Math.PI);
+    sim.debug.teleport(2, { x: 45.45, y: 30 }, 0);
+    sim.step([cmd(0, 0, true, false, W), cmd(0, 0, true, false, { x: 1, y: 0 })]);
+    expect(sim.getLoot(bank)!.grabbedBy.length).toBe(2);
+    const b = pushTrack(sim, bank, 2, [180, 135, 180]);
+    expect(mean(b.char)).toBeLessThan(5);
+    expect(mean(b.load)).toBeLessThan(5);
+  });
+
+  // before: zigzag 26.1 / 52 (x1), 24.7 / 49 (x2); off-centre push at 150 deg 17.3 / 31 (it is still
+  // the weakest case, ~13 deg: the grip starts 0.4 m from the end of its wall, so the bank turns
+  // slowly and swings the pusher a little)
+  it('zigzagging a push stays on the stick and never runs faster than the carry targets', () => {
+    for (const holders of [1, 2] as const) {
+      const { sim, id } = eastGrip('bank', holders);
+      const r = pushTrack(sim, id, holders, [180, 140, 220, 160, 200], 2);
+      expect(mean(r.char)).toBeLessThan(6);
+      expect(mean(r.load)).toBeLessThan(6);
+      expect(r.vmax).toBeLessThan((holders === 1 ? 1.03 : 1.71) * 1.15);
+      for (const c of sim.state.characters.slice(0, holders)) expect(c.grab!.anchorLocal.x).toBeCloseTo(4, 6);
+    }
+    const { sim, id } = eastGrip('bank', 1);
+    sim.step([cmd(0, 0, false)]);
+    sim.debug.teleport(1, { x: 104.55, y: 102.1 }, Math.PI);
+    sim.step([cmd(0, 0, true, false, W)]);
+    const r = pushTrack(sim, id, 1, [150, 150]);
+    expect(mean(r.char)).toBeLessThan(16);
+    expect(mean(r.load)).toBeLessThan(4);
+  });
+
+  // before: pushed straight into a lamp post at its corner, the bank stuck there (0.6 m in 9 s):
+  // the push steering held it square against the post (now it lets go while pressed on a static)
+  it('a bank pushed into a lamp post at its corner swings free; pushed into a wall it slides along it', () => {
+    const post = makeSim(openLayout({ size: { x: 200, y: 200 }, banks: [{ pos: { x: 100, y: 100 }, angle: 0 }], circles: [{ id: 'post', kind: 'lamp', center: { x: 95, y: 97.4 }, radius: 0.4, height: 4 }] }), [0]);
+    const wall = makeSim(openLayout({ size: { x: 200, y: 200 }, banks: [{ pos: { x: 100, y: 100 }, angle: 0 }], statics: [{ id: 'w', kind: 'wall', center: { x: 90, y: 104.2 }, half: { x: 20, y: 1 }, angle: 0, height: 2 }] }), [0]);
+    for (const [sim, deg, min] of [
+      [post, 180, 2.5],
+      [wall, 135, 3], // a diagonal push into a wall keeps sliding along it (cos 45 of the push)
+    ] as const) {
+      const id = sim.state.loot[0]!.id;
+      sim.debug.setAnchored(id, false);
+      for (const l of sim.state.loot) if (l.kind !== 'bank') sim.debug.teleport(l.id, { x: 10 + l.id * 2, y: 190 });
+      sim.debug.teleport(1, { x: 104.55, y: 100 }, Math.PI);
+      sim.step([cmd(0, 0, true, false, W)]);
+      const p0 = { ...sim.getLoot(id)!.pos };
+      const th = deg / D;
+      for (let t = 0; t < 540; t++) sim.step([cmd(Math.cos(th), Math.sin(th), true)]);
+      const p = sim.getLoot(id)!.pos;
+      expect(sim.state.characters[0]!.grab).not.toBeNull();
+      expect(Math.hypot(p.x - p0.x, p.y - p0.y)).toBeGreaterThan(min);
+    }
+  });
 });

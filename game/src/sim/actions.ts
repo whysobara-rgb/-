@@ -39,6 +39,23 @@ export const PUSH_ENTER_COS = Math.cos((50 * Math.PI) / 180);
 export const PUSH_LEAVE_COS = Math.cos((70 * Math.PI) / 180);
 /** Extra angular drag (1/s) of a hauled bank while nobody pushes it ("yaw grip"). */
 export const BANK_PULL_YAW_DRAG = 10;
+/**
+ * Pushing a bank (cart push, see GrabJoint): the pushed face swings toward the stick at up to
+ * BANK_STEER_MAX_W (rad/s), and by at most BANK_TURN_PER_M (rad) per metre the bank travels (a slow
+ * or blocked bank barely turns, like a cart on its wheels).
+ */
+export const BANK_STEER_MAX_W = 0.3;
+export const BANK_TURN_PER_M = 0.4;
+/**
+ * A bank pusher's grip slides along the pushed wall (at most PUSH_SLIDE_SPEED m/s, PUSH_SLIDE_MARGIN
+ * m short of the wall's end) so the pusher keeps running where the stick points while the bank
+ * turns under its hands. Over the last PUSH_SLIDE_RAMP m of slide room the steering slows down to
+ * PUSH_SLIDE_SLOW of its rate (then the bank turns slowly and swings the pusher a little).
+ */
+const PUSH_SLIDE_SPEED = 3;
+const PUSH_SLIDE_MARGIN = 0.5;
+const PUSH_SLIDE_RAMP = 0.75;
+const PUSH_SLIDE_SLOW = 0.2;
 /** Characters closer than this (center distance minus 2r) count as touched by a dash. */
 const DASH_HIT_GAP = 0.1;
 
@@ -573,8 +590,16 @@ export function prepareBodies(ctx: SimContext): void {
           const py = -(j.hlx * sn + j.hly * cs);
           const cosH = (mx * px + my * py) / ml;
           const mag = Math.hypot(b.fx, b.fy) * (0.5 + 0.5 * cosH);
-          b.fx = px * mag;
-          b.fy = py * mag;
+          if (Math.hypot(j.alx, j.aly) >= GrabJoint.CART_MIN_LEVER) {
+            // cart push (a bank): drive along the stick, the bank travels that way and turns its
+            // face toward it while the grip slides along the wall (see GrabJoint)
+            b.fx = (mx / ml) * mag;
+            b.fy = (my / ml) * mag;
+            if (ch.grab?.part === 'bankWall') slidePushGrip(j, ch.grab.anchorLocal, b, tgt);
+          } else {
+            b.fx = px * mag;
+            b.fy = py * mag;
+          }
         }
       }
       j.pushing = pushing;
@@ -601,7 +626,90 @@ export function prepareBodies(ctx: SimContext): void {
       }
     }
     body.yawDragExtra = extra;
+    // cart push steering of this bank's pushers: yaw-rate cap from its speed and the slide room
+    // left on every pusher's wall; pressed against a static, the steering lets go
+    let maxW = Math.min(BANK_STEER_MAX_W, BANK_TURN_PER_M * Math.hypot(body.vx, body.vy));
+    for (let s = 0; s < ctx.chars.length; s++) {
+      const jj = ctx.chars[s]!.joint;
+      if (!jj || jj.targetBody !== body || jj.pushHeading === null) continue;
+      const room = pushSlideRoom(jj, ctx.chars[s]!.body);
+      maxW *= PUSH_SLIDE_SLOW + (1 - PUSH_SLIDE_SLOW) * Math.min(1, room / PUSH_SLIDE_RAMP);
+    }
+    for (let s = 0; s < ctx.chars.length; s++) {
+      const jj = ctx.chars[s]!.joint;
+      if (!jj || jj.targetBody !== body) continue;
+      jj.steerMaxW = maxW;
+      jj.pushSnag = body.staticPush;
+    }
   }
+}
+
+/**
+ * Wall of a bank-local grip anchor: 'side' (local +-x walls, slides along y), 'front' (local +-y
+ * walls with the door in the middle, slides along x) or null (not on the outer wall).
+ */
+function pushWall(alx: number, aly: number): 'side' | 'front' | null {
+  if (Math.abs(Math.abs(alx) - BANK_MODEL.half.x) < 1e-3) return 'side';
+  if (Math.abs(Math.abs(aly) - BANK_MODEL.half.y) < 1e-3) return 'front';
+  return null;
+}
+
+/** Slide range of a grip along its wall, as [lo, hi] of the sliding local coordinate. */
+function pushSlideRange(wall: 'side' | 'front', alx: number): [number, number] {
+  if (wall === 'side') return [-BANK_MODEL.half.y + PUSH_SLIDE_MARGIN, BANK_MODEL.half.y - PUSH_SLIDE_MARGIN];
+  const lo = BANK_MODEL.doorWidth / 2;
+  const hi = BANK_MODEL.half.x - PUSH_SLIDE_MARGIN;
+  return alx >= 0 ? [lo, hi] : [-hi, -lo];
+}
+
+/**
+ * Re-seat a bank pusher's grip: the anchor follows the holder's foot point on the pushed wall (at
+ * most PUSH_SLIDE_SPEED, within the wall), and the handle line becomes the wall's normal.
+ */
+function slidePushGrip(j: GrabJoint, anchorLocal: Vec2, cb: Body, tb: Body): void {
+  const wall = pushWall(j.alx, j.aly);
+  if (!wall) return;
+  const cs = Math.cos(tb.a);
+  const sn = Math.sin(tb.a);
+  const dx = cb.x - tb.x;
+  const dy = cb.y - tb.y;
+  const [lo, hi] = pushSlideRange(wall, j.alx);
+  const cur = wall === 'side' ? j.aly : j.alx;
+  const want = wall === 'side' ? -dx * sn + dy * cs : dx * cs + dy * sn;
+  const step = PUSH_SLIDE_SPEED * DT;
+  const next = Math.max(cur - step, Math.min(cur + step, Math.max(lo, Math.min(hi, want))));
+  if (wall === 'side') {
+    j.aly = next;
+    j.hlx = j.alx > 0 ? 1 : -1;
+    j.hly = 0;
+  } else {
+    j.alx = next;
+    j.hlx = 0;
+    j.hly = j.aly > 0 ? 1 : -1;
+  }
+  anchorLocal.x = j.alx;
+  anchorLocal.y = j.aly;
+}
+
+/**
+ * Slide room (m) a bank pusher's grip has left in the direction the steering turns the bank (the
+ * wall turns under the holder's hands opposite to the bank's turn).
+ */
+function pushSlideRoom(j: GrabJoint, cb: Body): number {
+  const wall = pushWall(j.alx, j.aly);
+  if (!wall || j.pushHeading === null) return Infinity;
+  const tb = j.targetBody;
+  const cs = Math.cos(tb.a);
+  const sn = Math.sin(tb.a);
+  let err = j.pushHeading - Math.atan2(-(j.hlx * sn + j.hly * cs), -(j.hlx * cs - j.hly * sn));
+  err = Math.atan2(Math.sin(err), Math.cos(err));
+  const dx = cb.x - tb.x;
+  const dy = cb.y - tb.y;
+  // local velocity of a world-fixed point when the bank turns at w: (w * ry, -w * rx)
+  const v = wall === 'side' ? -err * (dx * cs + dy * sn) : err * (-dx * sn + dy * cs);
+  const [lo, hi] = pushSlideRange(wall, j.alx);
+  const cur = wall === 'side' ? j.aly : j.alx;
+  return v > 0 ? hi - cur : v < 0 ? cur - lo : Infinity;
 }
 
 // ---------------------------------------------------------------------------
