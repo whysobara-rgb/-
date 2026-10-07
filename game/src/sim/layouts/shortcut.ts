@@ -14,7 +14,7 @@
  *
  * West half authored; mirrored east by the builder. North/south symmetric bands via `ns`.
  */
-import { BREAKABLE_SPECS, PROP_SPECS } from '../config';
+import { BREAKABLE_SPECS, PROP_SPECS, SAFE_SPECS } from '../config';
 import { LayoutBuilder } from './builder';
 import type { LayoutDesignMeta } from './meta';
 import type { LayoutDef } from '../types';
@@ -169,27 +169,38 @@ function build(): { def: LayoutDef; meta: LayoutDesignMeta } {
   b.policeCurbs();
 
   // --- Content 2.0 composition (content-plan §3.2; LayoutDef.v2, 4,000) -----------------------
-  // Both back-street large safes stay, plus the south courtyard small safe per side; the market
-  // small safe makes way. The ATM starter socket stands in the north edge lane against the corner
-  // laundry (the only ground 8-12 m from a spawn, 6 m clear of the zone and out of the bank
-  // sweeps): it and the crate beside it squeeze the 2.5 m lane to 1.6 m, which an aligned large
-  // safe still passes (layout-check "squeeze"). Spawn 1's crate guards the south edge lane the
-  // same way; the vending machine sits on the north back-street market. 돼지 and 돈나무 take the
-  // central crossing (the event spot and the axis pad on either side); the weak axis fences now also break with
-  // two 뿅망치 hits (layout-check "fenceHammer").
-  const LANE_WALL = 2.5 - 0.06; // cornerA's west wall (the edge lane's inner side), less a flush gap
+  // Both back-street large safes stay. The ATM starter socket and the one small safe per side take
+  // the two edge lanes, the only ground 8-12 m from a spawn, 6 m clear of the zone and out of the
+  // bank sweeps (the back-street market spot the plan names is ~30 m out):
+  //  - north lane: the ATM at the lane mouth, spawn 0's starter (1v1 spawn). No crate in front of
+  //    it: a crate there leaves 1.54 m of the 2.5 m lane, which a hauled ATM squeezes past but bot
+  //    navigation (0.8 m clearance) cannot, and behind it a crate is an 11 m walk. Its dash bonk is
+  //    spawn 0's first hit instead (waived below).
+  //  - south lane: the small safe (moved from the south arcade courtyard so spawn 1 has a first
+  //    target down its lane) behind spawn 1's crate; a small safe passes the squeezed lane.
+  // The second crate waits in the north arcade courtyard (the alley reward), the vending machine on
+  // the north back-street market, the item pads behind the ATM. 돼지 and 돈나무 take the central
+  // crossing (event spot 0 and the axis pad between them); the weak axis fences also break with two
+  // 뿅망치 hits (layout-check "fenceHammer").
+  const LANE_WALL = 2.5 - 0.06; // corner shop's west wall (the edge lane's inner side), less a flush gap
   b.v2Safe('largeSafe', AX, 2.0);
   b.v2Safe('largeSafe', AX, H - 2.0);
-  b.v2Safe('smallSafe', 20.5, H - 11.0); // south arcade courtyard (kept)
+  b.v2Safe('smallSafe', LANE_WALL - SAFE_SPECS.smallSafe.half.x, H - 10.0); // south edge lane, flush on the grocery
   b.prop('piggy', AX, 19.0); // north crossing: kickoff ball
   b.prop('moneyTree', AX, 30.0); // south crossing (the south bank needs it uprooted to pass)
-  b.prop('atm', LANE_WALL - PROP_SPECS.atm.half.y, 10.5, PI / 2); // edge lane, facing west
-  b.breakable('crate.lane', 'crate', LANE_WALL - 0.45, 13.0); // lane mouth, before the ATM: spawn 0's first hit
-  b.breakable('crate.laneS', 'crate', LANE_WALL - 0.45, 37.0); // south edge lane: spawn 1's first hit
+  b.prop('atm', LANE_WALL - PROP_SPECS.atm.half.y, 13.0, PI / 2); // north lane mouth, flush on the laundry, facing west
+  b.breakable('crate.laneS', 'crate', LANE_WALL - 0.45, H - 13.0); // south lane mouth: spawn 1's first hit, before the small safe
+  b.breakable('crate.court', 'crate', 20.5, 11.0); // north arcade courtyard (where the classic small safe stood)
   b.breakable('vending', 'vending', 16.0, 4 - 0.06 - BREAKABLE_SPECS.vending.half.y, PI); // back-street market, on the ramen shop front
-  b.itemPad('pad.lane', 1.25, 41.5); // south edge lane
+  b.itemPad('pad.lane', 1.25, 11.0); // north edge lane, behind the ATM
   b.itemPad('pad.axis', AX, 21.9); // north crossing (황금 뿅망치)
   b.eventSpot(AX, 25); // centre of the crossing
+  b.waive(
+    'crate',
+    'spawn 0',
+    'the only crate ground on spawn 0\'s way is the north lane mouth, where a crate fails the starter haul (1.6 m bot lane); the starter ATM\'s dash bonk (2 coins) is its first hit',
+  );
+  b.waive('pads', 'pad pad.lane.w', 'no shortcut ground is 12-18 m from both own spawns (best: the edge lanes, 12.1 / 18.6 m)');
 
   return b.build(
     'Shortcut arcade: each bank sits in a court whose only bank-wide exit is a weak fence on the axis facing the central crossing. ' +

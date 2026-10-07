@@ -39,7 +39,7 @@ import type {
 } from '../types';
 import { BREAKABLE_SPECS, POLICE_CAR, ZONE_DEFAULT_HALF } from '../config';
 import { EPS, mirrorAngle, mirrorPoint, normAngle } from './geometry';
-import type { LayoutDesignMeta, PathClass, PathSpec } from './meta';
+import type { LayoutDesignMeta, PathClass, PathSpec, RuleWaiver } from './meta';
 
 export interface BuilderOptions {
   id: LayoutId;
@@ -94,6 +94,7 @@ export class LayoutBuilder {
   private readonly v2Breakables: BreakableDef[] = [];
   private readonly v2Pads: ItemPadDef[] = [];
   private readonly v2Spots: Vec2[] = [];
+  private readonly waiverList: RuleWaiver[] = [];
 
   constructor(private readonly opts: BuilderOptions) {
     this.axis = opts.size.x / 2;
@@ -401,6 +402,16 @@ export class LayoutBuilder {
     return this;
   }
 
+  /**
+   * Waives one Content 2.0 rule for one subject (see RuleWaiver): the validator reports it as a
+   * warning with `reason`, and fails if nothing matches it. Off-axis subjects name the west
+   * element; its mirror twin (`spawn 2`, `pad x.e`) is covered automatically.
+   */
+  waive(rule: RuleWaiver['rule'], subject: string, reason: string): this {
+    this.waiverList.push({ rule, subject, reason });
+    return this;
+  }
+
   build(intent: string): { def: LayoutDef; meta: LayoutDesignMeta } {
     const spawns: SpawnDef[] = [...this.spawns];
     if (this.mirror) {
@@ -442,6 +453,8 @@ export class LayoutBuilder {
       };
       def.v2 = v2;
     }
-    return { def, meta: { paths: this.pathList, intent } };
+    const meta: LayoutDesignMeta = { paths: this.pathList, intent };
+    if (this.waiverList.length > 0) meta.waivers = this.waiverList.map((w) => ({ ...w }));
+    return { def, meta };
   }
 }

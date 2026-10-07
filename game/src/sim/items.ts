@@ -41,17 +41,21 @@
  *     a protected rival or a teammate is only shoved (no spill, no stunlock);
  *   - officer: stunned (PoliceSystem.stunByItem, respects the re-stun immunity);
  *   - props: PropSystem.hammerHit (ATM, 돈나무, 돼지, gold safe); plain anchored loot gains uproot
- *     progress (small 1.0 / large 0.5 / bank 0.25); a free small safe is knocked out of every grip
- *     and flies ~2.5 m; a moving bank rings like a bell (free interior safes slide toward the
- *     nearest door, anchored interior safes gain progress);
- *   - breakables take `breakableDamage`; fences break after `fenceHits` hits (`fenceBroken`,
- *     bankId -1, byCharId).
+ *     progress (small 1.0 / large 0.5 / bank 0.25); a free small safe is knocked out of the grip
+ *     of every vulnerable rival (a teammate's or a protected / downed rival's grip holds, and a
+ *     safe still held does not fly; one only such holders have is not a target at all) and flies
+ *     ~2.5 m; a moving bank rings like a bell (free interior safes slide toward the nearest door,
+ *     anchored interior safes gain progress);
+ *   - breakables take `breakableDamage` (damageBreakableShared); fences break after `fenceHits`
+ *     hits (`fenceBroken`, bankId -1, byCharId; a shared break credits nobody).
+ *   Simultaneous hits on one target resolve together with symmetric tie rules, never slot order
+ *   (see resolveSwings): an exact-distance KO tie credits nobody (`byId` null).
  *   (Crane cat and truck door targets arrive with C4 / C5 in wave 2.)
  */
 import { BANK_MODEL, CHARACTER, ITEM_FOREVER, ITEMS, POLICE, secondsToTicks, type ItemSpec } from './config';
 import { emit, type SimContext } from './context';
 import { bankFootprint, doRelease, knockDown, lootOBBOf, segmentBlocked } from './actions';
-import { damageBreakable } from './breakables';
+import { damageBreakableShared } from './breakables';
 import { closestPointOnOBB, pointInOBB } from './math';
 import { addUnanchorProgress } from './props';
 import { nextEntityId } from './world';
@@ -90,7 +94,7 @@ interface DropSlot {
 /** A target found in a swing arc (pre-resolution). */
 type ArcTarget =
   | { t: 'char'; slot: number; id: EntityId; nx: number; ny: number; dist: number }
-  | { t: 'police'; id: EntityId; nx: number; ny: number }
+  | { t: 'police'; id: EntityId; nx: number; ny: number; dist: number }
   | { t: 'loot'; id: EntityId; dir: number }
   | { t: 'breakable'; id: string; dir: number }
   | { t: 'fence'; idx: number; dir: number };
@@ -303,7 +307,7 @@ export class ItemSystem extends ContentSystemBase {
         const d = Math.hypot(dx, dy);
         if (d - POLICE.radius > reach || !inCone(dx, dy, d)) continue;
         if (segmentBlocked(ctx, o, { x: off.x, y: off.y })) continue;
-        out.push({ t: 'police', id: off.id, nx: d > 1e-6 ? dx / d : ax, ny: d > 1e-6 ? dy / d : ay });
+        out.push({ t: 'police', id: off.id, nx: d > 1e-6 ? dx / d : ax, ny: d > 1e-6 ? dy / d : ay, dist: d });
       }
     }
     // loot
@@ -311,6 +315,9 @@ export class ItemSystem extends ContentSystemBase {
       const l = st.loot[i]!;
       if (l.recovered || l.dormant || l.airborne) continue;
       if (l.grabbedBy.includes(st.characters[slot]!.id)) continue; // never your own load
+      // a free plain small safe the hammer cannot knock loose (held only by the attacker's teammates
+      // or by protected / downed rivals) is not a target: the grip stays and the swing goes on
+      if (!l.variant && !l.anchored && l.kind === 'smallSafe' && l.grabbedBy.length > 0 && !l.grabbedBy.some((cid) => this.canDisarm(slot, cid))) continue;
       const lb = ctx.loot[i]!.body;
       let p: Vec2;
       if (l.kind === 'bank') {
@@ -362,21 +369,53 @@ export class ItemSystem extends ContentSystemBase {
   }
 
   /**
-   * Apply every swing of one substep together. Pre-resolution picks (arcTargets) -> clashes ->
-   * attacker recoil -> characters (knockback summed per victim, credit to the closest attacker,
-   * exact tie -> lower id) -> officers -> loot -> breakables -> fences, each in ascending target
-   * id then attacker id. Nothing depends on roster slot order.
+   * Can attacker `slot`'s hammer knock character `charId` loose (forced release / spill)? Only a
+   * vulnerable rival: other team, not protected, not down. Teammates and protected or downed
+   * rivals keep their grip (content-plan §5.2: shove only, no stunlock).
    */
-  private resolveSwings(swings: Swing[]): void {
+  private canDisarm(slot: number, charId: EntityId): boolean {
+    const st = this.ctx.state;
+    const h = st.characters[charId - 1];
+    return !!h && h.team !== st.characters[slot]!.team && h.protectTicks === 0 && h.knockdownTicks === 0;
+  }
+
+  /**
+   * Slot-independent order of two characters (plan §10: never slot order): body x, then y (two
+   * bodies never share a centre), then id as a last resort. Used for every float accumulation and
+   * every id allocation inside a swing resolution, so a roster permutation changes nothing.
+   */
+  private posOrder(aSlot: number, bSlot: number): number {
+    const a = this.ctx.chars[aSlot]!.body;
+    const b = this.ctx.chars[bSlot]!.body;
+    return a.x - b.x || a.y - b.y || this.ctx.state.characters[aSlot]!.id - this.ctx.state.characters[bSlot]!.id;
+  }
+
+  /**
+   * Apply every swing of one substep together. Pre-resolution picks (arcTargets) -> clashes ->
+   * attacker recoil -> characters -> officers -> loot -> breakables -> fences. Within a stage,
+   * targets go in ascending (slot-independent) target key and attackers in position order
+   * (posOrder); simultaneous hits on one target are resolved together with symmetric rules:
+   * - characters: knockback summed (capped at the strongest single scale), credit to the closest
+   *   attacker; an exact distance tie credits nobody (`byId` null) and every tied hit carries
+   *   `knockdown: true`; victims are knocked down in position order (dropped item / coin ids);
+   * - officers: one stun (longest duration, summed direction), credit to the closest attacker,
+   *   exact tie -> position order (`policeStunned.byCharId` is non-null by contract);
+   * - loot / breakables / fences: one grouped effect; credit only when unambiguous (a single
+   *   hitter, or a single team where only the team counts), otherwise nobody.
+   */
+  private resolveSwings(swingsIn: Swing[]): void {
     const ctx = this.ctx;
     const st = ctx.state;
     const H = ITEMS.hammer;
     const tick = st.tick;
-    // 1. clashes: two swinging hammers with each other in their arcs
+    const swings = [...swingsIn].sort((a, b) => this.posOrder(a.slot, b.slot));
+    // 1. clashes: two swinging hammers with each other in their arcs (bounces summed per hammer)
     const clashed = new Set<number>();
-    for (const a of swings) {
-      for (const b of swings) {
-        if (b.id <= a.id) continue;
+    const bounce = new Map<number, { x: number; y: number }>();
+    for (let i = 0; i < swings.length; i++) {
+      const a = swings[i]!;
+      for (let j = i + 1; j < swings.length; j++) {
+        const b = swings[j]!;
         const aHasB = a.targets.some((t) => t.t === 'char' && t.slot === b.slot);
         const bHasA = b.targets.some((t) => t.t === 'char' && t.slot === a.slot);
         if (!aHasB || !bHasA) continue;
@@ -389,18 +428,26 @@ export class ItemSystem extends ContentSystemBase {
         const d = Math.hypot(dx, dy);
         const nx = d > 1e-6 ? dx / d : Math.cos(st.characters[a.slot]!.item!.aim);
         const ny = d > 1e-6 ? dy / d : Math.sin(st.characters[a.slot]!.item!.aim);
-        ba.noDrag = false;
-        bb.noDrag = false;
-        ba.vx = ba.fvx - nx * H.clashBounceSpeed;
-        ba.vy = ba.fvy - ny * H.clashBounceSpeed;
-        bb.vx = bb.fvx + nx * H.clashBounceSpeed;
-        bb.vy = bb.fvy + ny * H.clashBounceSpeed;
+        const ua = bounce.get(a.slot) ?? { x: 0, y: 0 };
+        const ub = bounce.get(b.slot) ?? { x: 0, y: 0 };
+        ua.x -= nx * H.clashBounceSpeed;
+        ua.y -= ny * H.clashBounceSpeed;
+        ub.x += nx * H.clashBounceSpeed;
+        ub.y += ny * H.clashBounceSpeed;
+        bounce.set(a.slot, ua);
+        bounce.set(b.slot, ub);
         for (const s of [a, b]) {
           const it = st.characters[s.slot]!.item!;
           it.uses = Math.max(0, it.uses - 1);
         }
-        emit(ctx, { type: 'itemClash', tick, aId: a.id, bId: b.id });
+        emit(ctx, { type: 'itemClash', tick, aId: Math.min(a.id, b.id), bId: Math.max(a.id, b.id) });
       }
+    }
+    for (const [slot, u] of bounce) {
+      const body = ctx.chars[slot]!.body;
+      body.noDrag = false;
+      body.vx = body.fvx + u.x;
+      body.vy = body.fvy + u.y;
     }
     const live = swings.filter((s) => !clashed.has(s.slot));
     for (const s of swings) this.swingDone[s.slot] = true;
@@ -413,127 +460,186 @@ export class ItemSystem extends ContentSystemBase {
       b.vy = b.fvy + (b.vy - b.fvy) * H.hitRecoil;
     }
     type Hit<T extends ArcTarget['t']> = { s: Swing; t: Extract<ArcTarget, { t: T }> };
-    const hitsOf = <T extends ArcTarget['t']>(kind: T): Hit<T>[] => {
-      const out: Hit<T>[] = [];
-      for (const s of live) for (const t of s.targets) if (t.t === kind) out.push({ s, t: t as Extract<ArcTarget, { t: T }> });
-      return out;
+    /** Hits of one target kind grouped by target key (ascending), each group in attacker position order. */
+    const groupsOf = <T extends ArcTarget['t'], K extends string | number>(kind: T, key: (t: Extract<ArcTarget, { t: T }>) => K): [K, Hit<T>[]][] => {
+      const m = new Map<K, Hit<T>[]>();
+      for (const s of live) {
+        for (const t of s.targets) {
+          if (t.t !== kind) continue;
+          const tt = t as Extract<ArcTarget, { t: T }>;
+          const k = key(tt);
+          const arr = m.get(k);
+          if (arr) arr.push({ s, t: tt });
+          else m.set(k, [{ s, t: tt }]);
+        }
+      }
+      return [...m.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
     };
     const scaleOf = (s: Swing): number => (s.kind === 'goldHammer' ? ITEMS.goldHammer.knockbackScale : 1);
+    /** Summed knockback direction scaled to `speed`, capped at the strongest single scale (never stacks speed). */
+    const summedKnock = (hs: { s: Swing; nx: number; ny: number }[], speed: number): { x: number; y: number } => {
+      let kx = 0;
+      let ky = 0;
+      let maxScale = 0;
+      for (const h of hs) {
+        const sc = scaleOf(h.s);
+        kx += h.nx * sc;
+        ky += h.ny * sc;
+        maxScale = Math.max(maxScale, sc);
+      }
+      const l = Math.hypot(kx, ky);
+      const k = l > maxScale ? (speed * maxScale) / l : speed;
+      return { x: kx * k, y: ky * k };
+    };
+    /** The closest hits (exact ties within 1e-9 m all count). */
+    const closest = <T extends { t: { dist: number } }>(hs: T[]): T[] => {
+      let min = Infinity;
+      for (const h of hs) min = Math.min(min, h.t.dist);
+      return hs.filter((h) => h.t.dist <= min + 1e-9);
+    };
+    /** Credit for a grouped effect where only the team counts: a hitter of the single team, else nobody. */
+    const teamCredit = (hs: { s: Swing }[]): EntityId | null => {
+      const teams = new Set(hs.map((h) => st.characters[h.s.slot]!.team));
+      return teams.size === 1 ? hs[0]!.s.id : null;
+    };
+    const soleCredit = (hs: { s: Swing }[]): EntityId | null => {
+      const ids = new Set(hs.map((h) => h.s.id));
+      return ids.size === 1 ? hs[0]!.s.id : null;
+    };
 
-    // 3. characters
-    const charHits = hitsOf('char').sort((a, b) => a.t.id - b.t.id || a.s.id - b.s.id);
-    const byVictim = new Map<number, Hit<'char'>[]>();
-    for (const h of charHits) {
-      const arr = byVictim.get(h.t.slot);
-      if (arr) arr.push(h);
-      else byVictim.set(h.t.slot, [h]);
-    }
-    const victims = [...byVictim.keys()].sort((a, b) => st.characters[a]!.id - st.characters[b]!.id);
-    for (const vslot of victims) {
-      const hs = byVictim.get(vslot)!;
+    // 3. characters (victims in position order: knockdown drops / spills allocate ids in this order)
+    const victims = groupsOf('char', (t) => t.slot).sort((a, b) => this.posOrder(a[0], b[0]));
+    for (const [vslot, hs] of victims) {
       const v = st.characters[vslot]!;
       const vb = ctx.chars[vslot]!.body;
       const opp = hs.filter((h) => st.characters[h.s.slot]!.team !== v.team);
       const vulnerable = opp.length > 0 && v.protectTicks === 0 && v.knockdownTicks === 0;
       if (vulnerable) {
-        let kx = 0;
-        let ky = 0;
-        let credit = opp[0]!;
-        for (const h of opp) {
-          const sc = scaleOf(h.s);
-          kx += h.t.nx * sc;
-          ky += h.t.ny * sc;
-          if (h.t.dist < credit.t.dist - 1e-9 || (Math.abs(h.t.dist - credit.t.dist) <= 1e-9 && h.s.id < credit.s.id)) credit = h;
-        }
-        // cap the summed direction at the strongest single scale (two hammers never stack speed)
-        const maxScale = Math.max(...opp.map((h) => scaleOf(h.s)));
-        const l = Math.hypot(kx, ky);
-        const k = l > maxScale ? (H.knockbackSpeed * maxScale) / l : H.knockbackSpeed;
-        knockDown(ctx, vslot, kx * k, ky * k, 'hammer', credit.s.id, H.knockdownTicks);
-        for (const h of hs) {
-          const kd = h === credit;
-          emit(ctx, { type: 'itemHit', tick, charId: h.s.id, kind: h.s.kind, target: 'char', targetId: v.id, knockdown: kd });
-        }
+        const tied = closest(opp);
+        const credit = tied.length === 1 ? tied[0]!.s.id : null;
+        const k = summedKnock(opp.map((h) => ({ s: h.s, nx: h.t.nx, ny: h.t.ny })), H.knockbackSpeed);
+        knockDown(ctx, vslot, k.x, k.y, 'hammer', credit, H.knockdownTicks);
+        for (const h of hs) emit(ctx, { type: 'itemHit', tick, charId: h.s.id, kind: h.s.kind, target: 'char', targetId: v.id, knockdown: tied.includes(h) });
       } else {
+        let sx = 0;
+        let sy = 0;
         for (const h of hs) {
-          vb.vx += h.t.nx * H.protectedShoveSpeed;
-          vb.vy += h.t.ny * H.protectedShoveSpeed;
-          emit(ctx, { type: 'itemHit', tick, charId: h.s.id, kind: h.s.kind, target: 'char', targetId: v.id, knockdown: false });
+          sx += h.t.nx * H.protectedShoveSpeed;
+          sy += h.t.ny * H.protectedShoveSpeed;
         }
+        vb.vx += sx;
+        vb.vy += sy;
+        for (const h of hs) emit(ctx, { type: 'itemHit', tick, charId: h.s.id, kind: h.s.kind, target: 'char', targetId: v.id, knockdown: false });
       }
     }
 
-    // 4. officers
+    // 4. officers (one stun per officer: longest duration, summed direction, closest credit)
     const police = ctx.police;
     if (police) {
-      for (const h of hitsOf('police').sort((a, b) => a.t.id - b.t.id || a.s.id - b.s.id)) {
-        const gold = h.s.kind === 'goldHammer';
+      for (const [oid, hs] of groupsOf('police', (t) => t.id)) {
+        const gold = hs.some((h) => h.s.kind === 'goldHammer');
         const ticks = gold ? ITEMS.goldHammer.policeStunTicks : H.policeStunTicks;
-        const sp = H.knockbackSpeed * scaleOf(h.s);
-        const stunned = police.stunByItem(h.t.id, ticks, h.t.nx * sp, h.t.ny * sp, h.s.id, H.protectedShoveSpeed);
-        emit(ctx, { type: 'itemHit', tick, charId: h.s.id, kind: h.s.kind, target: 'police', targetId: h.t.id, knockdown: stunned });
+        const k = summedKnock(hs.map((h) => ({ s: h.s, nx: h.t.nx, ny: h.t.ny })), H.knockbackSpeed);
+        const tied = closest(hs);
+        const stunned = police.stunByItem(oid, ticks, k.x, k.y, tied[0]!.s.id, H.protectedShoveSpeed);
+        for (const h of hs) emit(ctx, { type: 'itemHit', tick, charId: h.s.id, kind: h.s.kind, target: 'police', targetId: oid, knockdown: stunned && tied.includes(h) });
       }
     }
 
-    // 5. loot
-    for (const h of hitsOf('loot').sort((a, b) => a.t.id - b.t.id || a.s.id - b.s.id)) {
-      this.hitLoot(h.t.id, h.s, h.t.dir);
-      emit(ctx, { type: 'itemHit', tick, charId: h.s.id, kind: h.s.kind, target: 'loot', targetId: h.t.id, knockdown: false });
+    // 5. loot (one grouped effect per item)
+    for (const [lootId, hs] of groupsOf('loot', (t) => t.id)) {
+      this.hitLoot(lootId, hs.map((h) => ({ s: h.s, dir: h.t.dir })), teamCredit, soleCredit);
+      for (const h of hs) emit(ctx, { type: 'itemHit', tick, charId: h.s.id, kind: h.s.kind, target: 'loot', targetId: lootId, knockdown: false });
     }
 
-    // 6. breakables
-    for (const h of hitsOf('breakable').sort((a, b) => (a.t.id < b.t.id ? -1 : a.t.id > b.t.id ? 1 : 0) || a.s.id - b.s.id)) {
-      damageBreakable(ctx, h.t.id, H.breakableDamage, h.s.id, h.t.dir);
-      emit(ctx, { type: 'itemHit', tick, charId: h.s.id, kind: h.s.kind, target: 'breakable', targetId: h.t.id, knockdown: false });
+    // 6. breakables (C1's shared resolution: summed damage, a shared break credits nobody)
+    for (const [bid, hs] of groupsOf('breakable', (t) => t.id)) {
+      damageBreakableShared(ctx, bid, hs.map((h) => ({ damage: H.breakableDamage, byCharId: h.s.id, dir: h.t.dir })));
+      for (const h of hs) emit(ctx, { type: 'itemHit', tick, charId: h.s.id, kind: h.s.kind, target: 'breakable', targetId: bid, knockdown: false });
     }
 
-    // 7. fences
-    for (const h of hitsOf('fence').sort((a, b) => a.t.idx - b.t.idx || a.s.id - b.s.id)) {
-      const fs = st.fences[h.t.idx]!;
-      emit(ctx, { type: 'itemHit', tick, charId: h.s.id, kind: h.s.kind, target: 'fence', targetId: fs.id, knockdown: false });
+    // 7. fences (all hits of the substep count together; a shared break credits nobody)
+    for (const [fi, hs] of groupsOf('fence', (t) => t.idx)) {
+      const fs = st.fences[fi]!;
+      for (const h of hs) emit(ctx, { type: 'itemHit', tick, charId: h.s.id, kind: h.s.kind, target: 'fence', targetId: fs.id, knockdown: false });
       if (fs.broken) continue;
-      const n = (this.fenceHits.get(h.t.idx) ?? 0) + 1;
-      this.fenceHits.set(h.t.idx, n);
-      if (n >= H.fenceHits) this.breakFence(h.t.idx, h.s.id);
+      const n = (this.fenceHits.get(fi) ?? 0) + hs.length;
+      this.fenceHits.set(fi, n);
+      if (n >= H.fenceHits) this.breakFence(fi, soleCredit(hs));
     }
   }
 
-  /** The hammer's effect on one loot item (props first, then the plain-safe / bank rules). */
-  private hitLoot(lootId: EntityId, s: Swing, dir: number): void {
+  /**
+   * The hammer's effect on one loot item from every swing hitting it this substep (props first,
+   * per hit in position order; then the plain-safe / bank rules, applied once for the group).
+   */
+  private hitLoot(
+    lootId: EntityId,
+    hitsIn: { s: Swing; dir: number }[],
+    teamCredit: (hs: { s: Swing }[]) => EntityId | null,
+    soleCredit: (hs: { s: Swing }[]) => EntityId | null,
+  ): void {
     const ctx = this.ctx;
     const st = ctx.state;
     const H = ITEMS.hammer;
     const idx = ctx.lootIndex.get(lootId);
     if (idx === undefined) return;
     const l = st.loot[idx]!;
-    if (l.recovered || l.dormant || l.airborne) return;
-    if (l.variant && ctx.content?.props.hammerHit(lootId, s.id, dir)) return;
+    const gone = (): boolean => !!(l.recovered || l.dormant || l.airborne);
+    if (gone()) return;
+    let hits = hitsIn;
+    if (l.variant && ctx.content) {
+      const props = ctx.content.props;
+      hits = hits.filter((h) => !props.hammerHit(lootId, h.s.id, h.dir));
+      if (!hits.length || gone()) return;
+    }
     if (l.anchored) {
-      addUnanchorProgress(ctx, lootId, H.progress[l.kind], s.id);
+      addUnanchorProgress(ctx, lootId, H.progress[l.kind] * hits.length, teamCredit(hits));
       return;
     }
     const b = ctx.loot[idx]!.body;
     if (l.kind === 'smallSafe') {
-      // knocked out of every grip, flies ~carriedSmallSafeFly m (linear drag: distance = v / drag)
+      // knocked out of the grip of every vulnerable rival of a hitter; a teammate's or a protected /
+      // downed rival's grip holds (and then the safe does not fly)
       for (const cid of [...l.grabbedBy]) {
+        if (!hits.some((h) => this.canDisarm(h.s.slot, cid))) continue;
         const ch = st.characters[cid - 1];
         if (ch) doRelease(ctx, ch.slot, true);
       }
+      if (l.grabbedBy.length > 0) return;
+      // flies ~carriedSmallSafeFly m (linear drag: distance = v / drag) along the summed swing direction
+      let dx = 0;
+      let dy = 0;
+      if (hits.length === 1) {
+        dx = Math.cos(hits[0]!.dir);
+        dy = Math.sin(hits[0]!.dir);
+      } else {
+        for (const h of hits) {
+          dx += Math.cos(h.dir);
+          dy += Math.sin(h.dir);
+        }
+        const dl = Math.hypot(dx, dy);
+        if (dl < 1e-9) return; // opposing bonks cancel: it just takes them
+        dx /= dl;
+        dy /= dl;
+      }
       const v = H.carriedSmallSafeFly * b.linDrag;
-      b.vx = b.fvx + Math.cos(dir) * v;
-      b.vy = b.fvy + Math.sin(dir) * v;
-      l.lastHolder = s.id;
+      b.vx = b.fvx + dx * v;
+      b.vy = b.fvy + dy * v;
+      l.lastHolder = soleCredit(hits);
       return;
     }
     if (l.kind === 'bank') {
-      // 은행 종 치기: ring the moving bank like a bell
+      // 은행 종 치기: ring the moving bank like a bell (once per hit, identical pushes)
+      const n = hits.length;
+      const credit = teamCredit(hits);
       const c = Math.cos(b.a);
       const sn = Math.sin(b.a);
       for (let i = 0; i < st.loot.length; i++) {
         const q = st.loot[i]!;
         if (q.kind === 'bank' || q.recovered || q.dormant || q.airborne || q.floorOf !== l.id) continue;
         if (q.anchored) {
-          addUnanchorProgress(ctx, q.id, H.bankBellProgress, s.id);
+          addUnanchorProgress(ctx, q.id, H.bankBellProgress * n, credit);
           continue;
         }
         const qb = ctx.loot[i]!.body;
@@ -543,15 +649,15 @@ export class ItemSystem extends ContentSystemBase {
         const ty = b.y + doorLy * c - qb.y;
         const tl = Math.hypot(tx, ty);
         if (tl < 1e-6) continue;
-        qb.vx += (tx / tl) * H.bankBellSafeSpeed;
-        qb.vy += (ty / tl) * H.bankBellSafeSpeed;
+        qb.vx += (tx / tl) * H.bankBellSafeSpeed * n;
+        qb.vy += (ty / tl) * H.bankBellSafeSpeed * n;
       }
     }
     // a free large safe just takes the bonk
   }
 
   /** Break fence `fi` by hammer (mirrors Simulation.breakFence: static off, state, event). */
-  private breakFence(fi: number, byCharId: EntityId): void {
+  private breakFence(fi: number, byCharId: EntityId | null): void {
     const ctx = this.ctx;
     const f = ctx.fences[fi]!;
     const fs = ctx.state.fences[fi]!;
@@ -559,7 +665,9 @@ export class ItemSystem extends ContentSystemBase {
     f.shape.enabled = false;
     fs.broken = true;
     fs.brokenTick = ctx.state.tick;
-    emit(ctx, { type: 'fenceBroken', tick: ctx.state.tick, fenceId: fs.id, bankId: -1, pos: { x: fs.center.x, y: fs.center.y }, byCharId });
+    const pos = { x: fs.center.x, y: fs.center.y };
+    // a shared break (several hitters in one substep) credits nobody: byCharId left out
+    emit(ctx, byCharId !== null ? { type: 'fenceBroken', tick: ctx.state.tick, fenceId: fs.id, bankId: -1, pos, byCharId } : { type: 'fenceBroken', tick: ctx.state.tick, fenceId: fs.id, bankId: -1, pos });
   }
 
   // -------------------------------------------------------------------------

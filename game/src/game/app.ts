@@ -63,9 +63,11 @@ import {
 import { CreditsScreen } from '../ui/screens/CreditsScreen';
 import { BootSplash } from '../ui/screens/BootSplash';
 import { vanWipe, type FrontMode, type MainMenuProps, type NextGoalView, type PlayerCardModel } from '../ui/screens/MainMenu';
-import { buildNewsFeed, newestNewsVersion } from '../ui/components/NewsTicker';
+import { buildNewsFeed, compareVersions, newestNewsVersion } from '../ui/components/NewsTicker';
 import { t as tFront } from '../ui/i18n';
-import { bumpFunnel, setLastSeenVersion } from '../platform/progress';
+import { bumpFunnel, setLastQuick, setLastSeenVersion } from '../platform/progress';
+import { mergeRules } from '../sim/world';
+import { buildMatch as buildFrontMatch } from './setup';
 import { getNative } from '../platform/native';
 import { tournamentAchievements, wardrobeAchievement } from './achievements';
 import { MatchController, type MatchSummary } from './match';
@@ -517,6 +519,8 @@ export class App {
 
   private onMenuSelect(item: MainMenuItem): void {
     this.frontMenuAudio(null);
+    // Leaving the front door for play (any route, not only 게임 시작) marks the news as read.
+    if (item === 'play' || item === 'goal' || item === 'practice' || item === 'quickMatch' || item === 'tournament') this.frontMarkNewsSeen();
     switch (item) {
       case 'play':
         this.frontPlay();
@@ -601,18 +605,93 @@ export class App {
     splash.show();
   }
 
-  /** Quick-match setup 게임 시작 uses: the saved last setup, else this session's, else defaults. */
+  /**
+   * Quick-match setup 게임 시작 uses: the saved last quick match (F9 lastQuick), else the one
+   * started this session (if the save could not take it), else 1:1 / random map / random rival.
+   */
   private frontQuickOpts(): QuickMatchOptions {
     const lq = this.d.save.data.lastQuick;
     if (lq) return { mode: lq.mode, layout: lq.layout, rival: lq.rival, difficulty: lq.difficulty };
-    if (this.quickTouched) return { ...this.quickOpts };
+    if (this.frontSessionQuick) return { ...this.frontSessionQuick };
     return { mode: '1v1', layout: 'random', rival: 'random', difficulty: 'normal' };
   }
 
-  /** True once the player changed the quick setup this session. */
-  private get quickTouched(): boolean {
-    const q = this.quickOpts;
-    return !(q.mode === '1v1' && q.layout === 'plaza' && q.rival === 'hodadak' && q.difficulty === 'normal') || this.d.params.layout !== null;
+  /** The last quick setup started this session (fallback when the save cannot store lastQuick). */
+  private frontSessionQuick: QuickMatchOptions | null = null;
+
+  /**
+   * Remember a quick-match setup the player started (quick-match board or 게임 시작) as F9
+   * lastQuick, so 게임 시작 replays it next session too. Item / event toggles already saved are
+   * kept (the board does not have them yet; C8 adds them).
+   */
+  private frontRememberQuick(o: QuickMatchOptions): void {
+    this.frontSessionQuick = { ...o };
+    try {
+      const prev = this.d.save.data.lastQuick;
+      setLastQuick({ mode: o.mode, layout: o.layout, rival: o.rival, difficulty: o.difficulty, items: prev?.items ?? 'on', events: prev?.events ?? 'on' });
+    } catch {
+      // older save shape: the session fallback above still works
+    }
+  }
+
+  /**
+   * What a quick match on each rotation map really runs: the same buildMatch + mergeRules path
+   * the game uses, so the news strip only announces Content 2.0 once matches actually play it.
+   */
+  private frontLiveContent(): { v2: boolean; items: boolean; props: Set<string> } {
+    const out = { v2: false, items: false, props: new Set<string>() };
+    for (const id of MATCH_LAYOUT_IDS) {
+      try {
+        const built = buildFrontMatch({
+          kind: 'quick',
+          layoutId: id,
+          mode: '1v1',
+          rival: 'hodadak',
+          difficulty: 'normal',
+          adaptation: null,
+          seed: 1,
+          humanHat: 'none',
+          matchSeconds: this.d.params.matchSeconds,
+          police: this.d.params.police,
+        });
+        const rules = mergeRules(built.setup);
+        const v2 = rules.content === 'v2' ? built.setup.layout.v2 : null;
+        if (!v2) continue;
+        out.v2 = true;
+        if (rules.items !== 'off' && v2.itemPads.length > 0) out.items = true;
+        for (const p of v2.props) out.props.add(p.variant);
+      } catch {
+        // a map that cannot build announces nothing
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Is a news.json `requires` gate true of what matches really run? 'v2' = Content 2.0 rules on
+   * a rotation map, 'items' = supply drops on one of them, 'props:a,b' = all those uprootables
+   * placed on v2 maps, 'layout:<id>' = that map is in the rotation.
+   */
+  private frontNewsGate(live: { v2: boolean; items: boolean; props: Set<string> }): (req: string) => boolean {
+    return (req) => {
+      if (req === 'v2') return live.v2;
+      if (req === 'items') return live.items;
+      if (req.startsWith('props:')) return live.v2 && req.slice(6).split(',').every((v) => live.props.has(v.trim()));
+      if (req.startsWith('layout:')) return (MATCH_LAYOUT_IDS as string[]).includes(req.slice(7));
+      return false;
+    };
+  }
+
+  /** Mark the update notes the player could see as read (leaving the front door for play). */
+  private frontMarkNewsSeen(): void {
+    const version = newestNewsVersion(this.frontNewsGate(this.frontLiveContent()));
+    if (!version) return;
+    try {
+      const prev = this.d.save.data.lastSeenVersion;
+      if (!prev || compareVersions(version, prev) > 0) setLastSeenVersion(version);
+    } catch {
+      // older save shape: nothing to remember
+    }
   }
 
   private frontFirstRun(): boolean {
@@ -663,9 +742,8 @@ export class App {
       practice: data.tutorialDone ? 'front.mode.practice.again' : 'front.mode.practice.first',
     };
     const lastSeen = (data as { lastSeenVersion?: string | null }).lastSeenVersion ?? null;
-    const anyV2 = MATCH_LAYOUT_IDS.some((id) => !!(getLayout(id) as { v2?: unknown }).v2);
     const news = buildNewsFeed({
-      available: (req) => (req === 'v2' ? anyV2 : req.startsWith('layout:') ? (MATCH_LAYOUT_IDS as string[]).includes(req.slice(7)) : false),
+      available: this.frontNewsGate(this.frontLiveContent()),
       // A fresh save has seen nothing yet, but everything is new to it: mark nothing.
       lastSeenVersion: st.matches > 0 || data.tutorialDone ? lastSeen ?? '0.5.0' : null,
       start: this.newsStart,
@@ -739,20 +817,13 @@ export class App {
     } catch {
       // funnel counters are optional (local playtest stats only)
     }
-    const version = newestNewsVersion();
-    if (version) {
-      try {
-        setLastSeenVersion(version);
-      } catch {
-        // older save shape: nothing to remember
-      }
-    }
     const fresh = this.frontFirstRun();
     const go = (): void => {
       if (fresh) this.startTutorial();
       else {
         const o = this.frontQuickOpts();
         this.quickOpts = { ...o };
+        this.frontRememberQuick(o);
         this.startQuick(o, true);
       }
     };
@@ -826,6 +897,7 @@ export class App {
         onChange: (v) => (this.quickOpts = { ...v }),
         onStart: (v) => {
           this.quickOpts = { ...v };
+          this.frontRememberQuick(v); // C10: 게임 시작 replays the last quick match (F9 lastQuick)
           this.startQuick(v, true);
         },
         onBack: () => this.toMenu('quickMatch'),

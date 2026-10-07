@@ -98,6 +98,23 @@ export const SFX_IDS = [
   'vendingHit',
   'vendingBreak',
   // --- [C9] end ---
+  // --- [F8] tension audio (./sfxTension.ts) ---
+  'tensionHeartbeat',
+  'stingBlocked',
+  'stingLead',
+  'stingEqual',
+  'streakFill',
+  'streakScratch',
+  'runClimb',
+  'finalTick',
+  'vanRev',
+  'vanDriveOff',
+  'tauntPunish',
+  'dodgeWhoosh',
+  'clashAccent',
+  'barkBlip',
+  'stingGoldHammer',
+  // --- [F8] end ---
 ] as const;
 export type SfxId = (typeof SFX_IDS)[number];
 

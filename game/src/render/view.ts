@@ -3348,7 +3348,7 @@ export class GameView {
     cam.updateMatrixWorld();
     for (const q of pts) {
       _ndc.copy(q).project(cam);
-      if (_ndc.z > 1 || Math.abs(_ndc.x) > 0.93 || _ndc.y < -0.86) return false;
+      if (_ndc.z > 1 || Math.abs(_ndc.x) > 0.88 || _ndc.y < -0.78) return false;
     }
     return true;
   }
@@ -3395,7 +3395,8 @@ export class GameView {
       spots.set(c.id, { x: fx, y: fy, facing: faceCam - (i - (winners.length - 1) / 2) * 0.22, cheer: winner !== null, sad: false, index: i });
     });
     // Losers: screen-right, a step closer to the camera, facing the camera turned toward the winners.
-    const lBase = { x: front.x + rx * (winners.length * 0.75 + 2.2 + wOff) - dx * 1.6, y: front.y + ry * (winners.length * 0.75 + 2.2 + wOff) - dy * 1.6 };
+    // [F3] a smaller step toward the camera (1.6 -> 1.0 m) keeps the losers clear of the button row
+    const lBase = { x: front.x + rx * (winners.length * 0.75 + 2.2 + wOff) - dx * 1.0, y: front.y + ry * (winners.length * 0.75 + 2.2 + wOff) - dy * 1.0 };
     losers.forEach((c, i) => {
       const off = i * 1.25;
       const x = lBase.x + rx * off - dx * (i % 2) * 0.3;
@@ -3425,7 +3426,7 @@ export class GameView {
     // they fit (the clearance of the chosen direction holds; only the distance grows).
     const bodies: THREE.Vector3[] = [];
     for (const sp of spots.values()) bodies.push(new THREE.Vector3(sp.x, 0.05, sp.y), new THREE.Vector3(sp.x, 1.45, sp.y));
-    for (let k = 0; k < 8 && !this.stageFits(center, shot.yaw, shot.pitch, shot.dist, bodies); k++) shot.dist += 0.6;
+    for (let k = 0; k < 10 && !this.stageFits(center, shot.yaw, shot.pitch, shot.dist, bodies); k++) shot.dist += 0.6;
     return {
       center,
       spots,

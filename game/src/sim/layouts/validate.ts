@@ -41,7 +41,7 @@ import {
   sdOBB,
   toWorld,
 } from './geometry';
-import { KIOSK_STYLES, PATH_CLASS_WIDTH, SHOP_STYLES, type LayoutDesignMeta } from './meta';
+import { KIOSK_STYLES, PATH_CLASS_WIDTH, SHOP_STYLES, type LayoutDesignMeta, type RuleWaiver } from './meta';
 
 // ---------------------------------------------------------------------------
 // Tunables of the validation itself
@@ -104,13 +104,24 @@ export const V2_BREAKABLES_PER_SIDE: Readonly<Record<'crate' | 'vending', number
 export const STARTER_WALK = { min: 8, max: 12 } as const;
 /** Starter socket: footprint at least this far outside its own zone (m). */
 export const STARTER_ZONE_GAP = 6;
-/** No breakable (its center) within this distance of any zone edge (m). */
+/**
+ * Starter socket haul: with every breakable standing, the ATM still reaches its own zone on a lane
+ * this wide in radius — the bots' large-carry clearance (NAV_CLEARANCE.large, src/ai/nav.ts), so a
+ * crate never turns the starter into a socket bots cannot haul from (a crate leaving 1.54 m of a
+ * 2.5 m lane passes a hand-carried ATM but not bot navigation).
+ */
+export const STARTER_HAUL_RADIUS = 0.8;
+/**
+ * No breakable within this distance of any zone edge (m), measured from its center (the plan's "none
+ * within 6 m of a zone edge" read as the object's position). The footprint gap is reported too; only
+ * counter's south crate relies on the center reading (footprint 5.79 m), pending the plan owner.
+ */
 export const BREAKABLE_ZONE_GAP = 6;
 /** Natural-path crate: walk from the spawn to a hitting spot. */
 export const NATURAL_CRATE_WALK = { min: 5, max: 9 } as const;
 /** A crate is on a spawn's natural path when visiting it costs at most this detour (m) on the way to a first target. */
 export const NATURAL_PATH_DETOUR = 2.5;
-/** Mirrored item pads: walk from the nearest own spawn. */
+/** Mirrored item pads: walk from each own spawn (content-plan §5.2 "12–18 m from each spawn"). */
 export const ITEM_PAD_WALK = { min: 12, max: 18 } as const;
 /** Item pads: free ground around the pad center (static clearance, m) and gap to loot / breakables. */
 export const ITEM_PAD_CLEAR = 0.9;
@@ -142,6 +153,58 @@ export const SQUEEZE_RADIUS = { walk: CHARACTER.radius, small: CHARACTER.radius,
 export const FENCE_HAMMER_REACH = ITEMS.hammer.reach;
 /** Both teams' walks to a fence's hammer spots must match within this (m). */
 export const FENCE_HAMMER_TOL = 0.75;
+/**
+ * 현금 수송차 (content-plan §5.4): "enters from the north or south curb on the axis and parks at the
+ * spot". No truck size is frozen yet (C5 owns it), so the check assumes a 2.4 x 5 m body driving
+ * along the axis: its approach from a curb needs this half width of static clearance on the axis,
+ * and its parking box at event spot 0 must be clear of statics and breakables.
+ */
+export const TRUCK_HALF = { x: 1.2, y: 2.5 } as const;
+
+/** One curb approach of the cash truck to an event spot (see truckApproach). */
+export interface TruckApproach {
+  from: 'north' | 'south';
+  /** Smallest static clearance (statics + circles; fences and banks excluded) along the axis drive. */
+  clearance: number;
+  /** The static that sets `clearance` (null when nothing is within 3 m). */
+  blocker: string | null;
+  /** Weak fences the drive would have to bust (their surface within TRUCK_HALF.x of the axis line). */
+  fences: string[];
+  /** Banks whose START pose sits on the drive (they move during a match; reported, not ruled). */
+  banks: number[];
+}
+
+/**
+ * Pure geometry, usable by the event system: the cash truck's straight drive along the mirror axis
+ * from the north (y = 0) or south (y = size.y) arena edge to `spot`. Open when `clearance >=
+ * TRUCK_HALF.x` (fences / banks listed separately: both can be gone by the time the event fires).
+ */
+export function truckApproach(def: LayoutDef, spot: Vec2, from: 'north' | 'south'): TruckApproach {
+  const x = def.size.x / 2;
+  const y0 = from === 'north' ? 0 : spot.y;
+  const y1 = from === 'north' ? spot.y : def.size.y;
+  let clearance = 3;
+  let blocker: string | null = null;
+  const fences = new Set<string>();
+  const banks = new Set<number>();
+  const n = Math.max(1, Math.ceil((y1 - y0) / 0.1));
+  for (let i = 0; i <= n; i++) {
+    const p = { x, y: y0 + ((y1 - y0) * i) / n };
+    for (const s of def.statics) {
+      const d = sdOBB(s, p);
+      if (d < clearance) [clearance, blocker] = [d, s.id];
+    }
+    for (const c of def.circles) {
+      const d = sdCircle(c.center, c.radius, p);
+      if (d < clearance) [clearance, blocker] = [d, c.id];
+    }
+    for (const f of def.fences) if (sdOBB(f, p) < TRUCK_HALF.x) fences.add(f.id);
+    def.banks.forEach((b, bi) => {
+      if (sdOBB(bankOBB(b), p) < TRUCK_HALF.x) banks.add(bi);
+    });
+  }
+  return { from, clearance, blocker, fences: [...fences], banks: [...banks] };
+}
 
 /** Coins inside a prop at build (PROP_SPECS inner piles). */
 export function propInnerValue(variant: PropVariant): number {
@@ -302,15 +365,17 @@ export interface V2Metrics {
   /** Value on the west / east half (axis elements excluded); must match. */
   sideValue: [number, number];
   /** Starter-socket ATMs: walk from the nearest own spawn, gap to the own zone, clearance from bank sweeps. */
-  starters: { pos: Vec2; walk: number; zoneGap: number; sweepGap: number }[];
-  /** Breakables: walk from the nearest spawn (any team), center distance to the nearest zone. */
-  breakables: { id: string; kind: string; walk: number; zoneGap: number }[];
+  starters: { pos: Vec2; walk: number; walkFar: number; zoneGap: number; sweepGap: number; haul: number }[];
+  /** Breakables: walk from the nearest spawn (any team), center (rule) and footprint distance to the nearest zone. */
+  breakables: { id: string; kind: string; walk: number; zoneGap: number; footprintGap: number }[];
   /** Per spawn: the best natural-path crate (walk, detour, target) or null. */
   naturalCrates: ({ id: string; walk: number; detour: number; target: string } | null)[];
-  /** Item pads: walk from the nearest own spawn (axis pad: nearest spawn), clearance from bank sweeps. */
-  pads: { id: string; twin: string | null; walk: number; sweepGap: number }[];
+  /** Item pads: walk from the nearest / farthest own spawn (axis pad: nearest spawn), clearance from bank sweeps. */
+  pads: { id: string; twin: string | null; walk: number; walkFar: number; sweepGap: number }[];
   /** Event spots: static clearance, gap to loot at start, open fraction of the 돈비 ring. */
   spots: { pos: Vec2; clearance: number; lootGap: number; ringOpen: number }[];
+  /** Cash-truck drive to event spot 0 from each curb, and the parking box's gap to statics / breakables. */
+  truck: { approaches: TruckApproach[]; parkGap: number } | null;
   /** 돈나무 haul (PROP_HAUL_RADIUS disc) per zone. */
   haul: { label: string; toZone: number[] }[];
   /** Fences: nearest walk to a hammer spot per team. */
@@ -1231,6 +1296,19 @@ export function validateLayout(input: LayoutDef, meta: LayoutDesignMeta, opts: V
   };
   /** Inset that keeps the whole footprint inside a zone (any rotation). */
   const lootInset = (l: LootFootprint): number => Math.hypot(l.obb.half.x, l.obb.half.y);
+  /**
+   * Cell a carry starts from: the one under the loot, or, for a prop standing flush on a wall (an
+   * ATM against a shop front), the nearest free cell within 1 m of its footprint (it is dragged clear
+   * before it turns). Shared by the carry check and the fence-effect metric.
+   */
+  const carryStart = (g: Grid, m: Uint8Array, l: LootFootprint): number => {
+    const c = g.cellOf(l.pos);
+    const start = g.idx(c.i, c.j);
+    if (m[start] || !l.variant) return start;
+    const bb = obbAabb(l.obb);
+    const near1 = g.cellsIn(m, { minX: bb.minX - 1, minY: bb.minY - 1, maxX: bb.maxX + 1, maxY: bb.maxY + 1 }, (p) => sdOBB(l.obb, p) <= 1);
+    return near1.length > 0 ? near1.reduce((a, k) => (dist(g.center(k), l.pos) < dist(g.center(a), l.pos) ? k : a)) : start;
+  };
   loot.forEach((l, i) => {
     const what = l.variant ?? l.kind;
     const rc = reachCells(l.obb);
@@ -1240,15 +1318,7 @@ export function validateLayout(input: LayoutDef, meta: LayoutDesignMeta, opts: V
     });
     const code = l.variant === 'moneyTree' ? 'propHaul' : 'reach';
     const m = carryMask(l.carryRadius);
-    const c = grid.cellOf(l.pos);
-    let start = grid.idx(c.i, c.j);
-    // (v2) A prop may stand flush on a wall (an ATM against a shop front): it is dragged clear
-    // before it turns, so its haul starts from the nearest cell within 1 m of its footprint.
-    if (!m[start] && l.variant) {
-      const bb = obbAabb(l.obb);
-      const near1 = grid.cellsIn(m, { minX: bb.minX - 1, minY: bb.minY - 1, maxX: bb.maxX + 1, maxY: bb.maxY + 1 }, (p) => sdOBB(l.obb, p) <= 1);
-      if (near1.length > 0) start = near1.reduce((a, k) => (dist(grid.center(k), l.pos) < dist(grid.center(a), l.pos) ? k : a));
-    }
+    const start = carryStart(grid, m, l);
     const carryToZone: number[] = [Infinity, Infinity];
     if (!m[start]) {
       err(code, `${l.label} (${what}) start lacks ${l.variant === 'moneyTree' ? `a ${fmt(2 * l.carryRadius)} m haul lane` : `${l.kind} clearance`} (${fmt(grid.dist[start], 2)} m)`);
@@ -1275,8 +1345,7 @@ export function validateLayout(input: LayoutDef, meta: LayoutDesignMeta, opts: V
     loot.forEach((s, i) => {
       const cls = s.kind === 'smallSafe' ? 'small' : 'large';
       const run = (g: Grid, m: Uint8Array): number[] => {
-        const c = g.cellOf(s.pos);
-        const k = g.idx(c.i, c.j);
+        const k = carryStart(g, m, s);
         if (!m[k]) return def.zones.map(() => Infinity);
         const d = g.distances(m, [k]);
         return def.zones.map((z) => minOver(d, g.cellsIn(m, obbAabb(zoneOBB(z)), (p) => sdOBB(zoneOBB(z), p) <= -lootInset(s))));
@@ -1462,7 +1531,7 @@ export function validateLayout(input: LayoutDef, meta: LayoutDesignMeta, opts: V
 
   // ---- Content 2.0 composition rules -----------------------------------------------------------------
   const v2Metrics = v2
-    ? v2Checks({ def, v2, meta, loot, safeMetrics, breakableShapes, staticShapes, grid, walk, spawnDist, reachCells, minOver, zoneTargets, isMatch, axis, err, warn })
+    ? v2Checks({ def, v2, meta, loot, safeMetrics, breakableShapes, staticShapes, grid, walk, spawnDist, reachCells, minOver, zoneTargets, carryStart, isMatch, axis, err, warn })
     : undefined;
 
   const metrics: LayoutMetrics = {
@@ -1615,6 +1684,8 @@ interface V2CheckInput {
   reachCells: (o: OBB) => number[];
   minOver: (d: Float64Array, cells: number[]) => number;
   zoneTargets: (m: Uint8Array, z: LayoutDef['zones'][number], inset: number) => number[];
+  /** Cell a carry of `l` starts from on grid `g` / mask `m` (props flush on a wall: nearest free cell). */
+  carryStart: (g: Grid, m: Uint8Array, l: LootFootprint) => number;
   isMatch: boolean;
   axis: number;
   err: (code: string, msg: string) => void;
@@ -1654,6 +1725,21 @@ function v2Checks(c: V2CheckInput): V2Metrics {
   const zoneOf = (t: TeamId): LayoutDef['zones'][number] | undefined => def.zones.find((z) => z.team === t);
   const bankObbs = def.banks.map(bankOBB);
   const props = loot.filter((l) => l.variant !== null);
+  // Rule waivers (LayoutDesignMeta.waivers): a matching error becomes a warning that prints the
+  // reason; `subjects` lists the element and its mirror twin, so one waiver covers the pair.
+  const waivers = (c.meta.waivers ?? []).map((w) => ({ ...w, used: false }));
+  const errW = (rule: RuleWaiver['rule'], subjects: string[], msg: string): void => {
+    const w = waivers.find((q) => q.rule === rule && subjects.includes(q.subject));
+    if (!w) return err(rule, msg);
+    w.used = true;
+    warn('waived', `${rule}: ${msg} — waived: ${w.reason}`);
+  };
+  /** `spawn i` plus its mirror twin's name (the builder emits team 1 spawns mirrored, after team 0's). */
+  const spawnSubjects = (si: number): string[] => {
+    const s = def.spawns[si];
+    const twin = def.spawns.findIndex((q, qi) => qi !== si && q.team !== s.team && nearV(q.pos, mp(s.pos)));
+    return twin >= 0 ? [`spawn ${si}`, `spawn ${twin}`] : [`spawn ${si}`];
+  };
 
   // ---- composition --------------------------------------------------------------------------------
   if (c.isMatch) {
@@ -1722,13 +1808,26 @@ function v2Checks(c: V2CheckInput): V2Metrics {
 
   // ---- starter sockets (ATM) -----------------------------------------------------------------------------
   const starters: V2Metrics['starters'] = [];
+  const haulGrid = new Grid(def, [...obstacles(def, { fences: 'all', banksAtStart: true }), ...c.breakableShapes]);
   for (const l of props.filter((p) => p.variant === 'atm')) {
     const t = sideOf(l.pos.x, axis);
     const z = t === null ? undefined : zoneOf(t);
-    const walkD = nearestOwnWalk(t, reachCells(l.obb));
+    const rc = reachCells(l.obb);
+    const walkD = nearestOwnWalk(t, rc);
+    // reported only: one ATM per team serves the spawn it is a starter for ("8-12 m from the spawns")
+    const walkFar = t === null ? walkD : teamSpawns(t).reduce((a, si) => Math.max(a, minOver(spawnDist[si], rc)), 0);
     const zoneGap = z ? boxGap(l.obb, zoneOBB(z)) : Infinity;
     const sweepGap = sweepGapObb(l.obb);
-    starters.push({ pos: l.pos, walk: walkD, zoneGap, sweepGap });
+    let haul = Infinity;
+    if (z) {
+      const hm = haulGrid.freeMask(STARTER_HAUL_RADIUS);
+      const start = c.carryStart(haulGrid, hm, l);
+      if (hm[start]) haul = minOver(haulGrid.distances(hm, [start]), haulGrid.cellsIn(hm, obbAabb(zoneOBB(z)), (p) => sdOBB(zoneOBB(z), p) <= 0));
+    }
+    starters.push({ pos: l.pos, walk: walkD, walkFar, zoneGap, sweepGap, haul });
+    if (!Number.isFinite(haul)) {
+      err('starter', `${l.label} at ${at(l.pos)} cannot be hauled to its zone on a ${fmt(2 * STARTER_HAUL_RADIUS)} m lane with the breakables standing (bot navigation would never take it home)`);
+    }
     if (!(walkD >= STARTER_WALK.min - 1e-6 && walkD <= STARTER_WALK.max + 1e-6)) {
       err('starter', `${l.label} at ${at(l.pos)} is a ${fmt(walkD)} m walk from the nearest own spawn (starter socket: ${STARTER_WALK.min}..${STARTER_WALK.max} m)`);
     }
@@ -1744,8 +1843,9 @@ function v2Checks(c: V2CheckInput): V2Metrics {
     hitCells.set(b.id, cells);
     // "none within 6 m of a zone edge": measured from the breakable's position (its center)
     const zoneGap = def.zones.reduce((a, z) => Math.min(a, sdOBB(zoneOBB(z), b.center)), Infinity);
+    const footprintGap = def.zones.reduce((a, z) => Math.min(a, boxGap(b, zoneOBB(z))), Infinity);
     const walkD = nearestOwnWalk(null, cells);
-    breakables.push({ id: b.id, kind: b.kind, walk: walkD, zoneGap });
+    breakables.push({ id: b.id, kind: b.kind, walk: walkD, zoneGap, footprintGap });
     if (zoneGap < BREAKABLE_ZONE_GAP - 1e-6) err('breakable', `breakable ${b.id} is only ${fmt(zoneGap, 2)} m from a zone (>= ${BREAKABLE_ZONE_GAP})`);
     if (!Number.isFinite(walkD)) err('breakable', `breakable ${b.id} cannot be reached on foot`);
     // A 0.9 m crate in a 1.1 m alley does not squeeze it, it plugs it (small-safe carries included).
@@ -1758,6 +1858,8 @@ function v2Checks(c: V2CheckInput): V2Metrics {
   }
 
   // ---- natural-path crates: per spawn, a crate 5..9 m out on the way to a first target ------------------------
+  // First targets are what a raccoon can act on at kickoff: the starter ATM, the 돼지 and the 돈나무, its own
+  // side's small safe, a bank door. Item pads are not: they stay empty until the first drop (15 s).
   const naturalCrates: V2Metrics['naturalCrates'] = [];
   const targetsFor = (t: TeamId): { name: string; cells: number[] }[] => {
     const out: { name: string; cells: number[] }[] = [];
@@ -1766,14 +1868,14 @@ function v2Checks(c: V2CheckInput): V2Metrics {
       const first = l.variant === 'atm' || l.variant === 'piggy' || l.variant === 'moneyTree' || l.kind === 'smallSafe';
       if (first && (side === null || side === t)) out.push({ name: l.label, cells: reachCells(l.obb) });
     }
+    // each door on its own: a raccoon heading for a bank picks a door, and the detour is measured
+    // against the direct walk to THAT door (counter's terrace lane leads straight to a back door)
     def.banks.forEach((b, bi) => {
-      const cells = bankDoorExteriors(b).flatMap((d) => grid.cellsIn(walk, { minX: d.pos.x - 0.6, minY: d.pos.y - 0.6, maxX: d.pos.x + 0.6, maxY: d.pos.y + 0.6 }, () => true));
-      out.push({ name: `bank ${bi} door`, cells });
+      bankDoorExteriors(b).forEach((d, di) => {
+        const cells = grid.cellsIn(walk, { minX: d.pos.x - 0.6, minY: d.pos.y - 0.6, maxX: d.pos.x + 0.6, maxY: d.pos.y + 0.6 }, () => true);
+        if (cells.length > 0) out.push({ name: `bank ${bi} door ${di}`, cells });
+      });
     });
-    for (const p of v2.itemPads) {
-      const side = sideOf(p.pos.x, axis);
-      if (side === null || side === t) out.push({ name: `pad ${p.id}`, cells: [cellIdx(p.pos)] });
-    }
     return out;
   };
   const crateFields = new Map<string, Float64Array>();
@@ -1796,7 +1898,7 @@ function v2Checks(c: V2CheckInput): V2Metrics {
     }
     naturalCrates.push(best);
     if (c.isMatch && !best) {
-      err('crate', `spawn ${si} has no crate on its natural path (${NATURAL_CRATE_WALK.min}..${NATURAL_CRATE_WALK.max} m walk, <= ${NATURAL_PATH_DETOUR} m detour toward a first target)`);
+      errW('crate', spawnSubjects(si), `spawn ${si} has no crate on its natural path (${NATURAL_CRATE_WALK.min}..${NATURAL_CRATE_WALK.max} m walk, <= ${NATURAL_PATH_DETOUR} m detour toward a first target)`);
     }
   });
 
@@ -1815,14 +1917,17 @@ function v2Checks(c: V2CheckInput): V2Metrics {
     const clear = clearanceAt(def, c.staticShapes, p.pos);
     const gap = lootGapAt(p.pos);
     const walkD = t === null ? nearestOwnWalk(null, [k]) : nearestOwnWalk(t, [k]);
+    // "12-18 m from each spawn" (content-plan §5.2): the farthest own spawn counts too
+    const walkFar = t === null ? walkD : teamSpawns(t).reduce((a, si) => Math.max(a, spawnDist[si][k]), 0);
     const sweepGap = sweepGapPoint(p.pos);
-    pads.push({ id: p.id, twin: p.twin, walk: walkD, sweepGap });
+    pads.push({ id: p.id, twin: p.twin, walk: walkD, walkFar, sweepGap });
     if (clear < ITEM_PAD_CLEAR) err('pads', `item pad ${p.id} at ${at(p.pos)} has ${fmt(clear, 2)} m of free ground (>= ${ITEM_PAD_CLEAR})`);
     if (gap < ITEM_PAD_CLEAR) err('pads', `item pad ${p.id} at ${at(p.pos)} sits ${fmt(gap, 2)} m from loot / a breakable (>= ${ITEM_PAD_CLEAR})`);
     if (!def.spawns.every((_, si) => Number.isFinite(spawnDist[si][k]))) err('pads', `item pad ${p.id} at ${at(p.pos)} is not reachable from every spawn`);
     if (t !== null) {
-      if (!(walkD >= ITEM_PAD_WALK.min - 1e-6 && walkD <= ITEM_PAD_WALK.max + 1e-6)) {
-        err('pads', `item pad ${p.id} at ${at(p.pos)} is a ${fmt(walkD)} m walk from the nearest own spawn (${ITEM_PAD_WALK.min}..${ITEM_PAD_WALK.max})`);
+      if (!(walkD >= ITEM_PAD_WALK.min - 1e-6 && walkFar <= ITEM_PAD_WALK.max + 1e-6)) {
+        const subjects = [`pad ${p.id}`, ...(p.twin ? [`pad ${p.twin}`] : [])];
+        errW('pads', subjects, `item pad ${p.id} at ${at(p.pos)} is a ${fmt(walkD)} / ${fmt(walkFar)} m walk from its own spawns (each ${ITEM_PAD_WALK.min}..${ITEM_PAD_WALK.max})`);
       }
       if (sweepGap < 0) err('pads', `item pad ${p.id} at ${at(p.pos)} lies in a bank-route sweep (${fmt(sweepGap + BANK_SWEEP_RADIUS, 2)} m from a route)`);
     } else if (sweepGap < 0) {
@@ -1858,6 +1963,25 @@ function v2Checks(c: V2CheckInput): V2Metrics {
       if (p.twin === null && dist(p.pos, s) < 3) warn('spots', `event spot ${i} is ${fmt(dist(p.pos, s), 2)} m from the axis item pad (keep the two beats apart)`);
     }
   });
+
+  // ---- cash truck (현금 수송차): drive in along the axis from a curb, park at spot 0 -------------------------------
+  let truck: V2Metrics['truck'] = null;
+  if (c.isMatch && v2.eventSpots.length > 0) {
+    const s0 = v2.eventSpots[0];
+    const approaches = (['north', 'south'] as const).map((from) => truckApproach(def, s0, from));
+    const park: OBB = { center: { ...s0 }, half: { ...TRUCK_HALF }, angle: 0 };
+    const parkGap = Math.min(...c.staticShapes.filter((sh) => sh.solidKind !== 'fence').map((sh) => (sh.type === 'box' ? boxGap(park, sh.obb) : obbGap(park, sh))), Infinity);
+    truck = { approaches, parkGap };
+    if (parkGap < 0) err('truck', `event spot 0: the ${fmt(2 * TRUCK_HALF.x)} x ${fmt(2 * TRUCK_HALF.y)} m cash-truck parking box overlaps a static / breakable`);
+    const open = approaches.filter((a) => a.clearance >= TRUCK_HALF.x - 1e-6);
+    const why = (a: TruckApproach): string => `${a.from} (${a.blocker ?? '?'}, ${fmt(a.clearance, 2)} m of ${fmt(TRUCK_HALF.x, 2)})`;
+    if (open.length === 0) {
+      errW('truck', ['spot 0'], `event spot 0: no curb approach on the axis fits the cash truck: ${approaches.map(why).join(', ')}`);
+    } else {
+      for (const a of approaches) if (!open.includes(a)) warn('truck', `event spot 0: the cash truck can only enter from the ${open[0].from} curb; the ${why(a)} approach is walled`);
+      for (const a of open) if (a.fences.length > 0) warn('truck', `event spot 0: the ${a.from} truck approach crosses weak fence(s) ${a.fences.join(', ')} (open only once busted)`);
+    }
+  }
 
   // ---- 돈나무 haul (propHaul: carry check with PROP_HAUL_RADIUS above) -------------------------------------------
   const haul = loot
@@ -1940,7 +2064,8 @@ function v2Checks(c: V2CheckInput): V2Metrics {
     if (hit) warn('bankPath', `${l.label} at ${at(l.pos)} sits in a bank's path: the bank stops on it until someone uproots it`);
   }
 
-  return { sideValue, starters, breakables, naturalCrates, pads, spots, haul, fenceHammer };
+  for (const w of waivers) if (!w.used) err('waiver', `waiver ${w.rule} "${w.subject}" matches no failing check (remove it): ${w.reason}`);
+  return { sideValue, starters, breakables, naturalCrates, pads, spots, truck, haul, fenceHammer };
 }
 
 /** Geometry fields of a gimmick, mirrored (for twin / axis-symmetry comparison). */
@@ -2135,18 +2260,26 @@ export function formatReport(r: ValidationReport): string {
   if (v) {
     lines.push(`   v2 value per half: west ${v.sideValue[0]} / east ${v.sideValue[1]}`);
     for (const st of v.starters) {
-      lines.push(`   starter ATM (${fmt(st.pos.x)},${fmt(st.pos.y)}): walk ${fmt(st.walk)} m · ${fmt(st.zoneGap, 2)} m outside its zone · ${fmt(st.sweepGap + BANK_SWEEP_RADIUS, 2)} m from a bank route`);
+      lines.push(`   starter ATM (${fmt(st.pos.x)},${fmt(st.pos.y)}): walk ${fmt(st.walk)} m (other own spawn ${fmt(st.walkFar)}) · ${fmt(st.zoneGap, 2)} m outside its zone · ${fmt(st.sweepGap + BANK_SWEEP_RADIUS, 2)} m from a bank route · bot haul (${fmt(2 * STARTER_HAUL_RADIUS)} m lane, crates standing) ${fmt(st.haul)} m`);
     }
-    for (const b of v.breakables) lines.push(`   breakable ${b.id} (${b.kind}): walk ${fmt(b.walk)} m · ${fmt(b.zoneGap, 2)} m from a zone`);
+    for (const b of v.breakables) lines.push(`   breakable ${b.id} (${b.kind}): walk ${fmt(b.walk)} m · ${fmt(b.zoneGap, 2)} m from a zone (footprint ${fmt(b.footprintGap, 2)})`);
     v.naturalCrates.forEach((n, si) =>
       lines.push(`   spawn ${si} natural crate: ${n ? `${n.id} at ${fmt(n.walk)} m (detour ${fmt(n.detour, 2)} m toward ${n.target})` : 'none'}`),
     );
     for (const p of v.pads) {
-      lines.push(`   item pad ${p.id}${p.twin ? ` (twin ${p.twin})` : ' (axis)'}: walk ${fmt(p.walk)} m · ${fmt(p.sweepGap + BANK_SWEEP_RADIUS, 2)} m from a bank route`);
+      lines.push(`   item pad ${p.id}${p.twin ? ` (twin ${p.twin})` : ' (axis)'}: walk ${p.twin ? `${fmt(p.walk)} / ${fmt(p.walkFar)}` : fmt(p.walk)} m · ${fmt(p.sweepGap + BANK_SWEEP_RADIUS, 2)} m from a bank route`);
     }
     v.spots.forEach((sp, i) =>
       lines.push(`   event spot ${i} (${fmt(sp.pos.x)},${fmt(sp.pos.y)}): clearance ${fmt(sp.clearance, 2)} m · loot ${fmt(sp.lootGap, 2)} m · 돈비 ring ${Math.round(sp.ringOpen * 100)} % open`),
     );
+    if (v.truck) {
+      const t = v.truck;
+      const ap = t.approaches.map((a) => {
+        const extra = [...(a.fences.length ? [`fence ${a.fences.join('+')}`] : []), ...(a.banks.length ? [`bank ${a.banks.join('+')} start pose`] : [])];
+        return `${a.from} ${a.clearance >= TRUCK_HALF.x - 1e-6 ? 'open' : 'walled'} ${fmt(a.clearance, 2)} m${a.blocker && a.clearance < TRUCK_HALF.x ? ` (${a.blocker})` : ''}${extra.length ? ` [crosses ${extra.join(', ')}]` : ''}`;
+      });
+      lines.push(`   cash truck -> spot 0: ${ap.join(' · ')} · parking box gap ${fmt(t.parkGap, 2)} m`);
+    }
     for (const h of v.haul) lines.push(`   ${h.label} haul (${fmt(2 * PROP_HAUL_RADIUS)} m lanes): z0 ${fmt(h.toZone[0])} z1 ${fmt(h.toZone[1])} m`);
     for (const f of v.fenceHammer) lines.push(`   fence ${f.id} hammer spot: t0 ${fmt(f.walk[0])} / t1 ${fmt(f.walk[1])} m`);
   }

@@ -372,7 +372,7 @@ export class BeatLabel {
     const halfW = ((base * LABEL_W) / LABEL_H / (2 * tanHalf * camera.aspect)) * this.frac;
     _box.minY = BEATS.label.minY;
     _box.maxY = BEATS.label.maxY;
-    _box.maxX = Math.max(0.2, Math.min(BEATS.label.maxX, 0.98 - halfW));
+    _box.maxX = Math.max(0.2, Math.min(BEATS.label.maxX, 0.96 - halfW));
     clampNdc(_ndc, _box);
     _ndc.unproject(camera);
     this.sprite.position.copy(_ndc);

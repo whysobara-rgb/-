@@ -1,12 +1,12 @@
 /**
  * Front-door news strip: an LED ticker of in-world headlines in the game's voice
- * ('news.h01'..'news.h40') plus honest update notes from the bundled `public/news.json`.
+ * ('front.news.h01'..'front.news.h40') plus honest update notes from the bundled `public/news.json`.
  *
  * Offline only: the JSON is bundled at build time and never fetched. A note shows only when its
  * `requires` gate is true of this build (the caller decides: 'v2', 'layout:<id>'), so the strip
  * never announces content that is not in the game. NEW marks notes newer than the player's
- * `lastSeenVersion`. No timers, no countdowns, no "limited time": the strip just scrolls (and
- * stands still with reduced motion).
+ * `lastSeenVersion`. No countdowns, no "limited time": the strip just scrolls (with reduced
+ * motion it cuts from one item to the next instead).
  */
 import newsData from '../../../public/news.json';
 import { getLanguage, t, tr, type TextRef } from '../i18n';
@@ -27,7 +27,7 @@ interface NewsNote {
   en: string;
 }
 
-/** Number of in-world headlines in the string tables (news.h01 .. news.hNN). */
+/** Number of in-world headlines in the string tables (front.news.h01 .. front.news.hNN). */
 export const NEWS_HEADLINES = 40;
 
 /** -1 / 0 / 1 for dotted numeric versions ('0.6.0' > '0.5.12'). */
@@ -66,7 +66,7 @@ export function buildNewsFeed(o: NewsFeedOptions): NewsItem[] {
   const heads: NewsItem[] = [];
   for (let i = 0; i < count; i++) {
     const n = ((start + i * 7) % NEWS_HEADLINES) + 1; // stride 7 (coprime with 40): every headline once per cycle
-    heads.push({ kind: 'headline', text: `news.h${String(n).padStart(2, '0')}` });
+    heads.push({ kind: 'headline', text: `front.news.h${String(n).padStart(2, '0')}` });
   }
   // updates first, then one more update every few headlines so they keep coming round
   const out: NewsItem[] = [...items];
@@ -77,11 +77,18 @@ export function buildNewsFeed(o: NewsFeedOptions): NewsItem[] {
   return out;
 }
 
-/** Newest note version in the bundled feed (game flow stores it as lastSeenVersion). */
-export function newestNewsVersion(): string | null {
+/**
+ * Newest version among the notes the player can actually see (game flow stores it as
+ * lastSeenVersion). Notes whose gate is still closed do not count, so a note that goes live in a
+ * later build is still NEW when it first shows.
+ */
+export function newestNewsVersion(available: (requires: string) => boolean = () => false): string | null {
   const notes = (newsData as { notes?: NewsNote[] }).notes ?? [];
   let best: string | null = null;
-  for (const n of notes) if (typeof n.version === 'string' && (best === null || compareVersions(n.version, best) > 0)) best = n.version;
+  for (const n of notes) {
+    if (!n || typeof n.version !== 'string' || !(n.requires === null || available(n.requires))) continue;
+    if (best === null || compareVersions(n.version, best) > 0) best = n.version;
+  }
   return best;
 }
 
@@ -115,6 +122,25 @@ export function newsTicker(items: readonly NewsItem[], label: TextRef = 'front.n
   return {
     el,
     start: () => {
+      // Reduced motion: no scrolling. The strip shows one item at a time and cuts to the next
+      // every few seconds (no slide), so every note can still be read.
+      if (document.documentElement.classList.contains('uh-reduced-motion')) {
+        const firstCopy = Array.from(track.children).filter((c) => c.classList.contains('uh-news__item')) as HTMLElement[];
+        el.classList.add('is-step');
+        let i = 0;
+        const show = (): void => {
+          const it = firstCopy[i];
+          if (it) track.style.transform = `translateX(${-it.offsetLeft}px)`;
+        };
+        show();
+        const timer = firstCopy.length > 1 ? window.setInterval(() => {
+          i = (i + 1) % firstCopy.length;
+          show();
+        }, 6000) : 0;
+        return () => {
+          if (timer) window.clearInterval(timer);
+        };
+      }
       let raf = requestAnimationFrame(() => {
         raf = 0;
         // ~70 px/s at 1080p (scaled with the UI rem) whatever the content length

@@ -80,6 +80,23 @@ export const SFX_CAPTION_KEYS: Partial<Record<SfxId, string>> = {
   vendingHit: 'caption.vendingHit',
   vendingBreak: 'caption.vendingBreak',
   // [C9] end
+  // [F8] tension audio (every cue captioned; see TENSION_CAPTION_KEYS)
+  tensionHeartbeat: 'caption.tensionHeartbeat',
+  stingBlocked: 'caption.stingBlocked',
+  stingLead: 'caption.stingLead',
+  stingEqual: 'caption.stingEqual',
+  streakFill: 'caption.streakFill',
+  streakScratch: 'caption.streakScratch',
+  runClimb: 'caption.runClimb',
+  finalTick: 'caption.finalTick',
+  vanRev: 'caption.vanRev',
+  vanDriveOff: 'caption.vanDriveOff',
+  tauntPunish: 'caption.tauntPunish',
+  dodgeWhoosh: 'caption.dodgeWhoosh',
+  clashAccent: 'caption.clashAccent',
+  barkBlip: 'caption.barkBlip',
+  stingGoldHammer: 'caption.stingGoldHammer',
+  // [F8] end
 };
 
 /** Caption keys of the taunt sounds (owner addition); texts in CAPTION_FALLBACK / the UI tables. */
@@ -145,6 +162,29 @@ export const CONTENT_CAPTION_KEYS: readonly string[] = [
 ];
 
 /**
+ * [F8] Caption keys of the tension cues (heartbeat, stings, run, final seconds, getaway, taunt /
+ * dodge / clash accents, barks, golden hammer landing). Texts in CAPTION_FALLBACK below and in the
+ * UI tables' [WP8] block.
+ */
+export const TENSION_CAPTION_KEYS: readonly string[] = [
+  'caption.tensionHeartbeat',
+  'caption.stingBlocked',
+  'caption.stingLead',
+  'caption.stingEqual',
+  'caption.streakFill',
+  'caption.streakScratch',
+  'caption.runClimb',
+  'caption.finalTick',
+  'caption.vanRev',
+  'caption.vanDriveOff',
+  'caption.tauntPunish',
+  'caption.dodgeWhoosh',
+  'caption.clashAccent',
+  'caption.barkBlip',
+  'caption.stingGoldHammer',
+];
+
+/**
  * Minimum ms between two captions with the same key (and side) where the default (450 ms) would
  * crowd the 3-line caption area: officers keep tweeting while they chase, and several officers
  * may shout in a row.
@@ -160,6 +200,9 @@ export const CAPTION_REPEAT_MS: Readonly<Record<string, number>> = {
   'caption.hammerWindup': 800,
   'caption.depositStart': 1500,
   'caption.piggyOink': 1500,
+  // [F8] the heartbeat beats every ~0.7 s while a match point lasts: one line per 8 s; barks in bursts
+  'caption.tensionHeartbeat': 8000,
+  'caption.barkBlip': 3000,
 };
 
 /**
@@ -266,6 +309,22 @@ export const CAPTION_FALLBACK: Readonly<{ ko: Readonly<Record<string, string>>; 
     'caption.crateBreak': '[와직! 나무 상자가 부서짐]',
     'caption.vendingHit': '[덜컹! 자판기가 콜록]',
     'caption.vendingBreak': '[와장창! 자판기가 부서짐]',
+    // [F8] tension audio
+    'caption.tensionHeartbeat': '[두근두근, 승부처 심장 소리]',
+    'caption.stingBlocked': '[빰! 승부처가 막힘]',
+    'caption.stingLead': '[빠라밤! 선두가 바뀜]',
+    'caption.stingEqual': '[띵동, 동점]',
+    'caption.streakFill': '[두구두구, 연속 득점 중]',
+    'caption.streakScratch': '[끼긱~ 연속 득점이 끊김]',
+    'caption.runClimb': '[띠링! 연속 득점]',
+    'caption.finalTick': '[째깍]',
+    'caption.vanRev': '[부릉부릉, 도주 차량 시동]',
+    'caption.vanDriveOff': '[부아앙~ 도주 차량 출발]',
+    'caption.tauntPunish': '[뾰요옹~ 도발하다 혼남]',
+    'caption.dodgeWhoosh': '[휙! 피했다]',
+    'caption.clashAccent': '[빰! 정면충돌]',
+    'caption.barkBlip': '[라이벌이 소리침]',
+    'caption.stingGoldHammer': '[반짝! 황금 뿅망치 도착]',
   },
   en: {
     'caption.siren': '[Siren]',
@@ -341,6 +400,22 @@ export const CAPTION_FALLBACK: Readonly<{ ko: Readonly<Record<string, string>>; 
     'caption.crateBreak': '[Crunch! Crate smashed]',
     'caption.vendingHit': '[Thunk! Vending machine coughs]',
     'caption.vendingBreak': '[Crash! Vending machine busted]',
+    // [F8] tension audio
+    'caption.tensionHeartbeat': '[Thump-thump, match point heartbeat]',
+    'caption.stingBlocked': '[Stab! Match point stopped]',
+    'caption.stingLead': '[Fanfare run, the lead changes]',
+    'caption.stingEqual': '[Ding-dong, scores level]',
+    'caption.streakFill': '[Drum fill, scoring run]',
+    'caption.streakScratch': '[Record scratch, run broken]',
+    'caption.runClimb': '[Ting! The run goes on]',
+    'caption.finalTick': '[Tick]',
+    'caption.vanRev': '[Vroom, getaway van revving]',
+    'caption.vanDriveOff': '[Vroom! Getaway van pulls away]',
+    'caption.tauntPunish': '[Boing! Taunter bonked]',
+    'caption.dodgeWhoosh': '[Whoosh! Dodged]',
+    'caption.clashAccent': '[Ta! Head-on clash]',
+    'caption.barkBlip': '[Rival hoots]',
+    'caption.stingGoldHammer': '[Sparkle! Golden hammer has landed]',
   },
 };
 

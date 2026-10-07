@@ -259,9 +259,11 @@ def step_logos() -> None:
     for lang in LANGS:
         lg = logo_src(lang)
         save(lg, STORE / 'logo' / f'logo_{lang}.png')
-        # Library logo: 1280x720 transparent canvas, logo fit with a little air (Steam overlays it).
+        save(logo_sticker(lang), STORE / 'logo' / f'logo_{lang}_sticker.png')
+        # Library logo: 1280x720 transparent canvas, logo fit with a little air. Steam lays it over
+        # the night library hero, so it carries the same die-cut sticker edge as the capsules.
         canvas = Image.new('RGBA', (1280, 720), (0, 0, 0, 0))
-        f = drop_shadow(fit(lg, 1180, 640), opacity=0.35)
+        f = drop_shadow(fit(logo_sticker(lang), 1180, 640), opacity=0.35)
         canvas.alpha_composite(f, ((1280 - f.width) // 2, (720 - f.height) // 2))
         save(trim_to(canvas, 1280, 720), STORE / f'library_logo_{lang}.png')
 

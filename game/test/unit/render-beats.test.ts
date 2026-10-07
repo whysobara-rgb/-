@@ -240,3 +240,39 @@ describe('GameView beats (stand-in this)', () => {
     expect(teamReact).not.toHaveBeenCalled();
   });
 });
+
+describe('beat CPU budget', () => {
+  it('every beat active at once costs far below the 1 ms frame budget', () => {
+    const cam = new THREE.PerspectiveCamera(38, 16 / 9, 0.5, 400);
+    cam.position.set(0, 17, 12);
+    cam.lookAt(0, 0, 0);
+    cam.updateMatrixWorld();
+    const rings = [new PulseRing('a'), new PulseRing('b'), new PulseRing('c')];
+    const labels = [new BeatLabel('a'), new BeatLabel('b')];
+    labels[0]!.set('막아야 해!', 'theirs');
+    labels[1]!.set('빼내기 +300', 'steal');
+    const winds = [new WindupRing(), new WindupRing(), new WindupRing()];
+    const bark = new BarkBubble();
+    bark.show('내 은행!!', 6);
+    const g = new GlanceTracker();
+    const out = { x: 0, y: 0 };
+    const frame = (i: number): void => {
+      const dt = 1 / 60;
+      rings.forEach((r, k) => r.update(true, i * 0.001 + k, 0, k, 1 + k, dt, 1.5, false));
+      labels[0]!.place(i * 0.001, 6, 0, cam, dt, 0.5);
+      labels[1]!.place(3, 2.5, 3, cam, dt, 0.5);
+      for (const w of winds) w.update(i / 60, 0, 0, 0, dt, false);
+      bark.update(0, 2, 0, 0.0001, false);
+      if (!g.active) g.begin({ x: 20, y: 0 }, 0.3, 900, i / 60);
+      g.apply(i / 60, 0, 0, out);
+      departParam(getawayDepart((i % 144) / 60, 3.6));
+    };
+    for (let i = 0; i < 2000; i++) frame(i);
+    const N = 20000;
+    const t0 = performance.now();
+    for (let i = 0; i < N; i++) frame(i);
+    const us = ((performance.now() - t0) / N) * 1000;
+    console.log(`[F3] beat CPU per frame, all beats active: ${us.toFixed(2)} us`);
+    expect(us).toBeLessThan(250);
+  });
+});

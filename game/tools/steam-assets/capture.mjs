@@ -272,10 +272,10 @@ job('police', {
     await liveMatch(p, 60, 24);
     await S.ev(p, `(() => { const r = __dir.scenarios.police(); window.__pol = r;
       for (let s = 0; s < 4; s++) __dir.set(s, __dir.idle({x: s % 2 ? -1 : 1, y: 0}));
-      const me = __dir.charId(0); __dir.tp(me, __dir.freeNear({x: 30, y: 26}), 0); })()`);
-    // An officer on patrol out in the open middle of the plaza (no building between it and the
-    // camera), then the haul starts right in front of it.
-    const OPEN = `(o) => o.phase === 'patrol' && o.pos.x > 22 && o.pos.x < 58 && o.pos.y > 19 && o.pos.y < 33`;
+      const me = __dir.charId(0); __dir.tp(me, __dir.freeNear({x: 36, y: 36}), 0); })()`);
+    // An officer on patrol on the open south boulevard (where this wave walks its beat), then the
+    // haul starts right in front of it.
+    const OPEN = `(o) => o.phase === 'patrol' && o.pos.x > 30 && o.pos.x < 56 && o.pos.y > 33 && o.pos.y < 44`;
     await S.pumpUntil(p, `__dir.sim.state.police.some(${OPEN})`, 3600);
     // The player grabs a small safe just ahead of an officer and hauls it toward the van.
     await stage(p, `(() => {
@@ -352,13 +352,20 @@ job('final', {
     await c.save('shot_06_final_banner', true);
     // The getaway wave answers the sirens; the player bolts for the van once they close in.
     const near = (d) => `(() => { const me = __dir.sim.state.characters[0]; return __dir.sim.state.police.some(o => (o.phase === 'chase' || o.phase === 'tackle') && Math.hypot(o.pos.x - me.pos.x, o.pos.y - me.pos.y) < ${d}); })()`;
-    await S.pumpUntil(p, near(5.5), 3600);
+    const soft = async (expr, limit) => {
+      try {
+        await S.pumpUntil(p, expr, limit);
+      } catch {
+        S.log('  (final: officers never got that close; capturing anyway)');
+      }
+    };
+    await soft(near(5.5), 1500);
     await S.ev(p, `(() => { const z = __dir.sim.layout.zones.find(z => z.team === 0);
       __dir.set(0, (s) => { const me = s.state.characters[0]; const d = { x: z.center.x - 1 - me.pos.x, y: z.center.y - 1 - me.pos.y }; const k = Math.hypot(d.x, d.y) || 1;
         return __dir.cmd({ x: d.x / k * 0.8, y: d.y / k * 0.8 }, true, { x: -1, y: 0 }); }); })()`);
-    await S.pumpUntil(p, near(4.2), 900);
+    await soft(near(4.2), 600);
     await c.save('shot_06_final_a', true);
-    await S.pumpUntil(p, near(3.0), 900);
+    await soft(near(3.0), 300);
     await c.save('plate_final_chase', false);
     await c.save('shot_06_final_b', true);
     await S.pump(p, 12);
@@ -503,6 +510,27 @@ job('logo', {
 
 const manifest = { generated: new Date().toISOString(), dpr: DPR, seed: SEED, frames: {} };
 
+/** True when a saved frame is mostly the dark clear colour (the world did not draw). */
+async function looksBlank(page, file) {
+  const b64 = fs.readFileSync(file).toString('base64');
+  return page.evaluate(async (data) => {
+    const img = new Image();
+    img.src = `data:image/png;base64,${data}`;
+    await img.decode();
+    const w = 192;
+    const h = Math.round((img.height / img.width) * w);
+    const cv = document.createElement('canvas');
+    cv.width = w;
+    cv.height = h;
+    const g = cv.getContext('2d');
+    g.drawImage(img, 0, 0, w, h);
+    const px = g.getImageData(0, 0, w, h).data;
+    let dark = 0;
+    for (let i = 0; i < px.length; i += 4) if (px[i] + px[i + 1] + px[i + 2] < 120) dark++;
+    return dark / (w * h) > 0.35;
+  }, b64);
+}
+
 async function runJob(browser, base, j, lang) {
   const [w, h] = j.size ?? [1920, 1080];
   const dpr = j.dpr ?? DPR;
@@ -535,6 +563,16 @@ async function runJob(browser, base, j, lang) {
       const ms = await S.drawFrame(page);
       const file = path.join(rawDir, `${name}.png`);
       await S.screenshot(page, file);
+      // Software GL under load sometimes presents a frame without the world (dark, flat). Check
+      // the saved image and redraw the same state in place (no game time passes) until it is whole.
+      for (let attempt = 0; attempt < 4 && (await looksBlank(page, file)); attempt++) {
+        S.log(`  ${name}: blank world in the presented frame, redrawing in place (${attempt + 1})`);
+        await S.warmUp(page);
+        await S.warmUp(page);
+        await page.evaluate(`__cap.setDraw(false)`);
+        await page.evaluate(`__cap.realFrames(4)`);
+        await S.screenshot(page, file);
+      }
       await S.setUiHidden(page, false);
       const state = await page.evaluate(`(() => { try { return window.__dir.match ? window.__dir.state() : null; } catch { return null; } })()`);
       c.record(name, { ui, drawMs: ms, file, state });

@@ -1,7 +1,7 @@
 /**
  * Boot splash (C10): cream paper, a paw stamp lands with a "thunk" (~1.2 s with the ring and
  * the wordmark), then the wordmark and a one-line photosensitivity note. Any key, button, click
- * or touch skips it; it ends on its own after `holdMs`. Game flow shows it only on the first run
+ * or touch skips it; it ends on its own after `holdMs` of smoothly rendered frames. Game flow shows it only on the first run
  * (and warms the title scene's shaders behind it), and plays the sting only in Electron (browsers
  * need a gesture before audio).
  */
@@ -28,11 +28,22 @@ const PAW_SVG =
   '<ellipse cx="14.5" cy="25" rx="5.4" ry="7" transform="rotate(-18 14.5 25)"/><ellipse cx="25" cy="14.5" rx="5.6" ry="7.4" transform="rotate(-6 25 14.5)"/>' +
   '<ellipse cx="39" cy="14.5" rx="5.6" ry="7.4" transform="rotate(6 39 14.5)"/><ellipse cx="49.5" cy="25" rx="5.4" ry="7" transform="rotate(18 49.5 25)"/></g></svg>';
 
-/** When the stamp hits (ms after show), matching the CSS thunk keyframes. */
+/** When the stamp hits (ms after the splash goes live), matching the CSS thunk keyframes. */
 const THUNK_AT_MS = 450;
+/** A frame counts toward the hold for at most this long, so a main-thread stall cannot eat it. */
+const MAX_FRAME_MS = 50;
+/** The splash goes live (animations start) on the first smooth frame after this many frames. */
+const WARM_FRAMES = 2;
+/** ...or after this many frames however slow they are. */
+const WARM_FRAMES_MAX = 20;
+/** A frame shorter than this means the warm-up behind the splash has finished. */
+const SMOOTH_FRAME_MS = 120;
+/** Wall-clock safety cap on the whole splash (ms), as a multiple of the hold. */
+const WALL_CAP_FACTOR = 4;
 
 export class BootSplash extends UiScreen<BootSplashProps> {
   private timers: number[] = [];
+  private raf = 0;
   private done = false;
 
   constructor(props: BootSplashProps) {
@@ -62,10 +73,49 @@ export class BootSplash extends UiScreen<BootSplashProps> {
     );
   }
 
+  /**
+   * The hold runs on rendered frames, not the wall clock: the title scene warms its shaders
+   * behind the splash, and that first frame can stall the main thread for a long time. The
+   * animations stay paused (CSS: .uh-boot:not(.is-live)) until frames come smoothly again, and
+   * each frame adds at most MAX_FRAME_MS to the hold, so the stamp, the wordmark and the
+   * photosensitivity note are always actually seen for about `holdMs`.
+   */
   protected override onShow(): void {
     const hold = Math.max(600, this.props.holdMs ?? 2600);
-    this.timers.push(window.setTimeout(() => this.props.onThunk?.(), isReducedMotion() ? 0 : THUNK_AT_MS));
-    this.timers.push(window.setTimeout(() => this.finish(), hold));
+    const root = this.el.querySelector('.uh-boot');
+    const thunkAt = isReducedMotion() ? 0 : THUNK_AT_MS;
+    let frames = 0;
+    let last = -1;
+    let live = false;
+    let acc = 0;
+    let thunked = false;
+    const tick = (now: number): void => {
+      this.raf = 0;
+      if (this.done) return;
+      const dt = last < 0 ? 0 : now - last;
+      last = now;
+      frames++;
+      if (!live) {
+        if ((frames > WARM_FRAMES && dt < SMOOTH_FRAME_MS) || frames >= WARM_FRAMES_MAX) {
+          live = true;
+          root?.classList.add('is-live');
+        }
+      } else {
+        acc += Math.min(dt, MAX_FRAME_MS);
+      }
+      if (live && !thunked && acc >= thunkAt) {
+        thunked = true;
+        this.props.onThunk?.();
+      }
+      if (live && acc >= hold) {
+        this.finish();
+        return;
+      }
+      this.raf = requestAnimationFrame(tick);
+    };
+    this.raf = requestAnimationFrame(tick);
+    // Never trap the player if frames stop coming at all (hidden window, etc.).
+    this.timers.push(window.setTimeout(() => this.finish(), hold * WALL_CAP_FACTOR));
   }
 
   override handleNav(_action: NavAction): boolean {
@@ -84,6 +134,8 @@ export class BootSplash extends UiScreen<BootSplashProps> {
     this.done = true;
     for (const id of this.timers) window.clearTimeout(id);
     this.timers = [];
+    if (this.raf) cancelAnimationFrame(this.raf);
+    this.raf = 0;
     this.el.classList.add('is-leaving');
     const out = isReducedMotion() ? 0 : 260;
     window.setTimeout(() => this.props.onDone(), out);
@@ -92,5 +144,7 @@ export class BootSplash extends UiScreen<BootSplashProps> {
   protected override onDestroy(): void {
     for (const id of this.timers) window.clearTimeout(id);
     this.timers = [];
+    if (this.raf) cancelAnimationFrame(this.raf);
+    this.raf = 0;
   }
 }

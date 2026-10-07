@@ -43,6 +43,8 @@ import { LAND_DELAY } from './sfxStage';
 import type { Moment } from '../shared/moments';
 import type { ItemKind } from '../sim/types'; // [C9]
 import { GOLD_STEP } from './sfxItems'; // [C9]
+import { EVENTS } from '../sim/config'; // [F8]
+import { BARK_VARIANT, LEAD_BANK_VARIANT } from './sfxTension'; // [F8]
 
 /** The subset of `Simulation` the director reads (structural, so tests can fake it). */
 export interface AudioSimView {
@@ -257,6 +259,8 @@ export class MatchAudioDirector {
   private readonly opts: Required<Omit<DirectorOptions, 'listenerCharId' | 'hitstop' | 'tauntFilter' | 'contentSfx'>> & { listenerCharId: EntityId | null };
   /** [C9] Content 2.0 sounds (null when DirectorOptions.contentSfx is false). */
   private readonly content: ContentSfx | null;
+  /** [F8] Tension cues (see the "[F8]" section at the end of this file). */
+  private readonly tensionCues: TensionCues;
   private tauntFilter: ((charId: EntityId) => boolean) | null;
   private hitstopOn: () => boolean;
   /** Distance walked since the last footstep, per character. */
@@ -296,6 +300,7 @@ export class MatchAudioDirector {
     this.hitstopOn = MatchAudioDirector.hitstopFn(opts.hitstop);
     this.tauntFilter = opts.tauntFilter ?? null;
     this.content = opts.contentSfx === false ? null : new ContentSfx(engine, opts.localTeam, (st) => this.listenerChar(st)); // [C9]
+    this.tensionCues = new TensionCues(engine, opts.localTeam); // [F8]
   }
 
   /** Which characters' taunts are heard (null = everyone's). The listener's own always plays. */
@@ -342,6 +347,7 @@ export class MatchAudioDirector {
     this.targetWhistle.clear();
     this.setPoliceTension(0);
     this.content?.reset(); // [C9]
+    this.tensionCues.reset(); // [F8]
   }
 
   /** Pre-match "3, 2, 1, GO": call with 3, 2, 1, 0. */
@@ -354,6 +360,7 @@ export class MatchAudioDirector {
   onEvents(events: readonly SimEvent[], sim: AudioSimView): void {
     for (const e of events) this.onEvent(e, sim);
     this.content?.onEvents(events, sim); // [C9] Content 2.0 sounds (section at the end of the file)
+    this.tensionCues.onEvents(events, sim); // [F8] tension cues (section at the end of the file)
   }
 
   private charPos(sim: AudioSimView, id: EntityId): Vec2 | undefined {
@@ -482,7 +489,9 @@ export class MatchAudioDirector {
           const gap = e.tick - this.lastOwnScoreTick;
           this.combo = gap >= 0 && gap <= COMBO_WINDOW * TICK_RATE ? Math.min(COMBO_MAX, this.combo + 1) : 0;
           this.lastOwnScoreTick = e.tick;
-          step = this.combo;
+          // [F8] With the fun round wiring (setTension carries the scoring run) the climb follows
+          // the unanswered run instead of the 8 s window.
+          step = this.tensionCues.climbStep() ?? this.combo;
         }
         const id = e.kind === 'bank' ? 'scoreBank' : e.kind === 'largeSafe' ? 'scoreLarge' : 'scoreSmall';
         a.play(id, { volume: own ? 1 : 0.7, step });
@@ -693,8 +702,8 @@ export class MatchAudioDirector {
   }
 
   // -------------------------------------------------------------------------------------------
-  // Fun round contracts (docs/ARCHITECTURE.md "Fun round contracts"; owner WP8). Documented
-  // no-op stubs until WP8 implements them.
+  // Fun round contracts (docs/ARCHITECTURE.md "Fun round contracts"; owner WP8 / F8). The bodies
+  // delegate to TensionCues (the "[F8]" section at the end of this file).
   // -------------------------------------------------------------------------------------------
 
   /**
@@ -704,7 +713,7 @@ export class MatchAudioDirector {
    * boing, dodge whoosh, counter-dash clash. Moments are facts; never re-derive them here.
    */
   onMoments(moments: readonly Moment[]): void {
-    void moments;
+    this.tensionCues.onMoments(moments); // [F8]
   }
 
   /**
@@ -714,7 +723,17 @@ export class MatchAudioDirector {
    * recovery's coin in this tick's onEvents already knows its step).
    */
   setTension(t: TensionState): void {
-    void t;
+    this.tensionCues.setTension(t); // [F8]
+  }
+
+  /**
+   * [F8] A rival's bark bubble (`BotIntent.bark`, shown once per new bark tick by game flow): a
+   * non-verbal blip in that rival's timbre at the raccoon. Hidden like the taunts (tauntFilter /
+   * "show others' taunts"). `key` is a BarkKey ('<rival>.<line>').
+   */
+  onBark(charId: EntityId, key: string, sim: AudioSimView): void {
+    if (this.ended || (this.tauntFilter && !this.tauntFilter(charId))) return;
+    this.tensionCues.bark(key, sim.getCharacter(charId)?.pos);
   }
 
   /** Silence every loop this director started and drop the chase layer (pause menu, leaving). */
@@ -903,6 +922,7 @@ export class MatchAudioDirector {
     if (st.scores[0] + st.scores[1] > 0) target += 0.15 * close;
     if (secondsLeft < 60) target += 0.15;
     if (police) target += POLICE_AUDIO.intensityBump;
+    target = Math.max(target, this.tensionCues.intensityFloor()); // [F8] tier-2 run: the extra percussion layer
     target = Math.max(0.3, Math.min(1, target));
     // Slow exponential smoothing (~3 s) so layers don't flicker with every event.
     const k = 1 - Math.exp(-dt / 3);
@@ -1160,5 +1180,241 @@ class ContentSfx {
       a.play('knockdown', { pos, delay: 0.05, volume: 0.8 });
       if (e.targetId === me?.id) a.duckMusic(CONTENT_AUDIO.koDuckDb, CONTENT_AUDIO.koDuckHold);
     }
+  }
+}
+
+// =============================================================================================
+// [F8] Tension audio — namespaced section, owner F8 (fun-plan WP8 + content-plan §6 F8 delta).
+// Match point heartbeat, "막았다" / lead / level stings, scoring-run climb + tier layers, the final
+// 10 s (van rev, last-3-s ticks), the getaway drive-off, taunt-punish / dodge / clash accents,
+// rival bark blips and the 황금 뿅망치 landing sting. Fed by match.ts funObserve (setTension +
+// onMoments every tick, BEFORE onEvents) plus the director's onEvents / matchEnd / driveMusic
+// hooks. Moments are facts from MomentTracker; nothing here re-derives them. Recipes:
+// ./sfxTension.ts.
+// =============================================================================================
+
+/** [F8] Tension tuning (ticks at 60 Hz unless named in seconds). Exported for tests. */
+export const TENSION_AUDIO = {
+  /** Heartbeat period while a match point lasts: ours ~75 bpm (warm), theirs ~95 bpm (tense). */
+  heartbeatTicks: { ours: 48, theirs: 38 },
+  /** In the last `heartbeatRushSeconds` the period shrinks linearly to this fraction. */
+  heartbeatRushSeconds: 10,
+  heartbeatRushScale: 0.72,
+  heartbeatVolume: { ours: 0.9, theirs: 1 },
+  /** Music duck while the heartbeat beats (plan: 3 dB), held a little past each beat period. */
+  heartbeatDuckDb: -3,
+  heartbeatDuckPad: 0.25,
+  /** A mid-match event warning ducks the heartbeat (content-plan F8) until the event fires. */
+  warnHeartbeatScale: 0.3,
+  warnMaxTicks: EVENTS.warnTicks + s2t(1),
+  /** Stings: one per tick (highest priority), and lower-priority ones keep this gap (ticks). */
+  stingGapTicks: s2t(0.4),
+  /** Bank recovery that takes the lead: the brass tag lands this long after the bank fanfare. */
+  bankTagDelay: 1.05,
+  /** Coin climb ceiling (same as the recovery combo) and the deposit that counts for runs. */
+  climbMax: COMBO_MAX,
+  runDepositMin: 50,
+  /** runClimb chime after the deposit pour (s). */
+  runClimbDelay: 0.22,
+  /** Music intensity floor while a tier-2 run lasts (>= 0.85 = the 'extra' layer fully in). */
+  tier2Intensity: 0.9,
+  /** Final seconds: ticks at these seconds left, van revs at these (the second one bigger). */
+  finalTicks: [3, 2, 1] as readonly number[],
+  vanRevs: [10, 5] as readonly number[],
+  vanRevVolume: 0.7,
+  /**
+   * Getaway (mirrors src/render/beats.ts BEATS.getaway, which the audio module cannot import):
+   * the winners' van starts rolling `revFor` s into the end hold; a draw revs both vans at
+   * `drawRevs`. The drive-off starts a touch after the roll, behind the end horn's honk.
+   */
+  getaway: { revFor: 0.42, drawRevs: [0, 0.75, 1.5] as readonly number[], driveOffVolume: 0.85, drawRevVolume: 0.55 },
+  accentVolume: { tauntPunish: 1, dodge: 0.9, clash: 0.85 },
+} as const;
+
+type StingPlan = { prio: number; id: SfxId; o: { step?: number; variant?: number; delay?: number; volume?: number } };
+
+/**
+ * [F8] Tension cues. Pure function of what game flow feeds it (setTension once per sim tick,
+ * onMoments, sim events): no wall clock, no Math.random (the engine's own variation aside).
+ */
+class TensionCues {
+  /** setTension calls since reset (one per sim tick). */
+  private tick = 0;
+  private hbSide: 'ours' | 'theirs' | null = null;
+  private hbNext = 0;
+  /** Ticks left of an event warning's heartbeat duck. */
+  private warnTicks = 0;
+  private prevLeft: number | null = null;
+  /** Latest scoring run; undefined = never provided (no fun-round wiring: old 8 s combo). */
+  private run: TensionState['run'] | undefined = undefined;
+  private lastStingTick = -Infinity;
+  private leadVariant = 0;
+  private ended = false;
+  /** (tests / QA) heartbeats played since reset. */
+  beats = 0;
+
+  constructor(
+    private readonly engine: AudioEngine,
+    private readonly localTeam: TeamId,
+  ) {}
+
+  reset(): void {
+    this.tick = 0;
+    this.hbSide = null;
+    this.hbNext = 0;
+    this.warnTicks = 0;
+    this.prevLeft = null;
+    this.run = undefined;
+    this.lastStingTick = -Infinity;
+    this.ended = false;
+    this.beats = 0;
+  }
+
+  /** Coin climb step for a local recovery (null = no run info: the caller keeps its 8 s combo). */
+  climbStep(): number | null {
+    if (this.run === undefined) return null;
+    const r = this.run;
+    return r && r.side === 'ours' ? Math.max(0, Math.min(TENSION_AUDIO.climbMax, r.recoveries - 1)) : 0;
+  }
+
+  /** Music intensity floor (0 = none): a tier-2 run, either side, brings in the extra layer. */
+  intensityFloor(): number {
+    return this.run && this.run.tier >= 2 && !this.ended ? TENSION_AUDIO.tier2Intensity : 0;
+  }
+
+  setTension(t: TensionState): void {
+    const T = TENSION_AUDIO;
+    this.tick++;
+    if (t.run !== undefined) this.run = t.run;
+    if (this.warnTicks > 0) this.warnTicks--;
+    if (this.ended) return;
+    const left = Number.isFinite(t.secondsLeft) ? Math.max(0, t.secondsLeft) : Infinity;
+    // --- match point heartbeat (only while matchPointInfo is non-null) ---
+    const side = t.matchPoint ?? null;
+    if (side !== this.hbSide) {
+      this.hbSide = side;
+      this.hbNext = this.tick; // a new episode (or the other side's) beats at once
+    }
+    if (side && this.tick >= this.hbNext) {
+      const base = T.heartbeatTicks[side];
+      const rush = left < T.heartbeatRushSeconds ? 1 - (1 - T.heartbeatRushScale) * (1 - left / T.heartbeatRushSeconds) : 1;
+      const period = Math.max(20, Math.round(base * rush));
+      const warned = this.warnTicks > 0;
+      this.engine.play('tensionHeartbeat', { step: side === 'ours' ? 0 : -1, volume: T.heartbeatVolume[side] * (warned ? T.warnHeartbeatScale : 1) });
+      if (!warned) this.engine.duckMusic(T.heartbeatDuckDb, period / TICK_RATE + T.heartbeatDuckPad);
+      this.hbNext = this.tick + period;
+      this.beats++;
+    }
+    // --- final seconds: van revs under the music, then a tick per second for the last 3 s ---
+    const prev = this.prevLeft;
+    this.prevLeft = left;
+    if (prev === null || !Number.isFinite(left) || left >= prev) return;
+    T.vanRevs.forEach((s, i) => {
+      if (prev > s && left <= s) this.engine.play('vanRev', { step: i, volume: T.vanRevVolume });
+    });
+    for (const s of T.finalTicks) if (prev > s && left <= s) this.engine.play('finalTick', { step: s });
+  }
+
+  onMoments(moments: readonly Moment[]): void {
+    if (this.ended || moments.length === 0) return;
+    const T = TENSION_AUDIO;
+    const ours = (m: Moment): boolean => m.team === this.localTeam;
+    let sting: StingPlan | null = null;
+    const offer = (p: StingPlan): void => {
+      if (!sting || p.prio > sting.prio) sting = p;
+    };
+    for (const m of moments) {
+      switch (m.kind) {
+        case 'matchPointStopped':
+          // team = the team whose match point was stopped: theirs -> "막았다!", ours -> deflate.
+          offer({ prio: 5, id: 'stingBlocked', o: { step: ours(m) ? -1 : 0 } });
+          break;
+        case 'leadTaken':
+          if (m.lootKind === 'bank') offer({ prio: 4, id: 'stingLead', o: { step: ours(m) ? 0 : -1, variant: LEAD_BANK_VARIANT, delay: T.bankTagDelay, volume: ours(m) ? 1 : 0.85 } });
+          else offer({ prio: 4, id: 'stingLead', o: { step: ours(m) ? 0 : -1, variant: this.leadVariant, volume: ours(m) ? 1 : 0.85 } });
+          break;
+        case 'equalized':
+          offer({ prio: 3, id: 'stingEqual', o: { step: ours(m) ? 0 : -1 } });
+          break;
+        case 'streakTier':
+          offer({ prio: 2, id: 'streakFill', o: { step: ours(m) ? 0 : -1, variant: (m.tier ?? 1) >= 2 ? 1 : 0, volume: ours(m) ? 1 : 0.8 } });
+          break;
+        case 'streakBroken':
+          // team = whose run was broken: louder when we broke theirs.
+          offer({ prio: 1, id: 'streakScratch', o: { volume: ours(m) ? 0.75 : 1 } });
+          break;
+        case 'tauntPunished':
+          this.engine.play('tauntPunish', { pos: m.pos, volume: T.accentVolume.tauntPunish });
+          break;
+        case 'dodged':
+          this.engine.play('dodgeWhoosh', { pos: m.pos, volume: T.accentVolume.dodge });
+          break;
+        case 'counterDash':
+          this.engine.play('clashAccent', { pos: m.pos, volume: T.accentVolume.clash });
+          break;
+        default:
+          break;
+      }
+    }
+    const pick = sting as StingPlan | null;
+    if (!pick) return;
+    const tick = moments[0]!.tick;
+    // A "막았다" always plays; the others keep a short gap so two beats never pile up.
+    if (pick.prio < 5 && tick - this.lastStingTick >= 0 && tick - this.lastStingTick < T.stingGapTicks) return;
+    this.lastStingTick = tick;
+    if (pick.id === 'stingLead' && pick.o.variant !== LEAD_BANK_VARIANT) this.leadVariant = 1 - this.leadVariant;
+    this.engine.play(pick.id, pick.o);
+  }
+
+  onEvents(events: readonly SimEvent[], sim: AudioSimView): void {
+    const T = TENSION_AUDIO;
+    for (const e of events) {
+      switch (e.type) {
+        case 'matchStart':
+          this.reset();
+          break;
+        case 'matchEvent':
+          // The event warning ducks the heartbeat (content-plan F8) until the event fires.
+          if (e.phase === 'warn') this.warnTicks = T.warnMaxTicks;
+          else if (e.phase === 'start') this.warnTicks = 0;
+          break;
+        case 'itemSpawn':
+          if (e.kind === 'goldHammer' && !this.ended) this.engine.play('stingGoldHammer');
+          break;
+        case 'coinsBanked': {
+          // A deposit >= 50 counts for runs (content-plan F8): when it continues OUR run, one
+          // climb chime on the run's step after the pour.
+          if (this.ended || e.team !== this.localTeam || e.value < T.runDepositMin) break;
+          const r = this.run;
+          if (!r || r.side !== 'ours' || r.recoveries < 2) break;
+          this.engine.play('runClimb', { step: Math.min(T.climbMax, r.recoveries - 1), delay: T.runClimbDelay });
+          break;
+        }
+        case 'matchEnd':
+          // Only with the fun round wiring (setTension every tick): game flow then plays the
+          // view's getaway beat on this very tick (match.ts funEnding -> view.playGetaway).
+          if (!this.ended && this.tick > 0) this.getaway(e.result.winner);
+          this.ended = true;
+          break;
+        default:
+          break;
+      }
+    }
+    void sim;
+  }
+
+  /** The end hold's getaway (match.ts funEnding -> view.playGetaway(winner)). */
+  private getaway(winner: TeamId | null): void {
+    const G = TENSION_AUDIO.getaway;
+    this.ended = true;
+    if (winner === 0 || winner === 1) this.engine.play('vanDriveOff', { delay: G.revFor + 0.03, volume: G.driveOffVolume });
+    else for (const t of G.drawRevs) this.engine.play('vanRev', { delay: t, step: 0, volume: G.drawRevVolume });
+  }
+
+  bark(key: string, pos: Vec2 | undefined): void {
+    const rival = key.slice(0, key.indexOf('.')) as keyof typeof BARK_VARIANT;
+    const variant = BARK_VARIANT[rival];
+    if (variant === undefined) return;
+    this.engine.play('barkBlip', { pos, variant });
   }
 }

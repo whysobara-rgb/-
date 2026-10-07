@@ -467,6 +467,71 @@ describe('뿅망치: wind-up, swing, effects', () => {
     expect(travelled).toBeLessThan(3.4);
   });
 
+  /** A free small safe at (52, 30) gripped from y = 31.05 by `holders` (slots); the hammerer (slot 0) at (50.6, 30). */
+  function carriedSafe(teams: TeamId[], holders: { slot: number; y: number }[]): { sim: Simulation; id: number } {
+    const sim = itemSim(itemLayout({ safes: [{ kind: 'smallSafe', pos: { x: 52, y: 30 }, angle: 0 }, { kind: 'largeSafe', pos: { x: 50, y: 50 }, angle: 0 }] }), teams);
+    const id = safeIds(sim)[0]!;
+    sim.debug.setAnchored(id, false);
+    const n = teams.length;
+    for (const h of holders) place(sim, h.slot, { x: 52, y: h.y });
+    for (let k = n - 1; k >= 1; k--) if (!holders.some((h) => h.slot === k)) place(sim, k, { x: 20, y: 10 + 5 * k });
+    const c = idle(n);
+    for (const h of holders) c[h.slot] = cmd(0, 0, true, false, { x: 0, y: h.y > 30 ? -1 : 1 });
+    sim.step(c);
+    for (const h of holders) expect(sim.state.characters[h.slot]!.grab?.targetId).toBe(id);
+    place(sim, 0, { x: 50.6, y: 30 });
+    give(sim, 0);
+    return { sim, id };
+  }
+  const holdCmds = (n: number, holders: { slot: number; y: number }[]) => (): Command[] => {
+    const c = idle(n);
+    for (const h of holders) c[h.slot] = cmd(0, 0, true, false, { x: 0, y: h.y > 30 ? -1 : 1 });
+    return c;
+  };
+
+  it("a teammate's grip on a small safe holds: no forced release, the safe is not even a target", () => {
+    const holders = [{ slot: 1, y: 31.05 }];
+    const { sim, id } = carriedSafe([0, 0], holders);
+    const x0 = sim.getLoot(id)!.pos.x;
+    const { evs } = swing(sim, 0, { x: 1, y: 0 }, 60, 2, holdCmds(2, holders));
+    expect(ofType(evs, 'release').filter((e) => e.forced)).toEqual([]);
+    expect(ofType(evs, 'itemHit').some((e) => e.target === 'loot')).toBe(false);
+    expect(sim.state.characters[1]!.grab?.targetId).toBe(id);
+    expect(sim.getLoot(id)!.grabbedBy).toEqual([2]);
+    expect(Math.abs(sim.getLoot(id)!.pos.x - x0)).toBeLessThan(1);
+  });
+
+  it("a protected rival's grip on a small safe holds (no stunlock); once vulnerable it is knocked loose", () => {
+    const holders = [{ slot: 1, y: 31.05 }];
+    const { sim, id } = carriedSafe([0, 1], holders);
+    sim.state.characters[1]!.protectTicks = 100;
+    const { evs } = swing(sim, 0, { x: 1, y: 0 }, 30, 2, holdCmds(2, holders));
+    expect(ofType(evs, 'release').filter((e) => e.forced)).toEqual([]);
+    expect(ofType(evs, 'itemHit').some((e) => e.target === 'loot')).toBe(false);
+    expect(ofType(evs, 'itemHit').filter((e) => e.target === 'char').map((e) => e.knockdown)).toEqual([false]);
+    expect(sim.getLoot(id)!.grabbedBy).toEqual([2]);
+    // control: the same rival without protection loses the safe
+    const b = carriedSafe([0, 1], holders);
+    const r = swing(b.sim, 0, { x: 1, y: 0 }, 30, 2, holdCmds(2, holders));
+    expect(ofType(r.evs, 'release').some((e) => e.charId === 2 && e.forced)).toBe(true);
+    expect(b.sim.getLoot(b.id)!.grabbedBy).toEqual([]);
+  });
+
+  it('tug of war: a hit frees the safe from the rival only; the teammate keeps it and it does not fly', () => {
+    const holders = [
+      { slot: 1, y: 31.05 },
+      { slot: 2, y: 28.95 },
+    ];
+    const { sim, id } = carriedSafe([0, 0, 1], holders);
+    const x0 = sim.getLoot(id)!.pos.x;
+    const { evs } = swing(sim, 0, { x: 1, y: 0 }, 60, 3, holdCmds(3, holders));
+    expect(ofType(evs, 'release').filter((e) => e.forced).map((e) => e.charId)).toEqual([3]);
+    expect(sim.state.characters[1]!.grab?.targetId).toBe(id);
+    expect(sim.state.characters[2]!.grab).toBeNull();
+    expect(Math.abs(sim.getLoot(id)!.pos.x - x0)).toBeLessThan(1);
+    expect(conserved(sim)).toBe(true);
+  });
+
   it('breakables take 3 damage (a vending machine breaks in one hit)', () => {
     const vend: BreakableDef = { id: 'v1', kind: 'vending', center: { x: 52, y: 30 }, half: { ...BREAKABLE_SPECS.vending.half }, angle: 0 };
     const sim = itemSim(itemLayout({ breakables: [vend] }));
@@ -745,5 +810,129 @@ describe('items: fairness', () => {
     const b = permuted(true);
     expect(b.log).toBe(a.log);
     expect(b.state).toBe(a.state);
+  });
+  interface Role {
+    team: TeamId;
+    pos: Vec2;
+    item?: Partial<HeldItem> & { kind: ItemKind };
+    bag?: number;
+    /** Dash press ticks and aim. */
+    press?: number[];
+    aim?: Vec2;
+  }
+
+  /** Run a 4-role scenario with roles assigned to slots by `perm` (role i -> slot perm[i]); log and state keyed by role. */
+  function runRoles(roles: Role[], perm: number[], ticks: number): { log: string; state: string; evs: SimEvent[]; roleOf: (id: number) => string } {
+    const n = roles.length;
+    const teams: TeamId[] = new Array(n);
+    roles.forEach((r, i) => (teams[perm[i]!] = r.team));
+    const sim = itemSim(itemLayout({ safes: [{ kind: 'largeSafe', pos: { x: 50, y: 52 }, angle: 0 }] }), teams);
+    const bank = safeIds(sim)[0]!;
+    roles.forEach((r, i) => {
+      const slot = perm[i]!;
+      place(sim, slot, r.pos);
+      if (r.item) give(sim, slot, r.item.kind, r.item);
+      if (r.bag) fundBag(sim, slot + 1, bank, r.bag);
+    });
+    const names = 'ABCDEFGH';
+    const roleOf = (id: number): string => {
+      const i = perm.indexOf(id - 1);
+      return i >= 0 ? names[i]! : String(id);
+    };
+    for (let t = 0; t < ticks; t++) {
+      const c = idle(n);
+      roles.forEach((r, i) => (c[perm[i]!] = cmd(0, 0, false, !!r.press?.includes(t), r.aim)));
+      sim.step(c);
+    }
+    const charKeys = new Set(['charId', 'attackerId', 'victimId', 'byCharId', 'byId', 'aId', 'bId']);
+    const byTick = new Map<number, string[]>();
+    for (const e of sim.eventLog) {
+      const o: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(e)) {
+        if (charKeys.has(k) && typeof v === 'number') o[k] = roleOf(v);
+        else if (k === 'targetId' && e.type === 'itemHit' && e.target === 'char') o[k] = roleOf(v as number);
+        else if (k === 'sourceId' && e.type === 'coinSpawn' && e.source === 'spill') o[k] = roleOf(v as number);
+        else o[k] = v;
+      }
+      if (e.type === 'bump' || e.type === 'itemClash') [o.aId, o.bId] = [String(o.aId), String(o.bId)].sort();
+      const arr = byTick.get(e.tick) ?? [];
+      arr.push(JSON.stringify(o));
+      byTick.set(e.tick, arr);
+    }
+    // other systems may emit same-tick events in slot order: compare each tick's events as a multiset
+    const log = [...byTick.entries()].map(([t, a]) => `${t}:${a.sort().join('|')}`).join('\n');
+    const chars = roles.map((_, i) => {
+      const c = sim.state.characters[perm[i]!]!;
+      return { pos: c.pos, vel: c.vel, kd: c.knockdownTicks, bag: c.bag, item: c.item, grab: c.grab };
+    });
+    const coins = sim.state.coins.map((c) => ({ ...c, noPickupCharId: c.noPickupCharId == null ? c.noPickupCharId : roleOf(c.noPickupCharId) }));
+    const state = JSON.stringify({ chars, coins, items: sim.state.items, scores: sim.state.scores });
+    return { log, state, evs: sim.eventLog, roleOf };
+  }
+
+  function permutations(n: number): number[][] {
+    if (n === 1) return [[0]];
+    const out: number[][] = [];
+    for (const p of permutations(n - 1)) for (let k = 0; k <= p.length; k++) out.push([...p.slice(0, k), n - 1, ...p.slice(k)]);
+    return out;
+  }
+
+  it('all 24 slot permutations: an exact-distance KO tie credits nobody and resolves identically', () => {
+    const roles: Role[] = [
+      { team: 0, pos: { x: 50, y: 31 }, item: { kind: 'hammer' }, press: [0], aim: { x: 1, y: 0 } },
+      { team: 0, pos: { x: 50, y: 29 }, item: { kind: 'goldHammer' }, press: [0], aim: { x: 1, y: 0 } },
+      { team: 1, pos: { x: 51.4, y: 30 }, item: { kind: 'hammer', uses: 2 }, bag: 60 },
+      { team: 1, pos: { x: 20, y: 30 }, item: { kind: 'hammer' } },
+    ];
+    const perms = permutations(4);
+    expect(perms.length).toBe(24);
+    const ref = runRoles(roles, perms[0]!, 140);
+    const kd = ref.evs.filter((e): e is Ev<'itemHit'> => e.type === 'itemHit' && e.target === 'char');
+    expect(kd.map((e) => [ref.roleOf(e.charId), e.knockdown]).sort()).toEqual([
+      ['A', true],
+      ['B', true],
+    ]);
+    const spill = ofType(ref.evs, 'bagSpilled');
+    expect(spill.length).toBe(1);
+    expect(spill[0]!.byId).toBeNull();
+    expect(ofType(ref.evs, 'itemDropped').map((e) => ref.roleOf(e.charId))).toEqual(['C']);
+    for (const p of perms.slice(1)) {
+      const r = runRoles(roles, p, 140);
+      expect(r.log, `perm ${p.join('')}`).toBe(ref.log);
+      expect(r.state, `perm ${p.join('')}`).toBe(ref.state);
+    }
+  });
+
+  it('all 24 slot permutations: a double KO drops items and spills with the same ids; a 3-way clash is order-free', () => {
+    const roles: Role[] = [
+      { team: 0, pos: { x: 50, y: 30 }, item: { kind: 'hammer' }, press: [0], aim: { x: 1, y: 0 } },
+      { team: 0, pos: { x: 20, y: 30 } },
+      { team: 1, pos: { x: 51.4, y: 30.6 }, item: { kind: 'hammer', uses: 2 }, bag: 50 },
+      { team: 1, pos: { x: 51.4, y: 29.4 }, item: { kind: 'goldHammer' }, bag: 40 },
+    ];
+    const perms = permutations(4);
+    const ref = runRoles(roles, perms[0]!, 120);
+    expect(ofType(ref.evs, 'itemDropped').map((e) => ref.roleOf(e.charId)).sort()).toEqual(['C', 'D']);
+    expect(ofType(ref.evs, 'bagSpilled').map((e) => [ref.roleOf(e.charId), ref.roleOf(e.byId!)]).sort()).toEqual([
+      ['C', 'A'],
+      ['D', 'A'],
+    ]);
+    // three hammers swinging at each other at once: every pair clashes, bounces summed
+    const clash: Role[] = [
+      { team: 0, pos: { x: 50, y: 30 }, item: { kind: 'hammer' }, press: [0], aim: { x: 1, y: 0.3 } },
+      { team: 1, pos: { x: 51.3, y: 30.75 }, item: { kind: 'hammer' }, press: [0], aim: { x: -0.2, y: -1 } },
+      { team: 1, pos: { x: 51.3, y: 29.25 }, item: { kind: 'hammer' }, press: [0], aim: { x: -1, y: 0.2 } },
+      { team: 0, pos: { x: 20, y: 30 } },
+    ];
+    const cref = runRoles(clash, perms[0]!, 60);
+    expect(ofType(cref.evs, 'itemClash').length).toBeGreaterThanOrEqual(2);
+    for (const p of perms.slice(1)) {
+      const r = runRoles(roles, p, 120);
+      expect(r.log, `perm ${p.join('')}`).toBe(ref.log);
+      expect(r.state, `perm ${p.join('')}`).toBe(ref.state);
+      const c = runRoles(clash, p, 60);
+      expect(c.log, `clash perm ${p.join('')}`).toBe(cref.log);
+      expect(c.state, `clash perm ${p.join('')}`).toBe(cref.state);
+    }
   });
 });

@@ -18,6 +18,7 @@ import { STAGE_RECIPES } from './sfxStage';
 import { TAUNT_RECIPES } from './sfxTaunt';
 import { ITEM_RECIPES } from './sfxItems'; // [C9]
 import { PROP_RECIPES } from './sfxProps'; // [C9]
+import { TENSION_RECIPES } from './sfxTension'; // [F8]
 import { midiToHz, scaleNote } from './theory';
 
 export type { SfxRecipe, SfxVoice } from './sfxkit';
@@ -764,6 +765,8 @@ export const SFX_RECIPES: Record<SfxId, SfxRecipe> = {
   // [C9] Content 2.0: items (./sfxItems.ts), coins / props / breakables (./sfxProps.ts)
   ...ITEM_RECIPES,
   ...PROP_RECIPES,
+  // [F8] tension audio (./sfxTension.ts)
+  ...TENSION_RECIPES,
 };
 
 /**

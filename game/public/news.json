@@ -1,12 +1,12 @@
 {
-  "about": "Front-door news strip (C10). Bundled with the game and read offline; never fetched. Update notes must be true of the build: each note shows only when its 'requires' gate is met ('v2' = Content 2.0 rules live on a match map, 'layout:<id>' = that map is in the match rotation, null = always). 'version' drives the NEW mark (shown for notes newer than the player's lastSeenVersion).",
+  "about": "Front-door news strip (C10). Bundled with the game and read offline; never fetched. Update notes must be true of the build: each note shows only when its 'requires' gate is true of what a quick match really runs (game flow checks buildMatch + mergeRules per rotation map): 'v2' = Content 2.0 rules on a rotation map, 'items' = supply drops on one, 'props:a,b' = all those uprootables placed on v2 maps, 'layout:<id>' = that map is in the rotation, null = always. 'version' drives the NEW mark (shown for notes newer than the player's lastSeenVersion).",
   "notes": [
     {
       "id": "frontDoor",
       "version": "0.6.0",
       "requires": null,
-      "ko": "새 정문 개장: 게임 시작 한 번이면 지난번 설정 그대로 출발해요",
-      "en": "New front door: one press on Play starts a match with your last setup"
+      "ko": "새 정문 개장: 게임 시작 한 번이면 지난번 빠른 대전 설정 그대로 출발해요",
+      "en": "New front door: one press on Play starts a match with your last Quick Match setup"
     },
     {
       "id": "coins",
@@ -18,14 +18,14 @@
     {
       "id": "hammer",
       "version": "0.6.0",
-      "requires": "v2",
+      "requires": "items",
       "ko": "보급 풍선에 뿅망치가 실려 와요. 빈손일 때 돌진 버튼으로 휘둘러요",
       "en": "Supply balloons now drop squeaky hammers. Swing one with dash while your paws are free"
     },
     {
       "id": "uprootables",
       "version": "0.6.0",
-      "requires": "v2",
+      "requires": "props:atm,piggy,moneyTree",
       "ko": "새로 뽑을 것들: 동전 ATM, 대왕 돼지저금통, 돈나무",
       "en": "New things to uproot: the coin ATM, the giant piggy bank and the money tree"
     },

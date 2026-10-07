@@ -223,9 +223,14 @@ function build(): { def: LayoutDef; meta: LayoutDesignMeta } {
   b.breakable('crate.north', 'crate', 4.5, 19.0); // spawn 0's path to the corner safe
   b.breakable('crate.south', 'crate', 3.0, 43.4); // spawn 1's path to the ATM
   b.breakable('vending', 'vending', AX - 6 + FLUSH + BREAKABLE_SPECS.vending.half.y, 23.0, -PI / 2); // on the park bed, facing the fountain
-  b.itemPad('pad.flower', 21.5, 26); // flower road (서쪽 꽃길)
+  b.itemPad('pad.flower', 19.5, 26); // flower road (서쪽 꽃길), 12-18 m from both spawns
   b.itemPad('pad.axis', AX, 34.0); // fountain south, by the bank front
   b.eventSpot(AX, 18.75); // fountain north, on the boulevard edge
+  b.waive(
+    'truck',
+    'spot 0',
+    'both curbs are walled off the axis by the loading-dock walls (frozen classic statics), so no spot 0 gives the cash truck a straight drive in: the plan owner / C5 must define its plaza entry',
+  );
 
   return b.build(
     'Collection plaza: banks north/south of a central park must roll the long way along the boulevards and swing into the zones; ' +

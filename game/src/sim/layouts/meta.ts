@@ -28,11 +28,28 @@ export interface PathSpec {
   b: Vec2;
 }
 
+/**
+ * Content 2.0 rules a layout's v2 composition cannot meet on its (frozen, classic) geometry.
+ * The validator turns the matching error into a `[warn] waived` line that prints the reason, and
+ * errors on a waiver nothing matches any more (so a stale waiver cannot hide a later mistake).
+ * Each one is a decision for the content-plan owner, not a tuning knob: keep them rare and specific.
+ */
+export interface RuleWaiver {
+  /** Validator rule code: `crate` (natural-path crate), `pads` (item-pad walk), `truck` (truck approach). */
+  rule: 'crate' | 'pads' | 'truck';
+  /** What it covers, as the validator names it: `spawn 0`, `pad pad.lane.w`, `spot 0`. */
+  subject: string;
+  /** Why the rule cannot hold here (shown in the layout-check report). */
+  reason: string;
+}
+
 export interface LayoutDesignMeta {
   /** Declared narrow alleys / medium lanes (mirrored pairs are listed explicitly). */
   paths: PathSpec[];
   /** One-paragraph design intent (English, for developers). */
   intent: string;
+  /** Content 2.0 rule waivers (v2 composition only; absent = none). */
+  waivers?: RuleWaiver[];
 }
 
 /**

@@ -241,13 +241,17 @@ function build(): { def: LayoutDef; meta: LayoutDesignMeta } {
   b.prop('moneyTree', AX, 27.0); // south of the clock tower
   // row-2 ramen shop front, facing the zone (east of its cafe umbrella); the crate a step closer
   b.prop('atm', 9.35, 17 + 0.06 + PROP_SPECS.atm.half.y, 0);
-  b.breakable('crate.north', 'crate', 10.6, 19.45); // spawn 0's first hit, on the way to the ATM
-  b.breakable('crate.south', 'crate', 10.9, H - 4.75 - 0.06 - BREAKABLE_SPECS.crate.half.y); // south terrace lane, below the laundry alley: spawn 1's way to the lane pad
+  b.breakable('crate.north', 'crate', 10.6, 19.0); // spawn 0's first hit, on the way to the ATM (footprint 6.05 m off the zone)
+  // south terrace lane, below the laundry alley: spawn 1's way to the near (south) bank's back door
+  // (its first target after the edge-nook small safe, which sits inside the zone's 6 m crate-free ring)
+  b.breakable('crate.south', 'crate', 10.9, H - 4.75 - 0.06 - BREAKABLE_SPECS.crate.half.y);
   b.breakable('vending', 'vending', 12.6, 11 + 0.06 + BREAKABLE_SPECS.vending.half.y, 0); // terrace, on the toy shop's back wall
-  b.itemPad('pad.terrace', 15.5, 15.5); // north terrace corner (pair 1)
-  b.itemPad('pad.lane', 15.0, H - 6); // south terrace lane mouth (pair 2)
+  // south yard past the laundry row: 12-18 m from both spawns (the terrace corners are 23 m from the far one)
+  b.itemPad('pad.yard', 17.5, H - 8.5);
   b.itemPad('pad.axis', AX, H - 15.5); // south counter (in front of the south bank)
-  b.eventSpot(AX, 15.5); // north counter (시계탑 cuckoo announces it)
+  // north counter (시계탑 cuckoo announces it). The cash truck can only drive in from the north curb
+  // (through the police gate): the clock tower walls the other approach for any spot on the axis.
+  b.eventSpot(AX, 15.5);
 
   return b.build(
     'Open counter: both bank fronts face a shared clock-tower crossing that also holds the two large safes. Bank routes are short ' +
