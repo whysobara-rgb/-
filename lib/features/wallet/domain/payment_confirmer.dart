@@ -12,7 +12,7 @@ class ConfirmDone extends ConfirmOutcome {
   const ConfirmDone(this.receipt);
 }
 
-/// 여러 번 물어봐도 결과가 아직 없다(10015·네트워크). 결제는 됐을 수도
+/// 여러 번 물어봐도 결과가 아직 없다(10016·네트워크). 결제는 됐을 수도
 /// 있으므로 실패라고 말하지 않는다. 같은 값으로 다시 확인할 수 있다.
 class ConfirmPending extends ConfirmOutcome {
   final int attempts;
@@ -29,7 +29,7 @@ class ConfirmFailed extends ConfirmOutcome {
 /// `POST /payments/confirm`을 같은 값으로 재시도한다.
 ///
 /// - 성공 → [ConfirmDone]
-/// - 10015 "확인 중"(errors에 toss:pending/toss:unavailable) 또는 서버에 닿지
+/// - 10016 "확인 중" 또는 서버에 닿지
 ///   못한 경우 → [backoff] 간격으로 다시 부른다. 서버는 같은 주문을 여러 번
 ///   승인해도 GP를 한 번만 주고 결과만 돌려준다.
 /// - 다 써도 결과가 없으면 → [ConfirmPending]
@@ -80,11 +80,12 @@ class PaymentConfirmer {
 
   /// 결과를 아직 모르는 오류인지.
   ///
-  /// 10015는 "결제 미설정"에도 쓰인다. 그때는 errors에 toss:*가 없어 바로
-  /// 실패로 본다.
+  /// 10015(결제 미설정)는 바로 실패로 본다. 단, 구버전 서버는 확인 중일
+  /// 때도 10015에 errors toss:*를 붙였으므로 그 경우는 재시도한다.
   static bool isRetryable(ApiException e) {
     if (e.isNetwork) return true;
-    if (e.statusCode != ApiCode.paymentPending) return false;
-    return e.errors.any((err) => err.startsWith('toss:'));
+    if (e.statusCode == ApiCode.paymentPending) return true;
+    return e.statusCode == ApiCode.paymentUnavailable &&
+        e.errors.any((err) => err.startsWith('toss:'));
   }
 }

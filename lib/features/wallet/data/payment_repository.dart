@@ -20,7 +20,7 @@ class PaymentRepository {
         ),
       );
 
-  /// 결제위젯 성공 뒤 승인. 10015면 같은 값으로 다시 부르면 된다.
+  /// 결제위젯 성공 뒤 승인. 10016이면 같은 값으로 다시 부르면 된다.
   Future<PaymentReceipt> confirm({
     required String paymentKey,
     required String orderId,

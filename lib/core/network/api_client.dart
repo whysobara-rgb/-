@@ -40,9 +40,11 @@ class ApiCode {
   /// 결제 실패(카드 거절, 금액 불일치 등).
   static const int paymentFailed = 10014;
 
-  /// 결제 확인 중(토스 응답 없음) 또는 결제 미설정.
-  /// 확인 중이면 errors[]에 "toss:pending"/"toss:unavailable"이 온다.
-  static const int paymentPending = 10015;
+  /// 결제 미설정. (구버전 서버는 확인 중일 때도 10015에 toss:*를 붙였다.)
+  static const int paymentUnavailable = 10015;
+
+  /// 결제 승인 확인 중(토스 응답 없음). 같은 값으로 다시 부르면 된다.
+  static const int paymentPending = 10016;
 
   /// 서버에 닿지 못함(네트워크·타임아웃). 클라이언트가 붙이는 값.
   static const int network = -1;
@@ -196,6 +198,7 @@ class ApiException implements Exception {
     ApiCode.socialProviderUnavailable: '지금은 이 방법으로 로그인할 수 없어요',
     ApiCode.activeShipments: '배송이 끝나지 않은 신청이 있어 탈퇴할 수 없어요',
     ApiCode.paymentFailed: '결제하지 못했어요',
+    ApiCode.paymentUnavailable: '지금은 충전할 수 없어요',
     ApiCode.paymentPending: '결제를 확인하고 있어요',
   };
 

@@ -34,6 +34,13 @@ http.Response envelope(
 );
 
 final pending = envelope(
+  10016,
+  message: 'Payment is still being confirmed; retry shortly',
+  errors: ['toss:pending'],
+);
+
+/// What servers before the 10016 split sent while confirming.
+final legacyPending = envelope(
   10015,
   message: 'Payment is still being confirmed; retry shortly',
   errors: ['toss:pending'],
@@ -100,7 +107,7 @@ void main() {
       return (outcome, slept, server);
     }
 
-    test('확인 중(10015)이면 같은 값으로 물러서며 다시 묻고, 승인되면 끝난다', () async {
+    test('확인 중(10016)이면 같은 값으로 물러서며 다시 묻고, 승인되면 끝난다', () async {
       final (outcome, slept, server) = await run([pending, pending, done]);
       expect(outcome, isA<ConfirmDone>());
       final receipt = (outcome as ConfirmDone).receipt;
@@ -160,7 +167,13 @@ void main() {
       expect(server.bodies, hasLength(2));
     });
 
-    test('10015라도 결제 미설정이면(toss:* 없음) 바로 실패', () async {
+    test('구버전 서버의 확인 중(10015 + toss:*)도 다시 묻는다', () async {
+      final (outcome, _, server) = await run([legacyPending, done]);
+      expect(outcome, isA<ConfirmDone>());
+      expect(server.bodies, hasLength(2));
+    });
+
+    test('결제 미설정(10015, toss:* 없음)이면 바로 실패', () async {
       final (outcome, _, server) = await run([
         envelope(10015, message: 'Payments are not configured'),
       ]);
