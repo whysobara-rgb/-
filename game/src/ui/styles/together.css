@@ -248,3 +248,24 @@
   .uh-together__ready,
   .uh-together.is-options .uh-together__start { animation: none; }
 }
+
+/* --- results (local multiplayer): P-tags on the team cards + "오늘의 활약" ------------------ */
+.uh-res__ptags { display: inline-flex; gap: 0.3rem; }
+.uh-res__ptag {
+  display: inline-grid;
+  place-items: center;
+  min-width: 2.4rem;
+  padding: 0.05rem 0.45rem 0.1rem;
+  border-radius: 999px;
+  background: var(--p);
+  border: 0.16rem solid var(--pop-ink);
+  font-family: var(--uh-font-display);
+  font-size: 1.1rem;
+  line-height: 1.1;
+  color: var(--pop-ink);
+}
+.uh-res__hl { display: flex; flex-direction: column; gap: 0.5rem; min-width: 22rem; }
+.uh-res__hlList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.45rem; }
+.uh-res__hlRow { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 0.7rem; font-weight: 800; font-size: var(--uh-fs-sm); color: var(--pop-ink); }
+.uh-res__hlWho { display: inline-flex; gap: 0.3rem; }
+.uh-res__hlNum { font-family: var(--uh-font-display); font-size: 1.3rem; color: var(--pop-ink-2); min-width: 4.5rem; text-align: right; }

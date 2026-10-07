@@ -16,6 +16,8 @@ import { RollingNumber, burst, chunky, slamIn, stamp } from '../core/juice';
 import { button, chip, promptBar, teamTag } from '../components/controls';
 import type { RivalId } from '../types';
 import { seriesPips } from './TournamentScreen';
+import { playerColor, playerTag } from '../../shared/players';
+import { TEAM_STYLES } from '../../shared/teams';
 
 export type ResultOutcome = 'win' | 'lose' | 'draw';
 
@@ -60,6 +62,17 @@ export interface ResultsScreenProps {
   /** Label of the 'next' button (default 'results.next' = 다음 판), e.g. '다음 라이벌' after a won series. */
   nextLabel?: string | null;
   onMenu: () => void;
+  /** (local multiplayer) Team-neutral headline (versus) + per-player highlights. */
+  local?: ResultsLocalView | null;
+}
+
+export interface ResultsLocalView {
+  style: 'versus' | 'coop';
+  winner: TeamId | null;
+  /** Humans (P order): portrait hat per team card. */
+  players: ReadonlyArray<{ index: number; team: TeamId; hat: HatId }>;
+  /** Who did the most (ties shared); empty = nobody scored. */
+  highlights: ReadonlyArray<{ kind: 'uproots' | 'steals' | 'recovered'; players: readonly number[]; value: number }>;
 }
 
 const STAMP_TONE = { win: 'sun', lose: 'sky', draw: 'grape' } as const;
@@ -113,8 +126,13 @@ export class ResultsScreen extends UiScreen<ResultsScreenProps> {
       const roll = new RollingNumber('uh-res__score uh-num', isReducedMotion() ? p.scores[team] : 0);
       roll.el.dataset.target = String(p.scores[team]);
       this.rollers[team] = roll;
-      const face =
-        team === mine
+      const lp = p.local?.players.find((x) => x.team === team);
+      const won = p.outcome !== 'draw' && (team === mine) === (p.outcome === 'win');
+      const face = p.local
+        ? lp
+          ? portrait({ hat: lp.hat, team, expression: p.outcome === 'draw' ? 'surprised' : won ? 'happy' : 'sad' }, 'uh-res__face')
+          : h('div', { class: 'uh-res__face uh-res__face--emblem' }, teamEmblem(team))
+        : team === mine
           ? portrait({ hat: p.playerHat ?? 'teamCapA', team, expression: expr }, 'uh-res__face')
           : p.rival
             ? portrait({ rival: p.rival, team, expression: p.outcome === 'win' ? 'sad' : p.outcome === 'lose' ? 'happy' : 'surprised' }, 'uh-res__face')
@@ -123,7 +141,16 @@ export class ResultsScreen extends UiScreen<ResultsScreenProps> {
         'div',
         { class: ['uh-res__team', `uh-res__team--${team}`, team === mine ? 'is-mine' : '', winner ? 'is-winner' : ''] },
         face,
-        h('div', { class: 'uh-res__teamHead' }, teamTag(team, p.teamLabels?.[team] ?? null), team === mine ? chip('team.mine', 'gold') : null),
+        h(
+          'div',
+          { class: 'uh-res__teamHead' },
+          teamTag(team, p.teamLabels?.[team] ?? null),
+          p.local
+            ? h('span', { class: 'uh-res__ptags' }, p.local.players.filter((x) => x.team === team).map((x) => h('span', { class: 'uh-res__ptag', style: `--p:${playerColor(x.index)}` }, playerTag(x.index))))
+            : team === mine
+              ? chip('team.mine', 'gold')
+              : null,
+        ),
         roll.el,
         h('div', { class: 'uh-res__confirmed' }, icon('check'), t('results.confirmed')),
         winner ? h('div', { class: 'uh-res__crown', 'aria-hidden': 'true' }, icon('trophy')) : null,
@@ -164,6 +191,32 @@ export class ResultsScreen extends UiScreen<ResultsScreenProps> {
         )
       : null;
 
+    const loc = p.local;
+    const highlights = loc
+      ? h(
+          'section',
+          { class: 'uh-res__hl uh-panel' },
+          h('div', { class: 'uh-res__eventKicker' }, icon('trophy'), t('together.hl.title')),
+          loc.highlights.length
+            ? h(
+                'ul',
+                { class: 'uh-res__hlList' },
+                loc.highlights.map((x) =>
+                  h(
+                    'li',
+                    { class: 'uh-res__hlRow', 'data-kind': x.kind },
+                    h('span', { class: 'uh-res__hlLabel' }, t(`together.hl.${x.kind}`)),
+                    h('span', { class: 'uh-res__hlWho' }, x.players.map((i) => h('span', { class: 'uh-res__ptag', style: `--p:${playerColor(i)}` }, playerTag(i)))),
+                    h('span', { class: 'uh-res__hlNum uh-num' }, x.kind === 'recovered' ? t('together.hl.value', { value: x.value.toLocaleString() }) : t('together.hl.count', { n: x.value })),
+                  ),
+                ),
+              )
+            : h('p', { class: 'uh-res__eventText is-empty' }, t('together.hl.none')),
+        )
+      : null;
+    // Versus on one screen: the stamp names the winning team (no "you lost" for half the couch).
+    const versus = loc?.style === 'versus';
+    const stampText = versus ? (loc!.winner === null ? t('together.draw') : t('together.win', { team: t(TEAM_STYLES[loc!.winner].nameKey) })) : t(`results.stamp.${p.outcome}`);
     const reward = p.reward
       ? h('div', { class: 'uh-res__reward' }, portrait({ hat: p.reward.hat, expression: 'happy' }, 'uh-res__rewardArt'), h('span', null, t('results.reward', { hat: t(`hat.${p.reward.hat}.name`) })))
       : null;
@@ -196,16 +249,16 @@ export class ResultsScreen extends UiScreen<ResultsScreenProps> {
         h(
           'header',
           { class: 'uh-res__head' },
-          stamp(t(`results.stamp.${p.outcome}`), STAMP_TONE[p.outcome], 'uh-res__stamp'),
+          stamp(stampText, versus ? (loc!.winner === null ? 'grape' : 'sun') : STAMP_TONE[p.outcome], 'uh-res__stamp'),
           h(
             'div',
             { class: 'uh-res__headline' },
-            chunky(t(`results.${p.outcome}.sub`), { tag: 'p', cls: 'uh-res__sub', tone: 'cream' }),
+            versus ? null : chunky(t(`results.${p.outcome}.sub`), { tag: 'p', cls: 'uh-res__sub', tone: 'cream' }),
             p.reason ? chip(`results.reason.${p.reason}`, 'night', p.reason === 'time' ? 'clock' : 'flag') : null,
           ),
         ),
         h('div', { class: 'uh-res__scores' }, scoreCard(0), h('div', { class: 'uh-res__vs', 'aria-hidden': 'true' }, h('i'), h('i')), scoreCard(1)),
-        h('div', { class: 'uh-res__mid' }, eventCard, seriesStrip, reward),
+        h('div', { class: 'uh-res__mid' }, eventCard, highlights, seriesStrip, reward),
         buttons,
         promptBar([
           { action: 'navigate', label: 'prompt.navigate' },
@@ -243,7 +296,8 @@ export class ResultsScreen extends UiScreen<ResultsScreenProps> {
         }, 700 + team * 220),
       );
     }
-    if (this.props.outcome === 'win' && !reduced) {
+    const lv = this.props.local;
+    if ((this.props.outcome === 'win' || (lv?.style === 'versus' && lv.winner !== null)) && !reduced) {
       const rain = (): void => {
         const fx = this.el.querySelector<HTMLElement>('.uh-res__fx');
         if (!fx) return;

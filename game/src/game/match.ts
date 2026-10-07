@@ -38,6 +38,7 @@ import { RUMBLE, TimeScale, rumbleFor, type RumbleName } from './feel';
 import type { LaunchParams } from './params';
 import { pickBiggestEvent, type BiggestEvent } from './results';
 import { buildMatch, type MatchConfig } from './setup';
+import { LocalStatsTracker, type PlayerStatLine } from './localStats';
 import type { Moment } from '../shared/moments';
 // [WP5/F5] tracker, feel, command log, kickoff cue
 import { EMPTY_MOMENT_SNAPSHOT, KICKOFF_ARROW_MATCHES, KICKOFF_CUE_TICKS, MomentTracker, kickoffTarget, type BotIntentSample, type KickoffTarget, type MomentSnapshot } from './moments';
@@ -68,6 +69,8 @@ export interface MatchSummary {
   observation: ObservationSummary | null;
   /** Ticks played. */
   ticks: number;
+  /** (local multiplayer) Per-player numbers from the event log (P order). */
+  players?: PlayerStatLine[];
 }
 
 /** Scripted layer on top of a match (the tutorial). */
@@ -171,6 +174,8 @@ export class MatchController {
   private lastFrame: MatchFrame | null = null;
   // --- taunts (owner addition) ---
   private readonly unlocked: ReadonlySet<EmoteId>;
+  /** (local multiplayer) per-player results numbers. */
+  private localStats: LocalStatsTracker | null = null;
   private forcedResult: MatchResult | null = null;
   private summaryCache: MatchSummary | null = null;
   private pauseRequested = false;
@@ -237,6 +242,7 @@ export class MatchController {
       };
     });
     this.seats.sort((a, b) => a.index - b.index);
+    if (this.seats.length > 1) this.localStats = new LocalStatsTracker(this.seats.map((s) => ({ charId: s.charId, index: s.index, team: s.team })));
     this.time.setEnabled(!svc.settings().reducedMotion);
   }
 
@@ -473,6 +479,7 @@ export class MatchController {
     const events = sim.step(cmds);
     this.stats.steps++;
     for (const seat of this.seats) this.trackEmote(seat);
+    if (events.length) this.localStats?.observe(events, sim);
     const { view } = this.svc;
     view.captureTick(sim);
     view.onEvents(events, sim);
@@ -1134,6 +1141,7 @@ export class MatchController {
     const outcome: MatchOutcome = result.winner === null ? 'draw' : result.winner === this.myTeam ? 'win' : 'lose';
     const biggest = pickBiggestEvent({ events: sim.eventLog, characters: st.characters, loot: st.loot, rules: sim.rules });
     this.summaryCache = { config: this.config, result, outcome, biggest, observation: this.observer ? this.observer.summary() : null, ticks: st.tick };
+    if (this.localStats) this.summaryCache.players = this.localStats.snapshot();
     return this.summaryCache;
   }
 

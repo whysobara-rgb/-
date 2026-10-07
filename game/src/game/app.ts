@@ -23,6 +23,7 @@ import type { GameView } from '../render';
 import { type InputManager } from '../platform/input';
 import { LocalInputRouter, isPadDevice, padIndexOf, type LocalDeviceId, type LobbyFrame } from '../platform/localInput';
 import { LocalJoinScreen, type JoinDeviceHint, type JoinPlayerView, type LocalJoinProps, type TogetherOptions } from '../ui/screens/LocalJoinScreen';
+import { pickHighlights } from './localStats';
 import { allReady, allowedModes, emptyLobby, lobbyStep, lobbyStyle, localSetupFromLobby, resolveMode, setReady, setTeam, type LobbyState } from './local';
 import { applyMatchStats, unlockHat, newHats, type SaveManager } from '../platform/save';
 import { cloneSettings, type Settings } from '../platform/settings';
@@ -1650,7 +1651,7 @@ export class App {
       outcome: summary.outcome,
       myTeam: 0,
       scores: summary.result.scores,
-      teamLabels: cfg.mode === '1v1' ? [null, RIVALS[cfg.rival].nameKey] : undefined,
+      teamLabels: cfg.mode === '1v1' && !cfg.local ? [null, RIVALS[cfg.rival].nameKey] : undefined,
       reason: summary.result.reason,
       biggestEvent: toResultEventView(summary.biggest),
       actions: { rematch: true },
@@ -1659,6 +1660,14 @@ export class App {
       onRematch: () => this.rematch(),
       onMenu: () => this.wipeTo(() => (cfg.local ? this.toTogether() : this.toMenu()), 'raccoon'),
     };
+    if (cfg.local && m.seats.length > 1) {
+      props.local = {
+        style: cfg.local.style,
+        winner: summary.result.winner,
+        players: m.seats.map((s) => ({ index: s.index, team: s.team, hat: m.sim.getCharacter(s.charId)?.look.hat ?? 'none' })),
+        highlights: pickHighlights(summary.players ?? []),
+      };
+    }
     if (cfg.kind === 'tournament' && record) {
       props.series = {
         rival: record.rival,
