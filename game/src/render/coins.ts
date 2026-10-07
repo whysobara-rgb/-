@@ -253,10 +253,12 @@ export class CoinsSync implements ViewExtra {
     const tickChanged = state.tick !== this.lastTick;
     this.lastTick = state.tick;
     // --- piles: update records ------------------------------------------------------------
-    for (const r of this.piles.values()) r.seen = false;
+    this.piles.forEach(this.unseePile);
     let nCoins = 0;
     let nBills = 0;
-    for (const c of state.coins) {
+    const coins = state.coins;
+    for (let i = 0; i < coins.length; i++) {
+      const c = coins[i]!;
       let r = this.piles.get(c.id);
       if (!r) r = this.addPile(c, now);
       else if (tickChanged && r.tick !== state.tick) {
@@ -276,23 +278,10 @@ export class CoinsSync implements ViewExtra {
       else nCoins++;
     }
     // Gone piles: pickup climb or poof.
-    for (const r of this.piles.values()) {
-      if (r.seen) continue;
-      const taker = this.pickedBy.get(r.id);
-      if (taker !== undefined) {
-        const bv = this.bagFor(taker, state);
-        if (bv) {
-          if (now - bv.lastPickup > 1.5) bv.climbStep = 0;
-          bv.lastPickup = now;
-          h.effects.coinClimb({ x: r.x, y: r.y }, bv.root, bv.climbStep++);
-          bv.pulse = Math.max(bv.pulse, 0.6);
-        }
-        this.pickedBy.delete(r.id);
-      } else h.effects.poof({ x: r.x, y: r.y }, 0.1, PAL.goldLight);
-      this.piles.delete(r.id);
-      this.spawnSource.delete(r.id);
-      this.pool.push(r);
-    }
+    this.sweepState = state;
+    this.sweepNow = now;
+    this.piles.forEach(this.sweepPile);
+    this.sweepState = null;
     // --- piles: draw ---------------------------------------------------------------------
     if (nCoins > this.coinMesh.instanceMatrix.count) this.coinMesh = this.grow(this.coinMesh, nCoins);
     if (nBills > this.billMesh.instanceMatrix.count) {
@@ -305,7 +294,8 @@ export class CoinsSync implements ViewExtra {
     let ig = 0;
     const k = Math.min(1, Math.max(0, alpha));
     const pulse = 1 + 0.08 * Math.sin(now * 3.2);
-    for (const c of state.coins) {
+    for (let i = 0; i < coins.length; i++) {
+      const c = coins[i]!;
       const r = this.piles.get(c.id)!;
       const x = r.px + (r.cx - r.px) * k;
       const y = r.py + (r.cy - r.py) * k;
@@ -368,8 +358,34 @@ export class CoinsSync implements ViewExtra {
     }
 
     // --- bags ------------------------------------------------------------------------------
-    for (const c of state.characters) this.syncBag(c, state, dt);
+    const chars = state.characters;
+    for (let i = 0; i < chars.length; i++) this.syncBag(chars[i]!, state, dt);
   }
+
+  // Pre-bound per-frame pile sweeps (Map.forEach: no iterator / entry garbage per frame).
+  private sweepState: SimState | null = null;
+  private sweepNow = 0;
+  private readonly unseePile = (r: PileRec): void => {
+    r.seen = false;
+  };
+  private readonly sweepPile = (r: PileRec): void => {
+    if (r.seen) return;
+    const taker = this.pickedBy.get(r.id);
+    if (taker !== undefined) {
+      const bv = this.sweepState ? this.bagFor(taker, this.sweepState) : null;
+      if (bv) {
+        const now = this.sweepNow;
+        if (now - bv.lastPickup > 1.5) bv.climbStep = 0;
+        bv.lastPickup = now;
+        this.host.effects.coinClimb({ x: r.x, y: r.y }, bv.root, bv.climbStep++);
+        bv.pulse = Math.max(bv.pulse, 0.6);
+      }
+      this.pickedBy.delete(r.id);
+    } else this.host.effects.poof({ x: r.x, y: r.y }, 0.1, PAL.goldLight);
+    this.piles.delete(r.id);
+    this.spawnSource.delete(r.id);
+    this.pool.push(r);
+  };
 
   private addPile(c: CoinPile, now: number): PileRec {
     const r =

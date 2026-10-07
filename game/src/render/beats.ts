@@ -63,7 +63,7 @@ export const BEATS = {
     minY: -0.72,
     maxX: 0.9,
     /** Tail lift (px at 720p) so the label sits above the HUD's value chip over the load. */
-    liftPx: 34,
+    liftPx: 40,
   },
   bark: { seconds: 2.4, width: 3.3 },
 } as const;

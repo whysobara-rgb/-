@@ -1392,11 +1392,15 @@ function slickTexture(): THREE.Texture {
 }
 
 /** A soap slick on the ground: shimmering puddle decal plus a few wobbling bubbles. */
+/** Scratch matrix for the hazard decals' instanced parts. */
+const _hm = new THREE.Matrix4();
+
 export class SlickDecal {
   readonly root = new THREE.Group();
   private readonly decal: THREE.Mesh;
   private readonly mat: THREE.MeshBasicMaterial;
-  private readonly bubbles: THREE.Mesh[] = [];
+  /** The shimmering bubbles: one instanced mesh (5 instances, one draw call). */
+  private readonly bubbles: THREE.InstancedMesh;
   private static bubbleGeo: THREE.BufferGeometry | null = null;
   private static bubbleMat: THREE.MeshBasicMaterial | null = null;
 
@@ -1410,12 +1414,11 @@ export class SlickDecal {
     this.root.add(this.decal);
     if (!SlickDecal.bubbleGeo) SlickDecal.bubbleGeo = new THREE.SphereGeometry(1, 12, 8);
     if (!SlickDecal.bubbleMat) SlickDecal.bubbleMat = new THREE.MeshBasicMaterial({ color: '#F4EEFF', transparent: true, opacity: 0.55, depthWrite: false, toneMapped: false });
-    for (let i = 0; i < 5; i++) {
-      const b = new THREE.Mesh(SlickDecal.bubbleGeo, SlickDecal.bubbleMat);
-      b.userData.noOutline = true;
-      this.root.add(b);
-      this.bubbles.push(b);
-    }
+    this.bubbles = new THREE.InstancedMesh(SlickDecal.bubbleGeo, SlickDecal.bubbleMat, 5);
+    this.bubbles.userData.noOutline = true;
+    this.bubbles.frustumCulled = false;
+    this.bubbles.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.root.add(this.bubbles);
   }
 
   /** Pose: center, radius, 0..1 opacity (fade in / out), clock (s). */
@@ -1424,18 +1427,21 @@ export class SlickDecal {
     this.decal.scale.set(radius, 1, radius);
     this.decal.rotation.y = Math.sin(time * 0.6) * 0.05;
     this.mat.opacity = alpha;
-    this.bubbles.forEach((b, i) => {
+    for (let i = 0; i < 5; i++) {
       const a = i * 1.26 + time * 0.3;
       const r = radius * (0.25 + 0.15 * i);
       const s = (0.07 + 0.03 * (i % 3)) * (0.8 + 0.2 * Math.sin(time * 3 + i)) * alpha;
-      b.position.set(Math.cos(a) * r, 0.05 + s, Math.sin(a) * r);
-      b.scale.setScalar(Math.max(0.001, s));
-    });
+      const k = Math.max(0.001, s);
+      _hm.makeScale(k, k, k).setPosition(Math.cos(a) * r, 0.05 + s, Math.sin(a) * r);
+      this.bubbles.setMatrixAt(i, _hm);
+    }
+    this.bubbles.instanceMatrix.needsUpdate = true;
   }
 
   dispose(): void {
     this.decal.geometry.dispose();
     this.mat.dispose();
+    this.bubbles.dispose();
     this.root.removeFromParent();
   }
 }
@@ -1443,35 +1449,38 @@ export class SlickDecal {
 /** A sneeze-smoke cloud: a cluster of soft pastel puffs that churn slowly (wave 3 item). */
 export class SmokeCloud {
   readonly root = new THREE.Group();
-  private readonly puffs: THREE.Mesh[] = [];
+  /** The puffs: one instanced mesh (9 instances, one draw call). */
+  private readonly puffs: THREE.InstancedMesh;
   private readonly mat: THREE.MeshToonMaterial;
 
   constructor() {
     this.root.name = 'smoke';
     this.mat = createToonMaterial({ color: '#E9E2F0', transparent: true, opacity: 0.8, rim: 0.5, depthWrite: false });
-    for (let i = 0; i < 9; i++) {
-      const m = new THREE.Mesh(G.ico(1), this.mat);
-      m.userData.noOutline = true;
-      m.castShadow = false;
-      this.root.add(m);
-      this.puffs.push(m);
-    }
+    this.puffs = new THREE.InstancedMesh(G.ico(1), this.mat, 9);
+    this.puffs.userData.noOutline = true;
+    this.puffs.castShadow = false;
+    this.puffs.frustumCulled = false;
+    this.puffs.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.root.add(this.puffs);
   }
 
   set(x: number, z: number, radius: number, alpha: number, time: number): void {
     this.root.position.set(x, 0, z);
     this.mat.opacity = 0.8 * alpha;
-    this.puffs.forEach((m, i) => {
-      const a = (i / this.puffs.length) * Math.PI * 2 + time * 0.25;
+    const n = this.puffs.count;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + time * 0.25;
       const r = i === 0 ? 0 : radius * (0.45 + 0.2 * Math.sin(i * 2.1));
       const s = radius * (0.38 + 0.08 * Math.sin(time * 1.3 + i)) * (0.4 + 0.6 * alpha);
-      m.position.set(Math.cos(a) * r, s * 0.7 + 0.1, Math.sin(a) * r);
-      m.scale.set(s, s * 0.8, s);
-    });
+      _hm.makeScale(s, s * 0.8, s).setPosition(Math.cos(a) * r, s * 0.7 + 0.1, Math.sin(a) * r);
+      this.puffs.setMatrixAt(i, _hm);
+    }
+    this.puffs.instanceMatrix.needsUpdate = true;
   }
 
   dispose(): void {
     this.mat.dispose();
+    this.puffs.dispose();
     this.root.removeFromParent();
   }
 }

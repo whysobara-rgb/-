@@ -1642,8 +1642,9 @@ export class GameView {
       sceneDrawCalls: this.post.active ? this.post.sceneCalls : info.render.calls,
       post: this.post.active,
       emotes: this.emotes.activeCount,
-      officers: this.police.stats.officers,
-      cars: this.police.stats.cars,
+      // [F3] what is on screen: the results stage hides every officer / car
+      officers: this.viewMode === 'results' ? 0 : this.police.stats.officers,
+      cars: this.viewMode === 'results' ? 0 : this.police.stats.cars,
       markers: this.markers.count,
     };
   }
@@ -2069,6 +2070,22 @@ export class GameView {
       },
       lootPose: (id) => this.lootPose(id),
       officerPos: (id) => this.police.officerPos(id),
+      officerRoot: (id) => {
+        // The officer rig standing at that officer's pose (PoliceView keeps its map private).
+        const p = this.police.officerPos(id);
+        if (!p) return null;
+        let best: THREE.Object3D | null = null;
+        let bd = 0.6 * 0.6;
+        for (const o of this.police.root.children) {
+          if (o.name !== 'officer') continue;
+          const d = (o.position.x - p.x) ** 2 + (o.position.z - p.y) ** 2;
+          if (d < bd) {
+            bd = d;
+            best = o;
+          }
+        }
+        return best;
+      },
       hitstop: (s) => {
         if (s > 0 && this.viewMode === 'match') this.hitstop = Math.max(this.hitstop, s);
       },

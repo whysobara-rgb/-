@@ -31,7 +31,7 @@ const PAW_SVG =
 /** When the stamp hits (ms after the splash goes live), matching the CSS thunk keyframes. */
 const THUNK_AT_MS = 450;
 /** A frame counts toward the hold for at most this long, so a main-thread stall cannot eat it. */
-const MAX_FRAME_MS = 50;
+const MAX_FRAME_MS = 100;
 /** The splash goes live (animations start) on the first smooth frame after this many frames. */
 const WARM_FRAMES = 2;
 /** ...or after this many frames however slow they are. */

@@ -21,6 +21,7 @@
  * home run (soap) is bigger; hammer clash = sparks + "챙!".
  */
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { CharacterState, EntityId, HazardState, ItemKind, ItemPickupState, ProjectileState, SimEvent, SimState } from '../sim';
 import { ITEMS, ITEM_FOREVER } from '../sim';
 import type { ViewExtra, ViewExtrasHost } from './extras';
@@ -318,6 +319,18 @@ export function createItemModel(kind: ItemKind, held: boolean): ItemModel {
     const m = mesh(smokeBombGeometry());
     if (!held) m.scale.setScalar(1.4);
   }
+  if (!held) {
+    // Display pose (ground pickups): one merged mesh per kind (+ its outline) instead of one per
+    // part; nothing squashes or flies on the ground, and the skate flames stay off there.
+    const merged = displayGeometry(kind, root);
+    if (merged) {
+      for (let i = root.children.length - 1; i >= 0; i--) root.children[i]!.removeFromParent();
+      mesh(merged);
+      head = null;
+      cup = null;
+      flames.length = 0;
+    }
+  }
   const ink = new InkOutline(root);
   return {
     root,
@@ -329,6 +342,34 @@ export function createItemModel(kind: ItemKind, held: boolean): ItemModel {
       root.removeFromParent();
     },
   };
+}
+
+const displayCache = new Map<ItemKind, THREE.BufferGeometry | null>();
+/** All outlined part meshes of a display model merged into one geometry (null: a single part). */
+function displayGeometry(kind: ItemKind, root: THREE.Group): THREE.BufferGeometry | null {
+  if (displayCache.has(kind)) return displayCache.get(kind) ?? null;
+  root.updateMatrixWorld(true);
+  const parts: THREE.BufferGeometry[] = [];
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh || m.userData.noOutline) return;
+    const g = m.geometry.clone();
+    g.applyMatrix4(m.matrixWorld);
+    parts.push(g);
+  });
+  let merged: THREE.BufferGeometry | null = null;
+  if (parts.length > 1) {
+    try {
+      merged = mergeGeometries(parts, false);
+    } catch {
+      merged = null;
+    }
+    merged?.computeBoundingSphere();
+    merged?.computeBoundingBox();
+  }
+  for (const p of parts) p.dispose();
+  displayCache.set(kind, merged);
+  return merged;
 }
 
 // --- supply crate --------------------------------------------------------------------------
@@ -580,6 +621,12 @@ interface PlungerView {
 }
 
 const DROP_HEIGHT = 11;
+/** Ground pickups drawn by the shared instanced shadow / glow ring (more fall back to their own). */
+const PAD_CAP = 24;
+/** Officer flatten (s / fraction): total time, flat hold, vertical squash, sideways spread. */
+const FLAT = { time: 1.1, hold: 0.55, depth: 0.62, spread: 0.4 } as const;
+const RING_GOLD = new THREE.Color(PAL.gold);
+const RING_CREAM = new THREE.Color('#FFF1B8');
 const ROPE_DASHES = 14;
 const _v = new THREE.Vector3();
 const _a = new THREE.Vector3();
@@ -627,6 +674,38 @@ export class ItemsSync implements ViewExtra {
   private readonly rope: THREE.InstancedMesh;
   private readonly owned: (THREE.Material | THREE.BufferGeometry)[] = [];
   private readonly droppedIds = new Set<EntityId>();
+  /** Shared blob shadows + glow rings under resting pickups (one draw call each). */
+  private readonly padShadow: THREE.InstancedMesh;
+  private readonly padRing: THREE.InstancedMesh;
+  private readonly padRingMat: THREE.MeshBasicMaterial;
+  private pads = 0;
+  /** Hammer-flattened officers (pivot squash, restored at the end). */
+  private readonly flats: { id: EntityId; pivot: THREE.Object3D; t: number; bx: number; by: number; bz: number }[] = [];
+  // Pre-bound per-frame sweep callbacks (Map.forEach: no iterator / entry garbage per frame).
+  private readonly unseeGround = (g: GroundView): void => {
+    g.seen = false;
+  };
+  private readonly sweepGround = (g: GroundView, id: EntityId): void => {
+    if (g.seen) return;
+    this.disposeGround(g);
+    this.ground.delete(id);
+  };
+  private readonly unseeHazard = (hv: HazardView): void => {
+    hv.seen = false;
+  };
+  private readonly sweepHazard = (hv: HazardView, id: EntityId): void => {
+    if (hv.seen) return;
+    hv.decal.dispose();
+    this.hazards.delete(id);
+  };
+  private readonly unseePlunger = (p: PlungerView): void => {
+    p.seen = false;
+  };
+  private readonly sweepPlunger = (p: PlungerView, id: EntityId): void => {
+    if (p.seen) return;
+    p.cup.removeFromParent();
+    this.plungers.delete(id);
+  };
 
   constructor(host: ViewExtrasHost) {
     this.host = host;
@@ -641,6 +720,23 @@ export class ItemsSync implements ViewExtra {
     this.rope.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.rope.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(ROPE_DASHES * 6 * 3).fill(0.93), 3);
     this.root.add(this.rope);
+    const shadowMat = new THREE.MeshBasicMaterial({ map: blobShadowTexture(), transparent: true, opacity: 0.45, depthWrite: false, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    this.padRingMat = new THREE.MeshBasicMaterial({ map: radialGlowTexture(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
+    this.owned.push(shadowMat, this.padRingMat);
+    this.padShadow = new THREE.InstancedMesh(this.flatGeo(), shadowMat, PAD_CAP);
+    this.padShadow.name = 'pickupShadows';
+    this.padShadow.renderOrder = -1;
+    this.padRing = new THREE.InstancedMesh(this.flatGeo(), this.padRingMat, PAD_CAP);
+    this.padRing.name = 'pickupRings';
+    this.padRing.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(PAD_CAP * 3).fill(1), 3);
+    for (const m of [this.padShadow, this.padRing]) {
+      m.count = 0;
+      m.frustumCulled = false;
+      m.userData.noOutline = true;
+      m.castShadow = false;
+      m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      this.root.add(m);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -753,13 +849,14 @@ export class ItemsSync implements ViewExtra {
       }
     } else if (e.target === 'police' && typeof e.targetId === 'number') {
       at = h.officerPos(e.targetId);
-      // Flattened officer: a pancake dust ring + orbiting stars over the spot (the officer rig
-      // plays its stunned-on-the-back pose from the policeStunned state).
+      // Flattened officer: a pancake dust ring + stars over the spot, and the officer rig itself
+      // squashes flat (pivot scale, see syncFlats) while it falls into its stunned pose.
       if (at) {
         h.effects.fx.ring({ x: at.x, y: 0, z: at.y }, { radius: 1.6, color: '#FFF3DE', duration: 0.35 });
         h.effects.fx.dust({ x: at.x, y: 0, z: at.y }, { count: 8, spread: 0.7, size: 0.3, up: 0.3 });
         if (e.charId === focus) h.hitstop(0.09);
       }
+      if (hammer) this.flatten(e.targetId);
     } else {
       const l = typeof e.targetId === 'number' ? h.lootPose(e.targetId) : null;
       if (l) {
@@ -780,6 +877,54 @@ export class ItemsSync implements ViewExtra {
     }
   }
 
+  /** Start (or restart) the pancake squash on an officer's rig. */
+  private flatten(officerId: EntityId): void {
+    for (const f of this.flats) {
+      if (f.id === officerId) {
+        f.t = 0;
+        return;
+      }
+    }
+    const root = this.host.officerRoot?.(officerId);
+    const pivot = root?.children[0];
+    if (!pivot) return;
+    this.flats.push({ id: officerId, pivot, t: 0, bx: pivot.scale.x, by: pivot.scale.y, bz: pivot.scale.z });
+  }
+
+  /**
+   * Officer pancake: slam flat in 60 ms, stay flat, then spring back with a wobble. The squash is
+   * vertical in the world: as the officer tips onto its back (pivot rotation z), the flattened
+   * local axis moves from y to x.
+   */
+  private syncFlats(dt: number): void {
+    for (let i = this.flats.length - 1; i >= 0; i--) {
+      const f = this.flats[i]!;
+      f.t += dt;
+      const p = f.pivot;
+      const done = f.t >= FLAT.time || !p.parent?.parent;
+      let k = 0;
+      if (!done) {
+        if (f.t < 0.06) k = f.t / 0.06;
+        else if (f.t < FLAT.hold) k = 1;
+        else {
+          const v = f.t - FLAT.hold;
+          k = Math.exp(-v * 7) * Math.cos(v * 17);
+        }
+      }
+      const vert = 1 - FLAT.depth * k;
+      const wide = 1 + FLAT.spread * k;
+      const sn = Math.sin(p.rotation.z);
+      const s2 = sn * sn;
+      const c2 = 1 - s2;
+      p.scale.set(f.bx * (wide * c2 + vert * s2), f.by * (vert * c2 + wide * s2), f.bz * wide);
+      if (done) {
+        p.scale.set(f.bx, f.by, f.bz);
+        this.flats[i] = this.flats[this.flats.length - 1]!;
+        this.flats.pop();
+      }
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Frame sync
   // ---------------------------------------------------------------------------
@@ -792,32 +937,35 @@ export class ItemsSync implements ViewExtra {
     h.effects.setCalm(h.reducedMotion());
     h.effects.setStampLanguage(h.language());
     // --- field pickups ----------------------------------------------------------------------
-    for (const g of this.ground.values()) g.seen = false;
-    for (const it of state.items) this.syncGround(it, state, now, dt);
-    for (const [id, g] of this.ground) {
-      if (g.seen) continue;
-      this.disposeGround(g);
-      this.ground.delete(id);
+    this.ground.forEach(this.unseeGround);
+    this.pads = 0;
+    // Shared glow-ring pulse (same phase for every resting pickup).
+    this.padRingMat.opacity = 0.55 + 0.25 * Math.sin(now * 4);
+    const items = state.items;
+    for (let i = 0; i < items.length; i++) this.syncGround(items[i]!, state, now, dt);
+    this.ground.forEach(this.sweepGround);
+    this.padShadow.count = this.pads;
+    this.padRing.count = this.pads;
+    if (this.pads) {
+      this.padShadow.instanceMatrix.needsUpdate = true;
+      this.padRing.instanceMatrix.needsUpdate = true;
+      this.padRing.instanceColor!.needsUpdate = true;
     }
     // --- held items ---------------------------------------------------------------------------
-    for (const c of state.characters) this.syncHeld(c, state, now, dt);
+    const chars = state.characters;
+    for (let i = 0; i < chars.length; i++) this.syncHeld(chars[i]!, state, now, dt);
+    this.syncFlats(dt);
     // --- hazards ------------------------------------------------------------------------------
-    for (const hv of this.hazards.values()) hv.seen = false;
-    for (const hz of state.hazards) this.syncHazard(hz, state, now);
-    for (const [id, hv] of this.hazards) {
-      if (hv.seen) continue;
-      hv.decal.dispose();
-      this.hazards.delete(id);
-    }
+    this.hazards.forEach(this.unseeHazard);
+    const hz = state.hazards;
+    for (let i = 0; i < hz.length; i++) this.syncHazard(hz[i]!, state, now);
+    this.hazards.forEach(this.sweepHazard);
     // --- plungers in flight ---------------------------------------------------------------------
-    for (const p of this.plungers.values()) p.seen = false;
+    this.plungers.forEach(this.unseePlunger);
     let dashes = 0;
-    for (const pr of state.projectiles) dashes = this.syncPlunger(pr, dashes);
-    for (const [id, p] of this.plungers) {
-      if (p.seen) continue;
-      p.cup.removeFromParent();
-      this.plungers.delete(id);
-    }
+    const prs = state.projectiles;
+    for (let i = 0; i < prs.length; i++) dashes = this.syncPlunger(prs[i]!, dashes);
+    this.plungers.forEach(this.sweepPlunger);
     this.rope.count = dashes;
     if (dashes) this.rope.instanceMatrix.needsUpdate = true;
   }
@@ -842,6 +990,7 @@ export class ItemsSync implements ViewExtra {
       const s = 0.5 + 1.1 * (1 - k);
       g.shadow.scale.set(s, 1, s);
       (g.shadow.material as THREE.MeshBasicMaterial).opacity = 0.35 + 0.45 * (1 - k);
+      g.shadow.visible = true;
       g.ring.visible = true;
       g.ringMat.opacity = 0.35 + 0.35 * Math.sin(t * 8) * (1 - k);
       g.ring.scale.setScalar(1.2 + 0.3 * k);
@@ -859,12 +1008,28 @@ export class ItemsSync implements ViewExtra {
       const left = it.expiresTick - state.tick;
       const blink = left < 180 && left > 0 && Math.sin(t * (left < 60 ? 30 : 16)) < -0.2;
       g.model.root.visible = !blink;
-      g.shadow.scale.set(0.9, 1, 0.9);
-      (g.shadow.material as THREE.MeshBasicMaterial).opacity = 0.45;
-      g.ring.visible = true;
-      g.ring.scale.setScalar(1 + 0.08 * Math.sin(t * 4));
-      g.ringMat.opacity = 0.55 + 0.25 * Math.sin(t * 4);
-      if (g.model.flames.length) for (const f of g.model.flames) f.visible = false;
+      const rs = 1 + 0.08 * Math.sin(t * 4);
+      if (this.pads < PAD_CAP) {
+        // Shared instanced shadow + ring (one draw call each for every resting pickup).
+        const i = this.pads++;
+        g.shadow.visible = false;
+        g.ring.visible = false;
+        _q.identity();
+        _m.compose(_c.set(it.pos.x, 0.012, it.pos.y), _q, _s.set(0.9, 1, 0.9));
+        this.padShadow.setMatrixAt(i, _m);
+        _m.compose(_c.set(it.pos.x, 0.02, it.pos.y), _q, _s.set(rs, 1, rs));
+        this.padRing.setMatrixAt(i, _m);
+        this.padRing.setColorAt(i, g.kind === 'goldHammer' ? RING_GOLD : RING_CREAM);
+      } else {
+        g.shadow.visible = true;
+        g.shadow.scale.set(0.9, 1, 0.9);
+        (g.shadow.material as THREE.MeshBasicMaterial).opacity = 0.45;
+        g.ring.visible = true;
+        g.ring.scale.setScalar(rs);
+        g.ringMat.opacity = this.padRingMat.opacity;
+      }
+      const fl = g.model.flames;
+      for (let i = 0; i < fl.length; i++) fl[i]!.visible = false;
     }
   }
 
@@ -1194,7 +1359,11 @@ export class ItemsSync implements ViewExtra {
     this.hazards.clear();
     for (const p of this.plungers.values()) p.cup.removeFromParent();
     this.plungers.clear();
+    for (const f of this.flats) f.pivot.scale.set(f.bx, f.by, f.bz);
+    this.flats.length = 0;
     this.rope.dispose();
+    this.padShadow.dispose();
+    this.padRing.dispose();
     for (const o of this.owned) o.dispose();
     this.root.removeFromParent();
   }
@@ -1204,6 +1373,8 @@ export class ItemsSync implements ViewExtra {
 export function disposeItemCache(): void {
   for (const g of geoCache.values()) g.dispose();
   geoCache.clear();
+  for (const g of displayCache.values()) g?.dispose();
+  displayCache.clear();
   for (const t of silTex.values()) t.dispose();
   silTex.clear();
   swooshGeo?.dispose();

@@ -662,6 +662,37 @@ function mergeSimple(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
   return g;
 }
 
+/** Merge vertex-coloured part geometries (same attribute layout, as PartBuilder makes them). */
+function mergeVc(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
+  const names = Object.keys(parts[0]!.attributes);
+  let n = 0;
+  for (const p of parts) n += p.getAttribute('position').count;
+  const g = new THREE.BufferGeometry();
+  for (const name of names) {
+    const a0 = parts[0]!.getAttribute(name) as THREE.BufferAttribute;
+    const out = new Float32Array(n * a0.itemSize);
+    let o = 0;
+    for (const p of parts) {
+      const a = p.getAttribute(name) as THREE.BufferAttribute;
+      for (let i = 0; i < a.count; i++) for (let c = 0; c < a.itemSize; c++) out[(o + i) * a0.itemSize + c] = a.getComponent(i, c);
+      o += a.count;
+    }
+    g.setAttribute(name, new THREE.BufferAttribute(out, a0.itemSize, a0.normalized));
+  }
+  const index: number[] = [];
+  let o = 0;
+  for (const p of parts) {
+    const cnt = p.getAttribute('position').count;
+    if (p.index) for (let i = 0; i < p.index.count; i++) index.push(p.index.getX(i) + o);
+    else for (let i = 0; i < cnt; i++) index.push(i + o);
+    o += cnt;
+  }
+  g.setIndex(index);
+  g.computeBoundingSphere();
+  g.computeBoundingBox();
+  return g;
+}
+
 // --- Gold safe ---------------------------------------------------------------------------
 
 const GOLD = { body: '#F6C64F', dark: '#C88F25', light: '#FFE7A1', deep: '#9C6A12', gem: '#FF6F91' };
@@ -738,11 +769,91 @@ const POP = { time: 0.7, height: 0.4 };
 const _wq = new THREE.Quaternion();
 const _we = new THREE.Euler();
 const _v = new THREE.Vector3();
+const _bm = new THREE.Matrix4();
+const _bq = new THREE.Quaternion();
+const _be = new THREE.Euler();
+const _bp = new THREE.Vector3();
+const _bs = new THREE.Vector3();
+const _hidden = new THREE.Matrix4().makeScale(0, 0, 0);
+
+/** ATM receipt streamer: segments (each a full receipt slip), slot position offset. */
+const RECEIPT = { segs: 6, w: 0.16, h: 0.1, step: 0.095 } as const;
+
+/** One mesh for the whole receipt chain: positions rewritten per frame, drawRange = shown slips. */
+function receiptStripGeometry(): THREE.BufferGeometry {
+  const n = RECEIPT.segs;
+  const g = new THREE.BufferGeometry();
+  const pos = new THREE.BufferAttribute(new Float32Array(n * 4 * 3), 3);
+  const nor = new THREE.BufferAttribute(new Float32Array(n * 4 * 3), 3);
+  pos.setUsage(THREE.DynamicDrawUsage);
+  nor.setUsage(THREE.DynamicDrawUsage);
+  const uv = new Float32Array(n * 4 * 2);
+  const idx: number[] = [];
+  for (let i = 0; i < n; i++) {
+    // Corners: top-left, top-right, bottom-left, bottom-right (PlaneGeometry's uv layout).
+    uv.set([0, 1, 1, 1, 0, 0, 1, 0], i * 8);
+    const k = i * 4;
+    idx.push(k, k + 2, k + 1, k + 2, k + 3, k + 1);
+  }
+  g.setAttribute('position', pos);
+  g.setAttribute('normal', nor);
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, -0.3, 0), 0.7);
+  return g;
+}
+
+/**
+ * Pose the receipt chain (slip i hangs from slip i-1 and bends by `angle(i)` about x, as a chain
+ * of nested planes would) into the strip geometry; origin = the top of the first slip.
+ */
+function poseReceiptStrip(g: THREE.BufferGeometry, angle: (i: number) => number): void {
+  const pos = g.getAttribute('position') as THREE.BufferAttribute;
+  const nor = g.getAttribute('normal') as THREE.BufferAttribute;
+  const pa = pos.array as Float32Array;
+  const na = nor.array as Float32Array;
+  const hw = RECEIPT.w / 2;
+  let y = 0;
+  let z = 0;
+  let a = 0;
+  for (let i = 0; i < RECEIPT.segs; i++) {
+    a += angle(i);
+    const c = Math.cos(a);
+    const sn = Math.sin(a);
+    // Local (0, -h, 0) rotated about x by a: (0, -h c, -h s); normal (0, 0, 1) -> (0, -s, c).
+    const by = y - RECEIPT.h * c;
+    const bz = z - RECEIPT.h * sn;
+    const o = i * 12;
+    pa[o] = -hw;
+    pa[o + 1] = y;
+    pa[o + 2] = z;
+    pa[o + 3] = hw;
+    pa[o + 4] = y;
+    pa[o + 5] = z;
+    pa[o + 6] = -hw;
+    pa[o + 7] = by;
+    pa[o + 8] = bz;
+    pa[o + 9] = hw;
+    pa[o + 10] = by;
+    pa[o + 11] = bz;
+    for (let v = 0; v < 4; v++) {
+      na[o + v * 3] = 0;
+      na[o + v * 3 + 1] = -sn;
+      na[o + v * 3 + 2] = c;
+    }
+    y -= RECEIPT.step * c;
+    z -= RECEIPT.step * sn;
+  }
+  pos.needsUpdate = true;
+  nor.needsUpdate = true;
+}
 
 /** Create a prop loot rig (SafeRig compatible). `lang` picks the ATM screen text. */
 export function createPropRig(variant: PropVariant, lang: 'ko' | 'en' = 'ko'): PropRig {
   const spec = PROP_SPECS[variant];
   const geo = propGeo(variant);
+  // Animation state as object fields (doubles stored in place: no per-frame heap numbers).
+  const A = { screenUntil: 0, receiptLen: 0.25, receiptWob: 0, strain: 0, lift: 0, time: 0, pop: 0, wob: 0, wobDir: 0, wobT: 0, squash: 0, tiltX: 0, tiltZ: 0, vxW: 0, vyW: 0 };
   const root = new THREE.Group();
   root.name = `prop:${variant}`;
   const body = new THREE.Group();
@@ -782,10 +893,9 @@ export function createPropRig(variant: PropVariant, lang: 'ko' | 'en' = 'ko'): P
   // --- variant parts -------------------------------------------------------------------
   let screen: THREE.Mesh | null = null;
   let screenState: AtmScreen = 'idle';
-  let screenUntil = 0;
   let hopper: THREE.Mesh[] = [];
-  let receipt: THREE.Mesh[] = [];
-  let receiptLen = 0.25;
+  let receipt: THREE.Mesh | null = null;
+  const receiptAngle = (i: number): number => 0.25 + i * 0.12 + Math.sin(A.time * 3 + i) * 0.08 + A.receiptWob * 0.3;
   const disposables: (THREE.Material | THREE.BufferGeometry)[] = [anchorMat];
   if (variant === 'atm') {
     const front = spec.half.y - 0.12;
@@ -807,28 +917,26 @@ export function createPropRig(variant: PropVariant, lang: 'ko' | 'en' = 'ko'): P
     });
     const zc = (front + (-spec.half.y + 0.03)) / 2;
     const hxBody = spec.half.x - 0.05;
-    hopper = [-1, 1].map((sx) => {
-      const m = new THREE.Mesh(stackGeo, matVC());
-      m.position.set(sx * (hxBody - 0.012), 0.66 - 0.17, zc);
-      m.scale.set(0.12, 1, 1);
-      m.userData.noOutline = true;
-      body.add(m);
-      return m;
+    // Both porthole columns in one mesh (squashed edge-on, the height follows the coins left).
+    const pairGeo = cachedGeo(`atmStackPair|${hxBody}`, () => {
+      const parts = [-1, 1].map((sx) => stackGeo.clone().applyMatrix4(new THREE.Matrix4().makeTranslation(sx * (hxBody - 0.012), 0, 0).multiply(new THREE.Matrix4().makeScale(0.12, 1, 1))));
+      const g = mergeVc(parts);
+      for (const q of parts) q.dispose();
+      return g;
     });
-    // Receipt streamer: 6 paper segments that curl down from the receipt slot.
-    const segGeo = cachedGeo('receiptSeg', () => new THREE.PlaneGeometry(0.16, 0.1).translate(0, -0.05, 0));
-    const paper = matTextured(receiptTexture(), { rim: 0.2, side: THREE.DoubleSide });
-    let parent: THREE.Object3D = body;
-    for (let i = 0; i < 6; i++) {
-      const s = new THREE.Mesh(segGeo, paper);
-      s.userData.noOutline = true;
-      s.castShadow = false;
-      if (i === 0) s.position.set(-0.2, 0.9, front + 0.036);
-      else s.position.set(0, -0.095, 0);
-      parent.add(s);
-      receipt.push(s);
-      parent = s;
-    }
+    const pair = new THREE.Mesh(pairGeo, matVC());
+    pair.position.set(0, 0.66 - 0.17, zc);
+    pair.userData.noOutline = true;
+    body.add(pair);
+    hopper = [pair];
+    // Receipt streamer: 6 paper slips that curl down from the receipt slot (one mesh).
+    const strip = receiptStripGeometry();
+    disposables.push(strip);
+    receipt = new THREE.Mesh(strip, matTextured(receiptTexture(), { rim: 0.2, side: THREE.DoubleSide }));
+    receipt.userData.noOutline = true;
+    receipt.castShadow = false;
+    receipt.position.set(-0.2, 0.9, front + 0.036);
+    body.add(receipt);
   }
   let cracks: THREE.Mesh[] = [];
   let bowl: THREE.Mesh | null = null;
@@ -853,36 +961,54 @@ export function createPropRig(variant: PropVariant, lang: 'ko' | 'en' = 'ko'): P
       return m;
     });
     bowl = new THREE.Mesh(piggyBowlGeometry(), matVC());
+    bowl.name = 'prop:piggy:bowl';
     bowl.castShadow = true;
     bowl.visible = false;
     root.add(bowl);
   }
-  let bills: THREE.Mesh[] = [];
+  // Money tree: the hanging bundles are ONE instanced mesh (count = bundles left) and the notes
+  // that flutter off on a shed another (hidden instances are zero-scaled).
+  let bills: THREE.InstancedMesh | null = null;
+  let billsShown = 0;
   let roots: THREE.Mesh | null = null;
-  let flutter: { m: THREE.Mesh; t: number; vx: number; vz: number; spin: number }[] = [];
+  let flutterMesh: THREE.InstancedMesh | null = null;
+  const flutter: { x: number; y: number; z: number; t: number; vx: number; vz: number; spin: number }[] = [];
   if (variant === 'moneyTree') {
     const note = matTextured(billNoteTexture(), { rim: 0.3, side: THREE.DoubleSide, alphaTest: 0.3 });
-    bills = TREE_BILL_SPOTS.map(([x, y, z], i) => {
-      const m = new THREE.Mesh(billClusterGeometry(), note);
-      m.position.set(x, y, z);
-      m.rotation.set(0, (i % 2 ? 0.3 : -0.3) + (z < 0 ? Math.PI : 0), 0);
-      m.userData.noOutline = true;
-      body.add(m);
-      return m;
-    });
+    bills = new THREE.InstancedMesh(billClusterGeometry(), note, TREE_BILL_SPOTS.length);
+    bills.name = 'prop:moneyTree:bills';
+    bills.userData.noOutline = true;
+    bills.castShadow = true;
+    bills.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    body.add(bills);
     roots = new THREE.Mesh(treeRootGeometry(), matVC());
     roots.visible = false;
     body.add(roots);
     // Flutter pool: single notes peeling off when it sheds.
     const one = cachedGeo('flutterNote', () => new THREE.PlaneGeometry(0.3, 0.15));
-    flutter = [0, 1, 2, 3, 4, 5].map(() => {
-      const m = new THREE.Mesh(one, note);
-      m.visible = false;
-      m.userData.noOutline = true;
-      root.add(m);
-      return { m, t: 9, vx: 0, vz: 0, spin: 0 };
-    });
+    flutterMesh = new THREE.InstancedMesh(one, note, 6);
+    flutterMesh.name = 'prop:moneyTree:flutter';
+    flutterMesh.userData.noOutline = true;
+    flutterMesh.frustumCulled = false;
+    flutterMesh.visible = false;
+    flutterMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    root.add(flutterMesh);
+    for (let i = 0; i < 6; i++) {
+      flutterMesh.setMatrixAt(i, _hidden);
+      flutter.push({ x: 0, y: 0, z: 0, t: 9, vx: 0, vz: 0, spin: 0 });
+    }
   }
+  const poseBills = (wobA: number): void => {
+    if (!bills) return;
+    bills.count = billsShown;
+    for (let i = 0; i < billsShown; i++) {
+      const sp = TREE_BILL_SPOTS[i]!;
+      _be.set(0, (i % 2 ? 0.3 : -0.3) + (sp[2] < 0 ? Math.PI : 0), Math.sin(A.time * 2.2 + i * 1.7) * 0.12 + A.tiltZ * 1.5 + wobA * 0.4);
+      _bm.compose(_bp.set(sp[0], sp[1], sp[2]), _bq.setFromEuler(_be), _bs.set(1, 1, 1));
+      bills.setMatrixAt(i, _bm);
+    }
+    if (billsShown) bills.instanceMatrix.needsUpdate = true;
+  };
 
   const highlighter = new Highlighter(body, { pushMax: 0.4, pushSlope: 0.8 });
   const ink = new InkOutline(body, { pushMax: 0.4, pushSlope: 0.8 });
@@ -890,18 +1016,6 @@ export function createPropRig(variant: PropVariant, lang: 'ko' | 'en' = 'ko'): P
   // --- animation state -----------------------------------------------------------------
   let anchored = spec.uprootTicks > 0;
   anchors.visible = anchored;
-  let strain = 0;
-  let lift = 0;
-  let time = 0;
-  let pop = 0;
-  let wob = 0; // wobble amplitude (decays)
-  let wobDir = 0; // local direction of the wobble
-  let wobT = 0;
-  let squash = 0;
-  let tiltX = 0;
-  let tiltZ = 0;
-  let vxW = 0;
-  let vyW = 0;
   let inner = spec.inner.c10 * 10 + spec.inner.c50 * 50;
   const innerMax = Math.max(1, inner);
   let crackN = 0;
@@ -913,97 +1027,101 @@ export function createPropRig(variant: PropVariant, lang: 'ko' | 'en' = 'ko'): P
   };
   const applyContents = (): void => {
     const k = inner / innerMax;
-    for (const h of hopper) {
+    for (let i = 0; i < hopper.length; i++) {
+      const h = hopper[i]!;
       h.visible = inner > 0;
-      h.scale.set(0.12, Math.max(0.15, k), 1);
+      h.scale.set(1, Math.max(0.15, k), 1);
     }
-    if (variant === 'atm' && screenUntil <= time) setScreen(inner > 0 ? 'idle' : 'empty');
+    if (variant === 'atm' && A.screenUntil <= A.time) setScreen(inner > 0 ? 'idle' : 'empty');
     if (variant === 'moneyTree') {
-      const n = Math.round(inner / 50);
-      bills.forEach((m, i) => (m.visible = i < n));
+      billsShown = Math.max(0, Math.min(TREE_BILL_SPOTS.length, Math.round(inner / 50)));
+      poseBills(0);
     }
   };
 
   const update = (dt: number): void => {
-    time += dt;
+    A.time += dt;
     root.getWorldQuaternion(_wq);
     _we.setFromQuaternion(_wq, 'YXZ');
     coin.rotation.y = cameraFacingYaw() - _we.y - body.rotation.y;
-    const s = anchored ? strain : 0;
+    const s = anchored ? A.strain : 0;
     const violent = 0.012 * s + 0.035 * s * s * s;
     // Wobble from hits (decaying spring around a local horizontal axis).
-    wobT += dt;
-    wob *= Math.exp(-dt * 4.2);
-    const wobA = wob * Math.sin(wobT * 17);
-    squash *= Math.exp(-dt * 9);
+    A.wobT += dt;
+    A.wob *= Math.exp(-dt * 4.2);
+    const wobA = A.wob * Math.sin(A.wobT * 17);
+    A.squash *= Math.exp(-dt * 9);
     // Lean with motion (piggy rolls / tree sways against the motion), smoothed.
     const ang = -root.rotation.y; // sim angle
     const ca = Math.cos(ang);
     const sa = Math.sin(ang);
-    const lx = vxW * ca + vyW * sa;
-    const lz = -vxW * sa + vyW * ca;
+    const lx = A.vxW * ca + A.vyW * sa;
+    const lz = -A.vxW * sa + A.vyW * ca;
     const leanK = variant === 'piggy' ? 0.06 : variant === 'moneyTree' ? 0.05 : 0.02;
-    tiltX += (THREE.MathUtils.clamp(lz * leanK, -0.3, 0.3) - tiltX) * (1 - Math.exp(-dt * 6));
-    tiltZ += (THREE.MathUtils.clamp(-lx * leanK, -0.3, 0.3) - tiltZ) * (1 - Math.exp(-dt * 6));
-    body.position.x = Math.sin(time * 47) * violent;
-    body.position.z = Math.sin(time * 39 + 1.1) * violent;
-    body.rotation.x = Math.sin(time * 7.3) * 0.025 * s + tiltX + Math.sin(wobDir) * wobA * 0.18;
-    body.rotation.z = (Math.sin(time * 9) * 0.5 + 0.5) * 0.07 * s + tiltZ - Math.cos(wobDir) * wobA * 0.18;
+    A.tiltX += (THREE.MathUtils.clamp(lz * leanK, -0.3, 0.3) - A.tiltX) * (1 - Math.exp(-dt * 6));
+    A.tiltZ += (THREE.MathUtils.clamp(-lx * leanK, -0.3, 0.3) - A.tiltZ) * (1 - Math.exp(-dt * 6));
+    body.position.x = Math.sin(A.time * 47) * violent;
+    body.position.z = Math.sin(A.time * 39 + 1.1) * violent;
+    body.rotation.x = Math.sin(A.time * 7.3) * 0.025 * s + A.tiltX + Math.sin(A.wobDir) * wobA * 0.18;
+    body.rotation.z = (Math.sin(A.time * 9) * 0.5 + 0.5) * 0.07 * s + A.tiltZ - Math.cos(A.wobDir) * wobA * 0.18;
     body.rotation.y = 0;
-    anchors.position.x = Math.sin(time * 61) * 0.006 * s;
-    const glow = s * (0.55 + 0.45 * Math.sin(time * 14));
+    anchors.position.x = Math.sin(A.time * 61) * 0.006 * s;
+    const glow = s * (0.55 + 0.45 * Math.sin(A.time * 14));
     anchorMat.emissive.setRGB(1.0 * glow, 0.35 * glow, 0.12 * glow);
-    let sq = 1 - squash;
-    if (pop > 0) {
-      pop = Math.max(0, pop - dt);
-      const age = POP.time - pop;
+    let sq = 1 - A.squash;
+    if (A.pop > 0) {
+      A.pop = Math.max(0, A.pop - dt);
+      const age = POP.time - A.pop;
       const land = POP.time * 0.62;
       if (age < land) {
         const u = age / land;
-        body.position.y = lift + POP.height * 4 * u * (1 - u);
+        body.position.y = A.lift + POP.height * 4 * u * (1 - u);
         sq *= 1 + 0.18 * Math.sin(Math.PI * Math.min(1, u * 1.6));
         body.rotation.z += Math.sin(u * Math.PI) * 0.18;
       } else {
         const v = age - land;
-        body.position.y = lift;
+        body.position.y = A.lift;
         sq *= 1 - 0.22 * Math.exp(-v * 10) * Math.cos(v * 30);
       }
-    } else body.position.y = lift;
+    } else body.position.y = A.lift;
     body.scale.set(1 / Math.sqrt(sq), sq, 1 / Math.sqrt(sq));
 
     // Variant animation.
-    if (screen && screenUntil > 0 && time >= screenUntil) {
-      screenUntil = 0;
+    if (screen && A.screenUntil > 0 && A.time >= A.screenUntil) {
+      A.screenUntil = 0;
       setScreen(inner > 0 ? 'idle' : 'empty');
     }
-    if (receipt.length) {
-      receiptLen += (0.25 - receiptLen) * (1 - Math.exp(-dt * 0.8));
-      const shown = Math.max(1, Math.min(receipt.length, Math.round(receiptLen * receipt.length * 1.6)));
-      receipt.forEach((r, i) => {
-        r.visible = i < shown;
-        r.rotation.x = 0.25 + i * 0.12 + Math.sin(time * 3 + i) * 0.08 + wobA * 0.3;
-      });
+    if (receipt) {
+      A.receiptLen += (0.25 - A.receiptLen) * (1 - Math.exp(-dt * 0.8));
+      const shown = Math.max(1, Math.min(RECEIPT.segs, Math.round(A.receiptLen * RECEIPT.segs * 1.6)));
+      A.receiptWob = wobA;
+      poseReceiptStrip(receipt.geometry, receiptAngle);
+      receipt.geometry.setDrawRange(0, shown * 6);
     }
-    if (bills.length) {
-      bills.forEach((m, i) => {
-        if (!m.visible) return;
-        m.rotation.z = Math.sin(time * 2.2 + i * 1.7) * 0.12 + tiltZ * 1.5 + wobA * 0.4;
-      });
+    if (bills) {
+      poseBills(wobA);
       if (roots) roots.visible = !anchored;
-      for (const f of flutter) {
+    }
+    if (flutterMesh) {
+      let live = 0;
+      for (let i = 0; i < flutter.length; i++) {
+        const f = flutter[i]!;
         if (f.t >= 1.6) {
-          f.m.visible = false;
+          flutterMesh.setMatrixAt(i, _hidden);
           continue;
         }
         f.t += dt;
-        const k = f.t / 1.6;
-        f.m.visible = true;
-        f.m.position.x += f.vx * dt;
-        f.m.position.z += f.vz * dt;
-        f.m.position.y = Math.max(0.05, f.m.position.y - dt * (0.9 + Math.sin(f.t * 9) * 0.5));
-        f.m.rotation.set(Math.sin(f.t * 7 + f.spin) * 0.9, f.t * f.spin, Math.cos(f.t * 5) * 0.6);
-        f.m.scale.setScalar(1 - k * k * 0.7);
+        const k = Math.min(1, f.t / 1.6);
+        live++;
+        f.x += f.vx * dt;
+        f.z += f.vz * dt;
+        f.y = Math.max(0.05, f.y - dt * (0.9 + Math.sin(f.t * 9) * 0.5));
+        _be.set(Math.sin(f.t * 7 + f.spin) * 0.9, f.t * f.spin, Math.cos(f.t * 5) * 0.6);
+        _bm.compose(_bp.set(f.x, f.y, f.z), _bq.setFromEuler(_be), _bs.setScalar(f.t >= 1.6 ? 0 : 1 - k * k * 0.7));
+        flutterMesh.setMatrixAt(i, _bm);
       }
+      if (live || flutterMesh.visible) flutterMesh.instanceMatrix.needsUpdate = true;
+      flutterMesh.visible = live > 0;
     }
   };
 
@@ -1015,19 +1133,19 @@ export function createPropRig(variant: PropVariant, lang: 'ko' | 'en' = 'ko'): P
     height: spec.height,
     labelAnchor,
     setAnchored(b: boolean) {
-      if (anchored && !b) pop = POP.time;
+      if (anchored && !b) A.pop = POP.time;
       anchored = b;
       anchors.visible = b;
       if (!b) anchorMat.emissive.setRGB(0, 0, 0);
     },
     setStrain(v: number) {
-      strain = THREE.MathUtils.clamp(v, 0, 1);
+      A.strain = THREE.MathUtils.clamp(v, 0, 1);
     },
     setLift(y: number) {
-      lift = Math.max(0, y);
+      A.lift = Math.max(0, y);
     },
     get popAge() {
-      return pop > 0 ? POP.time - pop : Infinity;
+      return A.pop > 0 ? POP.time - A.pop : Infinity;
     },
     setHighlight(color) {
       highlighter.set(color);
@@ -1048,7 +1166,7 @@ export function createPropRig(variant: PropVariant, lang: 'ko' | 'en' = 'ko'): P
       if (n === crackN) return;
       crackN = n;
       const smashed = n >= 3;
-      cracks.forEach((m, i) => (m.visible = !smashed && i < n));
+      for (let i = 0; i < cracks.length; i++) cracks[i]!.visible = !smashed && i < n;
       if (bowl) {
         bowl.visible = smashed;
         bodyMesh.visible = !smashed;
@@ -1061,37 +1179,39 @@ export function createPropRig(variant: PropVariant, lang: 'ko' | 'en' = 'ko'): P
       const k = THREE.MathUtils.clamp(strength, 0, 1.6);
       // Wobble away from the hit (local frame).
       const ang = -root.rotation.y;
-      wobDir = dir === null ? 0 : dir - ang;
-      wob = Math.max(wob, 0.6 * k + 0.25);
-      wobT = 0;
-      squash = Math.max(squash, 0.12 * k);
+      A.wobDir = dir === null ? 0 : dir - ang;
+      A.wob = Math.max(A.wob, 0.6 * k + 0.25);
+      A.wobT = 0;
+      A.squash = Math.max(A.squash, 0.12 * k);
     },
     setMotion(vx: number, vy: number) {
-      vxW = vx;
-      vyW = vy;
+      A.vxW = vx;
+      A.vyW = vy;
     },
     spurt(count = 2) {
       if (variant === 'atm') {
-        screenUntil = time + 0.7;
+        A.screenUntil = A.time + 0.7;
         setScreen('beep');
-        receiptLen = Math.min(1, receiptLen + 0.25);
-        squash = Math.max(squash, 0.08);
+        A.receiptLen = Math.min(1, A.receiptLen + 0.25);
+        A.squash = Math.max(A.squash, 0.08);
       } else if (variant === 'moneyTree') {
         let n = Math.max(1, Math.min(3, count));
         for (const f of flutter) {
           if (n <= 0) break;
           if (f.t < 1.6) continue;
-          const spot = TREE_BILL_SPOTS[(Math.floor(time * 7) + n) % TREE_BILL_SPOTS.length]!;
+          const spot = TREE_BILL_SPOTS[(Math.floor(A.time * 7) + n) % TREE_BILL_SPOTS.length]!;
           // Spot is in body space; the flutter notes live in root space (same origin, no tilt).
-          f.m.position.set(spot[0], spot[1], spot[2]);
+          f.x = spot[0];
+          f.y = spot[1];
+          f.z = spot[2];
           f.t = 0;
           f.spin = 2 + n * 1.3;
           f.vx = spot[0] * 0.6;
           f.vz = (spot[2] >= 0 ? 1 : -1) * 0.5;
           n--;
         }
-        wob = Math.max(wob, 0.35);
-        wobT = 0;
+        A.wob = Math.max(A.wob, 0.35);
+        A.wobT = 0;
       }
     },
     mouth(out: THREE.Vector3) {
@@ -1106,10 +1226,13 @@ export function createPropRig(variant: PropVariant, lang: 'ko' | 'en' = 'ko'): P
       highlighter.dispose();
       ink.dispose();
       for (const d of disposables) d.dispose();
+      bills?.dispose();
+      flutterMesh?.dispose();
       root.removeFromParent();
     },
   };
   applyContents();
+  if (receipt) poseReceiptStrip(receipt.geometry, receiptAngle);
   return rig;
 }
 
@@ -1304,24 +1427,21 @@ export function createBreakableRig(kind: BreakableKind, lang: 'ko' | 'en' = 'ko'
   const highlighter = new Highlighter(body, { pushMax: 0.4, pushSlope: 0.8 });
   const ink = new InkOutline(body, { pushMax: 0.4, pushSlope: 0.8 });
   let hp: number = spec.hp;
-  let wob = 0;
-  let wobT = 0;
-  let wobDir = 0;
-  let time = 0;
-  let flicker = 0;
+  // Animation state as object fields (doubles stored in place: no per-frame heap numbers).
+  const B = { wob: 0, wobT: 0, wobDir: 0, time: 0, flicker: 0 };
   const update = (dt: number): void => {
-    time += dt;
-    wobT += dt;
-    wob *= Math.exp(-dt * 5);
-    const a = wob * Math.sin(wobT * 20);
-    body.rotation.x = Math.sin(wobDir) * a * 0.12;
-    body.rotation.z = -Math.cos(wobDir) * a * 0.12;
+    B.time += dt;
+    B.wobT += dt;
+    B.wob *= Math.exp(-dt * 5);
+    const a = B.wob * Math.sin(B.wobT * 20);
+    body.rotation.x = Math.sin(B.wobDir) * a * 0.12;
+    body.rotation.z = -Math.cos(B.wobDir) * a * 0.12;
     const sq = 1 - Math.max(0, a) * 0.08;
     body.scale.set(1 / Math.sqrt(sq), sq, 1 / Math.sqrt(sq));
     if (sign) {
       // A damaged machine's sign flickers.
-      flicker = hp < spec.hp ? (Math.sin(time * 23) > 0.6 - (spec.hp - hp) * 0.25 ? 1 : 0) : 0;
-      sign.visible = flicker === 0 || Math.sin(time * 61) > 0;
+      B.flicker = hp < spec.hp ? (Math.sin(B.time * 23) > 0.6 - (spec.hp - hp) * 0.25 ? 1 : 0) : 0;
+      sign.visible = B.flicker === 0 || Math.sin(B.time * 61) > 0;
     }
   };
   return {
@@ -1334,9 +1454,9 @@ export function createBreakableRig(kind: BreakableKind, lang: 'ko' | 'en' = 'ko'
     },
     hit(dir: number | null) {
       const ang = -root.rotation.y;
-      wobDir = dir === null ? 0 : dir - ang;
-      wob = 1;
-      wobT = 0;
+      B.wobDir = dir === null ? 0 : dir - ang;
+      B.wob = 1;
+      B.wobT = 0;
     },
     breakApart(dir: number | null) {
       root.updateMatrixWorld(true);

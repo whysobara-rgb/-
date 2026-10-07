@@ -364,6 +364,24 @@ describe('director [F8]: coin climb on unanswered runs', () => {
     expect(eng.played('scoreSmall').at(-1)!.o?.step).toBe(TENSION_AUDIO.climbMax);
   });
 
+  it('the climb also follows the run size: one more degree per climbPointsPerStep points, from zero on every new run', () => {
+    const { eng, dir, sim } = setup();
+    const P = TENSION_AUDIO.climbPointsPerStep;
+    const bank = (tick: number, value: number): SimEvent => ({ type: 'recovered', tick, lootId: 9, kind: 'bank', team: 0, value, safeIds: [], safesValue: 0, holders: [] }) as SimEvent;
+    dir.setTension({ ...calm, run: { side: 'ours', recoveries: 1, tier: 0 } });
+    dir.onEvents([bank(100, 2 * P + 50)], sim); // one loaded bank opens the run: 0 + 2
+    expect(eng.played('scoreBank').at(-1)!.o?.step).toBe(2);
+    dir.setTension({ ...calm, run: { side: 'ours', recoveries: 2, tier: 1 } });
+    dir.onEvents([rec(400, 0, 80)], sim); // 2nd scoring, points 2P + 150: 1 + 2
+    expect(eng.played('scoreSmall').at(-1)!.o?.step).toBe(3);
+    // the rival answers (run theirs), then our new run starts from zero
+    dir.setTension({ ...calm, run: { side: 'theirs', recoveries: 1, tier: 0 } });
+    dir.onEvents([{ ...rec(500, 1, 81) } as SimEvent], sim);
+    dir.setTension({ ...calm, run: { side: 'ours', recoveries: 1, tier: 0 } });
+    dir.onEvents([rec(600, 0, 82)], sim);
+    expect(eng.played('scoreSmall').at(-1)!.o?.step).toBe(0);
+  });
+
   it('without the fun-round wiring the old 8 s combo still applies', () => {
     const { eng, dir, sim } = setup();
     [0, 300, 600].forEach((t, i) => dir.onEvents([rec(1000 + t, 0, 70 + i)], sim));

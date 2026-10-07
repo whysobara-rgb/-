@@ -268,39 +268,37 @@ job('police', {
   query: () => ({ flow: 'quick', skipIntro: '1', layout: 'plaza', mode: '2v2', rival: 'hodadak', police: '1' }),
   async run(c) {
     const p = c.page;
-    // Real play until the AI's first uproot has called the police (alarm -> car -> officers).
+    // Real play until the AI's first uproot has called the police (alarm -> car -> officers on
+    // their beat around the south bank).
     await liveMatch(p, 60, 24);
+    // The player picks up a small safe on the open south boulevard west of the bank and holds
+    // still until an officer spots the carrier and comes running; then hauls for the van.
     await S.ev(p, `(() => { const r = __dir.scenarios.police(); window.__pol = r;
-      for (let s = 0; s < 4; s++) __dir.set(s, __dir.idle({x: s % 2 ? -1 : 1, y: 0}));
-      const me = __dir.charId(0); __dir.tp(me, __dir.freeNear({x: 36, y: 36}), 0); })()`);
-    // An officer on patrol on the open south boulevard (where this wave walks its beat), then the
-    // haul starts right in front of it.
-    const OPEN = `(o) => o.phase === 'patrol' && o.pos.x > 30 && o.pos.x < 56 && o.pos.y > 33 && o.pos.y < 44`;
-    await S.pumpUntil(p, `__dir.sim.state.police.some(${OPEN})`, 3600);
-    // The player grabs a small safe just ahead of an officer and hauls it toward the van.
-    await stage(p, `(() => {
-      const sim = __dir.sim; const r = window.__pol;
-      const o = sim.state.police.find(${OPEN});
-      const z = sim.layout.zones.find(z => z.team === 0);
-      const d = { x: z.center.x - o.pos.x, y: z.center.y - o.pos.y }; const l = Math.hypot(d.x, d.y);
-      const spot = __dir.freeNear({ x: o.pos.x + d.x / l * 4.2, y: o.pos.y + d.y / l * 4.2 + 2.5 }, 1.4);
+      for (let s = 0; s < 4; s++) __dir.set(s, __dir.idle({x: 1, y: 0}));
+      const spot = __dir.freeNear({ x: 25, y: 37.5 }, 1.4);
       __dir.tp(r.safeId, spot, 0);
       __dir.tp(__dir.charId(0), { x: spot.x - 0.4 - 0.62, y: spot.y }, 0);
-      __dir.set(0, __dir.seq([[12, __dir.hold({x:0,y:0},{x:1,y:0})], [1, (s) => { const me = s.state.characters[0];
-        const d = {x: z.center.x - me.pos.x, y: z.center.y - me.pos.y}; const l = Math.hypot(d.x, d.y) || 1;
-        // Half stick: a heavy, nervous haul — the officers close in.
-        return __dir.cmd({x: d.x / l * 0.5, y: d.y / l * 0.5}, true, {x: 1, y: 0}); }]]));
-      return spot;
-    })()`);
-    const near = (d) => `(() => { const me = __dir.sim.state.characters[0]; return __dir.sim.state.police.some(o => o.phase === 'chase' && Math.hypot(o.pos.x - me.pos.x, o.pos.y - me.pos.y) < ${d}); })()`;
+      __dir.set(0, __dir.hold({ x: 0, y: 0 }, { x: 1, y: 0 }));
+      __dir.tp(__dir.charId(1), __dir.freeNear({ x: 12, y: 24 }), 0); })()`);
+    const near = (d, phases = "o.phase === 'chase'") => `(() => { const me = __dir.sim.state.characters[0]; return __dir.sim.state.police.some(o => (${phases}) && Math.hypot(o.pos.x - me.pos.x, o.pos.y - me.pos.y) < ${d}); })()`;
+    await S.pumpUntil(p, near(7.5), 3600);
+    await S.ev(p, `(() => { const z = __dir.sim.layout.zones.find(z => z.team === 0);
+      __dir.set(0, (s) => { const me = s.state.characters[0];
+        // West along the boulevard, then up into the zone: a heavy, nervous haul.
+        const goal = me.pos.x > 12 ? { x: 8, y: 37.5 } : z.center;
+        const d = { x: goal.x - me.pos.x, y: goal.y - me.pos.y }; const l = Math.hypot(d.x, d.y) || 1;
+        return __dir.cmd({ x: d.x / l * 0.45, y: d.y / l * 0.45 }, true, { x: -1, y: 0 }); }); })()`);
     await S.pumpUntil(p, near(4.6), 1800);
     await c.save('shot_04_police_a', true);
-    await S.pumpUntil(p, near(3.4), 1800);
-    await S.pump(p, 3);
+    await S.pumpUntil(p, near(3.2), 1800);
     await c.save('plate_police', false);
     await c.save('shot_04_police_b', true);
-    await S.pumpUntil(p, `__dir.sim.state.police.some(o => o.phase === 'tackle')`, 1800);
-    await S.pump(p, 2);
+    try {
+      await S.pumpUntil(p, `__dir.sim.state.police.some(o => o.phase === 'tackle')`, 600);
+      await S.pump(p, 2);
+    } catch {
+      S.log('  (police: no lunge within 10 s; the next frames are the chase)');
+    }
     await c.save('shot_04_police_c', true);
     await c.save('plate_police_tackle', false);
     await S.pump(p, 14);

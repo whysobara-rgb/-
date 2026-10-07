@@ -11,14 +11,17 @@ import { BREAKABLE_SPECS, PROP_SPECS } from '../../src/sim/config';
 import { LayoutBuilder } from '../../src/sim/layouts/builder';
 import { dist, mirrorPoint } from '../../src/sim/layouts/geometry';
 import { LAYOUTS, LAYOUT_META, MATCH_LAYOUT_IDS } from '../../src/sim/layouts/index';
+import type { LayoutDesignMeta } from '../../src/sim/layouts/meta';
 import {
   BREAKABLE_ZONE_GAP,
   ITEM_PAD_WALK,
   NATURAL_CRATE_WALK,
   STARTER_WALK,
   STARTER_ZONE_GAP,
+  TRUCK_HALF,
   V2_TOTAL,
   propValue,
+  truckApproach,
   v2TotalValue,
   validateLayout,
   type ValidationReport,
@@ -54,12 +57,18 @@ function classicSha(def: LayoutDef): string {
   return createHash('sha256').update(JSON.stringify(classic)).digest('hex');
 }
 
-/** A layout with its v2 composition edited (fast validation: bypass skipped). */
-function withV2(id: LayoutId, edit: (v2: LayoutV2Def, def: LayoutDef) => void): ValidationReport {
+/** A layout with its v2 composition (and optionally its design meta) edited (fast validation: bypass skipped). */
+function withV2(id: LayoutId, edit: (v2: LayoutV2Def, def: LayoutDef) => void, editMeta?: (m: LayoutDesignMeta) => void): ValidationReport {
   const def = structuredClone(LAYOUTS[id]);
   edit(def.v2!, def);
-  return validateLayout(def, LAYOUT_META[id], { content: 'v2', skipBypass: true });
+  const meta = structuredClone(LAYOUT_META[id]);
+  editMeta?.(meta);
+  return validateLayout(def, meta, { content: 'v2', skipBypass: true });
 }
+const warnings = (r: ValidationReport, code?: string): string[] =>
+  r.issues.filter((i) => i.level === 'warn' && (!code || i.code === code)).map((i) => `${i.code}: ${i.msg}`);
+/** Spawns / pads a layout waives a rule for (the waiver names one; its mirror twin is covered too). */
+const waived = (id: LayoutId, rule: string): string[] => (LAYOUT_META[id].waivers ?? []).filter((w) => w.rule === rule).map((w) => w.subject);
 const mirrorX = (def: LayoutDef, x: number): number => def.size.x - x;
 
 describe('v2 compositions: classic stays byte-identical', () => {
@@ -142,39 +151,63 @@ describe.each(V2_IDS)('v2 composition of %s', (id) => {
     expect(v2.eventSpots[0].x).toBeCloseTo(axis, 6);
   });
 
-  it('puts the ATM starter socket 8-12 m from a spawn, 6 m clear of the zone, out of the bank sweeps', () => {
+  it('puts the ATM starter socket 8-12 m from a spawn, 6 m clear of the zone, out of the bank sweeps, haulable by bots', () => {
     const st = v2Report(id).metrics.v2!.starters;
     expect(st).toHaveLength(2);
     for (const s of st) {
       expect(s.walk).toBeGreaterThanOrEqual(STARTER_WALK.min);
       expect(s.walk).toBeLessThanOrEqual(STARTER_WALK.max);
+      expect(s.walkFar).toBeGreaterThanOrEqual(s.walk);
       expect(s.zoneGap).toBeGreaterThanOrEqual(STARTER_ZONE_GAP);
       expect(s.sweepGap).toBeGreaterThanOrEqual(0);
+      // a 1.6 m lane home with every crate standing (bot large-carry clearance)
+      expect(Number.isFinite(s.haul)).toBe(true);
+      expect(s.haul).toBeLessThan(12);
     }
     expect(st[0].walk).toBeCloseTo(st[1].walk, 6);
+    expect(st[0].haul).toBeCloseTo(st[1].haul, 6);
   });
 
-  it('keeps breakables 6 m from the zones and gives every spawn a crate on its first path', () => {
+  it('keeps breakables 6 m from the zones and gives every spawn a crate on its first path (or a stated waiver)', () => {
     const m = v2Report(id).metrics.v2!;
     for (const b of m.breakables) expect(b.zoneGap, b.id).toBeGreaterThanOrEqual(BREAKABLE_ZONE_GAP);
     expect(m.naturalCrates).toHaveLength(def.spawns.length);
-    for (const n of m.naturalCrates) {
-      expect(n).not.toBeNull();
+    const w = waived(id, 'crate');
+    const mirrorOf = (si: number): number => (si + def.spawns.length / 2) % def.spawns.length;
+    m.naturalCrates.forEach((n, si) => {
+      if (w.includes(`spawn ${si}`) || w.includes(`spawn ${mirrorOf(si)}`)) {
+        expect(n, `spawn ${si} is waived, so it has no crate`).toBeNull();
+        return;
+      }
+      expect(n, `spawn ${si}`).not.toBeNull();
       expect(n!.walk).toBeGreaterThanOrEqual(NATURAL_CRATE_WALK.min);
       expect(n!.walk).toBeLessThanOrEqual(NATURAL_CRATE_WALK.max);
-    }
+      expect(n!.target.startsWith('pad'), 'item pads are never a first target').toBe(false);
+    });
+    // at most one spawn pair per layout goes without (shortcut: the starter ATM's lane)
+    expect(w.length).toBeLessThanOrEqual(1);
   });
 
-  it('places mirrored item pads 12-18 m out and clear of the bank sweeps, and a free event spot on the axis', () => {
+  it('places mirrored item pads 12-18 m from each own spawn (or a stated waiver) and clear of the bank sweeps, and a free event spot on the axis', () => {
     const m = v2Report(id).metrics.v2!;
+    const w = waived(id, 'pads');
     for (const p of m.pads) {
       if (p.twin === null) continue;
       expect(p.walk, p.id).toBeGreaterThanOrEqual(ITEM_PAD_WALK.min);
-      expect(p.walk, p.id).toBeLessThanOrEqual(ITEM_PAD_WALK.max);
+      if (!w.includes(`pad ${p.id}`) && !w.includes(`pad ${p.twin}`)) expect(p.walkFar, p.id).toBeLessThanOrEqual(ITEM_PAD_WALK.max);
       expect(p.sweepGap, p.id).toBeGreaterThanOrEqual(0);
     }
     expect(m.spots[0].clearance).toBeGreaterThan(2.1);
     expect(m.spots[0].ringOpen).toBeGreaterThanOrEqual(0.5);
+  });
+
+  it('measures the cash-truck drive to event spot 0 from both curbs and parks it clear', () => {
+    const t = v2Report(id).metrics.v2!.truck!;
+    expect(t.approaches.map((a) => a.from)).toEqual(['north', 'south']);
+    expect(t.parkGap).toBeGreaterThanOrEqual(0);
+    const open = t.approaches.filter((a) => a.clearance >= TRUCK_HALF.x);
+    if (open.length === 0) expect(waived(id, 'truck')).toEqual(['spot 0']);
+    else expect(waived(id, 'truck')).toEqual([]);
   });
 
   it('hauls the 돈나무 home on 2.4 m lanes, equally far for both teams', () => {
@@ -193,6 +226,50 @@ describe.each(V2_IDS)('v2 composition of %s', (id) => {
     const c = makeSim(def, [0, 0, 1, 1], { content: 'classic' });
     expect(c.state.totalValue).toBe(3200);
     expect(c.state.breakables).toHaveLength(0);
+  });
+});
+
+describe('per-map placements behind the review fixes', () => {
+  it('shortcut: the ATM lane has no crate in it, the south lane leads spawn 1 past its crate to the small safe', () => {
+    const v2 = LAYOUTS.shortcut.v2!;
+    const atm = v2.props.find((p) => p.variant === 'atm' && p.pos.x < 35)!;
+    // nothing breakable in the 2.5 m north edge lane (x 0..2.5, y 4..15.5)
+    expect(v2.breakables.filter((b) => b.center.x < 2.5 && b.center.y > 4 && b.center.y < 15.5)).toEqual([]);
+    expect(atm.pos.y).toBeLessThan(15.5);
+    const m = v2Report('shortcut').metrics.v2!;
+    expect(m.naturalCrates[1]?.target).toMatch(/^safe /);
+    expect(m.naturalCrates[1]?.detour).toBeLessThanOrEqual(0.5);
+    const small = v2.safes.find((s) => s.kind === 'smallSafe' && s.pos.x < 35)!;
+    expect(small.pos.x).toBeLessThan(2.5); // in the south edge lane
+    expect(small.pos.y).toBeGreaterThan(34.5);
+  });
+
+  it('counter: spawn 1 breaks its crate on the way to the south bank back door', () => {
+    const n = v2Report('counter').metrics.v2!.naturalCrates[1];
+    expect(n?.id).toBe('crate.south.w');
+    expect(n?.target).toMatch(/^bank 1 door/);
+    expect(n?.detour).toBeLessThanOrEqual(0.5);
+  });
+
+  it('the fence-effect metric starts flush props from the free cell beside them (no ∞ for the shortcut ATMs)', () => {
+    for (const s of v2Report('shortcut').metrics.safes) {
+      expect(s.fenceEffect, `${s.variant ?? s.kind} ${s.index}`).toBeDefined();
+      for (const t of [0, 1]) expect(Number.isFinite(s.fenceEffect!.standing[t]), `${s.variant ?? s.kind} ${s.index}`).toBe(true);
+    }
+  });
+
+  it('truckApproach: plaza is walled by the docks, counter by the clock tower to the south, shortcut only by its fences', () => {
+    const at = (id: LayoutId, from: 'north' | 'south') => truckApproach(LAYOUTS[id], LAYOUTS[id].v2!.eventSpots[0], from);
+    expect(at('plaza', 'north').blocker).toBe('dock.n');
+    expect(at('plaza', 'south').clearance).toBeLessThan(0);
+    expect(at('counter', 'north').clearance).toBeGreaterThanOrEqual(TRUCK_HALF.x);
+    expect(at('counter', 'south').blocker).toBe('clock');
+    for (const from of ['north', 'south'] as const) {
+      const a = at('shortcut', from);
+      expect(a.clearance).toBeGreaterThanOrEqual(TRUCK_HALF.x);
+      expect(a.fences).toEqual([from === 'north' ? 'fence.north' : 'fence.south']);
+      expect(a.banks).toEqual([from === 'north' ? 0 : 1]);
+    }
   });
 });
 
@@ -308,7 +385,8 @@ describe('v2 validator catches broken compositions', () => {
     const r = withV2('shortcut', (v2, def) => {
       for (const side of [0, 1]) {
         const x = side === 0 ? 0.5 : mirrorX(def, 0.5);
-        v2.breakables.push({ id: `plug.${side}`, kind: 'crate', center: { x, y: 10.5 }, half: { ...BREAKABLE_SPECS.crate.half }, angle: 0 });
+        const atm = v2.props.find((p) => p.variant === 'atm')!;
+        v2.breakables.push({ id: `plug.${side}`, kind: 'crate', center: { x, y: atm.pos.y }, half: { ...BREAKABLE_SPECS.crate.half }, angle: 0 });
       }
     });
     expect(codes(r).has('squeeze')).toBe(true);
@@ -317,17 +395,17 @@ describe('v2 validator catches broken compositions', () => {
   it('flags a 돈나무 with no 2.4 m haul lane (propHaul)', () => {
     // the empty north arcade courtyard: only 1.1 m alleys lead out
     const r = withV2('shortcut', (v2) => {
-      v2.props.find((p) => p.variant === 'moneyTree')!.pos = { x: 20.5, y: 11 };
+      v2.props.find((p) => p.variant === 'moneyTree')!.pos = { x: 22.5, y: 12.2 }; // beside the courtyard crate
     });
     expect(errors(r, 'propHaul').some((e) => /no haul path to zone 0/.test(e))).toBe(true);
   });
 
   it('flags item pads off their twins, in a sweep, too far, and event spots off the axis / on a solid', () => {
     const r = withV2('counter', (v2, def) => {
-      const w = v2.itemPads.find((p) => p.id === 'pad.terrace.w')!;
-      w.pos = { x: 15.5, y: 16.5 }; // twin no longer mirrored
-      const lane = v2.itemPads.filter((p) => p.id.startsWith('pad.lane'));
-      for (const p of lane) p.pos = { x: p.pos.x < def.size.x / 2 ? 20 : mirrorX(def, 20), y: 22 }; // diagonal sweep
+      // a second pair: the west pad off its twin, the east one ...
+      v2.itemPads.push({ id: 'p2.w', pos: { x: 15.5, y: 16.5 }, twin: 'p2.e' }, { id: 'p2.e', pos: { x: mirrorX(def, 15.5), y: 15.5 }, twin: 'p2.w' });
+      const yard = v2.itemPads.filter((p) => p.id.startsWith('pad.yard'));
+      for (const p of yard) p.pos = { x: p.pos.x < def.size.x / 2 ? 20 : mirrorX(def, 20), y: 22 }; // diagonal sweep
       v2.eventSpots[0] = { x: 30, y: 24 };
     });
     expect(codes(r).has('symmetry')).toBe(true);
@@ -335,10 +413,55 @@ describe('v2 validator catches broken compositions', () => {
     expect(errors(r, 'spots').some((e) => /axis/.test(e))).toBe(true);
     const solid = withV2('counter', (v2) => {
       v2.eventSpots[0] = { x: 34, y: 22.4 }; // next to the clock tower
-      v2.itemPads.find((p) => p.twin === null)!.twin = 'pad.lane.w';
+      v2.itemPads.find((p) => p.twin === null)!.twin = 'pad.yard.w';
     });
     expect(errors(solid, 'spots').some((e) => /free ground/.test(e))).toBe(true);
     expect(codes(solid).has('symmetry')).toBe(true);
+  });
+
+  it('measures item pads from EACH own spawn: the old north-terrace pad is 23 m from spawn 1', () => {
+    const r = withV2('counter', (v2, def) => {
+      for (const p of v2.itemPads.filter((q) => q.twin !== null)) p.pos = { x: p.pos.x < def.size.x / 2 ? 15.5 : mirrorX(def, 15.5), y: 15.5 };
+    });
+    expect(errors(r, 'pads').some((e) => /15\.7 \/ 23\.2 m walk from its own spawns/.test(e))).toBe(true);
+  });
+
+  it('never counts an item pad as a first target (they stay empty until the first drop)', () => {
+    // shortcut as first shipped: the small safe back in the south courtyard, the pad in the south
+    // lane behind spawn 1's crate -> the crate leads to nothing spawn 1 can act on at kickoff
+    const r = withV2('shortcut', (v2, def) => {
+      for (const s of v2.safes.filter((q) => q.kind === 'smallSafe')) s.pos = { x: s.pos.x < def.size.x / 2 ? 20.5 : mirrorX(def, 20.5), y: 39 };
+      for (const p of v2.itemPads.filter((q) => q.twin !== null)) p.pos = { x: p.pos.x < def.size.x / 2 ? 1.25 : mirrorX(def, 1.25), y: 41.5 };
+    });
+    expect(errors(r, 'crate').some((e) => /spawn 1 has no crate/.test(e))).toBe(true);
+    expect(errors(r, 'crate').some((e) => /spawn 3 has no crate/.test(e))).toBe(true);
+  });
+
+  it('flags a starter ATM fronted by a crate bots cannot haul past (the shipped shortcut lane)', () => {
+    const r = withV2('shortcut', (v2, def) => {
+      for (const a of v2.props.filter((p) => p.variant === 'atm')) a.pos = { x: a.pos.x, y: 10.5 };
+      for (const side of [0, 1]) {
+        const x = side === 0 ? 2.44 - 0.45 : mirrorX(def, 2.44 - 0.45);
+        v2.breakables.push({ id: `lane.${side}`, kind: 'crate', center: { x, y: 13 }, half: { ...BREAKABLE_SPECS.crate.half }, angle: 0 });
+      }
+      // keep the per-side counts: drop the courtyard crates
+      v2.breakables = v2.breakables.filter((b) => !b.id.startsWith('crate.court'));
+    });
+    expect(errors(r, 'starter').some((e) => /cannot be hauled to its zone on a 1\.6 m lane/.test(e))).toBe(true);
+    expect(codes(r).has('squeeze')).toBe(false); // a hand-carried ATM still squeezes past
+  });
+
+  it('waivers: a waived rule prints its reason as a warning, a stale waiver is an error', () => {
+    const plain = withV2('shortcut', () => {}, (m) => void delete m.waivers);
+    expect(errors(plain, 'crate').some((e) => /spawn 0 has no crate/.test(e))).toBe(true);
+    expect(errors(plain, 'pads').length).toBe(2);
+    const shipped = withV2('shortcut', () => {});
+    expect(errors(shipped)).toEqual([]);
+    expect(warnings(shipped, 'waived').some((w) => /spawn 2 has no crate.*waived: /.test(w))).toBe(true);
+    const stale = withV2('counter', () => {}, (m) => void (m.waivers = [{ rule: 'crate', subject: 'spawn 0', reason: 'test' }]));
+    expect(errors(stale, 'waiver').some((e) => /matches no failing check/.test(e))).toBe(true);
+    const plaza = withV2('plaza', () => {}, (m) => void delete m.waivers);
+    expect(errors(plaza, 'truck').some((e) => /no curb approach/.test(e))).toBe(true);
   });
 
   it('flags a fence no hammer can reach', () => {

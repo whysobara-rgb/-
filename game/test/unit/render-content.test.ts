@@ -14,6 +14,8 @@ import { createRaccoon, idlePose, type RaccoonRig } from '../../src/render/model
 import { createPropRig, createBreakableRig, type PropRig } from '../../src/render/models/props';
 import { createViewExtras, type ViewExtra, type ViewExtrasHost } from '../../src/render/extras';
 import { createItemModel } from '../../src/render/items';
+import { SHELL } from '../../src/render/props';
+import { createOfficer } from '../../src/render/models/police';
 
 interface Rigged {
   sim: Simulation;
@@ -255,6 +257,100 @@ describe('render extras (C7a)', () => {
     expect(r.effects.coinSpray.alive).toBe(0);
     for (const x of extras) x.dispose();
     expect(r.world.children.map((o) => o.name)).toEqual(baseline);
+  });
+
+  it('holds the smashed piggy bowl on screen although the sim removes the shell on the same tick', () => {
+    for (const viaEvent of [true, false]) {
+      const r = setup();
+      // As the GameView: recovered loot is hidden once and no longer lent to the extras.
+      const done = new Set<EntityId>();
+      r.host.lootRig = (id) => (r.sim.getLoot(id)?.recovered ? null : (r.loot.get(id) ?? null));
+      const viewFrame = (extras: ViewExtra[]): void => {
+        for (const l of r.sim.state.loot) {
+          if (!l.recovered || done.has(l.id)) continue;
+          done.add(l.id);
+          const rig = r.loot.get(l.id);
+          if (rig) rig.root.visible = false;
+        }
+        frame(r, extras);
+      };
+      const extras = createViewExtras(r.host);
+      viewFrame(extras);
+      const pig = r.props.piggy!;
+      const lp = r.sim.getLoot(pig)!;
+      const rig = r.loot.get(pig)!;
+      // The sim's smashing crack: cracks 3, removed from play (recovered, no scorer), same tick.
+      lp.cracks = 3;
+      lp.recovered = true;
+      lp.recoveredBy = null;
+      if (viaEvent) for (const x of extras) x.onEvents([{ type: 'piggyCrack', tick: r.sim.state.tick, lootId: pig, cracks: 3, smashed: true, byCharId: null }]);
+      viewFrame(extras);
+      expect(rig.root.visible).toBe(true);
+      expect(find(rig.root, 'prop:piggy:bowl')[0]!.visible).toBe(true);
+      expect(find(rig.root, 'prop:piggy:body')[0]!.visible).toBe(false);
+      for (let t = 0; t < SHELL.hold - 0.1; t += 1 / 60) viewFrame(extras);
+      expect(rig.root.visible).toBe(true);
+      expect(rig.root.scale.y).toBeGreaterThan(0.9);
+      for (let t = 0; t < SHELL.fade + 0.2; t += 1 / 60) viewFrame(extras);
+      expect(rig.root.visible).toBe(false);
+      expect(rig.root.scale.y).toBeCloseTo(1, 5);
+      for (const x of extras) x.dispose();
+    }
+  });
+
+  it('flattens a hammer-bonked officer (pivot squash) and restores it', () => {
+    const r = setup();
+    const officer = createOfficer(1);
+    r.world.add(officer.root);
+    r.host.officerRoot = () => officer.root;
+    const pivot = officer.root.children[0]!;
+    const base = pivot.scale.y;
+    const extras = createViewExtras(r.host);
+    frame(r, extras);
+    const a = r.sim.state.characters[0]!;
+    for (const x of extras) x.onEvents([{ type: 'itemHit', tick: r.sim.state.tick, charId: a.id, kind: 'hammer', target: 'police', targetId: 77, knockdown: false }]);
+    for (let i = 0; i < 12; i++) frame(r, extras);
+    // Upright officer: flattened along local y, spread along x / z.
+    expect(pivot.scale.y).toBeLessThan(base * 0.5);
+    expect(pivot.scale.z).toBeGreaterThan(base * 1.2);
+    for (let i = 0; i < 80; i++) frame(r, extras);
+    expect(pivot.scale.y).toBeCloseTo(base, 5);
+    expect(pivot.scale.x).toBeCloseTo(base, 5);
+    for (const x of extras) x.dispose();
+    officer.dispose();
+  });
+
+  it('keeps draw calls down: merged pickups, instanced pads / tree bills / slick bubbles, one receipt mesh', () => {
+    const meshes = (o: THREE.Object3D): THREE.Mesh[] => {
+      const out: THREE.Mesh[] = [];
+      o.traverse((m) => {
+        if ((m as THREE.Mesh).isMesh && !m.userData.isOutlineHull) out.push(m as THREE.Mesh);
+      });
+      return out;
+    };
+    for (const k of ['hammer', 'goldHammer', 'plunger', 'skates'] as const) {
+      const m = createItemModel(k, false);
+      expect(meshes(m.root).length).toBe(1);
+      m.dispose();
+    }
+    const r = setup();
+    populate(r);
+    const extras = createViewExtras(r.host);
+    for (let i = 0; i < 5; i++) frame(r, extras);
+    // One resting pickup (2000) on the shared pads; the incoming crate (2001) keeps its own.
+    expect((find(r.world, 'pickupRings')[0] as THREE.InstancedMesh).count).toBe(1);
+    expect((find(r.world, 'pickupShadows')[0] as THREE.InstancedMesh).count).toBe(1);
+    expect(meshes(find(r.world, 'slick')[0]!).length).toBe(2);
+    const tree = r.loot.get(r.props.moneyTree!)!;
+    expect((find(tree.root, 'prop:moneyTree:bills')[0] as THREE.InstancedMesh).count).toBe(4);
+    tree.setContents(100, 300);
+    expect((find(tree.root, 'prop:moneyTree:bills')[0] as THREE.InstancedMesh).count).toBe(2);
+    tree.spurt(3);
+    tree.update(1 / 60);
+    expect(find(tree.root, 'prop:moneyTree:flutter')[0]!.visible).toBe(true);
+    const atm = r.loot.get(r.props.atm!)!;
+    expect(meshes(atm.root).length).toBeLessThanOrEqual(7);
+    for (const x of extras) x.dispose();
   });
 
   it('prop rigs: SafeRig contract, contents, cracks, footprints; item models build for every kind', () => {

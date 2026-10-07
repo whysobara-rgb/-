@@ -371,6 +371,10 @@ export class HideoutScene extends MenuScene {
     this.setFocus('quickMatch');
   }
 
+  /** Frame / framing the camera aimed at last update (see the snap rule in update()). */
+  private lastFrame: { readonly pos: readonly [number, number, number] } | null = null;
+  private lastFraming: HideoutFraming | null = null;
+
   private frameFor(fr: HideoutFraming): { pos: readonly [number, number, number]; look: readonly [number, number, number] } {
     if (fr === 'front' && this.camera.aspect < 0.95) return FRONT_TALL;
     return FRAMES[fr];
@@ -553,7 +557,13 @@ export class HideoutScene extends MenuScene {
 
     // camera: framing + a small push toward the rivals
     const fr = this.frameFor(this.framing);
-    const k = damp(rm ? 30 : 3.2, dt);
+    // Snap (no swoop) on the first frame and when only the aspect variant changed (e.g. the
+    // constructor framed for 16:9 before the stage sized a portrait canvas); framing changes
+    // between screens still glide.
+    const snap = this.lastFrame === null || (fr !== this.lastFrame && this.lastFraming === this.framing);
+    this.lastFrame = fr;
+    this.lastFraming = this.framing;
+    const k = snap ? 1 : damp(rm ? 30 : 3.2, dt);
     const lift = f === 'tournament' ? 0.6 : 0;
     const breathe = rm ? 0 : Math.sin(t * 0.3) * 0.12;
     this.camPos.lerp(new THREE.Vector3(fr.pos[0] + breathe, fr.pos[1] + lift, fr.pos[2] - lift * 0.6), k);

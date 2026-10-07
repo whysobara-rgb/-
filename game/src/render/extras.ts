@@ -66,6 +66,12 @@ export interface ViewExtrasHost {
   lootPose(id: EntityId): ExtraPose | null;
   /** Interpolated police officer position, or null. */
   officerPos(id: EntityId): Vec2 | null;
+  /**
+   * Root of a police officer's rig (models/police.ts createOfficer: root > pivot > body), or null.
+   * The extras only ever scale the pivot (the hammer "flatten" squash, restored afterwards); the
+   * PoliceView poses the root and body every frame and sets the pivot scale only at creation.
+   */
+  officerRoot?(id: EntityId): THREE.Object3D | null;
   /** Freeze-frame request (seconds; the max of all requests this frame wins). */
   hitstop(seconds: number): void;
   /** Camera shake scaled by distance to the focus (respects the shake setting). */

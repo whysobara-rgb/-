@@ -12,6 +12,9 @@
  *    it with "잭팟!" and a 120 ms hit-stop.
  *  - Dormant loot (event / gondola safes before they appear) is hidden; airborne loot rides its
  *    flight arc above the ground (catapult / tube / crane / parachute, from `airborne`).
+ *  - Smashed piggy: the sim removes the shell (`recovered`) on the smashing tick and the GameView
+ *    then stops drawing that loot, so this sync keeps the broken bowl on the spot for a beat
+ *    (SHELL.hold s, wobbling from the smash) and then sinks / shrinks it away (SHELL.fade s).
  *  - Breakables: rigs placed from `state.breakables`; hits wobble them (vending: cracked glass +
  *    flickering sign per lost HP); breaking bursts planks / panels / cans.
  */
@@ -21,6 +24,20 @@ import type { ViewExtra, ViewExtrasHost } from './extras';
 import { createBreakableRig, type BreakableRig, type PropRig } from './models/props';
 import { placeOnSim } from './models';
 import { PAL } from './models/palette';
+
+/** Smashed piggy shell: how long the broken bowl stays, then how long it takes to sink away (s). */
+export const SHELL = { hold: 1.6, fade: 0.5 } as const;
+
+interface ShellView {
+  id: EntityId;
+  rig: PropRig;
+  age: number;
+  /** Rig scale / height when the hold started (restored on dispose). */
+  sx: number;
+  sy: number;
+  sz: number;
+  y: number;
+}
 
 interface BreakableView {
   id: string;
@@ -38,6 +55,11 @@ export class PropsSync implements ViewExtra {
   private readonly root = new THREE.Group();
   private readonly breakables = new Map<string, BreakableView>();
   private readonly cracks = new Map<EntityId, number>();
+  /** Last prop rig seen per loot id (the GameView stops lending it once the loot is recovered). */
+  private readonly rigs = new Map<EntityId, PropRig>();
+  /** Smashed piggy shells being held on screen (few; plain array, swap-removed). */
+  private readonly shells: ShellView[] = [];
+  private readonly shelled = new Set<EntityId>();
   private nextGlint = 0;
 
   constructor(host: ViewExtrasHost) {
@@ -82,12 +104,14 @@ export class PropsSync implements ViewExtra {
           const pose = h.lootPose(e.lootId);
           if (!pose) break;
           const dir = this.dirFrom(e.byCharId, pose);
-          if (isPropRig(rig)) {
-            rig.hit(dir, e.smashed ? 1.6 : 1);
-            rig.setCracks(Math.min(3, e.cracks));
+          const pr = isPropRig(rig) ? rig : this.rigs.get(e.lootId);
+          if (pr) {
+            pr.hit(dir, e.smashed ? 1.6 : 1);
+            pr.setCracks(Math.min(3, e.cracks));
           }
           this.cracks.set(e.lootId, e.cracks);
           if (e.smashed) {
+            if (pr) this.holdShell(e.lootId, pr);
             h.effects.piggyShatter(pose);
             h.effects.stamp('jackpot', pose, { y: 2.4, scale: 1.1 });
             h.hitstop(e.byCharId === focus || h.nearFocus(pose, 10) > 0.3 ? 0.12 : 0);
@@ -142,18 +166,66 @@ export class PropsSync implements ViewExtra {
     bv.broken = true;
   }
 
+  /** Keep a smashed piggy's broken bowl on screen for a beat (the view hides recovered loot). */
+  private holdShell(id: EntityId, rig: PropRig): void {
+    if (this.shelled.has(id)) return;
+    this.shelled.add(id);
+    rig.setCracks(3);
+    const r = rig.root;
+    this.shells.push({ id, rig, age: 0, sx: r.scale.x, sy: r.scale.y, sz: r.scale.z, y: r.position.y });
+  }
+
+  private syncShells(dt: number): void {
+    for (let i = this.shells.length - 1; i >= 0; i--) {
+      const s = this.shells[i]!;
+      s.age += dt;
+      const r = s.rig.root;
+      if (s.age >= SHELL.hold + SHELL.fade || !r.parent) {
+        r.visible = false;
+        r.scale.set(s.sx, s.sy, s.sz);
+        r.position.y = s.y;
+        this.shells[i] = this.shells[this.shells.length - 1]!;
+        this.shells.pop();
+        continue;
+      }
+      // The GameView no longer poses / updates recovered loot: we drive the bowl here.
+      r.visible = true;
+      s.rig.setStrain(0);
+      s.rig.update(dt);
+      const k = s.age <= SHELL.hold ? 0 : (s.age - SHELL.hold) / SHELL.fade;
+      const e = k * k;
+      const sc = Math.max(0.001, 1 - e);
+      r.scale.set(s.sx * sc, s.sy * sc * (1 - 0.3 * e), s.sz * sc);
+      r.position.y = s.y - 0.35 * e;
+    }
+  }
+
   sync(state: SimState, alpha: number, dt: number): void {
     const h = this.host;
     const now = h.time();
     // --- loot props ----------------------------------------------------------------------
-    for (const l of state.loot) {
-      if (l.variant === null || l.variant === undefined || l.recovered) continue;
+    const loot = state.loot;
+    for (let i = 0; i < loot.length; i++) {
+      const l = loot[i]!;
+      if (l.variant === null || l.variant === undefined) continue;
+      if (l.recovered) {
+        // Smashed piggy without its event in this batch (e.g. a resync): still hold the bowl.
+        if (l.variant === 'piggy' && l.recoveredBy === null && (l.cracks ?? 0) >= 3 && !this.shelled.has(l.id)) {
+          const pr = this.rigs.get(l.id);
+          if (pr) this.holdShell(l.id, pr);
+        }
+        continue;
+      }
       const rig = h.lootRig(l.id);
       if (!isPropRig(rig)) continue;
+      if (this.rigs.get(l.id) !== rig) this.rigs.set(l.id, rig);
       this.syncProp(l, rig, state, alpha, now, dt);
     }
+    this.syncShells(dt);
     // --- breakables ------------------------------------------------------------------------
-    for (const b of state.breakables) {
+    const bs = state.breakables;
+    for (let i = 0; i < bs.length; i++) {
+      const b = bs[i]!;
       let bv = this.breakables.get(b.id);
       if (!bv) bv = this.createBreakable(b);
       if (b.broken && !bv.broken) this.breakApart(bv, null);
@@ -216,6 +288,13 @@ export class PropsSync implements ViewExtra {
     for (const bv of this.breakables.values()) bv.rig.dispose();
     this.breakables.clear();
     this.cracks.clear();
+    for (const s of this.shells) {
+      s.rig.root.scale.set(s.sx, s.sy, s.sz);
+      s.rig.root.position.y = s.y;
+    }
+    this.shells.length = 0;
+    this.shelled.clear();
+    this.rigs.clear();
     this.root.removeFromParent();
   }
 }

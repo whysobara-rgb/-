@@ -358,6 +358,7 @@ export class MatchAudioDirector {
   // -------------------------------------------------------------------------------------------
 
   onEvents(events: readonly SimEvent[], sim: AudioSimView): void {
+    this.tensionCues.beforeEvents(events); // [F8] run size for this tick's coin climb
     for (const e of events) this.onEvent(e, sim);
     this.content?.onEvents(events, sim); // [C9] Content 2.0 sounds (section at the end of the file)
     this.tensionCues.onEvents(events, sim); // [F8] tension cues (section at the end of the file)
@@ -1213,6 +1214,13 @@ export const TENSION_AUDIO = {
   bankTagDelay: 1.05,
   /** Coin climb ceiling (same as the recovery combo) and the deposit that counts for runs. */
   climbMax: COMBO_MAX,
+  /**
+   * The climb follows the run's size as well as its length: step = (scorings in the run - 1) +
+   * floor(run points / climbPointsPerStep). Tuned on the P block (1v1 proxy vs each rival at
+   * normal, police on, v2, n = 180) to the fun-plan target "step >= 3 in 30-40 % of matches":
+   * length alone gives 7 % (a lone 4-in-a-row is rare in 1v1), + points / 400 gives 36 %.
+   */
+  climbPointsPerStep: 400,
   runDepositMin: 50,
   /** runClimb chime after the deposit pour (s). */
   runClimbDelay: 0.22,
@@ -1247,6 +1255,9 @@ class TensionCues {
   private prevLeft: number | null = null;
   /** Latest scoring run; undefined = never provided (no fun-round wiring: old 8 s combo). */
   private run: TensionState['run'] | undefined = undefined;
+  /** Points of OUR current run (TensionState.run carries no points: summed from the events). */
+  private runPts = 0;
+  private runRec = 0;
   private lastStingTick = -Infinity;
   private leadVariant = 0;
   private ended = false;
@@ -1265,6 +1276,8 @@ class TensionCues {
     this.warnTicks = 0;
     this.prevLeft = null;
     this.run = undefined;
+    this.runPts = 0;
+    this.runRec = 0;
     this.lastStingTick = -Infinity;
     this.ended = false;
     this.beats = 0;
@@ -1274,7 +1287,22 @@ class TensionCues {
   climbStep(): number | null {
     if (this.run === undefined) return null;
     const r = this.run;
-    return r && r.side === 'ours' ? Math.max(0, Math.min(TENSION_AUDIO.climbMax, r.recoveries - 1)) : 0;
+    if (!r || r.side !== 'ours') return 0;
+    const T = TENSION_AUDIO;
+    return Math.max(0, Math.min(T.climbMax, r.recoveries - 1 + Math.floor(this.runPts / T.climbPointsPerStep)));
+  }
+
+  /**
+   * Before the director maps a tick's events (setTension of the same tick already ran): add our
+   * scorings to the current run's points, the way MomentTracker sums `run.points` (every own
+   * recovery / deposit of a tick while the run is ours).
+   */
+  beforeEvents(events: readonly SimEvent[]): void {
+    const r = this.run;
+    if (!r || r.side !== 'ours') return;
+    for (const e of events) {
+      if ((e.type === 'recovered' || e.type === 'coinsBanked') && e.team === this.localTeam) this.runPts += e.value;
+    }
   }
 
   /** Music intensity floor (0 = none): a tier-2 run, either side, brings in the extra layer. */
@@ -1285,7 +1313,13 @@ class TensionCues {
   setTension(t: TensionState): void {
     const T = TENSION_AUDIO;
     this.tick++;
-    if (t.run !== undefined) this.run = t.run;
+    if (t.run !== undefined) {
+      this.run = t.run;
+      // a new run of ours (or none / theirs) starts our points from zero
+      const rec = t.run && t.run.side === 'ours' ? t.run.recoveries : 0;
+      if (rec < this.runRec || rec === 0) this.runPts = 0;
+      this.runRec = rec;
+    }
     if (this.warnTicks > 0) this.warnTicks--;
     if (this.ended) return;
     const left = Number.isFinite(t.secondsLeft) ? Math.max(0, t.secondsLeft) : Infinity;
@@ -1387,7 +1421,7 @@ class TensionCues {
           if (this.ended || e.team !== this.localTeam || e.value < T.runDepositMin) break;
           const r = this.run;
           if (!r || r.side !== 'ours' || r.recoveries < 2) break;
-          this.engine.play('runClimb', { step: Math.min(T.climbMax, r.recoveries - 1), delay: T.runClimbDelay });
+          this.engine.play('runClimb', { step: this.climbStep() ?? 0, delay: T.runClimbDelay });
           break;
         }
         case 'matchEnd':

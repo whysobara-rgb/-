@@ -429,6 +429,12 @@ const acts: Record<string, () => void> = {
     l.cracks = n;
     const smashed = n >= 3;
     emit({ type: 'piggyCrack', tick: tick(), lootId: l.id, cracks: n, smashed, byCharId: ch(0).id });
+    // As the real sim (src/sim/props.ts crack): the smashing crack removes the shell from play
+    // on the same tick (recovered, no scorer), so the view must hold the broken bowl itself.
+    if (smashed) {
+      l.recovered = true;
+      l.recoveredBy = null;
+    }
     if (smashed && (l.innerValue ?? 0) > 0) {
       l.innerValue = 0;
       l.estimatedValue = 0;
@@ -528,8 +534,43 @@ const acts: Record<string, () => void> = {
     later(0.52, () => setPhase(2, 'idle'));
   },
   police() {
-    // Hammer on an officer (no officer in this mock: the FX play at a spot).
-    emit({ type: 'itemHit', tick: tick(), charId: ch(0).id, kind: 'hammer', target: 'police', targetId: 1000, knockdown: false });
+    // Hammer on an officer: a mock officer stands in front of the player (the PoliceView draws
+    // whatever is in state.police), gets bonked flat and lies stunned.
+    const a = ch(0);
+    const pos = { x: a.pos.x + Math.cos(a.facing) * 1.3, y: a.pos.y + Math.sin(a.facing) * 1.3 };
+    if (!sim.state.police.some((o) => o.id === 1000)) {
+      sim.state.police.push({ id: 1000, carId: 0, pos, vel: { x: 0, y: 0 }, facing: a.facing + Math.PI, phase: 'chase', targetCharId: a.id, tackleTicks: 0, stunTicks: 0, tiredTicks: 0, activeTicks: 600 });
+      view.captureTick(sim);
+      view.captureTick(sim);
+    }
+    giveItem(0, 'hammer');
+    setPhase(0, 'windup');
+    later(0.1, () => setPhase(0, 'active'));
+    later(0.18, () => {
+      const o = sim.state.police.find((x) => x.id === 1000);
+      if (o) {
+        o.phase = 'stunned';
+        o.stunTicks = 120;
+      }
+      emit({ type: 'itemHit', tick: tick(), charId: a.id, kind: 'hammer', target: 'police', targetId: 1000, knockdown: false });
+    });
+    later(0.3, () => setPhase(0, 'recover'));
+    later(0.5, () => setPhase(0, 'idle'));
+  },
+  liveSmash() {
+    // Live (real v2 sim): the real smashing crack (src/sim/props.ts) — removes the shell on the
+    // same tick — delivered to the view the way the app does after a step.
+    if (!live) return;
+    const l = sim.state.loot.find((x) => x.variant === 'piggy' && !x.recovered);
+    const ctx = (sim as unknown as { ctx: { events: SimEvent[]; content: { props: { crackPiggy(id: EntityId, n: number, by: EntityId | null): number } } | null } }).ctx;
+    if (!l || !ctx.content) return;
+    ctx.events = [];
+    ctx.content.props.crackPiggy(l.id, 3, ch(0).id);
+    const ev = ctx.events.slice();
+    ctx.events = [];
+    for (const e of ev) eventLog.push(e.type);
+    view.captureTick(sim);
+    view.onEvents(ev, sim);
   },
   gold() {
     giveItem(0, 'goldHammer');
