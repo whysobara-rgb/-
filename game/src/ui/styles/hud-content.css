@@ -59,7 +59,7 @@
 /* like the scoreboard)                                                                       */
 /* ---------------------------------------------------------------------------------------- */
 
-.uh-bag { position: relative; display: inline-flex; align-items: center; gap: 0.55rem; margin-bottom: 0.35rem; padding: 0.3rem 1rem 0.35rem 0.45rem; border-radius: 0.6rem 1.4rem 1.4rem 0.6rem; color: var(--pop-ink); background: var(--pop-paper); border: 0.18rem solid var(--pop-ink); box-shadow: 0.2rem 0.25rem 0 var(--pop-ink); rotate: -1.5deg; transition: background-color var(--uh-dur); }
+.uh-bag { position: relative; display: inline-flex; align-items: center; gap: 0.55rem; margin-bottom: 0.35rem; padding: 0.3rem 1rem 0.35rem 0.45rem; border-radius: 0.6rem 1.4rem 1.4rem 0.6rem; color: var(--pop-ink); background: var(--pop-paper); border: 0.18rem solid var(--pop-ink); box-shadow: 0.2rem 0.25rem 0 var(--pop-ink); transition: background-color var(--uh-dur); }
 .uh-bag[hidden] { display: none; }
 .uh-bag__art { width: 3rem; height: 3rem; flex: none; }
 .uh-bag__glyph { width: 100%; height: 100%; }

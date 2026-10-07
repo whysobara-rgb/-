@@ -182,6 +182,8 @@ export class Body {
    * bank, set each tick by the game). 0 keeps the plain drag path bit-exact.
    */
   yawDragExtra = 0;
+  /** A world static or fence pushed on this body (normal impulse > 0) during the last step. */
+  staticPush = false;
   /** Kickable (the piggy): a dashing character skips softPushFactor against it. */
   kickable = false;
   /** (C3) Kickable only: restitution of a dashing character's kick (the ball springs off the foot). */
@@ -827,6 +829,7 @@ export class PhysicsWorld {
       j.broke = false;
     }
     const gripTick = P.gripBreakForce * dt;
+    for (const b of this.bodies) b.staticPush = false;
     for (let sub = 0; sub < substeps; sub++) {
       hooks.beforeSubstep?.(sub, substeps);
       const bodies = this.bodies;
@@ -994,6 +997,7 @@ export class PhysicsWorld {
       for (let i = 0; i < bodies.length; i++) bodies[i]!.maxPen = 0;
       for (let i = 0; i < n; i++) {
         const c = this.contacts[i]!;
+        if (!c.b && ((c.count > 0 && c.p0.pn > 0) || (c.count > 1 && c.p1.pn > 0))) c.a.staticPush = true;
         if (c.fence) continue;
         let pen = 0;
         if (c.count > 0 && -c.p0.sep > pen) pen = -c.p0.sep;

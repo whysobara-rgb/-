@@ -271,6 +271,22 @@ describe('control bug 5: pulling a bank goes where the stick points', () => {
     expect(r.mean).toBeLessThan(6);
     expect(r.max).toBeLessThan(12);
   });
+
+  // guard of the fix: the yaw grip is off while the bank is pressed against a static, so a bank
+  // snagged on a post still swings free (yaw grip always on: 2.4 m in 10 s instead of 4.3 m)
+  it('a bank snagged on a lamp post still swings free', () => {
+    const sim = makeSim(openLayout({ banks: [{ pos: { x: 50, y: 30 }, angle: 0 }], circles: [{ id: 'post', kind: 'lamp', center: { x: 55.2, y: 27.3 }, radius: 0.4, height: 4 }] }), [0]);
+    const bank = sim.state.loot[0]!.id;
+    sim.debug.setAnchored(bank, false);
+    for (const l of sim.state.loot) if (l.kind !== 'bank') sim.debug.teleport(l.id, { x: 5 + l.id * 2, y: 55 });
+    sim.debug.teleport(1, { x: 54.55, y: 30 }, Math.PI);
+    sim.step([cmd(0, 0, true, false, W)]);
+    const p0 = { ...sim.getLoot(bank)!.pos };
+    for (let t = 0; t < 600; t++) sim.step([cmd(1, 0, true)]);
+    const p = sim.getLoot(bank)!.pos;
+    expect(sim.state.characters[0]!.grab).not.toBeNull();
+    expect(Math.hypot(p.x - p0.x, p.y - p0.y)).toBeGreaterThan(3.5);
+  });
 });
 
 describe('control bug 6: two pushers on one face push along the stick', () => {

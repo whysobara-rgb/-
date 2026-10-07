@@ -155,10 +155,20 @@ describe('prompt latch (a dropped decisive load keeps its prompt)', () => {
   it('on a real match the prompt (held, uprooting or carried) is always true: that team scoring the load ends it', () => {
     let held = 0;
     let uprooting = 0;
+    // play matches until both a held and an uprooting prompt were checked (bots change; at most 8)
+    let played = 0;
     for (const [layout, seed] of [
       ['plaza', 83433],
       ['counter', 5],
+      ['plaza', 146785],
+      ['counter', 4243],
+      ['shortcut', 123028],
+      ['counter', 67595],
+      ['plaza', 43838],
+      ['shortcut', 3017],
     ] as const) {
+      if (played >= 2 && held > 0 && uprooting > 0) break;
+      played++;
       const p = new PromptLatch();
       runMatch({
         layout,

@@ -14,7 +14,7 @@ import type { ItemKind } from '../../sim/types';
 import { t } from '../i18n';
 import { animateEl, h, setClass, setText } from '../core/dom';
 import { fmtScore } from '../core/format';
-import { layoutTags, newTagMemory, type Box, type Tag } from '../core/declutter';
+import { layoutTags, newTagMemory, tagOpacity, type Box, type Tag } from '../core/declutter';
 import { breakableGlyph, breakableNameKey, itemGlyph, itemHintKey, itemNameKey, propGlyph, propNameKey } from './contentIcons';
 import type { ContentLabelModel } from './contentTypes';
 
@@ -85,6 +85,7 @@ export class PropLabels {
       if (e.seen) continue;
       this.active.delete(key);
       e.el.hidden = true;
+      e.el.style.opacity = '';
       this.free.push(e);
     }
     this.layout();
@@ -202,7 +203,11 @@ export class PropLabels {
     const placed = this.placed;
     placed.length = 0;
     layoutTags(order, placed, dt, GAP);
-    for (const e of order) this.place(e, e.ax, e.ay + e.off.x);
+    for (const e of order) {
+      this.place(e, e.ax, e.ay + e.off.x);
+      const o = tagOpacity(e.alpha); // cut-overs fade out, jump, fade back in
+      if (e.el.style.opacity !== o) e.el.style.opacity = o;
+    }
   }
 
   private place(e: Entry, ax: number, ay: number): void {

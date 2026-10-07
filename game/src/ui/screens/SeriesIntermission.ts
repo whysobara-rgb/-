@@ -51,7 +51,7 @@ export class SeriesIntermission extends UiScreen<SeriesIntermissionProps> {
 
   protected override onShow(): void {
     const s = this.el.querySelector<HTMLElement>('.uh-inter__matchPoint');
-    if (s) slamIn(s, 500, 8);
+    if (s) slamIn(s, 500);
   }
 
   protected render(): void {

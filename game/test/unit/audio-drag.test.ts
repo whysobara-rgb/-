@@ -1,7 +1,8 @@
 /**
  * The soft haul loops (owner feedback: dragging an uprooted object sounded too rough): the drag and
  * bank rumble voices are built from band-limited textures (./src/audio/dsp.ts rollBuffer /
- * heaveBuffer) and must stay hiss-free, click-free and seamless. Node has no OfflineAudioContext,
+ * heaveBuffer / groanBuffer) and must stay hiss-free, click-free and seamless, yet audible on
+ * small laptop speakers (the bumps' fundamental never sinks below ~265 Hz at a real carry speed). Node has no OfflineAudioContext,
  * so the drag voice is also rendered here in plain JS (texture at its playback rate + brown thrum
  * through the same RBJ lowpasses) to bound its spectrum and level.
  */
@@ -9,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { MatchAudioDirector, type AudioEngine, type AudioSimView } from '../../src/audio';
 import { MockBufferSource, MockFilter, mockContext } from '../../src/audio/dev/mockAudioContext';
 import { DRAG_PITCH } from '../../src/audio/director';
-import { heaveBuffer, noiseBuffer, rollBuffer } from '../../src/audio/dsp';
+import { GROAN_NOTES_HZ, ROLL_BUMP_HZ, groanBuffer, heaveBuffer, noiseBuffer, rollBuffer } from '../../src/audio/dsp';
 import type { LoopId } from '../../src/audio/ids';
 import { LOOP_GAIN, bankParams, createLoop, dragParams } from '../../src/audio/loops';
 import { makeRng } from '../../src/audio/rng';
@@ -63,6 +64,11 @@ function fft(re: Float64Array, im: Float64Array): void {
 
 /** Energy above `hz` relative to the total (dB), up to 24 Hann-windowed 4096-point frames. */
 function energyAboveDb(x: Float32Array, hz: number): number {
+  return energyBandDb(x, hz, SR / 2);
+}
+
+/** Energy in [lo, hi) Hz relative to the total (dB), up to 24 Hann-windowed 4096-point frames. */
+function energyBandDb(x: Float32Array, lo: number, hiHz: number): number {
   const N = 4096;
   let hi = 0;
   let all = 0;
@@ -75,7 +81,8 @@ function energyAboveDb(x: Float32Array, hz: number): number {
     for (let k = 1; k < N / 2; k++) {
       const p = re[k] * re[k] + im[k] * im[k];
       all += p;
-      if ((k * SR) / N >= hz) hi += p;
+      const f = (k * SR) / N;
+      if (f >= lo && f < hiHz) hi += p;
     }
   }
   return 10 * Math.log10(hi / all);
@@ -135,7 +142,7 @@ const rms = (x: Float32Array): number => Math.sqrt(x.reduce((a, v) => a + v * v,
 describe('soft haul textures', () => {
   it('roll and heave textures are finite, bounded, DC-free, seamless and click-free', () => {
     const ctx = mockContext();
-    for (const make of [rollBuffer, heaveBuffer]) {
+    for (const make of [rollBuffer, heaveBuffer, groanBuffer]) {
       const d = make(ctx).getChannelData(0);
       let peak = 0;
       let sum = 0;
@@ -182,6 +189,17 @@ describe('drag voice (rendered in JS)', () => {
       expect(energyAboveDb(y, 3000)).toBeLessThan(-40);
       expect(y.reduce((a, v) => Math.max(a, Math.abs(v)), 0)).toBeLessThan(0.5);
     }
+    // Heavy objects at a slow carry: still a real 300-800 Hz presence (small speakers) and a soft
+    // wooden definition at 0.8-2.5 kHz (not muffled; more of it the faster the haul), with no hiss
+    // above it. [intensity, size, minimum definition dB]
+    for (const [i, p, minDef] of [[0.35, DRAG_PITCH.largeSafe, -35], [0.6, DRAG_PITCH.goldSafe, -32], [1, DRAG_PITCH.smallSafe, -26]] as const) {
+      const y = renderDrag(i, p, 4);
+      expect(energyBandDb(y, 300, 800)).toBeGreaterThan(-9);
+      const def = energyBandDb(y, 800, 2500);
+      expect(def).toBeGreaterThan(minDef);
+      expect(def).toBeLessThan(-14);
+      expect(energyAboveDb(y, 2500)).toBeLessThan(-45);
+    }
   });
 
   it('starts from silence (no level floor at the speed gate) and follows size', () => {
@@ -191,9 +209,15 @@ describe('drag voice (rendered in JS)', () => {
     const gate = dragParams(0.15 / 3.5);
     expect(20 * Math.log10(gate.bumps / dragParams(1).bumps)).toBeLessThan(-20);
     // The final lowpass never opens into the hiss range.
-    expect(dragParams(1, 1.15).toneHz).toBeLessThan(2000);
-    // Small safe: quicker, higher bumps than a gold safe.
-    expect(dragParams(0.8, DRAG_PITCH.smallSafe).rate).toBeGreaterThan(dragParams(0.8, DRAG_PITCH.goldSafe).rate * 1.3);
+    expect(dragParams(1, 1.15).toneHz).toBeLessThan(2200);
+    // Small safe: quicker, higher bumps than a gold safe (~3 semitones), but the gold safe gets
+    // the heavier thrum.
+    expect(dragParams(0.8, DRAG_PITCH.smallSafe).rate).toBeGreaterThan(dragParams(0.8, DRAG_PITCH.goldSafe).rate * 1.15);
+    expect(dragParams(0.8, DRAG_PITCH.goldSafe).thrum).toBeGreaterThan(dragParams(0.8, DRAG_PITCH.smallSafe).thrum * 1.2);
+    // Small-speaker floor: at any real carry speed (>= ~1 m/s) every size's "du" stays >= 265 Hz.
+    for (const p of Object.values(DRAG_PITCH)) {
+      for (const i of [0.3, 0.6, 1]) expect(ROLL_BUMP_HZ * dragParams(i, p).rate).toBeGreaterThanOrEqual(265);
+    }
     expect(bankParams(0).heave).toBe(0);
     expect(bankParams(1).heaveHz).toBeLessThan(1000);
   });
@@ -217,9 +241,9 @@ describe('drag / bank graphs', () => {
         expect(last.kind).toBe('target');
         expect(last.value).toBe(0);
       }
-      // Every filter stays below 2 kHz.
+      // Every filter stays below ~2 kHz.
       for (const f of ctx.nodes.filter((n) => n instanceof MockFilter) as MockFilter[]) {
-        for (const e of f.frequency.events) expect(e.value).toBeLessThan(2000);
+        for (const e of f.frequency.events) expect(e.value).toBeLessThan(2200);
       }
       v.stop(1);
     }
@@ -230,9 +254,31 @@ describe('drag / bank graphs', () => {
     const rateAt = (): number => src.playbackRate.events.at(-1)!.value;
     const mid = rateAt();
     v.setPitch(DRAG_PITCH.smallSafe, 0.2);
-    expect(rateAt()).toBeGreaterThan(mid * 1.1);
+    expect(rateAt()).toBeGreaterThan(mid * 1.05);
     v.setPitch(DRAG_PITCH.goldSafe, 0.3);
-    expect(rateAt()).toBeLessThan(mid * 0.9);
+    expect(rateAt()).toBeLessThan(mid * 0.92);
+  });
+
+  it("the bank's groan plays at a fixed rate, so it stays on the songs' D-minor chord tones", () => {
+    const ctx = mockContext();
+    const v = createLoop(ctx as unknown as BaseAudioContext, 'bankRumble', 0, makeRng(3));
+    for (const i of [0.2, 0.6, 1]) v.set(i, i);
+    const groan = ctx.nodes.find((n) => n instanceof MockBufferSource && n.buffer === (groanBuffer(ctx) as unknown)) as MockBufferSource;
+    expect(groan).toBeTruthy();
+    expect(groan.playbackRate.events.length).toBe(0);
+    expect(groan.playbackRate.value).toBe(1);
+    // The thunks' texture still follows the speed.
+    const heave = ctx.nodes.find((n) => n instanceof MockBufferSource && n.buffer === (heaveBuffer(ctx) as unknown)) as MockBufferSource;
+    expect(heave.playbackRate.events.length).toBeGreaterThan(0);
+    // D2 / F2 / A2 (+- 1 cent).
+    for (const f of GROAN_NOTES_HZ) {
+      const m = 69 + 12 * Math.log2(f / 440);
+      expect(Math.abs(m - Math.round(m))).toBeLessThan(0.01);
+      expect([2, 5, 9]).toContain(((Math.round(m) % 12) + 12) % 12);
+    }
+    expect(bankParams(0).groan).toBe(0);
+    expect(bankParams(1).groan).toBeGreaterThan(bankParams(0.3).groan);
+    v.stop(2);
   });
 
   it('the director passes a size pitch for every dragged kind and prop', () => {

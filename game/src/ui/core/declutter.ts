@@ -14,8 +14,8 @@ export interface Box {
 
 const cand: number[] = [];
 
-function hits(placed: readonly Box[], l: number, r: number, t: number, b: number, gap: number): boolean {
-  for (let i = 0; i < placed.length; i++) {
+function hits(placed: readonly Box[], l: number, r: number, t: number, b: number, gap: number, n = placed.length): boolean {
+  for (let i = 0; i < n; i++) {
     const q = placed[i]!;
     if (l < q.r + gap && r > q.l - gap && t < q.b + gap && b > q.t - gap) return true;
   }
@@ -149,30 +149,74 @@ export interface Tag {
   off: { x: number; v: number };
   /** Snap the offset this frame (newly shown). */
   fresh: boolean;
+  /** Target offset last frame (a target gliding with its blocker is carried, not eased). */
+  tgt: number;
+  /** Displayed opacity 0..1: a cut-over fades out in place, jumps, then fades back in. */
+  alpha: number;
 }
 
 /** A side change holds at least this long (s) unless the side gets blocked. */
 export const SIDE_HOLD = 0.5;
 
-export function newTagMemory(): Pick<Tag, 'side' | 'sideAge' | 'lastSide' | 'off' | 'fresh'> {
-  return { side: 0, sideAge: SIDE_HOLD, lastSide: 0, off: { x: 0, v: 0 }, fresh: true };
+/** Fade-out / fade-in time (s) of a cut-over (together < 150 ms). */
+export const SWAP_OUT = 0.05;
+export const SWAP_IN = 0.08;
+
+/** CSS `opacity` for a tag's `alpha` ('' = fully shown), rounded so unchanged values compare equal. */
+export function tagOpacity(alpha: number): string {
+  return alpha >= 0.995 ? '' : String(Math.max(0, Math.round(alpha * 100) / 100));
+}
+
+export function newTagMemory(): Pick<Tag, 'side' | 'sideAge' | 'lastSide' | 'off' | 'fresh' | 'tgt' | 'alpha'> {
+  return { side: 0, sideAge: SIDE_HOLD, lastSide: 0, off: { x: 0, v: 0 }, fresh: true, tgt: 0, alpha: 1 };
+}
+
+/**
+ * Should the move of the tag's displayed offset `from` -> `to` be a cut (fade out, jump, fade
+ * in) rather than a slide? Yes when it would carry the tag past the middle of another placed box
+ * (a slide would visibly pass through that tag) or is long (> 1.5 tag heights: a cut reads
+ * calmer than a long glide). `placed[own]` is the tag's own box.
+ */
+function cutOver(placed: readonly Box[], own: number, t: Tag, from: number, to: number): boolean {
+  const d = Math.abs(to - from);
+  if (d < 0.5 * t.h) return false;
+  if (d > 1.5 * t.h) return true;
+  const l = t.ax - t.w / 2;
+  const r = t.ax + t.w / 2;
+  const c0 = t.ay + Math.min(from, to) - t.h / 2;
+  const c1 = t.ay + Math.max(from, to) - t.h / 2;
+  for (let i = 0; i < placed.length; i++) {
+    if (i === own) continue;
+    const q = placed[i]!;
+    if (Math.min(r, q.r) - Math.max(l, q.l) <= 2) continue;
+    const m = (q.t + q.b) / 2;
+    if (m > c0 + 2 && m < c1 - 2) return true;
+  }
+  return false;
 }
 
 /**
  * De-overlap pass with memory: places `tags` (sorted in place by priority, then age), keeps each
- * on the side it sat on last frame while that side stays reasonable, and eases the vertical
- * offset (never the anchor) so a forced move slides instead of jumping. The anchor itself is
- * followed exactly: an un-nudged tag sits on `ay` with no lag. Afterwards the displayed bottom
- * of a tag is `ay + off.x`.
+ * on the side it sat on last frame while that side stays reasonable, and moves the vertical
+ * offset (never the anchor) without teleports: a target gliding with its blocker is carried
+ * 1:1, a short move eases (spring), a move across another tag or a long one is a quick cut
+ * (fade out in place, jump, fade in; `alpha`). The anchor itself is followed exactly: an
+ * un-nudged tag sits on `ay` with no lag. Afterwards the displayed bottom of a tag is
+ * `ay + off.x`, drawn at opacity `alpha`.
  */
 export function layoutTags(tags: Tag[], placed: Box[], dt: number, gap = 3): void {
   tags.sort((a, b) => a.prio - b.prio || a.seq - b.seq);
   const step = Math.min(Math.max(dt, 0), 0.1);
+  // per-frame target change still read as gliding with the blocker (~600 px/s, under half a tag)
+  const glide = (h: number) => Math.max(1.5, Math.min(0.5 * h, 600 * step));
   for (const t of tags) {
     let bottom = t.ay;
+    let own = -1;
     if (t.w > 0) {
-      const stick = t.sideAge < SIDE_HOLD ? HOLD_STICK * t.h : undefined;
+      // the firm hold only guards a fresh side change; a tag back on its anchor takes the near way
+      const stick = t.side !== 0 && t.sideAge < SIDE_HOLD ? HOLD_STICK * t.h : undefined;
       bottom = placeLabel(placed, t.ax, t.ay, t.w, t.h, gap, { side: t.side, lean: t.lean || t.lastSide, stick });
+      own = placed.length - 1;
     }
     const side = sideOf(t.ay, bottom);
     if (side !== t.side) {
@@ -181,10 +225,32 @@ export function layoutTags(tags: Tag[], placed: Box[], dt: number, gap = 3): voi
       if (side !== 0) t.lastSide = side;
     } else t.sideAge += step;
     const target = bottom - t.ay;
+    const prev = t.tgt;
+    t.tgt = target;
     if (t.fresh) {
       t.off.x = target;
       t.off.v = 0;
+      t.alpha = 1;
       t.fresh = false;
-    } else springStep(t.off, target, step);
+      continue;
+    }
+    if (own >= 0 && cutOver(placed, own, t, t.off.x, target)) {
+      // fade out where it is (riding its anchor), then jump; re-checked every frame
+      t.off.v = 0;
+      t.alpha -= step / SWAP_OUT;
+      if (t.alpha < 1e-3) {
+        t.alpha = 0;
+        t.off.x = target;
+      }
+      continue;
+    }
+    if (t.alpha < 1) t.alpha = Math.min(1, t.alpha + step / SWAP_IN);
+    // riding the same blocker (same side both frames, small change): carried 1:1, no lag;
+    // a new nudge or a drop back onto the anchor is a decision and eases
+    if (prev * target > 0 && Math.abs(target - prev) <= glide(t.h)) t.off.x += target - prev;
+    // still covered by a tag placed before it: get out of the way twice as fast
+    const l = t.ax - t.w / 2 + 2;
+    const b = t.ay + t.off.x - 2;
+    springStep(t.off, target, step, own > 0 && hits(placed, l, l + t.w - 4, b - t.h + 4, b, 0, own) ? 80 : 40);
   }
 }

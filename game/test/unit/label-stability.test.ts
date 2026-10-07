@@ -2,15 +2,17 @@
  * World-label stability (owner report: "물건들 뽑아서 끌고올때 글자가 엄청 떨리네"): the pure seams
  * behind WorldLabels / PropLabels.
  * - declutter hysteresis: a tag overlapping a moving tag keeps its side instead of teleporting a
- *   whole tag height whenever the up / down distances cross; a forced side change slides (eased
- *   offset) and settles in ~150 ms; at most one switch per SIDE_HOLD; un-nudged tags follow
- *   their anchor exactly; equal priorities keep a stable order.
+ *   whole tag height whenever the up / down distances cross; a forced side change across another
+ *   tag is a quick fade cut (never a visible slide through it), a short move eases, both settle
+ *   in ~150 ms; a nudged tag rides its blocker with no lag; a tag back on its anchor takes the
+ *   near way; at most one switch per SIDE_HOLD; un-nudged tags follow their anchor exactly;
+ *   equal priorities keep a stable order.
  * - springStep: critically damped, no overshoot, frame-rate independent.
  * - adapters: labels anchor on the drawn (interpolated) pose when the view supplies one, and
  *   proximity value tags have a show / hide hysteresis band.
  */
 import { describe, expect, it } from 'vitest';
-import { HOLD_STICK, layoutTags, newTagMemory, placeLabel, SIDE_HOLD, sideOf, springStep, type Box, type Tag } from '../../src/ui/core/declutter';
+import { HOLD_STICK, layoutTags, newTagMemory, placeLabel, SIDE_HOLD, sideOf, springStep, tagOpacity, type Box, type Tag } from '../../src/ui/core/declutter';
 import { hudModelFromSim, labelsFromSim } from '../../src/ui/hud/adapters';
 import { Simulation, type MatchSetup } from '../../src/sim';
 import { LAYOUTS } from '../../src/sim/layouts';
@@ -128,31 +130,108 @@ describe('layoutTags (temporal de-overlap)', () => {
     });
   }
 
-  it('a forced side change slides (no jump) and settles within ~150 ms', () => {
-    const value = tag({ ax: 500, ay: 303, w: 70, h: 26, prio: 3, seq: 0 });
+  for (const hz of [60, 120, 144]) {
+    it(`a forced side change across another tag is a quick cut: never slides through it, never jumps while visible, settles within 150 ms @ ${hz} Hz`, () => {
+      const value = tag({ ax: 500, ay: 303, w: 70, h: 26, prio: 3, seq: 0 });
+      const name = tag({ ax: 505, ay: 300, w: 60, h: 20, prio: 4, seq: 1, lean: -1 });
+      const dt = 1 / hz;
+      for (let f = 0; f < hz; f++) layoutTags([value, name], [], dt, GAP);
+      expect(name.side).toBe(-1);
+      const from = name.off.x;
+      const target = 303 + GAP + 20 + 0.01 - 300;
+      // a banner-sized keep-out drops in above: the up side is blocked
+      const keepOut: Box = { l: 0, t: 0, r: 1000, b: 270 };
+      let prev = from;
+      let prevA = 1;
+      let settledAt = NaN;
+      let rising = false;
+      for (let f = 1; f <= hz / 2; f++) {
+        layoutTags([value, name], [keepOut], dt, GAP);
+        const step = Math.abs(name.off.x - prev);
+        // it only moves while invisible: no visible slide across '100', no visible teleport
+        if (step > 1e-9) expect(Math.min(prevA, name.alpha)).toBe(0);
+        // the drawn tag never covers the value tag while it is more than half visible
+        const top = 300 + name.off.x - 20;
+        if (name.alpha >= 0.5) expect(top >= 303 || 300 + name.off.x <= 303 - 26).toBe(true);
+        // one fade out, then one fade in (no flicker)
+        if (name.alpha > prevA) rising = true;
+        else if (rising) expect(name.alpha).toBeGreaterThanOrEqual(prevA);
+        prev = name.off.x;
+        prevA = name.alpha;
+        if (!Number.isFinite(settledAt) && name.alpha === 1 && Math.abs(name.off.x - target) < 0.05) settledAt = f * dt;
+      }
+      expect(name.side).toBe(1);
+      expect(Math.abs(target - from)).toBeGreaterThan(45); // a whole tag height and more
+      expect(settledAt).toBeLessThanOrEqual(0.15 + 1e-9);
+      expect(name.off.x).toBeCloseTo(target, 5);
+    });
+  }
+
+  it('a short move that crosses nothing eases (slides, stays visible) and settles within ~150 ms', () => {
+    // the tag sits lifted above a blocker; the blocker slides away sideways -> back onto the anchor
     const name = tag({ ax: 505, ay: 300, w: 60, h: 20, prio: 4, seq: 1, lean: -1 });
     const dt = 1 / 144;
-    for (let f = 0; f < 144; f++) layoutTags([value, name], [], dt, GAP);
-    expect(name.side).toBe(-1);
+    const blocker = (x: number): Box => ({ l: x, t: 285, r: x + 70, b: 305 });
+    for (let f = 0; f < 72; f++) layoutTags([name], [blocker(440)], dt, GAP);
     const from = name.off.x;
-    // a banner-sized keep-out drops in above: the up side is blocked
-    const keepOut: Box = { l: 0, t: 0, r: 1000, b: 270 };
-    let maxStep = 0;
+    expect(from).toBeCloseTo(285 - GAP - 0.01 - 300, 5);
     let prev = from;
+    let maxStep = 0;
     let settledAt = NaN;
-    let target = NaN;
     for (let f = 1; f <= 72; f++) {
-      layoutTags([value, name], [keepOut], dt, GAP);
-      target = name.side === 1 ? 303 + GAP + 20 + 0.01 - 300 : target;
+      layoutTags([name], [blocker(300)], dt, GAP);
+      expect(name.alpha).toBe(1);
       maxStep = Math.max(maxStep, Math.abs(name.off.x - prev));
       prev = name.off.x;
-      if (!Number.isFinite(settledAt) && Math.abs(name.off.x - target) < 0.05 * Math.abs(target - from)) settledAt = f * dt;
+      if (!Number.isFinite(settledAt) && Math.abs(name.off.x) < 0.05 * Math.abs(from)) settledAt = f * dt;
     }
-    expect(name.side).toBe(1);
-    expect(Math.abs(target - from)).toBeGreaterThan(45); // a whole tag height and more
-    expect(maxStep).toBeLessThan(Math.abs(target - from) / 4); // eased over several frames
+    expect(name.side).toBe(0);
+    expect(maxStep).toBeLessThan(Math.abs(from) / 4); // eased over several frames
     expect(settledAt).toBeLessThanOrEqual(0.15);
-    expect(name.off.x).toBeCloseTo(target, 1);
+    expect(name.off.x).toBe(0);
+  });
+
+  it('a tag back on its anchor is nudged the near way, not back to its old side far off (no 58 px hop)', () => {
+    // just dropped back onto its anchor after sitting above (lastSide up, side change 0.3 s ago);
+    // a tall stack above now grazes its top: 1 px down clears it, the old side is 57 px up
+    const name = tag({ ax: 505, ay: 300, w: 60, h: 19, prio: 4, seq: 1, lean: -1, side: 0, sideAge: 0.3, lastSide: -1, fresh: false });
+    const stack: Box = { l: 470, t: 246, r: 540, b: 279 };
+    layoutTags([name], [stack], 1 / 60, GAP);
+    expect(name.side).toBe(1);
+    expect(name.tgt).toBeGreaterThan(0);
+    expect(name.tgt).toBeLessThan(2);
+    // a fresh side change still holds firmly (the hysteresis against flip-flop is unchanged)
+    const held = tag({ ax: 505, ay: 300, w: 60, h: 19, prio: 4, seq: 1, side: -1, sideAge: 0.3, lastSide: -1, fresh: false });
+    expect(sideOf(300, placeLabel([{ ...stack }], 505, 300, 60, 19, GAP, { side: -1, stick: HOLD_STICK * 19 }))).toBe(-1);
+    layoutTags([held], [{ l: 470, t: 246, r: 540, b: 279 }], 1 / 60, GAP);
+    expect(held.side).toBe(-1);
+  });
+
+  for (const hz of [60, 144]) {
+    it(`a nudged tag rides a fast-moving blocker 1:1 (no lag, so no trailing overlap) @ ${hz} Hz`, () => {
+      const value = tag({ ax: 500, ay: 300, w: 70, h: 26, prio: 3, seq: 0 });
+      const name = tag({ ax: 505, ay: 300, w: 60, h: 20, prio: 4, seq: 1, lean: -1 });
+      const dt = 1 / hz;
+      for (let f = 0; f < hz * 2; f++) {
+        // the blocker's tag bobs under the name tag at up to ~300 px/s relative to its anchor;
+        // the name tag stays lifted above it the whole time
+        value.ay = 310 + 15 * Math.sin(f * dt * 2 * Math.PI * 3.2);
+        layoutTags([value, name], [], dt, GAP);
+        if (f > 0) expect(Math.abs(name.off.x - name.tgt)).toBeLessThan(1e-6);
+        expect(name.alpha).toBe(1);
+        // never drawn over the value tag
+        const b = name.ay + name.off.x;
+        expect(b <= value.ay - 26 - GAP + 0.02 || b - 20 >= value.ay + GAP - 0.02).toBe(true);
+      }
+    });
+  }
+
+  it('tagOpacity: blank when shown, rounded otherwise', () => {
+    expect(tagOpacity(1)).toBe('');
+    expect(tagOpacity(0.999)).toBe('');
+    expect(tagOpacity(0.5)).toBe('0.5');
+    expect(tagOpacity(0.123)).toBe('0.12');
+    expect(tagOpacity(0)).toBe('0');
   });
 
   it('switches sides at most once per SIDE_HOLD while the old side stays free', () => {

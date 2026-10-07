@@ -1233,13 +1233,14 @@ export const TENSION_AUDIO = {
    * The climb follows the run's size as well as its length: step = (scorings in the run - 1) +
    * floor(run points / (climbRunShare x state.totalValue)). A share of totalValue (like
    * MomentTracker's run tiers, content-plan F5 delta) so it tracks content (classic 3200 vs v2
-   * 4000 / 4400). Tuned on the P block (1v1 proxy vs each rival at normal, police on, v2,
-   * n = 180) to the fun-plan target "step >= 3 in 30-40 % of matches"; length alone gives
-   * ~10-15 % (a lone 4-in-a-row is rare in 1v1). Bot-dependent: re-check with the opt-in band
+   * 4000 / 4400). Tuned on the P block (1v1 proxy vs each rival at normal, police on, v2, both
+   * sides, two seed sets, n = 360) to the fun-plan target "step >= 3 in 30-40 % of matches": 0.16
+   * (640 points in v2) measured 36.4 % (seed sets 35.6 / 37.2 %); run length alone gives ~21 %
+   * (a lone 4-in-a-row is rare in 1v1). Bot-dependent: re-check with the opt-in band
    * test (F8_CLIMB_SEEDS=10 npx vitest run test/unit/audio-tension-band.test.ts) whenever bot
    * behaviour or content changes.
    */
-  climbRunShare: 0.15,
+  climbRunShare: 0.16,
   runDepositMin: 50,
   /** runClimb chime after the deposit pour (s). */
   runClimbDelay: 0.22,

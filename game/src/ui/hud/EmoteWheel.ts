@@ -143,9 +143,9 @@ export class EmoteWheel {
         animateEl(
           this.disc,
           [
-            { transform: 'scale(0.55) rotate(-25deg)', opacity: 0 },
-            { transform: 'scale(1.07) rotate(3deg)', opacity: 1, offset: 0.65 },
-            { transform: 'scale(1) rotate(0deg)', opacity: 1 },
+            { transform: 'scale(0.55)', opacity: 0 },
+            { transform: 'scale(1.07)', opacity: 1, offset: 0.65 },
+            { transform: 'scale(1)', opacity: 1 },
           ],
           { duration: 240, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
         );
@@ -228,7 +228,7 @@ export class EmoteWheel {
     if (repeat) return;
     animateEl(this.chipNote, [{ scale: '0.6', opacity: 0 }, { scale: '1.08', opacity: 1, offset: 0.6 }, { scale: '1', opacity: 1 }], { duration: 220, easing: 'ease-out' });
     const btn = this.chipEl.querySelector('.uh-tchip__btn') ?? this.chipEl;
-    animateEl(btn, [{ rotate: '0deg' }, { rotate: '-12deg' }, { rotate: '10deg' }, { rotate: '-6deg' }, { rotate: '0deg' }], { duration: 320, easing: 'ease-out' });
+    animateEl(btn, [{ translate: '0 0' }, { translate: '-0.3rem 0' }, { translate: '0.3rem 0' }, { translate: '-0.2rem 0' }, { translate: '0 0' }], { duration: 320, easing: 'ease-out' });
   }
 
   /** A taunt was sent: the chip pops. */

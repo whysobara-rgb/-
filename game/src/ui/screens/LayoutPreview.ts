@@ -249,7 +249,7 @@ export class LayoutPreview extends UiScreen<LayoutPreviewProps> {
     el.replaceChildren(chunky(n > 0 ? String(n) : t('banner.go'), { tone: n > 0 ? 'cream' : 'sun' }));
     uiSound(n > 0 ? 'tick' : 'stamp');
     this.props.onTick?.(n);
-    animateEl(el, [{ transform: 'scale(2.4) rotate(-12deg)', opacity: 0 }, { transform: 'scale(0.9, 1.1) rotate(3deg)', opacity: 1, offset: 0.6 }, { transform: 'scale(1) rotate(-2deg)', opacity: 1 }], {
+    animateEl(el, [{ transform: 'scale(2.4)', opacity: 0 }, { transform: 'scale(0.9, 1.1)', opacity: 1, offset: 0.6 }, { transform: 'scale(1)', opacity: 1 }], {
       duration: 380,
       easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)',
     });

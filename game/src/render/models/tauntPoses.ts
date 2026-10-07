@@ -263,24 +263,25 @@ function wiggle(o: TauntPose, T: number): void {
 }
 
 /**
- * 메롱: lean back (anticipation), then snap forward with the head tipped toward the right paw;
- * the paw comes up under the right eye and a fingertip drags the lower eyelid down (the face
- * shows the pink under-lid), the tongue pops out and the head wobbles "nyah-nyah".
+ * 메롱: a little dip (anticipation), then pop up with the chin raised and the head tipped toward
+ * the right paw; the paw comes up under the right eye and a fingertip drags the lower eyelid
+ * down (the face shows the pink under-lid), the tongue pops out and the head wobbles
+ * "nyah-nyah". Chin up, not a bow: from the high match camera a bowed head shows only its hat.
  */
 function bleh(o: TauntPose, T: number): void {
   const ant = bump(0, 0.2, T);
   const e = envelope(T, 0.12, 0.3, 0.98, 1.2);
   const nyah = Math.sin((T - 0.3) * TAU * 3.2) * sstep(0.3, 0.4, T);
-  o.lean = 0.14 * ant - 0.18 * e;
-  o.roll = 0.2 * e;
+  o.lean = -0.1 * ant + 0.06 * e;
+  o.roll = 0.16 * e;
   o.pivotY = -0.035 * ant;
   o.sy = 1 - 0.06 * ant + 0.03 * e;
-  o.headRoll = e * (0.45 + nyah * 0.07);
-  o.headPitch = 0.22 * ant - 0.04 * e;
+  o.headRoll = e * (0.36 + nyah * 0.07);
+  o.headPitch = -0.1 * ant + 0.26 * e;
   o.headYaw = e * (nyah * 0.1 - 0.12);
   // Right paw up under the right eye (fitted to the rig: the paw sits on the cheek below the
   // pulled lid, clear of the eye; toy arms are short, so it stretches a little).
-  o.armR = { fwd: 1.7 * e, out: mix(NEUTRAL_ARM_OUT, -0.4, e), inward: 0, lift: 0.06 * e, stretch: 1 + 0.65 * e, bulge: 1 };
+  o.armR = { fwd: 1.9 * e, out: mix(NEUTRAL_ARM_OUT, -0.4, e), inward: 0, lift: 0.06 * e, stretch: 1 + 0.7 * e, bulge: 1 };
   o.finger = sstep(0.22, 0.34, T) * (1 - sstep(0.94, 1.08, T));
   // Left paw on the hip.
   o.armL.fwd = -0.35 * e;

@@ -792,4 +792,7 @@ export const en: Record<StringKey, string> = {
   'hud.content.bag.spilled': 'Spilled! -{value}',
   'hud.content.deposit': 'Deposit',
   // --- [C8] end
+  // --- [F3] begin: beat.* (render beats: world labels the GameView draws; hud.mp.theirs / hud.moment.stealChance are WP4's)
+  'beat.decisive.ours': 'Match point!',
+  // --- [F3] end
 };

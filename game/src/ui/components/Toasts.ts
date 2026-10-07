@@ -69,7 +69,7 @@ export class Toasts {
       this.visible++;
       const el = h(
         'div',
-        { class: 'uh-toast', role: 'status', style: { '--tilt': `${[-1.5, 1.2, -0.6][this.visible % 3]}deg` } },
+        { class: 'uh-toast', role: 'status' },
         h('div', { class: 'uh-toast__art' }, o.art ? o.art() : icon(o.icon ?? 'sparkle')),
         h(
           'div',

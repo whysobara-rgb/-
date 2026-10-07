@@ -12,7 +12,11 @@
  *
  * Facing: toward the rival the event names (or, without one, the nearest opponent the view can
  * see within EMOTE.nearOpponentRadius); the butt wiggle turns its back to that rival instead.
- * No rival around: the raccoon keeps its facing.
+ * No rival around: the raccoon keeps its facing. When the view knows where its camera is
+ * (`TauntWorld.cameraDir`), the face taunts never turn the face more than TAUNT_FACE_MAX_OFF away
+ * from the camera (a rival "up" the screen would otherwise hide the tongue, the fan or the flex
+ * behind the back of the head: the raccoon turns to a 3/4 view toward the rival instead), and a
+ * wiggle with nobody in front shakes its bottom at the camera (looking back over the shoulder).
  *
  * Pure logic (no three.js): unit-tested with mocked character states.
  */
@@ -61,6 +65,20 @@ export interface TauntWorld {
   posOf(id: EntityId): Vec2 | null;
   /** Nearest opponent of `c` within EMOTE.nearOpponentRadius it can see, or null. */
   nearestOpponent(c: CharacterState): EntityId | null;
+  /** Ground-plane direction (sim x/y, any length) from `c` toward the camera, or null if unknown. */
+  cameraDir?(c: CharacterState): Vec2 | null;
+}
+
+/** Most a face taunt turns its face away from the camera (rad): a clear 3/4 view at worst. */
+export const TAUNT_FACE_MAX_OFF = (50 * Math.PI) / 180;
+
+/** Wrap an angle to [-π, π). */
+const wrapPi = (a: number): number => ((((a + Math.PI) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) - Math.PI;
+
+/** `a` turned toward `k` until it is at most `max` away from it. */
+function clampToward(a: number, k: number, max: number): number {
+  const d = wrapPi(a - k);
+  return k + Math.max(-max, Math.min(max, d));
 }
 
 const durationTicks = (id: EmoteId): number => EMOTE.durationTicks[id] ?? Math.round(1.4 * TICK_RATE);
@@ -170,6 +188,14 @@ export class TauntTracker {
     if (tp) {
       const a = Math.atan2(tp.y - c.pos.y, tp.x - c.pos.x);
       facing = entry.id === 'wiggle' ? a + Math.PI : a;
+    }
+    const cam = world.cameraDir?.(c) ?? null;
+    if (cam && Number.isFinite(cam.x) && Number.isFinite(cam.y) && Math.hypot(cam.x, cam.y) > 1e-6) {
+      const k = Math.atan2(cam.y, cam.x);
+      // the wiggle with a rival keeps its back to the rival (bottom or face over the shoulder:
+      // either way the joke reads); with nobody in front it wiggles at the camera
+      if (entry.id !== 'wiggle') facing = clampToward(facing ?? c.facing, k, TAUNT_FACE_MAX_OFF);
+      else if (!tp) facing = clampToward(c.facing, k + Math.PI, TAUNT_FACE_MAX_OFF);
     }
     return { id: entry.id, t, dur, facing, targetId: entry.targetId };
   }

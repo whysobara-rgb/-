@@ -18,7 +18,7 @@
  * A LoopVoice owns long-running looped sources; the engine creates one per (id, key) on demand,
  * feeds it intensity changes and destroys it after it has been silent for a while.
  */
-import { alarmBellBuffer, crackleBuffer, creakBuffer, heaveBuffer, noiseBuffer, rollBuffer, scrapeBuffer, type NoiseColor } from './dsp';
+import { alarmBellBuffer, crackleBuffer, creakBuffer, groanBuffer, heaveBuffer, noiseBuffer, rollBuffer, scrapeBuffer, type NoiseColor } from './dsp';
 import type { LoopId } from './ids';
 
 export interface LoopVoice {
@@ -88,7 +88,7 @@ export const sirenGapFill = (i: number): number => 0.5 * smoothstep(0.8, 1, i);
 
 /** Relative loudness of each loop at intensity 1 (loudness-matched offline). */
 export const LOOP_GAIN: Readonly<Record<LoopId, number>> = {
-  drag: 0.65,
+  drag: 0.6,
   bankRumble: 0.52,
   strain: 0.55,
   sirenLoop: 0.5,
@@ -103,28 +103,37 @@ export const DRAG_RELEASE_TAU = 0.14;
 /**
  * The drag voice's settings at intensity i (speed) and pitch p (size, 1 = large safe-ish):
  * bump-texture rate (= bump rate and pitch), bump and thrum levels (both 0 at i = 0, no floor),
- * the thrum's resonant lowpass and the final lowpass, which stays under ~2 kHz.
+ * the thrum's resonant lowpass and the final lowpass, which stays under ~2.2 kHz.
+ *
+ * Size moves the bumps' pitch and rate only by sqrt(p) (a small safe ~3 semitones over a gold
+ * safe) and the speed range is narrow, so even a slow gold safe's "tok" stays near 300 Hz, where
+ * small laptop speakers still play it; weight comes from a heavier, deeper thrum and a darker
+ * final lowpass instead.
  */
 export function dragParams(i: number, p = 1): { rate: number; bumps: number; thrum: number; thrumHz: number; toneHz: number } {
   const sp = Math.sqrt(p);
+  const heavy = Math.min(1.25, 1 / p);
   return {
-    rate: (0.72 + 0.5 * i) * p,
-    bumps: i > 0 ? 0.48 * Math.pow(i, 0.75) : 0,
-    thrum: i > 0 ? 0.18 * Math.pow(i, 0.85) : 0,
-    thrumHz: (200 + 140 * i) * sp,
-    toneHz: (950 + 750 * i) * sp,
+    rate: (0.82 + 0.4 * i) * sp,
+    bumps: i > 0 ? 0.42 * Math.pow(i, 0.75) : 0,
+    thrum: i > 0 ? 0.3 * heavy * Math.pow(i, 0.85) : 0,
+    thrumHz: (190 + 130 * i) * sp,
+    toneHz: (1500 + 600 * i) * Math.sqrt(sp),
   };
 }
 
 /** The bank rumble's settings at intensity i (bank speed). */
-export function bankParams(i: number): { rumble: number; rumbleHz: number; sub: number; rate: number; heave: number; heaveHz: number } {
+export function bankParams(i: number): { rumble: number; rumbleHz: number; sub: number; rate: number; heave: number; heaveHz: number; groan: number } {
   return {
-    rumble: 0.28 * i,
+    rumble: 0.28 * Math.pow(i, 0.85),
     rumbleHz: 110 + 170 * i,
     sub: 0.2 * i,
     rate: 0.9 + 0.3 * i,
-    heave: i > 0 ? 0.7 * Math.pow(i, 1.1) : 0,
+    // A slow bank's thunks are softer than a fast one's (they would stick out of the quiet body).
+    heave: i > 0 ? 0.56 * Math.pow(i, 1.35) : 0,
     heaveHz: 480 + 420 * i,
+    // The groan plays at rate 1 (in key at every speed); only its level follows the speed.
+    groan: i > 0 ? 0.4 * Math.pow(i, 0.9) : 0,
   };
 }
 
@@ -212,6 +221,7 @@ export function prewarmSteps(ctx: BaseAudioContext): (() => void)[] {
     (): void => void scrapeBuffer(ctx),
     (): void => void rollBuffer(ctx),
     (): void => void heaveBuffer(ctx),
+    (): void => void groanBuffer(ctx),
     (): void => void creakBuffer(ctx),
     (): void => void crackleBuffer(ctx),
     (): void => void sirenWaves(ctx),
@@ -313,8 +323,9 @@ export function createLoop(ctx: BaseAudioContext, id: LoopId, t: number, rnd: ()
       break;
     }
     case 'bankRumble': {
-      // A whole building heaving along: a warm resonant rumble, the foundation's sub, and slow
-      // soft "thunk... thunk"s with now and then a gentle musical groan (./dsp.ts heaveBuffer).
+      // A whole building heaving along: a warm resonant rumble, the foundation's sub, slow soft
+      // "thunk... thunk"s (./dsp.ts heaveBuffer, rate follows speed) and now and then a gentle
+      // musical groan (./dsp.ts groanBuffer, fixed rate so it stays on the songs' chord tones).
       let last = 0;
       const rumble = noiseLoop(g, 'brown', t, rnd);
       const lp = filter(ctx, 'lowpass', 120, 1.3);
@@ -338,6 +349,9 @@ export function createLoop(ctx: BaseAudioContext, id: LoopId, t: number, rnd: ()
       const heaveLp = filter(ctx, 'lowpass', 700, 0.5);
       const heaveLvl = gainNode(ctx);
       chain(heave, heaveLp, heaveLvl, g.out);
+      const groan = loopSource(g, groanBuffer(ctx), t, rnd);
+      const groanLvl = gainNode(ctx);
+      chain(groan, groanLvl, g.out);
       set = (i, at) => {
         const tau = i >= last ? 0.15 : 0.25;
         last = i;
@@ -348,6 +362,7 @@ export function createLoop(ctx: BaseAudioContext, id: LoopId, t: number, rnd: ()
         to(heave.playbackRate, b.rate, at, tau);
         to(heaveLp.frequency, b.heaveHz, at, tau);
         to(heaveLvl.gain, b.heave, at, tau);
+        to(groanLvl.gain, b.groan, at, tau);
       };
       break;
     }

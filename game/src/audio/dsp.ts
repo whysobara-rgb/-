@@ -750,32 +750,40 @@ function addScaled(d: Float32Array, at: number, b: Float32Array, amp: number): v
   for (let i = 0; i < n; i++) d[at + i] += amp * b[i];
 }
 
+/** Bump fundamental of rollBuffer at playback rate 1 (the "du"; "gu" is 15 % higher). */
+export const ROLL_BUMP_HZ = 320;
+
 /**
  * Rolling-bump texture of a heavy toy hauled over paving (the 'drag' loop): rounded wooden "tok"s
  * in loose "du-gu" pairs (a short gap inside a pair, a longer one between pairs, now and then a
  * skipped or extra bump so it never ticks like a metronome) over a soft low-passed rolling bed
- * that swells with each contact. Nothing above ~1.5 kHz. 5.2 s, seamless; the loop plays it at a
- * rate that follows the haul speed, so "dugu-dugu" speeds up as the object does.
+ * that swells with each contact. The bump fundamental (ROLL_BUMP_HZ) sits where small laptop
+ * speakers still play it, a short wooden overtone near 1.1-1.6 kHz gives each "tok" its
+ * definition (well under the body, no hiss), nothing above ~2 kHz. 9.4 s (the pattern does not
+ * audibly repeat over a long haul), seamless; the loop plays it at a rate that follows the haul
+ * speed, so "dugu-dugu" speeds up as the object does.
  */
 export function rollBuffer(ctx: BaseAudioContext): AudioBuffer {
   return cachedBuffer(ctx, 'tex:roll', () => {
     const sr = ctx.sampleRate;
     const fade = Math.floor(sr * 0.08);
-    const seconds = 5.2;
+    const seconds = 9.4;
     const len = Math.floor(sr * seconds) + fade;
     const rnd = makeRng(5150);
     const d = new Float32Array(len);
     const contact = new Float32Array(len);
-    // Fundamental, the wooden "tok" overtone (inharmonic, short) and a soft low body thump.
+    // Fundamental, the wooden "tok" overtone (inharmonic, short), a brief knock partial that
+    // gives the attack its definition, and a soft low body thump.
     const parts = [
-      [1, 1, 0.075],
-      [2.27, 0.18, 0.013],
-      [0.5, 0.4, 0.05],
+      [1, 1, 0.07],
+      [2.27, 0.26, 0.016],
+      [3.62, 0.16, 0.009],
+      [0.5, 0.38, 0.05],
     ] as const;
     const shape = { attack: 0.0045, glide: 0.06, glideTau: 0.012, length: 0.26 };
     // Five pitches per stroke (+-4.5 %): "du" and the slightly higher "gu".
-    const du = bumpBank(sr, 245, 0.045, 5, parts, shape);
-    const gu = bumpBank(sr, 282, 0.045, 5, parts, shape);
+    const du = bumpBank(sr, ROLL_BUMP_HZ, 0.045, 5, parts, shape);
+    const gu = bumpBank(sr, ROLL_BUMP_HZ * 1.15, 0.045, 5, parts, shape);
     // Contact swell of the rolling bed after each bump (~90 ms decay, same window).
     const cn = Math.floor(sr * shape.length);
     const cwin = bumpWindow(cn, Math.max(1, Math.floor(sr * shape.attack)));
@@ -812,7 +820,7 @@ export function rollBuffer(ctx: BaseAudioContext): AudioBuffer {
       l2 += a * (l1 - l2);
       d[i] += l2 * 0.8 * (0.3 + 0.7 * contact[i]);
     }
-    tamePeaks(d, sr, 9);
+    tamePeaks(d, sr, 6.5);
     const out = makeLoopable(d, fade);
     normalizePeak(out, 0.9);
     return monoBuffer(ctx, out);
@@ -855,16 +863,21 @@ function tamePeaks(d: Float32Array, sr: number, crestDb: number): void {
   for (let i = 0; i < n; i++) d[i] *= g[i];
 }
 
-/** One period of a harmonic tone with a soft "oh" vowel (harmonics weighted around 340 Hz). */
+/**
+ * One period of a harmonic tone with a soft "oh" vowel (harmonics weighted around 340 Hz).
+ * Schroeder phases spread the harmonics' peaks over the period: the same spectrum with a far
+ * lower crest (a smooth hum rather than a buzzy pulse train).
+ */
 function groanCycle(f0: number, n = 2048): Float32Array {
   const c = new Float32Array(n);
-  // Harmonics stay under ~700 Hz (~850 Hz at the loop's fastest rate): a buzzier series would
-  // beat at f0 (roughness) up there.
+  // Harmonics stay under ~700 Hz: a buzzier series would beat at f0 (roughness) up there.
+  const H = Math.max(1, Math.ceil(700 / f0) - 1);
   for (let h = 1; h * f0 < 700; h++) {
     const f = h * f0;
     const formant = Math.exp(-Math.pow(Math.log2(f / 340), 2) / (2 * 0.6 * 0.6));
     const a = (0.25 + formant) / h;
-    for (let i = 0; i < n; i++) c[i] += a * Math.sin((2 * Math.PI * h * i) / n);
+    const phase = (Math.PI * h * (h - 1)) / H;
+    for (let i = 0; i < n; i++) c[i] += a * Math.sin((2 * Math.PI * h * i) / n + phase);
   }
   return c;
 }
@@ -872,8 +885,8 @@ function groanCycle(f0: number, n = 2048): Float32Array {
 /**
  * Slow heave texture of a whole building hauled along (the 'bankRumble' loop): big soft
  * foundation "thunk... thunk"s (deep rounded partials, slow attack, long decay, now and then a
- * double) and every couple of seconds a gentle musical groan, a vowel-like tone on a D-minor chord
- * tone (D2 / F2 / A2, the songs' key) that swells, bends up a little and settles. 6 s, seamless.
+ * double). The loop plays it at a rate that follows the bank's speed; the musical groan is a
+ * separate texture (groanBuffer) played at a fixed rate so it stays in key. 6 s, seamless.
  */
 export function heaveBuffer(ctx: BaseAudioContext): AudioBuffer {
   return cachedBuffer(ctx, 'tex:heave', () => {
@@ -897,13 +910,35 @@ export function heaveBuffer(ctx: BaseAudioContext): AudioBuffer {
       if (rnd() < 0.18) addScaled(d, Math.floor((t + 0.15 + rnd() * 0.04) * sr), pickThunk(1), 0.55);
       t += 0.5 + rnd() * 0.35;
     }
+    tamePeaks(d, sr, 3);
+    const out = makeLoopable(d, fade);
+    normalizePeak(out, 0.9);
+    return monoBuffer(ctx, out);
+  });
+}
+
+/** Pitches of the bank's groans: D-minor chord tones (D2 / F2 / A2, the songs' key). */
+export const GROAN_NOTES_HZ: readonly number[] = [73.42, 87.31, 110, 73.42];
+
+/**
+ * The bank's gentle musical groan (the 'bankRumble' loop, played at rate 1 so it stays in key
+ * whatever the bank's speed): every couple of seconds a vowel-like tone on a D-minor chord tone
+ * (GROAN_NOTES_HZ) that swells, bends up a little and settles, with a slow vibrato. 9 s, seamless.
+ */
+export function groanBuffer(ctx: BaseAudioContext): AudioBuffer {
+  return cachedBuffer(ctx, 'tex:groan', () => {
+    const sr = ctx.sampleRate;
+    const fade = Math.floor(sr * 0.12);
+    const seconds = 9;
+    const len = Math.floor(sr * seconds) + fade;
+    const rnd = makeRng(6363);
+    const d = new Float32Array(len);
     // Groans: wavetable tone, raised-sine swell, a small bend up and back, slow vibrato.
-    const notes = [73.42, 87.31, 110, 73.42];
+    const notes = GROAN_NOTES_HZ;
     let g = 0.6;
     let gi = 0;
-    while (g < len / sr - 0.3) {
+    for (let dur = 1.1 + rnd() * 0.6; g + dur < seconds; dur = 1.1 + rnd() * 0.6) {
       const f0 = notes[gi++ % notes.length];
-      const dur = 1.1 + rnd() * 0.6;
       const table = groanCycle(f0);
       const N = table.length;
       const s0 = Math.floor(g * sr);
@@ -928,7 +963,8 @@ export function heaveBuffer(ctx: BaseAudioContext): AudioBuffer {
       }
       g += dur + 0.8 + rnd() * 1.2;
     }
-    tamePeaks(d, sr, 3);
+    // Every groan ends inside the loop (no truncated swell to cross-fade): no limiter needed on
+    // a smooth sustained tone.
     const out = makeLoopable(d, fade);
     normalizePeak(out, 0.9);
     return monoBuffer(ctx, out);

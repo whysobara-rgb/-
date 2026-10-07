@@ -79,7 +79,6 @@ export class WardrobeScreen extends UiScreen<WardrobeScreenProps> {
             'aria-disabled': hat.unlocked ? null : 'true',
             'aria-pressed': equipped ? 'true' : 'false',
             'data-paw': 'top',
-            style: { '--tilt': `${[-1.6, 1.2, -0.8, 1.8, -1.2, 0.9][i % 6]}deg` },
           },
           hat.unlocked ? portrait({ hat: hat.id, team: p.team, expression: equipped ? 'happy' : 'neutral' }, 'uh-hatcard__art') : objectPortrait('gift', 'uh-hatcard__art'),
           h('div', { class: 'uh-hatcard__name' }, hat.unlocked ? t(`hat.${hat.id}.name`) : '???'),

@@ -1,19 +1,18 @@
 /**
- * UI juice kit: chunky tilted headings, rubber stamps, rolling digits and DOM particle bursts
+ * UI juice kit: chunky hand-lettered headings, rubber stamps, rolling digits and DOM particle bursts
  * (coins, confetti, stars). Everything honours reduced motion (static, no particles).
  */
 import { fmtScore } from './format';
 import { h, isReducedMotion } from './dom';
 
 // ---------------------------------------------------------------------------------------------
-// Chunky heading: Jua, thick ink outline, hard offset shadow, every word tilted a little.
+// Chunky heading: Jua, thick ink outline, hard offset shadow, a tiny baseline bounce per word.
 // ---------------------------------------------------------------------------------------------
 
-const TILTS = [-3.5, 2.5, -1.5, 3, -2.5, 1.5];
-
 /**
- * Heading element: each word in its own tilted span (alternating tilts, a tiny vertical jitter)
- * so the line reads hand-lettered rather than typeset. `size` picks a CSS size step.
+ * Heading element: each word in its own span with a tiny vertical jitter so the line reads
+ * hand-lettered rather than typeset. Words stay upright (orientation policy: text is never
+ * tilted at rest). `size` picks a CSS size step.
  */
 export function chunky(text: string, o: { tag?: 'h1' | 'h2' | 'div' | 'span' | 'p'; cls?: string; seed?: number; tone?: 'cream' | 'sun' | 'tomato' | 'mint' | 'sky' | 'ink'; perLetter?: boolean } = {}): HTMLElement {
   const words = text.split(/(\s+)/).filter((w) => w.length > 0);
@@ -25,20 +24,17 @@ export function chunky(text: string, o: { tag?: 'h1' | 'h2' | 'div' | 'span' | '
       kids.push(document.createTextNode(' '));
       continue;
     }
-    const tilt = TILTS[(k + seed) % TILTS.length]!;
     const dy = ((k + seed) % 3) - 1;
     if (o.perLetter) {
       kids.push(
         h(
           'span',
-          { class: 'uh-chunky__word', style: { '--tilt': `${tilt * 0.5}deg`, '--dy': `${dy * 0.04}em` } },
-          Array.from(w).map((ch, i) =>
-            h('span', { class: 'uh-chunky__ch', style: { '--tilt': `${TILTS[(i + k + seed) % TILTS.length]! * 0.8}deg`, '--i': String(i + k * 3) } }, ch),
-          ),
+          { class: 'uh-chunky__word', style: { '--dy': `${dy * 0.04}em` } },
+          Array.from(w).map((ch, i) => h('span', { class: 'uh-chunky__ch', style: { '--i': String(i + k * 3) } }, ch)),
         ),
       );
     } else {
-      kids.push(h('span', { class: 'uh-chunky__word', style: { '--tilt': `${tilt}deg`, '--dy': `${dy * 0.05}em`, '--i': String(k) } }, w));
+      kids.push(h('span', { class: 'uh-chunky__word', style: { '--dy': `${dy * 0.05}em`, '--i': String(k) } }, w));
     }
     k++;
   }
@@ -55,19 +51,21 @@ export function stamp(text: string, tone: StampTone = 'tomato', cls = ''): HTMLE
   return h('div', { class: `uh-stamp uh-stamp--${tone} ${cls}`, role: 'img', 'aria-label': text }, h('span', { class: 'uh-stamp__text' }, text));
 }
 
-/** Slam a stamp in (overshoot + squash). Returns the animation (null with reduced motion). */
-export function slamIn(el: HTMLElement, delayMs = 0, rotate = -8): Animation | null {
-  el.style.setProperty('--rot', `${rotate}deg`);
+/** Stamp slam keyframes: scale + squash-and-stretch + a short drop, no rotation (text stays upright). */
+export const SLAM_KEYFRAMES: readonly Keyframe[] = [
+  { transform: 'translateY(-0.35em) scale(2.6)', opacity: 0 },
+  { transform: 'translateY(0.04em) scale(1.12, 0.84)', opacity: 1, offset: 0.55 },
+  { transform: 'translateY(-0.03em) scale(0.95, 1.07)', offset: 0.75 },
+  { transform: 'none', opacity: 1 },
+];
+
+/**
+ * Slam a stamp in (drop + overshoot + squash). Stamps always rest upright (0deg); the punch is
+ * scale / squash-and-stretch only. Returns the animation (null with reduced motion).
+ */
+export function slamIn(el: HTMLElement, delayMs = 0): Animation | null {
   if (isReducedMotion() || typeof el.animate !== 'function') return null;
-  return el.animate(
-    [
-      { transform: `rotate(${rotate - 14}deg) scale(2.6)`, opacity: 0 },
-      { transform: `rotate(${rotate + 2}deg) scale(0.86, 1.08)`, opacity: 1, offset: 0.55 },
-      { transform: `rotate(${rotate - 1}deg) scale(1.06, 0.95)`, offset: 0.75 },
-      { transform: `rotate(${rotate}deg) scale(1)`, opacity: 1 },
-    ],
-    { duration: 520, delay: delayMs, easing: 'cubic-bezier(0.2, 0.9, 0.3, 1.2)', fill: 'backwards' },
-  );
+  return el.animate([...SLAM_KEYFRAMES], { duration: 520, delay: delayMs, easing: 'cubic-bezier(0.2, 0.9, 0.3, 1.2)', fill: 'backwards' });
 }
 
 // ---------------------------------------------------------------------------------------------

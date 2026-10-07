@@ -12,12 +12,14 @@
 [data-nav] { position: relative; cursor: pointer; outline: none; }
 [data-nav][aria-disabled='true'] { cursor: not-allowed; }
 
+/* Focus jiggle: squash-and-stretch on `transform` (composes with the focused element's own
+   translate / scale), never a rotation: labels stay upright. */
 @keyframes uh-wobble {
-  0% { rotate: var(--tilt, 0deg); }
-  20% { rotate: calc(var(--tilt, 0deg) - 3deg); }
-  45% { rotate: calc(var(--tilt, 0deg) + 2.2deg); }
-  70% { rotate: calc(var(--tilt, 0deg) - 1deg); }
-  100% { rotate: var(--tilt, 0deg); }
+  0% { transform: none; }
+  20% { transform: scale(1.05, 0.94); }
+  45% { transform: scale(0.97, 1.04); }
+  70% { transform: scale(1.015, 0.99); }
+  100% { transform: none; }
 }
 @keyframes uh-squash {
   0% { scale: 1; }
@@ -46,7 +48,7 @@
 .uh-chunky__word,
 .uh-chunky__ch {
   display: inline-block;
-  rotate: var(--tilt, 0deg);
+  /* Upright words; the hand-lettered feel comes from the tiny baseline jitter only. */
   translate: 0 var(--dy, 0);
   -webkit-text-stroke: 0.16em var(--pop-ink);
   paint-order: stroke fill;
@@ -106,7 +108,6 @@
   border: var(--pop-line) solid var(--pop-ink);
   border-radius: 999px;
   box-shadow: var(--pop-shadow);
-  rotate: var(--tilt);
   transition: translate var(--uh-dur-fast) var(--uh-ease-bounce), box-shadow var(--uh-dur-fast) ease, scale var(--uh-dur) var(--uh-ease-bounce), filter var(--uh-dur);
 }
 .uh-btn::before {
@@ -150,7 +151,7 @@
 /* ======================================================================================== */
 
 .uh-panel {
-  --tilt: -0.6deg;
+  --tilt: 0deg;
   position: relative;
   color: var(--pop-ink);
   background-color: var(--pop-cream);
@@ -159,7 +160,6 @@
   border: var(--pop-line) solid var(--pop-ink);
   border-radius: var(--uh-r-lg);
   box-shadow: var(--pop-shadow-lg);
-  rotate: var(--tilt);
 }
 .uh-panel--night {
   color: var(--pop-cream);
@@ -197,7 +197,6 @@
   border: var(--pop-line-thin) solid var(--pop-ink);
   border-radius: 999px;
   box-shadow: 0.1875rem 0.1875rem 0 var(--pop-ink);
-  rotate: 1deg;
 }
 .uh-header__icon {
   width: 5rem;
@@ -259,11 +258,8 @@
   background: #FFFDF8;
   border: var(--pop-line-thin) solid var(--pop-ink);
   box-shadow: 0.25rem 0.25rem 0 rgba(42, 33, 49, 0.9);
-  rotate: var(--tilt);
   transition: background var(--uh-dur) ease, translate var(--uh-dur-fast) var(--uh-ease-bounce), box-shadow var(--uh-dur-fast);
 }
-.uh-row:nth-child(odd) { --tilt: -0.35deg; }
-.uh-row:nth-child(even) { --tilt: 0.3deg; }
 .uh-row + .uh-row { margin-top: 0.875rem; }
 .uh-row.is-focused { background: var(--pop-sun-l); translate: 0.375rem -0.1875rem; box-shadow: 0.4375rem 0.4375rem 0 var(--pop-ink); animation: uh-wobble 0.45s var(--uh-ease-out) 1; }
 .uh-row__label { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.125rem; }
@@ -375,7 +371,7 @@
   transition: background var(--uh-dur) ease, color var(--uh-dur) ease, translate var(--uh-dur-fast) var(--uh-ease-bounce);
 }
 .uh-tab .uh-icon { width: 1.4rem; height: 1.4rem; }
-.uh-tab.is-active { background: var(--pop-sun); color: var(--pop-ink); box-shadow: 0.1875rem 0.1875rem 0 var(--pop-ink), inset 0 0 0 0.15rem var(--pop-ink); rotate: -1.5deg; }
+.uh-tab.is-active { background: var(--pop-sun); color: var(--pop-ink); box-shadow: 0.1875rem 0.1875rem 0 var(--pop-ink), inset 0 0 0 0.15rem var(--pop-ink); }
 .uh-tab.is-focused:not(.is-active) { background: rgba(255, 246, 230, 0.18); }
 .uh-tabs > .uh-glyph { font-size: var(--uh-fs-sm); }
 
@@ -412,7 +408,7 @@
 
 /* Speech bubble */
 .uh-bubble {
-  --tilt: -1deg;
+  --tilt: 0deg;
   position: relative;
   padding: 1.375rem 1.875rem 1.5rem;
   color: var(--pop-ink);
@@ -423,7 +419,6 @@
   font-family: var(--uh-font-display);
   font-size: var(--uh-fs-xl);
   line-height: 1.35;
-  rotate: var(--tilt);
 }
 .uh-bubble::after {
   content: '';
@@ -460,7 +455,6 @@
 
 .uh-stamp {
   --st: var(--pop-tomato);
-  --rot: -8deg;
   position: relative;
   display: inline-flex;
   align-items: center;
@@ -474,7 +468,6 @@
   border: 0.22em solid var(--st);
   border-radius: 0.45em;
   box-shadow: inset 0 0 0 0.08em var(--pop-cream), inset 0 0 0 0.14em var(--st), 0.12em 0.14em 0 var(--pop-ink);
-  rotate: var(--rot);
   white-space: nowrap;
   letter-spacing: 0.02em;
 }
@@ -587,7 +580,7 @@
   animation: uh-fade-in var(--uh-dur) ease both;
 }
 .uh-dialog {
-  --tilt: -1.2deg;
+  --tilt: 0deg;
   width: min(44rem, 90%);
   padding: 2.75rem 2.75rem 2.25rem;
   text-align: center;
@@ -621,7 +614,7 @@
 
 .uh-toasts { position: absolute; top: 1.5rem; right: 1.5rem; display: flex; flex-direction: column; gap: 1rem; align-items: flex-end; pointer-events: none; }
 .uh-toast {
-  --tilt: -1deg;
+  --tilt: 0deg;
   display: flex;
   align-items: center;
   gap: 1rem;
@@ -634,7 +627,6 @@
   border: var(--pop-line) solid var(--pop-ink);
   border-radius: 1.5rem;
   box-shadow: var(--pop-shadow);
-  rotate: var(--tilt);
   animation: uh-toast-in 0.5s var(--uh-ease-bounce) both;
 }
 .uh-toast.is-leaving { animation: uh-toast-out var(--uh-dur) ease-in both; }
@@ -653,14 +645,14 @@
 @keyframes uh-fade-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes uh-pop-in { 0% { opacity: 0; transform: scale(0.8) translateY(1rem); } 100% { opacity: 1; transform: none; } }
 @keyframes uh-sticker-in {
-  0% { opacity: 0; transform: scale(0.6) rotate(-8deg) translateY(2rem); }
-  60% { opacity: 1; transform: scale(1.04) rotate(1deg); }
+  0% { opacity: 0; transform: scale(0.6) translateY(2rem); }
+  60% { opacity: 1; transform: scale(1.04, 0.97); }
   100% { opacity: 1; transform: none; }
 }
 @keyframes uh-rise-in { 0% { opacity: 0; transform: translateY(2rem) scale(0.92); } 70% { opacity: 1; transform: translateY(-0.25rem) scale(1.02); } 100% { opacity: 1; transform: none; } }
-@keyframes uh-slide-right-in { 0% { opacity: 0; transform: translateX(-3rem) rotate(-4deg); } 100% { opacity: 1; transform: none; } }
-@keyframes uh-toast-in { 0% { opacity: 0; transform: translateX(4rem) rotate(8deg) scale(0.8); } 100% { opacity: 1; transform: none; } }
-@keyframes uh-toast-out { to { opacity: 0; transform: translateX(3rem) rotate(6deg); } }
+@keyframes uh-slide-right-in { 0% { opacity: 0; transform: translateX(-3rem); } 100% { opacity: 1; transform: none; } }
+@keyframes uh-toast-in { 0% { opacity: 0; transform: translateX(4rem) scale(0.8); } 100% { opacity: 1; transform: none; } }
+@keyframes uh-toast-out { to { opacity: 0; transform: translateX(3rem) scale(0.92); } }
 @keyframes uh-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-0.375rem); } }
 @keyframes uh-wiggle { 0%, 100% { transform: rotate(-3deg); } 50% { transform: rotate(3deg); } }
 @keyframes uh-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }

@@ -8,6 +8,7 @@
 import * as THREE from 'three';
 import type { LootKind } from '../sim';
 import { FONT_STACK, makeCanvasTexture } from './models/textures';
+import { slamDrop, slamSquash, TEXT_ROTATION } from './upright';
 
 const TEXT = { ko: '뽑았다!', en: 'UPROOTED!' } as const;
 const INK = '#2A2131';
@@ -20,10 +21,10 @@ interface Banner {
   x: number;
   y: number;
   z: number;
-  spin: number;
 }
 
-function drawBanner(ctx: CanvasRenderingContext2D, w: number, h: number, text: string): void {
+/** Draws the banner texture (exported for tests: the lettering must stay level). */
+export function drawBanner(ctx: CanvasRenderingContext2D, w: number, h: number, text: string): void {
   ctx.clearRect(0, 0, w, h);
   const cx = w / 2;
   const cy = h / 2 + 6;
@@ -69,10 +70,9 @@ function drawBanner(ctx: CanvasRenderingContext2D, w: number, h: number, text: s
     ctx.lineTo(x1, y1);
     ctx.stroke();
   }
-  // Lettering: slight upward slant, thick sticker rim, ink, gold gradient, gloss.
+  // Lettering: level (upright policy), thick sticker rim, ink, gold gradient, gloss.
   ctx.save();
   ctx.translate(cx, cy);
-  ctx.rotate(-0.06);
   const size = text.length > 6 ? 70 : 92;
   ctx.font = `bold ${size}px ${FONT_STACK}`;
   ctx.textAlign = 'center';
@@ -132,7 +132,7 @@ export class UprootBanners {
     sprite.raycast = () => {};
     this.root.add(sprite);
     const size = kind === 'bank' ? 5.2 : kind === 'largeSafe' ? 3.2 : 2.5;
-    this.list.push({ sprite, age: 0, size, x, y, z, spin: Math.random() < 0.5 ? -1 : 1 });
+    this.list.push({ sprite, age: 0, size, x, y, z });
   }
 
   update(dt: number): void {
@@ -166,9 +166,12 @@ export class UprootBanners {
       }
       const mat = b.sprite.material;
       mat.opacity = alpha;
-      mat.rotation = this.calm ? 0 : b.spin * (t < 0.3 ? 0.18 * (1 - t / 0.3) : 0.03 * Math.sin(t * 7));
-      b.sprite.scale.set(b.size * s, b.size * 0.5 * s, 1);
-      b.sprite.position.set(b.x, b.y + rise, b.z);
+      // Upright: the slam reads through a drop + squash-and-stretch, never a spin.
+      mat.rotation = TEXT_ROTATION;
+      const q = this.calm ? 0 : slamSquash(t, 0.16, 0.15);
+      const drop = this.calm ? 0 : slamDrop(t, 0.16, b.size * 0.16);
+      b.sprite.scale.set(b.size * s * (1 + q), b.size * 0.5 * s * (1 - q), 1);
+      b.sprite.position.set(b.x, b.y + rise + drop, b.z);
     }
   }
 

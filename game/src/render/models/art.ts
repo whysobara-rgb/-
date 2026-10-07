@@ -663,6 +663,8 @@ export type EmoteKind =
   | 'zzz'
   | 'siren'
   | 'pointer'
+  /** Tail-less round "!" badge for screen-edge markers (no speech tail to point the wrong way). */
+  | 'alert'
   // Taunt bubbles (owner addition), one per taunt emote.
   | 'tauntWiggle'
   | 'tauntBleh'
@@ -702,6 +704,7 @@ export const EMOTE_CELLS: Readonly<Record<EmoteKind, number>> = {
   tauntZoom: 25,
   tauntFlex: 26,
   tauntShrug: 27,
+  alert: 28,
 };
 export const EMOTE_ATLAS = { cols: 8, rows: 4, cell: 128 } as const;
 
@@ -1145,7 +1148,19 @@ function drawEmote(ctx: CanvasRenderingContext2D, kind: EmoteKind, x: number, y:
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   if (taunt) drawTauntIcon(ctx, kind, cx, by);
+  if (kind === 'alert') {
+    // Round badge instead of a speech bubble: markers have no speaker to point a tail at.
+    sticker(
+      ctx,
+      () => {
+        ctx.beginPath();
+        ctx.arc(cx, by - 3, 44, 0, Math.PI * 2);
+      },
+      '#FFFFFF',
+    );
+  }
   switch (kind) {
+    case 'alert':
     case 'exclaim': {
       ctx.fillStyle = '#E8505B';
       ctx.strokeStyle = INK;

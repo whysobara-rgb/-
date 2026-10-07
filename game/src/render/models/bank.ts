@@ -582,7 +582,7 @@ function buildArt(kind: 'portrait' | 'poster'): THREE.BufferGeometry | null {
     const f = frames[a.wall]!;
     b.push([f.cx, 0, f.cz], [0, f.yaw, 0]);
     if (a.inside) b.add(G.plane(), { color: '#FFFFFF', pos: [a.u, a.y, -T / 2 - 0.071], rot: [0, Math.PI, 0], scale: [a.w, a.h, 1] });
-    else b.add(G.plane(), { color: '#FFFFFF', pos: [a.u, a.y, T / 2 + 0.042], rot: [0, 0, (a.u > 0 ? -1 : 1) * 0.06], scale: [a.w, a.h, 1] });
+    else b.add(G.plane(), { color: '#FFFFFF', pos: [a.u, a.y, T / 2 + 0.042], rot: [0, 0, 0], scale: [a.w, a.h, 1] }); // level: the poster carries text (수배 / WANTED)
     b.pop();
   }
   return b.merge('art');
@@ -1280,7 +1280,10 @@ export function createBank(): BankRig {
       if (Math.abs(full - sp.spin) < 1e-3) sp.spin = 0;
       sp.spinVel = 0;
     }
-    signWobble.rotation.set(sp.ax, sp.spin, sp.az);
+    // No roll: the board's lettering stays level on screen (upright policy). The sideways
+    // spring energy (az) reads as a small sideways sway of the board instead.
+    signWobble.rotation.set(sp.ax, sp.spin, 0);
+    signWobble.position.x = THREE.MathUtils.clamp(sp.az * 0.3, -0.18, 0.18);
 
     // Strain tremble, lift, pop hop.
     let y = lift;

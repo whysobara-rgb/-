@@ -76,12 +76,12 @@ export function parseNotices(text: string): { intro: string; sections: NoticeSec
   return { intro, sections };
 }
 
-const CREDIT_CARDS: readonly { id: string; icon: IconName; tone: string; tilt: number }[] = [
-  { id: 'made', icon: 'wrench', tone: 'sky', tilt: -1.2 },
-  { id: 'fonts', icon: 'sparkle', tone: 'sun', tilt: 0.9 },
-  { id: 'art', icon: 'speaker', tone: 'mint', tilt: -0.7 },
-  { id: 'team', icon: 'paw', tone: 'grape', tilt: 1.1 },
-  { id: 'thanks', icon: 'star', tone: 'tomato', tilt: -1 },
+const CREDIT_CARDS: readonly { id: string; icon: IconName; tone: string }[] = [
+  { id: 'made', icon: 'wrench', tone: 'sky' },
+  { id: 'fonts', icon: 'sparkle', tone: 'sun' },
+  { id: 'art', icon: 'speaker', tone: 'mint' },
+  { id: 'team', icon: 'paw', tone: 'grape' },
+  { id: 'thanks', icon: 'star', tone: 'tomato' },
 ];
 
 /** Screen-local styles (sticker cards on the shared tokens), injected once. */
@@ -90,15 +90,15 @@ const CSS = `
 .uh-credits { gap: 1rem; }
 /* The panel is a bounded, clipping box: only the inner .uh-scroll ever holds the long text, so
    the shrink-to-fit check (UiScreen.fitToViewport) never sees the notices as overflow. */
-.uh-credits__panel { --tilt: -0.4deg; flex: 0 1 auto; min-height: 0; overflow: hidden; width: min(72rem, 100%); margin: 0 auto; padding: 1.25rem; display: flex; flex-direction: column; }
+.uh-credits__panel { --tilt: 0deg; flex: 0 1 auto; min-height: 0; overflow: hidden; width: min(72rem, 100%); margin: 0 auto; padding: 1.25rem; display: flex; flex-direction: column; }
 .uh-credits__scroll { flex: 0 1 auto; min-height: 0; padding: 0.75rem 1rem 1rem; }
 .uh-credits .uh-promptbar { margin-top: auto; padding-top: 1rem; }
 .uh-credits__hero { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; margin: 0.25rem 0 1.5rem; }
-.uh-credits__logo { font-size: var(--uh-fs-3xl); rotate: -3deg; }
-.uh-credits__ribbon { font-family: var(--uh-font-display); font-size: var(--uh-fs-sm); letter-spacing: 0.32em; padding: 0.2rem 1rem 0.25rem 1.3rem; color: var(--pop-cream); background: var(--pop-tomato); border: var(--pop-line-thin) solid var(--pop-ink); box-shadow: 0.1875rem 0.1875rem 0 var(--pop-ink); rotate: 2deg; }
+.uh-credits__logo { font-size: var(--uh-fs-3xl); }
+.uh-credits__ribbon { font-family: var(--uh-font-display); font-size: var(--uh-fs-sm); letter-spacing: 0.32em; padding: 0.2rem 1rem 0.25rem 1.3rem; color: var(--pop-cream); background: var(--pop-tomato); border: var(--pop-line-thin) solid var(--pop-ink); box-shadow: 0.1875rem 0.1875rem 0 var(--pop-ink); }
 .uh-credits__cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem 1.25rem; }
 .uh-credits__card[data-nav='credits:thanks'] { grid-column: span 2; }
-.uh-credits__card { position: relative; display: flex; gap: 0.875rem; align-items: flex-start; padding: 1rem 1.125rem; border: var(--pop-line) solid var(--pop-ink); border-radius: var(--uh-r-md, 1rem); background: var(--pop-paper); box-shadow: var(--pop-shadow); rotate: var(--tilt, 0deg); transition: translate 0.15s, box-shadow 0.15s, background-color 0.15s; }
+.uh-credits__card { position: relative; display: flex; gap: 0.875rem; align-items: flex-start; padding: 1rem 1.125rem; border: var(--pop-line) solid var(--pop-ink); border-radius: var(--uh-r-md, 1rem); background: var(--pop-paper); box-shadow: var(--pop-shadow); transition: translate 0.15s, box-shadow 0.15s, background-color 0.15s; }
 .uh-credits__card.is-focused { background: var(--pop-sun-l); translate: 0.25rem -0.25rem; box-shadow: 0.5rem 0.5rem 0 var(--pop-ink); }
 .uh-credits__badge { flex: none; display: grid; place-items: center; width: 3rem; height: 3rem; border-radius: 50%; border: var(--pop-line-thin) solid var(--pop-ink); color: var(--pop-ink); }
 .uh-credits__badge .uh-icon { width: 1.75rem; height: 1.75rem; }
@@ -198,7 +198,7 @@ export class CreditsScreen extends UiScreen<CreditsScreenProps> {
         navigable(
           h(
             'article',
-            { class: 'uh-credits__card', style: { '--tilt': `${c.tilt}deg` } },
+            { class: 'uh-credits__card' },
             h('span', { class: 'uh-credits__badge', 'data-tone': c.tone, 'aria-hidden': 'true' }, icon(c.icon)),
             h('div', null, h('h2', { class: 'uh-credits__cardTitle' }, t(`credits.${c.id}.title`)), h('p', { class: 'uh-credits__cardBody' }, t(`credits.${c.id}.body`))),
           ),

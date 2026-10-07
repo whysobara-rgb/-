@@ -357,11 +357,6 @@ export function createSafe(kind: SafeKind): SafeRig {
   const we = new THREE.Euler();
   const update = (dt: number): void => {
     time += dt;
-    // Keep the coin's number upright on screen for the current camera (north-looking match
-    // camera: world yaw 0; results / title shots may look from elsewhere).
-    root.getWorldQuaternion(wq);
-    we.setFromQuaternion(wq, 'YXZ');
-    coin.rotation.y = cameraFacingYaw() - we.y - body.rotation.y;
     const s = anchored ? strain : 0;
     // Tremble + rocking while being pulled.
     const violent = 0.012 * s + 0.035 * s * s * s;
@@ -395,6 +390,12 @@ export function createSafe(kind: SafeKind): SafeRig {
       body.position.y = lift;
       body.scale.set(1, 1, 1);
     }
+    // Keep the coin's number upright on screen for the current camera (north-looking match
+    // camera: world yaw 0; results / title shots may look from elsewhere). Runs after the pop
+    // so it cancels THIS frame's body spin (the small safe's flip), not last frame's.
+    root.getWorldQuaternion(wq);
+    we.setFromQuaternion(wq, 'YXZ');
+    coin.rotation.y = cameraFacingYaw() - we.y - body.rotation.y;
   };
 
   return {

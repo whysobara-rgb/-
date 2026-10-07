@@ -154,7 +154,7 @@ export class BagChip {
     this.outroUntil = 0;
     if (appear || this.el.hidden) {
       this.el.hidden = false;
-      animateEl(this.el, [{ transform: 'translateY(1.5rem) rotate(8deg) scale(0.6)', opacity: 0 }, { transform: 'rotate(-2deg) scale(1.05)', opacity: 1, offset: 0.65 }, { transform: 'none', opacity: 1 }], { duration: 380, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' });
+      animateEl(this.el, [{ transform: 'translateY(1.5rem) scale(0.6)', opacity: 0 }, { transform: 'scale(1.05, 0.96)', opacity: 1, offset: 0.65 }, { transform: 'none', opacity: 1 }], { duration: 380, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' });
     } else {
       animateEl(this.el.querySelector('.uh-bag__art') ?? this.el, [{ transform: 'scale(1)' }, { transform: `scale(${gain >= 50 ? 1.35 : 1.2}) rotate(-8deg)` }, { transform: 'none' }], { duration: 240, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' });
     }
@@ -170,7 +170,7 @@ export class BagChip {
     }
     setText(this.deltaEl, `-${fmtScore(lost)}`);
     animateEl(this.deltaEl, [{ transform: 'translate(-50%, 0) scale(0.6)', opacity: 0 }, { transform: 'translate(-50%, -1.2rem) scale(1.1)', opacity: 1, offset: 0.3 }, { transform: 'translate(-50%, -2.6rem) scale(1)', opacity: 0 }], { duration: OUTRO_MS, easing: 'ease-out' });
-    animateEl(this.el, [{ transform: 'translateX(0)' }, { transform: 'translateX(-0.6rem) rotate(-4deg)' }, { transform: 'translateX(0.5rem) rotate(3deg)' }, { transform: 'translateX(-0.3rem)' }, { transform: 'none' }], { duration: 360, easing: 'ease-out' });
+    animateEl(this.el, [{ transform: 'translateX(0)' }, { transform: 'translateX(-0.6rem)' }, { transform: 'translateX(0.5rem)' }, { transform: 'translateX(-0.3rem)' }, { transform: 'none' }], { duration: 360, easing: 'ease-out' });
   }
 
   private beginOutro(st: 'done' | 'spill', now: number): void {
@@ -181,7 +181,7 @@ export class BagChip {
     setText(this.valueEl, '0');
     this.fillEl.style.transform = 'scaleX(0)';
     this.cFill = 0;
-    if (st === 'done') animateEl(this.el, [{ transform: 'scale(1)' }, { transform: 'scale(1.18) rotate(-3deg)', offset: 0.35 }, { transform: 'scale(1)' }], { duration: 420, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' });
+    if (st === 'done') animateEl(this.el, [{ transform: 'scale(1)' }, { transform: 'scale(1.18)', offset: 0.35 }, { transform: 'scale(1)' }], { duration: 420, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' });
   }
 
   private hide(): void {

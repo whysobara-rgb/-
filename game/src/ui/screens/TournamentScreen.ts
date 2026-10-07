@@ -94,7 +94,7 @@ export class TournamentScreen extends UiScreen<TournamentScreenProps> {
 
   protected override onShow(): void {
     // Stamps slam in once the cards have landed.
-    this.el.querySelectorAll<HTMLElement>('.uh-tourcard__stamp').forEach((s, i) => slamIn(s, 420 + i * 120, -11));
+    this.el.querySelectorAll<HTMLElement>('.uh-tourcard__stamp').forEach((s, i) => slamIn(s, 420 + i * 120));
     const id = this.focus.focusedId?.replace('rival:', '') as RivalId | undefined;
     if (id) this.onFocusChanged(this.focus.focused);
   }
@@ -112,7 +112,7 @@ export class TournamentScreen extends UiScreen<TournamentScreenProps> {
             class: ['uh-tourcard', `uh-tourcard--${c.state}`, `uh-tourcard--${c.rival}`],
             'aria-disabled': locked ? 'true' : null,
             'data-paw': 'top',
-            style: { '--tilt': `${[-1.5, 1, -1][i] ?? 0}deg`, '--i': String(i) },
+            style: { '--i': String(i) },
           },
           h(
             'div',

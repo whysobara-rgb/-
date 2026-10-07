@@ -219,8 +219,7 @@ export class ResultsScreen extends UiScreen<ResultsScreenProps> {
   private play(): void {
     this.stop();
     const st = this.el.querySelector<HTMLElement>('.uh-res__stamp');
-    const rot = this.props.outcome === 'win' ? -9 : this.props.outcome === 'lose' ? 7 : -4;
-    if (st) slamIn(st, 250, rot);
+    if (st) slamIn(st, 250); // upright: the slam is drop + squash, never a tilt
     this.timers.push(window.setTimeout(() => uiSound('stamp'), 380));
     const reduced = isReducedMotion();
     for (const team of [0, 1] as const) {

@@ -26,6 +26,7 @@ import { billBundleGeometry, billTopGeometry, billTopMaterial, coinPileGeometry,
 import { G, PartBuilder, lathe } from './models/geometry';
 import { matGlow, matVC } from './models/materials';
 import { radialGlowTexture } from './models/textures';
+import { cameraFacingYaw } from './models/occlusion';
 import { PAL } from './models/palette';
 import { damp } from './sync';
 
@@ -319,7 +320,10 @@ export class CoinsSync implements ViewExtra {
         const v = age - ht;
         sq = 1 - 0.25 * Math.exp(-v * 14) * Math.cos(v * 32);
       }
-      _e.set(spin * (c.value === 50 ? 0.35 : 1), r.yaw + spin * 0.5, 0);
+      // Bill bundles print a big "50": they rest at the camera-facing yaw so it reads upright
+      // (coins carry no text and keep their random per-pile yaw).
+      const restYaw = c.value === 50 ? cameraFacingYaw() : r.yaw;
+      _e.set(spin * (c.value === 50 ? 0.35 : 1), restYaw + spin * 0.5, 0);
       _q.setFromEuler(_e);
       _p.set(x, yH, y);
       const grow = age < 0.08 ? 0.4 + 0.6 * (age / 0.08) : 1;

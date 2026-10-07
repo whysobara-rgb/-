@@ -7,6 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { EMOTE_IDS, EmoteWheelController, wheelSlotAngle, type WheelInput } from '../../src/platform/emotes';
+import { InputManager } from '../../src/platform/input';
 import { BASE_EMOTES } from '../../src/sim/types';
 
 const N = EMOTE_IDS.length;
@@ -161,5 +162,29 @@ describe('taunt wheel: the mouse picks the slot it is on (center-relative)', () 
     expect(c.justClosed).toBe(true);
     expect(c.confirmed).toBeNull();
     expect(w.update({ ...inp, held: false, pointer: slotCenter(0, g) }).confirmed).toBeNull();
+  });
+});
+
+describe('InputManager: wheel click', () => {
+  function mouse(type: 'mousedown' | 'mouseup' | 'mousemove', x: number, y: number, button = 0): Event {
+    return Object.assign(new Event(type, { cancelable: true }), { clientX: x, clientY: y, button });
+  }
+
+  it('a left click is reported once at the press position; the right button is a mouse ping', () => {
+    const target = new EventTarget();
+    const input = new InputManager({ target, doc: null, now: () => 1000, getGamepads: () => [], keyboard: null, chordKeys: true });
+    input.pollMatch();
+    target.dispatchEvent(mouse('mousemove', 300, 200));
+    target.dispatchEvent(mouse('mousedown', 310, 205));
+    target.dispatchEvent(mouse('mousemove', 400, 260));
+    const f = input.pollMatch();
+    expect(f.wheelClick).toEqual({ clientX: 310, clientY: 205 });
+    expect(f.pingAtPointer).toBeNull();
+    expect(input.pollMatch().wheelClick).toBeNull();
+    target.dispatchEvent(mouse('mouseup', 400, 260));
+    target.dispatchEvent(mouse('mousedown', 420, 270, 2));
+    const g = input.pollMatch();
+    expect(g.wheelClick).toBeNull();
+    expect(g.pingAtPointer).toEqual({ clientX: 420, clientY: 270 });
   });
 });

@@ -16,8 +16,8 @@
 .uh-mp__title { font-family: var(--uh-font-display); font-size: var(--uh-fs-xl); line-height: 1.05; white-space: nowrap; }
 .uh-lastbank[data-side='theirs'] .uh-mp__title { -webkit-text-stroke: 0.12em var(--pop-ink); paint-order: stroke fill; }
 .uh-mp__sub { padding: 0.05rem 0.75rem 0.1rem; border-radius: 999px; font-family: var(--uh-font-display); font-size: var(--uh-fs-md); line-height: 1.3; white-space: nowrap; color: var(--pop-ink); background: var(--pop-cream); border: 0.15rem solid var(--pop-ink); }
-@keyframes uh-mp-ours { 0%, 100% { transform: scale(1) rotate(-1deg); } 50% { transform: scale(1.04) rotate(0.5deg); } }
-@keyframes uh-mp-theirs { 0%, 100% { transform: scale(1) rotate(1deg); } 50% { transform: scale(1.07) rotate(-1deg); } }
+@keyframes uh-mp-ours { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.04); } }
+@keyframes uh-mp-theirs { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.07); } }
 
 /* One row under the scoreboard: the getaway badge + the swing readout side by side. */
 .uh-tensionrow { display: flex; align-items: center; justify-content: center; gap: 0.5rem; margin-top: -0.25rem; }
@@ -102,7 +102,6 @@
   box-shadow: 0.25rem 0.25rem 0 var(--pop-ink);
   -webkit-text-stroke: 0.1em var(--pop-ink);
   paint-order: stroke fill;
-  rotate: -1.5deg;
 }
 .uh-climaxbadge[hidden] { display: none; }
 .uh-climaxbadge__icon { width: 2rem; height: 2rem; display: grid; place-items: center; border-radius: 50%; background: var(--pop-cream); color: #E0384E; border: 0.15rem solid var(--pop-ink); -webkit-text-stroke: 0; animation: uh-siren-icon 0.5s steps(2) infinite; }

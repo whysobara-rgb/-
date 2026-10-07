@@ -750,7 +750,7 @@ export class Hud {
           ),
           h('div', { class: 'uh-carry__foot' }, h('span', { class: 'uh-carry__note' }, t('hud.carryNote')), h('div', { class: 'uh-carry__bar' }, h('i'))),
         );
-        if (!before) animateEl(this.carryEl, [{ transform: 'translateY(2rem) rotate(-14deg) scale(0.6)', opacity: 0 }, { transform: 'rotate(-3deg)', opacity: 1 }], { duration: 420, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' });
+        if (!before) animateEl(this.carryEl, [{ transform: 'translateY(2rem) scale(0.6)', opacity: 0 }, { transform: 'scale(1.04, 0.97)', opacity: 1, offset: 0.7 }, { transform: 'none', opacity: 1 }], { duration: 420, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' });
         else animateEl(this.carryEl, [{ scale: '1.08' }, { scale: '1' }], { duration: 260, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' });
       }
     }
@@ -836,7 +836,7 @@ export class Hud {
         : null,
       p.skipAction ? h('div', { class: 'uh-tut__skip' }, glyphChip(p.skipAction), t('tutorial.skip')) : null,
     );
-    animateEl(this.tutorialEl, [{ transform: 'translateX(-2rem) rotate(-4deg)', opacity: 0 }, { transform: 'rotate(-1deg)', opacity: 1 }], { duration: 380, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' });
+    animateEl(this.tutorialEl, [{ transform: 'translateX(-2rem) scale(0.96)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 380, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' });
   }
 
   /** Language changed: rebuild labels and force a full refresh on the next update. */

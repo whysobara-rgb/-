@@ -1,13 +1,13 @@
 /**
  * Render beats (fun round WP3 / Content 2.0 F3), headless: the glance envelope and its caps, the
- * getaway timeline (3-4 m pull-away, free-run limit), the label screen clamp out of the HUD bands,
+ * getaway timeline (3-4 m pull-away, free-run limit), the label layout clear of the HUD zones,
  * steady-state churn of the beat visuals (no Object3D / material / texture / geometry created per
  * frame), the reduced-motion guard on GameView.glance and the moment -> mood mapping of
  * GameView.onMoments (called on a stand-in `this`: GameView itself needs WebGL).
  */
 import { describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
-import { BarkBubble, BeatLabel, BEATS, GlanceTracker, PulseRing, WindupRing, clampNdc, departParam, getawayDepart, labelScaleFor, vanFreeRun } from '../../src/render/beats';
+import { BarkBubble, BeatLabel, BEATS, GlanceTracker, LabelScreen, PulseRing, WindupRing, departParam, getawayDepart, hudRem, labelScaleFor, layoutLabel, vanFreeRun } from '../../src/render/beats';
 import { GameView } from '../../src/render/view';
 import { planMomentFeel } from '../../src/game/feel';
 import type { Moment } from '../../src/shared/moments';
@@ -95,43 +95,98 @@ describe('getaway timeline', () => {
 });
 
 describe('beat label', () => {
-  it('clamps into the safe box (below the scoreboard band, inside the screen)', () => {
-    const p = { x: 2, y: 0.9 };
-    expect(clampNdc(p)).toBe(true);
-    expect(p.y).toBe(BEATS.label.maxY);
-    expect(p.x).toBe(BEATS.label.maxX);
-    const q = { x: 0.1, y: 0.1 };
-    expect(clampNdc(q)).toBe(false);
+  const cover = (x: number, b: number, pw: number, lh: number, r: { x0: number; y0: number; x1: number; y1: number }): number =>
+    Math.max(0, Math.min(x + pw / 2, r.x1) - Math.max(x - pw / 2, r.x0)) * Math.max(0, Math.min(b, r.y1) - Math.max(b - lh, r.y0));
+
+  it('HUD rem and zones follow styles/tokens.css + hud.css (720p and 1080p)', () => {
+    expect(hudRem(1280, 720)).toBeCloseTo(10.6667, 3);
+    expect(hudRem(1920, 1080)).toBeCloseTo(16, 6);
+    expect(hudRem(1280, 720, 1.4)).toBeCloseTo(14.9333, 3);
+    const s = new LabelScreen();
+    s.setViewport(1280, 720);
+    // measured HUD rects at 1280x720: top cluster x 339-941 y 11-115 (+ prompt to ~160), minimap
+    // x 17-244 y 541-703, action buttons x 1096-1259 y 578-701 -> each inside its zone
+    const inside = (z: { x0: number; y0: number; x1: number; y1: number }, x0: number, y0: number, x1: number, y1: number) => z.x0 <= x0 && z.y0 <= y0 && z.x1 >= x1 && z.y1 >= y1;
+    expect(inside(s.zones[0]!, 339, 11, 941, 160)).toBe(true);
+    expect(inside(s.zones[2]!, 17, 541, 244, 703)).toBe(true);
+    expect(inside(s.zones[3]!, 1096, 578, 1259, 701)).toBe(true);
   });
 
-  it('pins to the load, but a load under the top HUD band gets its label pushed down', () => {
+  it('layoutLabel keeps a clear spot, steps out of HUD zones / the chip, stays inside the 16 px gutter', () => {
+    const s = new LabelScreen();
+    s.setViewport(1280, 720);
+    const out = { cx: 0, by: 0 };
+    const pw = 200;
+    const lh = 52;
+    // clear spot: unchanged
+    expect(layoutLabel(640, 400, pw, lh, s, null, out)).toBe(0);
+    expect(out).toEqual({ cx: 640, by: 400 });
+    // under the top cluster: pushed out of it, no overlap left
+    expect(layoutLabel(640, 120, pw, lh, s, null, out)).toBe(0);
+    s.zones.forEach((z, i) => s.zoneWeight[i]! >= 1 && expect(cover(out.cx, out.by, pw, lh, z)).toBe(0));
+    // pinned to the bottom-right corner (off-screen load): clear of the dash button
+    expect(layoutLabel(5000, 5000, pw, lh, s, null, out)).toBe(0);
+    expect(cover(out.cx, out.by, pw, lh, s.zones[3]!)).toBe(0);
+    expect(out.cx + pw / 2).toBeLessThanOrEqual(1280 - 16);
+    expect(out.by).toBeLessThanOrEqual(720 - 16);
+    // bottom-left corner: clear of the minimap
+    expect(layoutLabel(-300, 800, pw, lh, s, null, out)).toBe(0);
+    expect(cover(out.cx, out.by, pw, lh, s.zones[2]!)).toBe(0);
+    expect(out.cx - pw / 2).toBeGreaterThanOrEqual(16);
+    // a bank chip just under the top cluster: the label can't go above it -> beside / below it, clear
+    const chip = { x0: 560, y0: 168, x1: 747, y1: 243 };
+    expect(layoutLabel(653, 168 - 5, pw, lh, s, chip, out)).toBe(0);
+    expect(cover(out.cx, out.by, pw, lh, chip)).toBe(0);
+    s.zones.forEach((z, i) => s.zoneWeight[i]! >= 1 && expect(cover(out.cx, out.by, pw, lh, z)).toBe(0));
+    // the stamp column is soft: a label just under it stays put rather than leaving its load
+    expect(layoutLabel(640, 250, pw, lh, s, null, out)).toBe(0);
+    expect(out).toEqual({ cx: 640, by: 250 });
+    // extras (another label) are avoided too
+    s.clearExtras();
+    s.addExtra(540, 300, 740, 352);
+    expect(layoutLabel(640, 352, pw, lh, s, null, out)).toBe(0);
+    expect(cover(out.cx, out.by, pw, lh, s.extras[0]!)).toBe(0);
+    s.clearExtras();
+  });
+
+  it('place(): sits on top of the HUD chip over the load, HUD-sized, and never under a HUD zone', () => {
     const cam = new THREE.PerspectiveCamera(38, 16 / 9, 0.5, 400);
     cam.position.set(0, 17, 12);
     cam.lookAt(0, 0, 0);
     cam.updateMatrixWorld();
+    const s = new LabelScreen();
+    s.setViewport(1280, 720);
     const label = new BeatLabel('t');
     label.set('막아야 해!', 'theirs');
-    label.place(0, 2, 0, cam, 1, 0, 0);
-    expect(label.sprite.position.x).toBeCloseTo(0, 4);
-    expect(label.sprite.position.y).toBeCloseTo(2, 4);
-    // default: lifted ~34 px above the anchor (clears the HUD value chip)
+    // a safe in the middle: tail tip = chip top - gap, centred on the load
+    const chip = { w: 11, h: 3.2 };
+    label.place(0, 2, 0, cam, 1, 0, s, chip);
     const a = new THREE.Vector3(0, 2, 0).project(cam);
-    label.place(0, 2, 0, cam, 1, 0);
-    const b = label.sprite.position.clone().project(cam);
-    expect(((b.y - a.y) / 2) * 720).toBeCloseTo(BEATS.label.liftPx, 3);
-    // far right: the whole plate stays inside the screen
-    label.place(60, 2, 0, cam, 1, 0);
-    const r = label.sprite.position.clone().project(cam);
-    const halfW = (label.sprite.scale.x / (2 * Math.tan(((38 * Math.PI) / 180) / 2) * cam.aspect));
-    expect(r.x + halfW).toBeLessThanOrEqual(1);
-    // far up-screen (north): projects above the band -> clamped
-    label.place(0, 2, -30, cam, 1, 0);
-    const ndc = label.sprite.position.clone().project(cam);
-    expect(ndc.y).toBeLessThanOrEqual(BEATS.label.maxY + 1e-6);
-    // label px at 720p regardless of distance (constant pixel size)
+    const ay = ((1 - a.y) / 2) * 720;
+    const ax = ((a.x + 1) / 2) * 1280;
+    expect(label.lastCover).toBe(0);
+    expect((label.rect.x0 + label.rect.x1) / 2).toBeCloseTo(ax, 3);
+    expect(Math.abs(label.rect.y1 - (ay - (chip.h + BEATS.label.gapRem) * s.rem))).toBeLessThan(1.5);
+    // sprite projects to the same bottom-centre (sizeAttenuation off: constant pixels)
+    const p = label.sprite.position.clone().project(cam);
+    expect(((1 - p.y) / 2) * 720).toBeCloseTo(label.rect.y1, 2);
     const px = (label.sprite.scale.y / (2 * Math.tan(((38 * Math.PI) / 180) / 2))) * 720;
-    expect(px).toBeCloseTo(BEATS.label.px, 1);
-    expect(labelScaleFor(BEATS.label.px, 38)).toBeCloseTo(label.sprite.scale.y, 6);
+    expect(px).toBeCloseTo(BEATS.label.rem * s.rem, 1);
+    expect(labelScaleFor(BEATS.label.rem * s.rem, 38, 720)).toBeCloseTo(label.sprite.scale.y, 6);
+    // a bank far up-screen (its 7 rem chip right under the top cluster): clear of chip + zones
+    for (const z of [-14, -18, -22, -30]) {
+      const lab = new BeatLabel('b');
+      lab.set('승부 포인트!', 'ours');
+      lab.place(0, 6, z, cam, 1, 0, s, { w: 17.5, h: 7 });
+      expect(lab.lastCover).toBe(0);
+      s.zones.forEach((zone, i) => s.zoneWeight[i]! >= 1 && expect(cover((lab.rect.x0 + lab.rect.x1) / 2, lab.rect.y1, lab.rect.x1 - lab.rect.x0, lab.rect.y1 - lab.rect.y0, zone)).toBe(0));
+      lab.dispose();
+    }
+    // far right / off-screen: whole plate inside the gutter
+    label.place(60, 2, 20, cam, 1, 0, s, chip);
+    expect(label.rect.x1).toBeLessThanOrEqual(1280 - 16 + 1e-6);
+    expect(label.rect.y1).toBeLessThanOrEqual(720 - 16 + 1e-6);
+    expect(label.lastCover).toBe(0);
     label.hide();
     expect(label.shown).toBe(false);
     label.dispose();
@@ -148,6 +203,8 @@ describe('beat visuals churn', () => {
     const ring = new PulseRing('r');
     const wind = new WindupRing();
     const label = new BeatLabel('l');
+    const screen = new LabelScreen();
+    const chip = { w: 17.5, h: 7 };
     const bark = new BarkBubble();
     root.add(ring.root, wind.mesh, label.sprite, bark.sprite);
     label.set('이게 들어가면 끝!', 'ours');
@@ -155,7 +212,7 @@ describe('beat visuals churn', () => {
     const frame = (i: number): void => {
       ring.update(true, i * 0.01, 0, 0, 1.4, 1 / 60, 1.2, false);
       wind.update(i / 60, 0, 0, 0, 1 / 60, false);
-      label.place(i * 0.01, 2, 0, cam, 1 / 60, 0.5);
+      label.place(i * 0.01, 2, 0, cam, 1 / 60, 0.5, screen, chip);
       bark.update(0, 2.5, 0, 1 / 60, false);
     };
     for (let i = 0; i < 30; i++) frame(i); // warm up
@@ -249,6 +306,8 @@ describe('beat CPU budget', () => {
     cam.updateMatrixWorld();
     const rings = [new PulseRing('a'), new PulseRing('b'), new PulseRing('c')];
     const labels = [new BeatLabel('a'), new BeatLabel('b')];
+    const screen = new LabelScreen();
+    const chip = { w: 17.5, h: 7 };
     labels[0]!.set('막아야 해!', 'theirs');
     labels[1]!.set('빼내기 +300', 'steal');
     const winds = [new WindupRing(), new WindupRing(), new WindupRing()];
@@ -259,8 +318,12 @@ describe('beat CPU budget', () => {
     const frame = (i: number): void => {
       const dt = 1 / 60;
       rings.forEach((r, k) => r.update(true, i * 0.001 + k, 0, k, 1 + k, dt, 1.5, false));
-      labels[0]!.place(i * 0.001, 6, 0, cam, dt, 0.5);
-      labels[1]!.place(3, 2.5, 3, cam, dt, 0.5);
+      // worst case: a bank chip right under the top cluster -> the full two-step search
+      labels[0]!.place(i * 0.001, 6, -22, cam, dt, 0.5, screen, chip);
+      screen.clearExtras();
+      const r = labels[0]!.rect;
+      screen.addExtra(r.x0, r.y0, r.x1, r.y1);
+      labels[1]!.place(3, 2.5, 3, cam, dt, 0.5, screen, null);
       for (const w of winds) w.update(i / 60, 0, 0, 0, dt, false);
       bark.update(0, 2, 0, 0.0001, false);
       if (!g.active) g.begin({ x: 20, y: 0 }, 0.3, 900, i / 60);

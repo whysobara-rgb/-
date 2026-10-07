@@ -156,7 +156,7 @@ export class Banners {
     this.current = el;
     // Opacity snaps in over the first few frames only: a slow fade of thick outlined digits
     // reads as a grey ghost.
-    animateEl(el, [{ transform: 'scale(2.6) rotate(-14deg)', opacity: 0 }, { transform: 'scale(2.1) rotate(-10deg)', opacity: 1, offset: 0.1 }, { transform: 'scale(0.86, 1.12) rotate(4deg)', opacity: 1, offset: 0.55 }, { transform: 'scale(1) rotate(0)', opacity: 1 }], {
+    animateEl(el, [{ transform: 'scale(2.6)', opacity: 0 }, { transform: 'scale(2.1)', opacity: 1, offset: 0.1 }, { transform: 'scale(0.86, 1.12)', opacity: 1, offset: 0.55 }, { transform: 'scale(1)', opacity: 1 }], {
       duration: 380,
       easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)',
     });
@@ -220,7 +220,7 @@ export class Banners {
       this.climaxArmed = false;
       this.paintBadge();
     }
-    animateEl(el, [{ transform: 'scale(1.9) rotate(-6deg)', opacity: 0 }, { transform: 'scale(1.6) rotate(-4.5deg)', opacity: 1, offset: 0.1 }, { transform: 'scale(0.92, 1.08) rotate(1deg)', opacity: 1, offset: 0.55 }, { transform: 'scale(1) rotate(-1.5deg)', opacity: 1 }], {
+    animateEl(el, [{ transform: 'scale(1.9)', opacity: 0 }, { transform: 'scale(1.6)', opacity: 1, offset: 0.1 }, { transform: 'scale(0.92, 1.08)', opacity: 1, offset: 0.55 }, { transform: 'scale(1)', opacity: 1 }], {
       duration: compact ? 380 : 460,
       easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)',
     });
@@ -350,7 +350,6 @@ export class Stamps {
         : h('span', { class: 'uh-stamp__text' }, t(o.key ?? spec.key, o.params)),
       o.team !== undefined && o.team !== null ? h('span', { class: 'uh-callout__team' }, teamEmblem(o.team, 'uh-emblem', 'light')) : null,
     );
-    const rot = [-8, 6, -4, 9, -6][Math.floor(now / 97) % 5]!;
     const world = o.x !== undefined && o.y !== undefined && Number.isFinite(o.x) && Number.isFinite(o.y);
     if (world) {
       el.classList.add('is-world');
@@ -362,7 +361,7 @@ export class Stamps {
     (world ? this.worldEl : this.el).appendChild(el);
     this.live.push({ el, kind });
     this.shownCount++;
-    slamIn(el, 0, rot);
+    slamIn(el, 0); // upright stamp: the punch is the drop + squash, never a tilt
     const life = o.durationMs ?? (kind === 'bankWhole' || o.sub ? 2000 : big ? 1800 : 1600);
     window.setTimeout(() => {
       el.classList.add('is-leaving');

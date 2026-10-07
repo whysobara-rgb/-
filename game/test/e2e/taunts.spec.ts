@@ -11,7 +11,8 @@
  * GL frames here can take longer than its 0.5 s (a real 60 fps client never hits it).
  */
 import { expect, test, type Page } from '@playwright/test';
-import { boot, expectNoErrors, shot, watchConsole } from './helpers';
+import path from 'node:path';
+import { SHOTS, boot, expectNoErrors, watchConsole } from './helpers';
 
 const Q = 'fresh=1&autotest=1&quality=low&render=2&lang=ko&flow=quick&skipIntro=1&matchSeconds=240&police=0';
 
@@ -20,6 +21,11 @@ interface Rec {
   states: string[];
   poses: string[];
   bubbles: string[];
+}
+
+/** Screenshot with a long timeout (software GL under load can take well over 30 s per frame). */
+async function shot(page: Page, name: string): Promise<void> {
+  await page.screenshot({ path: path.join(SHOTS, `${name}.png`), timeout: 240_000 });
 }
 
 async function rec(page: Page): Promise<Rec> {
@@ -119,12 +125,44 @@ test('taunts: Ctrl+1 plays the wiggle; the T wheel follows the mouse and plays t
   expect(await wheelOpen()).toBe(true);
   const slot = page.locator('.uh-ewheel__slot[data-emote="bleh"]');
   await expect(slot).toBeVisible();
-  await page.waitForTimeout(1200); // open animation (scale-in) done
-  const box = (await slot.boundingBox())!;
+  // the disc's open animation (scale-in) runs on wall-clock time: wait until the slot sits still
+  // where it is drawn for good before aiming at it
+  await page.waitForFunction(
+    () => {
+      const disc = document.querySelector('.uh-ewheel__disc');
+      return !!disc && disc.getAnimations().every((a) => a.playState === 'finished' || a.playState === 'idle');
+    },
+    null,
+    { timeout: 120_000, polling: 100 },
+  );
+  let box = (await slot.boundingBox())!;
+  for (let i = 0; i < 40; i++) {
+    await page.waitForTimeout(250);
+    const b = (await slot.boundingBox())!;
+    const still = Math.abs(b.x - box.x) < 0.5 && Math.abs(b.y - box.y) < 0.5 && Math.abs(b.width - box.width) < 0.5;
+    box = b;
+    if (still) break;
+  }
   const target = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  const center = await page.evaluate(() => (window as unknown as { __uproot: { app: { currentMatch: { svc: { hud: { taunts: { geometry(): { x: number; y: number; dead: number } } } } } } } }).__uproot.app.currentMatch.svc.hud.taunts.geometry());
+  // the slot is drawn right of the wheel center, outside the center disc
+  expect(target.x - center.x).toBeGreaterThan(center.dead);
+  expect(Math.abs(target.y - center.y)).toBeLessThan(box.height / 2);
   // nothing highlighted yet: the resting cursor picks nothing
   expect(await page.evaluate(() => (window as unknown as { __uproot: { app: { currentMatch: { wheel: { hover: number | null } } } } }).__uproot.app.currentMatch.wheel.hover)).toBeNull();
   await page.mouse.move(target.x, target.y, { steps: 12 });
+  // the controller picks the slot under the cursor (diagnostics in the message if it does not)
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const u = (window as unknown as { __uproot: { app: { currentMatch: { wheel: { hover: number | null; open: boolean }; sim: { state: { tick: number } }; svc: { hud: { taunts: { geometry(): unknown } } } }; d: { input: { pointer: unknown } } } } }).__uproot;
+          const m = u.app.currentMatch;
+          return JSON.stringify({ hover: m.wheel.hover, open: m.wheel.open, tick: m.sim.state.tick, pointer: u.app.d.input.pointer, geo: m.svc.hud.taunts.geometry() });
+        }),
+      { timeout: 120_000, intervals: [250] },
+    )
+    .toMatch(/"hover":1,/);
   await expect(slot).toHaveClass(/is-hover/, { timeout: 120_000 });
   expect(await page.evaluate(() => (window as unknown as { __uproot: { app: { currentMatch: { wheel: { hover: number | null } } } } }).__uproot.app.currentMatch.wheel.hover)).toBe(1);
   await expect(page.locator('.uh-ewheel__slot.is-hover')).toHaveCount(1);

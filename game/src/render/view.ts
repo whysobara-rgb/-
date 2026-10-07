@@ -101,7 +101,7 @@ import type { Moment, StreakTier } from '../shared/moments';
 import { createViewExtras, type ViewExtra, type ViewExtrasHost } from './extras';
 import { createPropRig, type PropRig } from './models/props';
 // [F3] Render beats (glance, getaway, decisive load, steal chance, run heat, wind-up, barks, results poses).
-import { BarkBubble, BeatLabel, BEATS, GlanceTracker, PulseRing, WindupRing, departParam, getawayDepart, vanFreeRun } from './beats';
+import { BarkBubble, BeatLabel, BEATS, GlanceTracker, LabelScreen, PulseRing, WindupRing, departParam, getawayDepart, vanFreeRun, type ChipSize } from './beats';
 import { matchPointInfo, VAN } from '../sim';
 import { ko as KO_STRINGS } from '../ui/strings/ko';
 import { en as EN_STRINGS } from '../ui/strings/en';
@@ -356,6 +356,10 @@ const _ray = new THREE.Raycaster();
 const _plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const _vel: Vec2 = { x: 0, y: 0 };
 const _loc: Vec2 = { x: 0, y: 0 };
+// [F3] getaway exhaust puff scratch (vanPuff)
+const _puffAt = { x: 0, y: 0, z: 0 };
+const _puffDir = { x: 0, y: 0.15, z: 0 };
+const _puffOpts = { count: 2, spread: 0.25, size: 0.26, color: '#8E8796', up: 0.35, dir: _puffDir };
 const _chest = new THREE.Vector3();
 
 function idleRaccoonPose(): RaccoonPose {
@@ -403,6 +407,11 @@ export class GameView {
       return this.sim?.getCharacter(id)?.pos ?? null;
     },
     nearestOpponent: (c) => this.nearestVisibleOpponent(c),
+    // face taunts stay readable: the face never turns far from the camera (taunts.ts)
+    cameraDir: (c) => {
+      const p = this.cam.camera.position;
+      return { x: p.x - c.pos.x, y: p.z - c.pos.y };
+    },
   };
   private readonly markers = new OffscreenMarkers(8);
   private readonly banners = new UprootBanners();
@@ -456,6 +465,18 @@ export class GameView {
   private readonly glanceOut = { x: 0, y: 0 };
   /** Getaway beat: winner team (null = draw), start time, the winner van's free forward run. */
   private getaway: { team: TeamId | null; start: number; run: number; nextPuff: number; revIdx: number; honked: boolean } | null = null;
+  /**
+   * End-hold camera shot on the winners' van (playGetaway; null = none, draw or reduced motion):
+   * target + distance framing the van (and the player when both fit). The match is over, so the
+   * camera may leave the player for the 2.4 s hold.
+   */
+  private getawayShot: { x: number; y: number; dist: number; cut: boolean } | null = null;
+  /** Viewport + HUD zones the beat labels stay clear of (resize / UI scale). */
+  private readonly labelScreen = new LabelScreen();
+  /** HUD world-chip size (rem) over the decisive load: the label sits on top of it. */
+  private readonly decisiveChip: ChipSize = { w: 0, h: 0 };
+  /** Default results poses when game flow has not called setResultsPoses (rival won / lost). */
+  private readonly defaultPoses: { rival: 'taunt' | 'slump'; player: EmoteId | null } = { rival: 'slump', player: null };
   /** Decisive load (match point): ids as fed (loot first, then bag carriers) + whose. */
   private readonly decisiveIds: EntityId[] = [];
   private decisiveSide: 'ours' | 'theirs' | null = null;
@@ -465,6 +486,7 @@ export class GameView {
   private readonly bagRings: PulseRing[] = [];
   private readonly bagIds: EntityId[] = [];
   private decisiveHl: { id: EntityId; color: string } | null = null;
+  private readonly decisiveHlRec: { id: EntityId; color: string } = { id: -1 as EntityId, color: '#FFD23F' };
   /** Steal-chance marker (door glow + "빼내기 +N"). */
   private stealPos: Vec2 | null = null;
   private stealValue = 0;
@@ -989,6 +1011,7 @@ export class GameView {
     this.endGetaway();
     this.glanceT.clear();
     this.resultsPoses = null;
+    this.resultsPoseStart = this.time;
   }
 
   /**
@@ -1112,11 +1135,19 @@ export class GameView {
     }
     this.endGetaway();
     this.getaway = { team: t, start: this.time, run, nextPuff: this.time, revIdx: 0, honked: false };
-    // The camera leans toward the winners' van for the hold (same capped glance as big plays;
-    // none with reduced motion), so the drive-off reads even when the player stands far away.
-    if (z && !this.settings.reducedMotion && this.viewMode === 'match') {
-      const lead = Math.min(run, BEATS.getaway.distance) * 0.6;
-      this.glanceT.begin({ x: z.vanPos.x + Math.cos(z.vanAngle) * lead, y: z.vanPos.y + Math.sin(z.vanAngle) * lead }, BEATS.glance.maxWeight, 2300, this.time);
+    // The match is over (input no longer steers anything), so for the hold the camera goes to
+    // the winners' van, wherever the player stands: van + player when they share the frame,
+    // else the van alone (cameraGoal blends it in). A van off screen right now gets a cut (the
+    // honk is seen from its first frame, no whip-pan across the map); one already on screen a
+    // short pan. Reduced motion: never a pan; only the cut, when the van is off screen.
+    this.getawayShot = null;
+    if (z && this.viewMode === 'match') {
+      const p = this.project(z.vanPos, 1.2);
+      const cut = !p.onScreen;
+      if (cut || !this.settings.reducedMotion) {
+        this.getawayShot = { ...this.getawayFraming(z, run), cut };
+        if (cut) this.cam.snap();
+      }
     }
     if (t !== null) {
       for (const c of this.sim.state.characters) {
@@ -1159,7 +1190,10 @@ export class GameView {
     this.decisiveSide = s;
     this.bagFallbackAt = -1;
     if (!s) this.decisiveLabel.hide();
-    else if (sideChanged || !this.decisiveLabel.shown) this.decisiveLabel.set(this.beatText(s === 'ours' ? 'hud.mp.ours' : 'hud.mp.theirs'), s);
+    else if (sideChanged || !this.decisiveLabel.shown) {
+      this.refreshLabelScreen();
+      this.decisiveLabel.set(this.decisiveText(s), s);
+    }
   }
 
   /**
@@ -1190,7 +1224,10 @@ export class GameView {
   /**
    * (fun round, WP3) Results-stage poses: the rival plays its taunt when it won ('taunt') or
    * slumps when it lost ('slump'); the player's chosen victory taunt plays on a win (`null` =
-   * none). Call after setMode('results') (a mode change clears it).
+   * none). Call after setMode('results') (a mode change clears it). Until game flow calls it,
+   * the stage plays the defaults from the result it shows (fun-plan WP3): the rival taunts when
+   * its team won and slumps when it lost, the player's pose on a win is `wiggle`; a draw keeps
+   * the plain stage (resultsPosesNow).
    */
   setResultsPoses(poses: { rival: 'taunt' | 'slump'; player: EmoteId | null }): void {
     if (!poses) return;
@@ -1319,15 +1356,87 @@ export class GameView {
   }
 
   /** UI strings the beats print (pinned cross-package keys; WP4 defines them). */
-  private beatText(key: 'hud.mp.ours' | 'hud.mp.theirs' | 'hud.moment.stealChance', params?: Record<string, string>): string {
+  private beatText(key: 'beat.decisive.ours' | 'hud.mp.theirs' | 'hud.moment.stealChance', params?: Record<string, string>): string {
     const lang = this.settings.language ?? 'ko';
     let s: string = (lang === 'en' ? EN_STRINGS[key] : KO_STRINGS[key]) ?? KO_STRINGS[key] ?? key;
     if (params) for (const k in params) s = s.split(`{${k}}`).join(params[k]!);
     return s;
   }
 
+  /**
+   * Decisive-load world label: 'ours' = "승부 포인트!" (fun-plan WP3; the HUD prompt above already
+   * says "이게 들어가면 끝!", so the world label names the spot instead of repeating it),
+   * 'theirs' = "막아야 해!".
+   */
+  private decisiveText(side: 'ours' | 'theirs'): string {
+    return this.beatText(side === 'ours' ? 'beat.decisive.ours' : 'hud.mp.theirs');
+  }
+
+  /**
+   * Viewport + HUD rem for the beat labels. The HUD's root font size already holds the UI scale
+   * (styles/tokens.css), so it is read from the document when there is one (resize, settings,
+   * a label appearing); headless: the formula at UI scale 1.
+   */
+  private refreshLabelScreen(): void {
+    let rem: number | undefined;
+    try {
+      if (typeof document !== 'undefined' && typeof getComputedStyle === 'function') {
+        const fs = parseFloat(getComputedStyle(document.documentElement).fontSize);
+        if (Number.isFinite(fs) && fs > 0) rem = fs;
+      }
+    } catch {
+      rem = undefined;
+    }
+    this.labelScreen.setViewport(this.width, this.height, 1, rem);
+  }
+
+  /**
+   * HUD world chip over a decisive loot load (WorldLabels / PropLabels, styles/hud*.css): its
+   * anchor height (the same world point the HUD projects) and its size in rem, focus scale and
+   * the bank breakdown line included. The label sits on top of it. Returns the anchor height.
+   */
+  private hudChipFor(id: EntityId, out: ChipSize): number {
+    const l = this.sim?.getLoot(id);
+    if (!l || l.kind === 'bank') {
+      out.w = 17.5;
+      out.h = 7;
+      return BANK_MODEL.roofHeight + 1.2;
+    }
+    if (l.variant) {
+      out.w = 16;
+      out.h = 3.3;
+      return PROP_SPECS[l.variant].height + 0.7;
+    }
+    out.w = 11;
+    out.h = 3.2;
+    return SAFE_SPECS[l.kind].height + 0.6;
+  }
+
+  /**
+   * End-hold shot on the winners' van (playGetaway): the van's whole drive-off (tail at rest to
+   * nose at the end of the roll) centred, with the player too when they share the frame at the
+   * walking distance band; else the van alone at the walking distance.
+   */
+  private getawayFraming(z: LayoutDef['zones'][number], run: number): { x: number; y: number; dist: number } {
+    const ca = Math.cos(z.vanAngle);
+    const sa = Math.sin(z.vanAngle);
+    const roll = run >= BEATS.getaway.minRun ? Math.min(run, BEATS.getaway.distance) : 0;
+    const hx = VAN.half.x;
+    const mid = { x: z.vanPos.x + ca * roll * 0.5, y: z.vanPos.y + sa * roll * 0.5, h: 1.2 };
+    const nose = { x: z.vanPos.x + ca * (roll + hx), y: z.vanPos.y + sa * (roll + hx), h: VAN.height };
+    const tail = { x: z.vanPos.x - ca * hx, y: z.vanPos.y - sa * hx, h: VAN.height };
+    const aspect = this.width / Math.max(1, this.height);
+    const fc = this.lastFocusId !== null ? this.chars.get(this.lastFocusId) : undefined;
+    if (fc) {
+      const both = this.fitNorth(mid, [nose, tail, { x: fc.pose.x, y: fc.pose.y, h: 1.0 }], mid.x, mid.y, aspect);
+      if (both) return both;
+    }
+    return this.fitNorth(mid, [nose, tail], mid.x, mid.y, aspect) ?? { x: mid.x, y: mid.y, dist: MATCH_DIST.walk };
+  }
+
   /** Stop the getaway and put the vans (and their siren glows) back at their parking spots. */
   private endGetaway(): void {
+    this.getawayShot = null;
     if (!this.getaway) return;
     this.getaway = null;
     for (const van of this.vans) {
@@ -1336,6 +1445,19 @@ export class GameView {
       const z = this.zoneOf(van.team);
       if (z) this.glows[van.team]?.place(z.vanPos, z.vanAngle);
     }
+  }
+
+  /** Exhaust puff behind a van facing (ca, sa) (scratch options: no per-frame closure / literals). */
+  private vanPuff(van: VanRig, ca: number, sa: number, n: number, size: number): void {
+    van.exhaustPoint.getWorldPosition(_v3);
+    _puffAt.x = _v3.x;
+    _puffAt.y = _v3.y;
+    _puffAt.z = _v3.z;
+    _puffDir.x = -ca;
+    _puffDir.z = -sa;
+    _puffOpts.count = n;
+    _puffOpts.size = size;
+    this.effects.fx.dust(_puffAt, _puffOpts);
   }
 
   /**
@@ -1354,15 +1476,11 @@ export class GameView {
     const sa = Math.sin(z.vanAngle);
     const fx = this.effects.fx;
     const G = BEATS.getaway;
-    const puff = (n: number, size: number): void => {
-      van.exhaustPoint.getWorldPosition(_v3);
-      fx.dust({ x: _v3.x, y: _v3.y, z: _v3.z }, { count: n, spread: 0.25, size, color: '#8E8796', up: 0.35, dir: { x: -ca, y: 0.15, z: -sa } });
-    };
     if (g.team === null) {
       for (const r of G.drawRevs) {
         if (prev < r && t >= r) {
           van.bounce(0.55);
-          puff(4, 0.32);
+          this.vanPuff(van, ca, sa, 4, 0.32);
         }
       }
       return 2;
@@ -1372,7 +1490,7 @@ export class GameView {
       g.honked = true;
       van.bounce(1.1);
       fx.ring({ x: z.vanPos.x + ca * (VAN.half.x + 0.3), y: 0.9, z: z.vanPos.y + sa * (VAN.half.x + 0.3) }, { radius: 2.4, color: '#FFF6B0', duration: 0.4 });
-      puff(5, 0.34);
+      this.vanPuff(van, ca, sa, 5, 0.34);
     }
     const m = getawayDepart(t, g.run);
     if (prev <= G.revFor && t > G.revFor && g.run >= G.minRun) {
@@ -1381,7 +1499,7 @@ export class GameView {
     }
     if (this.time >= g.nextPuff && t < G.revFor + G.driveFor + 0.2) {
       g.nextPuff = this.time + G.puffEvery;
-      puff(2, 0.26);
+      this.vanPuff(van, ca, sa, 2, 0.26);
     }
     van.setDepart(departParam(m));
     const glow = this.glows[van.team];
@@ -1423,15 +1541,6 @@ export class GameView {
     return Math.hypot(h.x, h.y) + 0.45;
   }
 
-  /** Label anchor height above a loot id's floor. */
-  private loadTop(id: EntityId): number {
-    if (this.banks.has(id)) return BANK_MODEL.roofHeight + 1.0;
-    const sv = this.safes.get(id);
-    if (!sv) return 2;
-    const ph = (sv.rig as Partial<PropRig>).height;
-    return sv.y + (ph ?? SAFE_SPECS[sv.kind].height) + 0.55;
-  }
-
   /** Per-frame world beats: decisive load, steal marker, wind-up rings, bark bubbles. */
   private updateBeats(sim: Simulation, dt: number): void {
     const match = this.viewMode === 'match';
@@ -1463,6 +1572,9 @@ export class GameView {
     let labelH = 0;
     let labelZ = 0;
     let labelOn = false;
+    let chip: ChipSize | null = null;
+    const screen = this.labelScreen;
+    screen.clearExtras();
     if (lootId !== null) {
       const bv = this.banks.get(lootId);
       const pose = bv ? bv.pose : this.safes.get(lootId)!.pose;
@@ -1471,9 +1583,25 @@ export class GameView {
       this.decisiveRing.update(true, pose.x, floor, pose.y, this.loadRadius(lootId), dt, side === 'theirs' ? 1.6 : 1.1, calm);
       labelX = pose.x;
       labelZ = pose.y;
-      labelH = this.loadTop(lootId);
+      // On top of the HUD's own world chip over the load (same anchor point the HUD projects).
+      labelH = this.hudChipFor(lootId, this.decisiveChip);
+      chip = this.decisiveChip;
       labelOn = true;
-      this.decisiveHl = { id: lootId, color };
+      // A load dwelling in a zone also wears the HUD recovery ring higher up: keep clear of it.
+      const l = sim.getLoot(lootId);
+      if (l?.recovery) {
+        const rh = bv ? BANK_MODEL.roofHeight + 3.4 : (l.variant ? PROP_SPECS[l.variant].height : SAFE_SPECS[l.kind as 'smallSafe'].height) + 1.8;
+        _v3.set(pose.x, rh, pose.y).project(cam);
+        if (_v3.z < 1) {
+          const rx = ((_v3.x + 1) / 2) * screen.w;
+          const ry = ((1 - _v3.y) / 2) * screen.h;
+          const rr = 2.1 * screen.rem;
+          screen.addExtra(rx - rr, ry - 2 * rr, rx + rr, ry);
+        }
+      }
+      this.decisiveHlRec.id = lootId;
+      this.decisiveHlRec.color = color;
+      this.decisiveHl = this.decisiveHlRec;
     } else this.decisiveRing.update(false, 0, 0, 0, 1, dt, 1, calm);
     // bag carriers: one ring each; the label goes over the first one when no loot carries it
     while (this.bagRings.length < this.bagIds.length) {
@@ -1494,18 +1622,28 @@ export class GameView {
       if (!labelOn) {
         labelX = cv.pose.x;
         labelZ = cv.pose.y;
-        labelH = cv.y + RACCOON_LABEL_HEIGHT + 0.75;
         labelOn = true;
+        // over the HUD name tag (shown with more than two raccoons, adapters.ts: 2.3 m)
+        if (sim.state.characters.length > 2) {
+          labelH = 2.3;
+          this.decisiveChip.w = 9;
+          this.decisiveChip.h = 1.9;
+          chip = this.decisiveChip;
+        } else labelH = cv.y + RACCOON_LABEL_HEIGHT + 0.75;
       }
     }
-    if (labelOn && side) this.decisiveLabel.place(labelX, labelH, labelZ, cam, dt, calm ? 0 : 0.5 + 0.5 * Math.sin(this.time * (side === 'theirs' ? 9 : 6)));
+    if (labelOn && side) this.decisiveLabel.place(labelX, labelH, labelZ, cam, dt, calm ? 0 : 0.5 + 0.5 * Math.sin(this.time * (side === 'theirs' ? 9 : 6)), screen, chip);
     else this.decisiveLabel.sprite.visible = false;
     // --- steal chance ------------------------------------------------------------------------
     const sp = match ? this.stealPos : null;
     if (sp) {
       this.stealRing.setColor('#7FE0B4');
       this.stealRing.update(true, sp.x, 0, sp.y, 1.7, dt, 1.4, calm);
-      this.stealLabel.place(sp.x, 2.5, sp.y, cam, dt, calm ? 0 : 0.5 + 0.5 * Math.sin(this.time * 5));
+      // clear of the decisive label too (both can be up at once)
+      screen.clearExtras();
+      const d = this.decisiveLabel.sprite.visible ? this.decisiveLabel.rect : null;
+      if (d) screen.addExtra(d.x0, d.y0, d.x1, d.y1);
+      this.stealLabel.place(sp.x, 2.5, sp.y, cam, dt, calm ? 0 : 0.5 + 0.5 * Math.sin(this.time * 5), screen, null);
     } else {
       this.stealRing.update(false, 0, 0, 0, 1, dt, 1, calm);
       this.stealLabel.sprite.visible = false;
@@ -1535,6 +1673,7 @@ export class GameView {
   private resetBeats(): void {
     this.glanceT.clear();
     this.getaway = null;
+    this.getawayShot = null;
     this.decisiveIds.length = 0;
     this.decisiveSide = null;
     this.decisiveLabel.hide();
@@ -1605,9 +1744,10 @@ export class GameView {
     if (langChanged && this.scenery) this.scenery.setSignResolver(this.signResolver());
     if (langChanged) {
       // [F3] beat labels follow the language
-      if (this.decisiveSide) this.decisiveLabel.set(this.beatText(this.decisiveSide === 'ours' ? 'hud.mp.ours' : 'hud.mp.theirs'), this.decisiveSide);
+      if (this.decisiveSide) this.decisiveLabel.set(this.decisiveText(this.decisiveSide), this.decisiveSide);
       if (this.stealPos) this.stealLabel.set(this.beatText('hud.moment.stealChance', { value: this.stealValue.toLocaleString('en-US') }), 'steal');
     }
+    this.refreshLabelScreen(); // [F3] UI scale may have changed the HUD rem
     if ((langChanged || prev.zoneLabel !== s.zoneLabel) && this.layout) {
       for (const z of this.zones) z.dispose();
       const label = this.zoneLabel();
@@ -1629,6 +1769,7 @@ export class GameView {
     const h = Math.max(1, Math.round(this.container.clientHeight || this.container.getBoundingClientRect().height || 1));
     this.width = w;
     this.height = h;
+    this.refreshLabelScreen(); // [F3]
     const dpr = typeof devicePixelRatio === 'number' ? devicePixelRatio : 1;
     this.renderer.setPixelRatio(Math.min(dpr, this.preset.maxPixelRatio));
     this.renderer.setSize(w, h);
@@ -2520,6 +2661,23 @@ export class GameView {
   }
 
   /**
+   * [F3] Results poses in force: game flow's (setResultsPoses), else the defaults from the
+   * result on the stage (rival taunts on its win / slumps on its loss, player `wiggle` on a win;
+   * fun-plan WP3). Null on a draw or before the result is known (plain stage).
+   */
+  private resultsPosesNow(): { rival: 'taunt' | 'slump'; player: EmoteId | null } | null {
+    if (this.resultsPoses) return this.resultsPoses;
+    const st = this.stage;
+    if (!st || !st.final || st.winner === null || this.lastFocusId === null) return null;
+    const focusTeam = this.chars.get(this.lastFocusId)?.team;
+    if (focusTeam === undefined) return null;
+    const won = st.winner === focusTeam;
+    this.defaultPoses.rival = won ? 'slump' : 'taunt';
+    this.defaultPoses.player = won ? 'wiggle' : null;
+    return this.defaultPoses;
+  }
+
+  /**
    * Results pose (doc §13): winners hop and cheer in turns (staggered bounces with squash on
    * landing, an occasional spin jump); losers stand slumped and empty-handed, sigh now and then
    * (a little puff) and glance at the winners. Reduced motion: no hops/spins, poses only.
@@ -2545,7 +2703,7 @@ export class GameView {
     // [F3] results poses
     let taunt: EmoteId | null = null;
     let tauntOffset = 0;
-    const rp = this.resultsPoses;
+    const rp = this.resultsPosesNow();
     if (rp && c) {
       const focusTeam = this.lastFocusId !== null ? this.chars.get(this.lastFocusId)?.team ?? null : null;
       const rivalLook = c.look.rival ?? null;
@@ -2957,7 +3115,21 @@ export class GameView {
         overscan = Math.max(overscan, (5 * w) / BEATS.glance.maxWeight);
       }
     }
-    return { target: { x: tx, y: ty }, distance: dist, pitch: MATCH_PITCH, fov: MATCH_FOV, followRate: 4.5, clamp: true, overscan };
+    // [F3] Getaway (end hold, match over): frame the winners' van so the drive-off is seen from
+    // anywhere (a cut when it was off screen, else eased in over ~0.45 s; never yaw). The shot
+    // only exists with reduced motion when it is a cut (playGetaway).
+    const shot = this.getaway ? this.getawayShot : null;
+    let followRate = 4.5;
+    if (shot) {
+      const k = shot.cut ? 1 : Math.min(1, Math.max(0, (this.time - this.getaway!.start) / 0.45));
+      const w = k * k * (3 - 2 * k);
+      tx += (shot.x - tx) * w;
+      ty += (shot.y - ty) * w;
+      dist += (shot.dist - dist) * w;
+      overscan = Math.max(overscan, 6 * w);
+      followRate = 3.6;
+    }
+    return { target: { x: tx, y: ty }, distance: dist, pitch: MATCH_PITCH, fov: MATCH_FOV, followRate, clamp: true, overscan };
   }
 
   /**

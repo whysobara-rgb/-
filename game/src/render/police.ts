@@ -256,7 +256,7 @@ export class PoliceView {
       if (o.targetCharId !== focusId || (o.phase !== 'chase' && o.phase !== 'tackle')) continue;
       const ov = this.officers.get(o.id);
       if (!ov || ov.goneT >= 0) continue;
-      markers.add(camera, { x: ov.pose.x, y: 0.8, z: ov.pose.y, icon: 'exclaim', scale: 0.8, siren: true }, this.time);
+      markers.add(camera, { x: ov.pose.x, y: 0.8, z: ov.pose.y, icon: 'alert', scale: 0.8, siren: true }, this.time);
     }
   }
 

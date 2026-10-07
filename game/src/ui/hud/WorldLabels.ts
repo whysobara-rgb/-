@@ -16,7 +16,7 @@ import { h, setClass, setText } from '../core/dom';
 import { lootIcon, teamEmblem } from '../core/icons';
 import { clamp01, fmtScore, finiteOrNull } from '../core/format';
 import type { WorldLabelModel } from './types';
-import { layoutTags, newTagMemory, type Box, type Tag } from '../core/declutter';
+import { layoutTags, newTagMemory, tagOpacity, type Box, type Tag } from '../core/declutter';
 
 type Kind = WorldLabelModel['kind'];
 
@@ -142,7 +142,12 @@ export class WorldLabels {
     const placed = this.placed;
     placed.length = 0;
     layoutTags(order, placed, dt, GAP);
-    for (const e of order) this.place(e, e.ax, e.ay + e.off.x);
+    for (const e of order) {
+      this.place(e, e.ax, e.ay + e.off.x);
+      // a tag cutting across another fades out, jumps, fades back in (never slides through it)
+      const o = tagOpacity(e.alpha);
+      if (e.el.style.opacity !== o) e.el.style.opacity = o;
+    }
   }
 
   private place(e: Entry, ax: number, ay: number): void {
@@ -183,6 +188,7 @@ export class WorldLabels {
       e.el.hidden = true;
       e.shown = false;
     }
+    e.el.style.opacity = '';
     this.free[e.kind].push(e);
   }
 

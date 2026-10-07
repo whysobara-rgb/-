@@ -617,17 +617,24 @@ function treeRootGeometry(): THREE.BufferGeometry {
   });
 }
 
-/** One hanging bill cluster (3 notes fanned) — textured with the banknote. */
+/**
+ * One hanging bill cluster (3 notes fanned) — textured with the banknote. Each note is two
+ * single-sided planes back to back (the back one turned half a revolution, like the held
+ * banknote fan), so its "50" never shows mirrored whichever way the cluster hangs.
+ */
 function billClusterGeometry(): THREE.BufferGeometry {
   return cachedGeo('billCluster', () => {
     const parts: THREE.BufferGeometry[] = [];
     for (let i = 0; i < 3; i++) {
-      const p = new THREE.PlaneGeometry(0.34, 0.17);
-      p.translate(0, -0.085, 0);
-      p.rotateZ((i - 1) * 0.45);
-      p.rotateY((i - 1) * 0.35);
-      p.translate((i - 1) * 0.05, 0, i * 0.01);
-      parts.push(p);
+      for (const back of [false, true]) {
+        const p = new THREE.PlaneGeometry(0.34, 0.17);
+        if (back) p.rotateY(Math.PI);
+        p.translate(0, -0.085, 0);
+        p.rotateZ((i - 1) * 0.45);
+        p.rotateY((i - 1) * 0.35);
+        p.translate((i - 1) * 0.05, 0, i * 0.01);
+        parts.push(p);
+      }
     }
     const g = mergeSimple(parts);
     for (const p of parts) p.dispose();
@@ -975,7 +982,9 @@ export function createPropRig(variant: PropVariant, lang: 'ko' | 'en' = 'ko'): P
   const flutter: { x: number; y: number; z: number; t: number; vx: number; vz: number; spin: number }[] = [];
   if (variant === 'moneyTree') {
     const note = matTextured(billNoteTexture(), { rim: 0.3, side: THREE.DoubleSide, alphaTest: 0.3 });
-    bills = new THREE.InstancedMesh(billClusterGeometry(), note, TREE_BILL_SPOTS.length);
+    // Clusters carry their own back faces (never mirrored), so they draw front faces only.
+    const clusterNote = matTextured(billNoteTexture(), { rim: 0.3, alphaTest: 0.3 });
+    bills = new THREE.InstancedMesh(billClusterGeometry(), clusterNote, TREE_BILL_SPOTS.length);
     bills.name = 'prop:moneyTree:bills';
     bills.userData.noOutline = true;
     bills.castShadow = true;

@@ -12,11 +12,14 @@
  * and a free "side" sticker beside it (sweat, panic lines, swirl, flame...). A new emote replaces
  * the slot's current one when its priority is at least as high or the old one is ending.
  * Animation: back-out pop in, per-kind idle motion (heart beat, note sway, swirl spin, sweat
- * slide, anger pulse, "!" shake), quick shrink out. Reduced motion keeps pop-ins but drops the
+ * slide, anger pulse, "!" shake), quick shrink out. Bubbles (and the text / glyphs inside them)
+ * never rotate: their sway and shakes are sideways translation and scale; only the free side
+ * stickers (dizzy swirl, sparkle) may spin. Reduced motion keeps pop-ins but drops the
  * idle wiggles.
  */
 import * as THREE from 'three';
 import { EMOTE_ATLAS, EMOTE_BUBBLED, EMOTE_CELLS, emoteAtlasTexture, type EmoteKind } from './models/art';
+import { emoteSlotRotation } from './upright';
 
 export type { EmoteKind } from './models/art';
 
@@ -61,6 +64,11 @@ interface OwnerState {
 const CLUSTER_DIST = 1.6;
 /** Bubble spacing inside a cluster (m along camera-right). */
 const CLUSTER_SPACING = 0.95;
+/**
+ * Smallest bubble offset to the right of its own head (m along camera-right). The atlas tail
+ * points down-left, so a bubble must never sit left of its speaker or the tail points away.
+ */
+const BUBBLE_MIN_DX = 0.24;
 
 interface Gathered {
   owner: number;
@@ -69,6 +77,8 @@ interface Gathered {
   r: number;
   prio: number;
   cluster: number;
+  /** Fanned bubble offset before the cluster is shifted right of every speaker. */
+  fan: number;
 }
 
 const DEFAULT_DUR: Partial<Record<EmoteKind, number>> = {
@@ -263,7 +273,7 @@ export class EmoteSystem {
       pos.copy(_p);
       let prio = -1;
       for (const sl of [st.bubble, st.side]) if (sl && sl.out < 0) prio = Math.max(prio, sl.priority + (sl === st.bubble ? 0.5 : 0));
-      g.push({ owner, st, pos, r: pos.dot(right), prio, cluster: g.length });
+      g.push({ owner, st, pos, r: pos.dot(right), prio, cluster: g.length, fan: 0.28 });
     }
     for (let i = 0; i < g.length; i++) {
       for (let j = i + 1; j < g.length; j++) {
@@ -280,12 +290,24 @@ export class EmoteSystem {
       let m = 0;
       let idx = 0;
       let sum = 0;
-      let top: Gathered = e;
       for (const q of g) {
         if (q.cluster !== e.cluster) continue;
         m++;
         sum += q.r;
         if (q.r < e.r || (q.r === e.r && q.owner < e.owner)) idx++;
+      }
+      e.fan = m > 1 ? sum / m + (idx - (m - 1) / 2) * CLUSTER_SPACING - e.r : 0.28;
+    }
+    for (const e of g) {
+      // Shift the whole fan right until every bubble sits right of its own speaker, so each
+      // down-left tail still points at (the side of) its speaker's head.
+      let shift = 0;
+      for (const q of g) if (q.cluster === e.cluster) shift = Math.max(shift, BUBBLE_MIN_DX - q.fan);
+      let m = 0;
+      let top: Gathered = e;
+      for (const q of g) {
+        if (q.cluster !== e.cluster) continue;
+        m++;
         if (q.prio > top.prio || (q.prio === top.prio && q.owner < top.owner)) top = q;
       }
       let wantDx = 0.28;
@@ -294,7 +316,7 @@ export class EmoteSystem {
       if (m > 1) {
         // Fan the bubbles out side by side above the group, lift them clear of the actors,
         // and keep only the most important owner's side sticker.
-        wantDx = sum / m + (idx - (m - 1) / 2) * CLUSTER_SPACING - e.r;
+        wantDx = e.fan + shift;
         wantLift = 0.3;
         wantSide = top === e ? 1 : 0;
       }
@@ -358,7 +380,9 @@ export class EmoteSystem {
               break;
             case 'note':
             case 'whistle':
-              rot = Math.sin(t * 6 + s.seed * 6) * 0.25;
+              // Sway sideways (translate) with a little hum pulse; the bubble stays level.
+              ox += Math.sin(t * 6 + s.seed * 6) * 0.035;
+              scale *= 1 + 0.05 * Math.max(0, Math.sin(t * 6 + s.seed * 6 + 1.2));
               oy += Math.sin(t * 5) * 0.04 + t * 0.08;
               break;
             case 'dizzy':
@@ -388,7 +412,9 @@ export class EmoteSystem {
               oy += t * 0.1;
               break;
             case 'stop':
-              rot = Math.sin(t * 14) * 0.3;
+              // Paw "wave": quick sideways jitter + pulse (no rotation of the bubble).
+              ox += Math.sin(t * 14) * 0.03;
+              scale *= 1 + 0.06 * Math.abs(Math.sin(t * 14));
               break;
             default:
               break;
@@ -404,7 +430,7 @@ export class EmoteSystem {
         }
         _m.compose(_p, _q.identity(), _s);
         this.mesh.setMatrixAt(n, _m);
-        this.data.setXYZW(n, EMOTE_CELLS[s.kind], rot, alpha, 0);
+        this.data.setXYZW(n, EMOTE_CELLS[s.kind], emoteSlotRotation(bubbled, rot), alpha, 0);
         n++;
       }
       if (!st.bubble && !st.side && !st.leaving) this.owners.delete(owner);

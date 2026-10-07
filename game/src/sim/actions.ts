@@ -586,12 +586,14 @@ export function prepareBodies(ctx: SimContext): void {
   // Yaw grip of a hauled bank: while held and nobody pushes it, the bank resists turning. With the
   // plain drag a sideways force at a 4 m grip swung the bank (and with it the grip point and the
   // hauler) ~3x more across than along: a bank pulled at 60 degrees dragged its hauler 80 degrees.
+  // Off while the bank is pressed against a wall / post / fence: swinging is how a snagged bank
+  // gets free.
   for (let i = 0; i < st.loot.length; i++) {
     const l = st.loot[i]!;
     if (l.kind !== 'bank') continue;
     const body = ctx.loot[i]!.body;
     let extra = 0;
-    if (l.grabbedBy.length > 0 && body.motion === 'dynamic') {
+    if (l.grabbedBy.length > 0 && body.motion === 'dynamic' && !body.staticPush) {
       extra = BANK_PULL_YAW_DRAG;
       for (let s = 0; s < ctx.chars.length; s++) {
         const jj = ctx.chars[s]!.joint;

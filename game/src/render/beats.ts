@@ -9,9 +9,10 @@
  *                        player stays in frame. No yaw change (doc §4).
  *   getawayDepart() .... the end-hold drive-off timeline (honk + rev, then pull away 3-4 m).
  *   vanFreeRun() ....... how far a van can roll forward before it would hit a static.
- *   BeatLabel .......... constant-pixel-size sticker label pinned to a world point, drawn on top
- *                        of everything (police markers included) and clamped out of the HUD
- *                        bands / into the screen ("이게 들어가면 끝!", "막아야 해!", "빼내기 +300").
+ *   BeatLabel .......... HUD-sized sticker label pinned above a world point (and above the HUD's
+ *                        own world chip there), drawn on top of everything (police markers
+ *                        included) and laid out clear of the HUD zones (LabelScreen /
+ *                        layoutLabel) inside a 16 px gutter ("승부 포인트!", "막아야 해!", "빼내기 +300").
  *   PulseRing .......... pulsing ground ring + ripple (decisive load, bag carrier, steal door).
  *   WindupRing ......... spiky spark ring at a bot's feet during its readable dash wind-up.
  *   BarkBubble ......... text-only speech bubble over a bot (WP2 barks).
@@ -56,14 +57,21 @@ export const BEATS = {
     vanDepartMeters: 28,
   },
   label: {
-    /** Label height at 720p (CSS px); scales with the viewport height. */
-    px: 52,
-    /** NDC clamp box: below the scoreboard / decisive prompt band, above the bottom HUD. */
-    maxY: 0.42,
-    minY: -0.72,
-    maxX: 0.9,
-    /** Tail lift (px at 720p) so the label sits above the HUD's value chip over the load. */
-    liftPx: 40,
+    /**
+     * Label height (whole sticker incl. tail) in HUD rem: the HUD's root font size is
+     * min(vw / 120, vh / 67.5) x uiScale (styles/tokens.css), so 4.875 rem = 52 px at 1280x720 and
+     * the label scales with the HUD (aspect, UI scale) instead of with the 3D view.
+     */
+    rem: 4.875,
+    /** Gap between the HUD's world chip over the load and the label's tail tip (rem). */
+    gapRem: 0.45,
+    /** Screen gutter (CSS px; at least this many rem). */
+    gutterPx: 16,
+    gutterRem: 1.2,
+    /** Margin kept around every HUD rect the label steps out of (rem). */
+    marginRem: 0.35,
+    /** Ease rate (1/s) of the avoidance offset (no jumps when the chosen side changes). */
+    ease: 14,
   },
   bark: { seconds: 2.4, width: 3.3 },
 } as const;
@@ -263,25 +271,238 @@ function drawLabel(ctx: CanvasRenderingContext2D, w: number, h: number, text: st
 }
 
 const _ndc = new THREE.Vector3();
-const _box = { minY: 0, maxY: 0, maxX: 0 };
 
-/** Sprite scale (sizeAttenuation off) for a label `px` tall at a viewport height of 720. */
-export function labelScaleFor(px: number, fovDeg: number): number {
-  return (px / 720) * 2 * Math.tan(((fovDeg * Math.PI) / 180) / 2);
+/** Sprite scale (sizeAttenuation off) for a label `px` tall in a viewport `viewH` px tall. */
+export function labelScaleFor(px: number, fovDeg: number, viewH = 720): number {
+  return (px / Math.max(1, viewH)) * 2 * Math.tan(((fovDeg * Math.PI) / 180) / 2);
+}
+
+/** Screen rectangle in CSS px (y down). */
+export interface ScreenRect {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
+function rect(): ScreenRect {
+  return { x0: 0, y0: 0, x1: 0, y1: 0 };
+}
+
+function setRect(r: ScreenRect, x0: number, y0: number, x1: number, y1: number): ScreenRect {
+  r.x0 = x0;
+  r.y0 = y0;
+  r.x1 = x1;
+  r.y1 = y1;
+  return r;
+}
+
+/** HUD root font size (px) for a viewport (styles/tokens.css: min(vw / 120, vh / 67.5) x uiScale). */
+export function hudRem(w: number, h: number, uiScale = 1): number {
+  const s = Number.isFinite(uiScale) && uiScale > 0 ? uiScale : 1;
+  return Math.max(4, Math.min(w / 120, h / 67.5) * s);
+}
+
+/** Size (rem) of the HUD's own world chip above a load, bottom-centred on its anchor. */
+export interface ChipSize {
+  w: number;
+  h: number;
 }
 
 /**
- * Clamp a projected point (NDC) into the label box; returns true when it moved. Pure helper
- * (exported for tests).
+ * Where the beat labels may go: the viewport, the HUD rem and the HUD's fixed screen zones (all
+ * CSS px). The zones mirror styles/hud.css: the top cluster (scoreboard, timer, the decisive-load
+ * prompt under it), the stamp column below it, the minimap (bottom left), the action buttons
+ * (bottom right) and the bottom-centre carry panel / prompt bar. `extras` are per-placement
+ * rects (another label, a recovery ring) and are reset by `clearExtras()`.
  */
-export function clampNdc(p: { x: number; y: number }, box: { minY: number; maxY: number; maxX: number } = BEATS.label): boolean {
-  const x = Math.min(box.maxX, Math.max(-box.maxX, p.x));
-  const y = Math.min(box.maxY, Math.max(box.minY, p.y));
-  const moved = x !== p.x || y !== p.y;
-  p.x = x;
-  p.y = y;
-  return moved;
+export class LabelScreen {
+  w = 1280;
+  h = 720;
+  rem = hudRem(1280, 720);
+  readonly zones: ScreenRect[] = [rect(), rect(), rect(), rect(), rect()];
+  /**
+   * Overlap cost per zone (1 = hard: the label never sits there when any spot is free). The
+   * moment-stamp column is soft: stamps pop for ~1 s and are drawn over the canvas, so reserving
+   * their column for good would push every label out of the upper middle of the view (where the
+   * loads ahead of the player are); the label only steps out of it when that is cheap.
+   */
+  readonly zoneWeight: number[] = [1, 0.0006, 1, 1, 1];
+  readonly extras: ScreenRect[] = [rect(), rect(), rect(), rect()];
+  extraCount = 0;
+
+  constructor() {
+    this.setViewport(1280, 720, 1);
+  }
+
+  setViewport(w: number, h: number, uiScale = 1, rem?: number): void {
+    this.w = Math.max(1, w);
+    this.h = Math.max(1, h);
+    this.rem = rem !== undefined && Number.isFinite(rem) && rem > 0 ? rem : hudRem(this.w, this.h, uiScale);
+    const W = this.w;
+    const H = this.h;
+    const r = this.rem;
+    const z = this.zones;
+    setRect(z[0]!, W / 2 - 29 * r, -1e4, W / 2 + 29 * r, 15.5 * r); // scoreboard + timer + prompt
+    setRect(z[1]!, W / 2 - 13 * r, 15.5 * r, W / 2 + 13 * r, 22 * r); // moment stamps (.uh-stamps top 15rem)
+    setRect(z[2]!, -1e4, H - 17.3 * r, 23.6 * r, H + 1e4); // minimap
+    setRect(z[3]!, W - 17.9 * r, H - 14 * r, W + 1e4, H + 1e4); // dash / ping / emote buttons
+    setRect(z[4]!, W / 2 - 15.2 * r, H - 16 * r, W / 2 + 15.2 * r, H + 1e4); // carry panel + prompt bar
+  }
+
+  clearExtras(): void {
+    this.extraCount = 0;
+  }
+
+  addExtra(x0: number, y0: number, x1: number, y1: number): void {
+    if (this.extraCount >= this.extras.length) return;
+    setRect(this.extras[this.extraCount++]!, x0, y0, x1, y1);
+  }
+
+  get gutter(): number {
+    return Math.max(BEATS.label.gutterPx, BEATS.label.gutterRem * this.rem);
+  }
 }
+
+const _defaultScreen = new LabelScreen();
+
+/** Mutable layout scratch (one per BeatLabel). */
+interface LayoutState {
+  /** Label centre x, bottom (tail tip) y, width, height (px). */
+  cx: number;
+  by: number;
+  pw: number;
+  lh: number;
+}
+
+function overlap(a0: number, a1: number, b0: number, b1: number): number {
+  return Math.max(0, Math.min(a1, b1) - Math.max(a0, b0));
+}
+
+/** Layout context of the running layoutLabel call (module scratch: no closures per call). */
+const L = { minX: 0, maxX: 0, minB: 0, maxB: 0, w: 0, h: 0, pw: 0, lh: 0, x0: 0, b0: 0, nz: 0, ne: 0, n: 0 };
+let Lscreen: LabelScreen = null as unknown as LabelScreen;
+let Lchip: ScreenRect | null = null;
+
+function lClampX(x: number): number {
+  return L.minX > L.maxX ? L.w / 2 : Math.min(L.maxX, Math.max(L.minX, x));
+}
+
+function lClampB(b: number): number {
+  return L.minB > L.maxB ? L.h / 2 : Math.min(L.maxB, Math.max(L.minB, b));
+}
+
+function lRect(i: number): ScreenRect {
+  return i < L.nz ? Lscreen.zones[i]! : i < L.nz + L.ne ? Lscreen.extras[i - L.nz]! : Lchip!;
+}
+
+function lHits(i: number, x: number, b: number): number {
+  const r = lRect(i);
+  return overlap(x - L.pw / 2, x + L.pw / 2, r.x0, r.x1) * overlap(b - L.lh, b, r.y0, r.y1);
+}
+
+function lWeight(i: number): number {
+  return i < L.nz ? Lscreen.zoneWeight[i] ?? 1 : 1;
+}
+
+/**
+ * Weighted overlap of the label at (x, b) with every rect, as a fraction of the label area
+ * (`hardOnly`: only the rects of weight 1).
+ */
+function lCovered(x: number, b: number, hardOnly = false): number {
+  let s = 0;
+  for (let i = 0; i < L.n; i++) {
+    const w = lWeight(i);
+    if (hardOnly && w < 1) continue;
+    s += lHits(i, x, b) * w;
+  }
+  return s / (L.pw * L.lh);
+}
+
+function lScore(x: number, b: number, cov: number): number {
+  const db = b - L.b0;
+  return Math.hypot(x - L.x0, db > 0 ? db * 2.2 : db) + cov * 1e5;
+}
+
+/**
+ * Pure label layout (exported for tests): put a label of size `pw` x `lh` px whose tail wants to
+ * sit at (`cx`, `by`) somewhere on screen that overlaps none of the zones / extras of `screen`
+ * (plus `chip`), moving it as little as possible (moving it below the wanted spot costs a little
+ * more: the tail then points away from the load). The wanted spot is first clamped into the
+ * screen box (gutter); then every rect it overlaps is stepped out of (up / down / left / right),
+ * and once more out of a rect the first step lands on. Soft zones (LabelScreen.zoneWeight < 1)
+ * only cost a little. Writes the result into `out`; returns the overlap with hard rects left, as
+ * a fraction of the label area (0 = clear). Allocation-free.
+ */
+export function layoutLabel(cx: number, by: number, pw: number, lh: number, screen: LabelScreen, chip: ScreenRect | null, out: { cx: number; by: number }): number {
+  const g = screen.gutter;
+  const m = BEATS.label.marginRem * screen.rem;
+  Lscreen = screen;
+  Lchip = chip;
+  L.w = screen.w;
+  L.h = screen.h;
+  L.pw = pw;
+  L.lh = lh;
+  L.minX = g + pw / 2;
+  L.maxX = screen.w - g - pw / 2;
+  L.minB = g + lh;
+  L.maxB = screen.h - g;
+  L.nz = screen.zones.length;
+  L.ne = screen.extraCount;
+  L.n = L.nz + L.ne + (chip ? 1 : 0);
+  const x0 = lClampX(cx);
+  const b0 = lClampB(by);
+  L.x0 = x0;
+  L.b0 = b0;
+  let bestX = x0;
+  let bestB = b0;
+  let bestCov = lCovered(x0, b0);
+  let best = lScore(x0, b0, bestCov);
+  if (bestCov > 0) {
+    for (let i = 0; i < L.n; i++) {
+      if (lHits(i, x0, b0) <= 0) continue;
+      const r = lRect(i);
+      for (let d = 0; d < 4; d++) {
+        const x1 = d === 2 ? lClampX(r.x0 - m - pw / 2) : d === 3 ? lClampX(r.x1 + m + pw / 2) : x0;
+        const b1 = d === 0 ? lClampB(r.y0 - m) : d === 1 ? lClampB(r.y1 + m + lh) : b0;
+        const c1 = lCovered(x1, b1);
+        const s1 = lScore(x1, b1, c1);
+        if (s1 < best) {
+          best = s1;
+          bestX = x1;
+          bestB = b1;
+          bestCov = c1;
+        }
+        if (c1 <= 0) continue;
+        // second step: out of whatever the first step landed on
+        for (let j = 0; j < L.n; j++) {
+          if (j === i || lHits(j, x1, b1) <= 0) continue;
+          const q = lRect(j);
+          for (let e = 0; e < 4; e++) {
+            const x2 = e === 2 ? lClampX(q.x0 - m - pw / 2) : e === 3 ? lClampX(q.x1 + m + pw / 2) : x1;
+            const b2 = e === 0 ? lClampB(q.y0 - m) : e === 1 ? lClampB(q.y1 + m + lh) : b1;
+            const c2 = lCovered(x2, b2);
+            const s2 = lScore(x2, b2, c2);
+            if (s2 < best) {
+              best = s2;
+              bestX = x2;
+              bestB = b2;
+              bestCov = c2;
+            }
+          }
+        }
+      }
+    }
+  }
+  const hard = bestCov > 0 ? lCovered(bestX, bestB, true) : 0;
+  Lchip = null;
+  out.cx = bestX;
+  out.by = bestB;
+  return hard;
+}
+
+const _chip = rect();
+const _lay = { cx: 0, by: 0 };
 
 export class BeatLabel {
   readonly sprite: THREE.Sprite;
@@ -290,6 +511,15 @@ export class BeatLabel {
   private key = '';
   private frac = 1;
   private pop = 0;
+  /** Eased avoidance offset (px) and whether it has been placed since it was shown. */
+  private offX = 0;
+  private offY = 0;
+  private placed = false;
+  /** Last placed screen rect of the whole sticker (CSS px), for other labels to avoid. */
+  readonly rect: ScreenRect = rect();
+  /** Overlap fraction left by the last layout (0 = clear of every HUD rect; tests / tools). */
+  lastCover = 0;
+  private readonly st: LayoutState = { cx: 0, by: 0, pw: 0, lh: 0 };
 
   constructor(name: string) {
     this.mat = new THREE.SpriteMaterial({ transparent: true, depthTest: false, depthWrite: false, toneMapped: false, sizeAttenuation: false });
@@ -339,6 +569,7 @@ export class BeatLabel {
   hide(): void {
     this.sprite.visible = false;
     this.key = '';
+    this.placed = false;
   }
 
   get shown(): boolean {
@@ -346,34 +577,65 @@ export class BeatLabel {
   }
 
   /**
-   * Pin the label's tail to world point (x, y = height, z), clamped into the safe screen box.
-   * `pulse` 0..1 adds a gentle breathing scale (0 = still). Call after the camera update.
+   * Pin the label's tail above world point (x, y = height, z). `chip` = the HUD's own world chip
+   * bottom-centred on that same point (rem; null = none): the label sits on top of it. The label
+   * is then laid out on screen (layoutLabel) clear of the HUD zones in `screen` (+ its extras)
+   * and of the chip, with the 16 px gutter. `pulse` 0..1 adds a gentle breathing scale (0 =
+   * still). Call after the camera update.
    */
-  place(x: number, h: number, z: number, camera: THREE.PerspectiveCamera, dt: number, pulse: number, liftPx: number = BEATS.label.liftPx): void {
-    if (!this.key) return;
+  place(x: number, h: number, z: number, camera: THREE.PerspectiveCamera, dt: number, pulse: number, screen: LabelScreen = _defaultScreen, chip: ChipSize | null = null): void {
+    if (!this.key) {
+      this.sprite.visible = false;
+      return;
+    }
     this.sprite.visible = true;
     this.pop = Math.min(1, this.pop + Math.max(0, dt) / 0.18);
     const k = this.pop;
     const popS = k < 1 ? 0.35 + 0.65 * (1 - Math.pow(1 - k, 3)) + Math.sin(Math.PI * k) * 0.18 : 1;
-    const base = labelScaleFor(BEATS.label.px, camera.fov);
-    const s = base * popS * (1 + 0.05 * pulse);
+    const W = screen.w;
+    const H = screen.h;
+    const st = this.st;
+    st.lh = BEATS.label.rem * screen.rem;
+    st.pw = ((st.lh * LABEL_W) / LABEL_H) * this.frac;
+    const s = labelScaleFor(st.lh, camera.fov, H) * popS * (1 + 0.05 * pulse);
     this.sprite.scale.set((s * LABEL_W) / LABEL_H, s, 1);
     _ndc.set(x, h, z).project(camera);
     // Behind the camera (never with the high match camera): mirror into the screen.
     if (_ndc.z > 1) {
       _ndc.x = -_ndc.x;
       _ndc.y = -_ndc.y;
-      _ndc.z = 0.98;
     }
-    // Lift the tail above the HUD's own world value chip over the load (constant pixels).
-    _ndc.y += (liftPx / 720) * 2;
-    // Keep the whole plate on screen: the x clamp leaves room for half its drawn width.
-    const tanHalf = Math.tan(((camera.fov * Math.PI) / 180) / 2);
-    const halfW = ((base * LABEL_W) / LABEL_H / (2 * tanHalf * camera.aspect)) * this.frac;
-    _box.minY = BEATS.label.minY;
-    _box.maxY = BEATS.label.maxY;
-    _box.maxX = Math.max(0.2, Math.min(BEATS.label.maxX, 0.96 - halfW));
-    clampNdc(_ndc, _box);
+    const ax = ((_ndc.x + 1) / 2) * W;
+    const ay = ((1 - _ndc.y) / 2) * H;
+    const onScreen = ax >= 0 && ax <= W && ay >= 0 && ay <= H;
+    let lift = BEATS.label.gapRem * screen.rem;
+    let chipRect: ScreenRect | null = null;
+    if (chip && onScreen) {
+      const cw = chip.w * screen.rem;
+      const ch = chip.h * screen.rem;
+      chipRect = setRect(_chip, ax - cw / 2, ay - ch, ax + cw / 2, ay);
+      lift += ch;
+    }
+    // wanted spot, clamped into the screen box: the base the eased avoidance offset is added to
+    const g = screen.gutter;
+    const bx = Math.min(W - g - st.pw / 2, Math.max(g + st.pw / 2, ax));
+    const bb = Math.min(H - g, Math.max(g + st.lh, ay - lift));
+    this.lastCover = layoutLabel(ax, ay - lift, st.pw, st.lh, screen, chipRect, _lay);
+    const tx = _lay.cx - bx;
+    const ty = _lay.by - bb;
+    if (!this.placed) {
+      this.offX = tx;
+      this.offY = ty;
+      this.placed = true;
+    } else {
+      const e = 1 - Math.exp(-BEATS.label.ease * Math.max(0, dt));
+      this.offX += (tx - this.offX) * e;
+      this.offY += (ty - this.offY) * e;
+    }
+    st.cx = Math.min(W - g - st.pw / 2, Math.max(g + st.pw / 2, bx + this.offX));
+    st.by = Math.min(H - g, Math.max(g + st.lh, bb + this.offY));
+    setRect(this.rect, st.cx - st.pw / 2, st.by - st.lh, st.cx + st.pw / 2, st.by);
+    _ndc.set((st.cx / W) * 2 - 1, 1 - (st.by / H) * 2, 0.5);
     _ndc.unproject(camera);
     this.sprite.position.copy(_ndc);
   }
@@ -586,9 +848,10 @@ function drawBark(ctx: CanvasRenderingContext2D, w: number, h: number, text: str
   ctx.moveTo(x + r, y);
   ctx.arcTo(x + bw, y, x + bw, y + bh, r);
   ctx.arcTo(x + bw, y + bh, x, y + bh, r);
-  ctx.lineTo(w / 2 + 6, y + bh);
-  ctx.lineTo(w / 2 - 26, h - 14);
-  ctx.lineTo(w / 2 - 30, y + bh);
+  // Symmetric tail whose tip sits on the sprite anchor (w / 2): points straight at the head.
+  ctx.lineTo(w / 2 + 18, y + bh);
+  ctx.lineTo(w / 2, h - 14);
+  ctx.lineTo(w / 2 - 18, y + bh);
   ctx.arcTo(x, y + bh, x, y, r);
   ctx.arcTo(x, y, x + bw, y, r);
   ctx.closePath();

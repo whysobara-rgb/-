@@ -38,8 +38,23 @@ const DROP_CONTEST_R = 6;
 const LAUNCH_WHAT = new Set(['launch', 'toss', 'tubeIn', 'enter', 'lift', 'hoist', 'fling']);
 
 /** Value source a point came from (points-by-source; content-plan §8 shares). */
-export type Source = 'smallSafe' | 'largeSafe' | 'bank' | 'atm' | 'piggy' | 'moneyTree' | 'breakable' | 'event';
-export const SOURCES: readonly Source[] = ['bank', 'largeSafe', 'smallSafe', 'atm', 'piggy', 'moneyTree', 'breakable', 'event'];
+export type Source = 'smallSafe' | 'largeSafe' | 'bank' | 'bankSafe' | 'atm' | 'piggy' | 'moneyTree' | 'breakable' | 'event';
+/**
+ * `bankSafe` = a bank-interior safe (small or large; `LootState.homeBank` set) recovered on its own
+ * after being stripped / unloaded. content-plan §3.2 counts those in the Banks group (500 + interior
+ * 500), so they are neither "largeSafe" / "smallSafe" (outdoor only) nor a non-bank source. A safe
+ * still loaded in its bank is paid with the bank (`recovered.safesValue`) and counts as `bank`.
+ */
+export const SOURCES: readonly Source[] = ['bank', 'bankSafe', 'largeSafe', 'smallSafe', 'atm', 'piggy', 'moneyTree', 'breakable', 'event'];
+/** Bank group (content-plan §3.2): excluded from "largest single non-bank source". */
+export const BANK_GROUP: ReadonlySet<string> = new Set(['bank', 'bankSafe']);
+
+/**
+ * Transport mode of a scored row (variety index, content-plan §8): `solo` / `team` = carried in by
+ * one / several holders at completion; `loose` = recovered with nobody holding it (kicked, pushed,
+ * rolled or launched in); `bag` = coins deposited from a bag.
+ */
+export type Mode = 'solo' | 'team' | 'loose' | 'bag';
 
 /** Verbs the proxy can use (content-plan §8 "distinct verbs"). */
 export const VERBS = ['grab', 'carry', 'dashHit', 'smash', 'tugSpurt', 'kick', 'scoop', 'deposit', 'item', 'gimmick'] as const;
@@ -51,8 +66,23 @@ export interface DeadStats {
   longest: number;
 }
 
-/** One scored event: [tick, team, value, source key, proxy involved 0/1, is coin deposit 0/1]. */
-export type ScoreRow = [number, number, number, string, number, number];
+/**
+ * One scored event: [tick, team, value, source key, proxy involved 0/1, is coin deposit 0/1, mode].
+ * (`mode` is absent in records written before it was added.)
+ */
+export type ScoreRow = [number, number, number, string, number, number, Mode?];
+
+/** Per item kind, per character (content-plan §8 "per item" table). */
+export interface ItemStat {
+  pickups: number;
+  /** Fires. */
+  uses: number;
+  /** Hits on characters / police. */
+  hits: number;
+  /** Knockdowns dealt on characters. */
+  kos: number;
+  heldTicks: number;
+}
 
 export interface CharRec {
   id: EntityId;
@@ -82,6 +112,8 @@ export interface CharRec {
   verbs: Verb[];
   sources: Source[];
   points: number;
+  /** Per item kind (absent in older records). */
+  items?: Record<string, ItemStat>;
 }
 
 export interface FunRec {
@@ -223,6 +255,7 @@ export class FunCollector {
       verbs: [],
       sources: [],
       points: 0,
+      items: {},
     }));
     for (let i = 0; i < this.n; i++) {
       this.deadRun.push(0);
@@ -232,7 +265,7 @@ export class FunCollector {
       this.verbs.push(new Set());
       this.sources.push(new Set());
     }
-    for (const l of st.loot) this.lootSource.set(l.id, this.sourceOfLoot(l.kind, l.variant ?? null));
+    for (const l of st.loot) this.lootSource.set(l.id, this.sourceOfLoot(l.kind, l.variant ?? null, l.homeBank ?? null));
     // time sim.step from now on (tick 1 is already stepped; one sample short is fine)
     const step = sim.step.bind(sim);
     const now = typeof performance !== 'undefined' ? (): number => performance.now() : (): number => Date.now();
@@ -244,12 +277,21 @@ export class FunCollector {
     };
   }
 
-  private sourceOfLoot(kind: string, variant: string | null): Source {
+  private sourceOfLoot(kind: string, variant: string | null, homeBank: EntityId | null): Source {
     if (variant === 'atm' || variant === 'piggy' || variant === 'moneyTree') return variant;
     if (variant === 'goldSafe') return 'event';
     if (kind === 'bank') return 'bank';
+    // bank-interior safes belong to the Banks group (content-plan §3.2), outdoor safes do not
+    if (homeBank !== null) return 'bankSafe';
     if (kind === 'largeSafe') return 'largeSafe';
     return 'smallSafe';
+  }
+
+  private itemStat(id: EntityId | null | undefined, kind: string): ItemStat | null {
+    const s = this.slotOf(id);
+    if (s < 0) return null;
+    const items = (this.chars[s]!.items ??= {});
+    return (items[kind] ??= { pickups: 0, uses: 0, hits: 0, kos: 0, heldTicks: 0 });
   }
 
   private slotOf(id: EntityId | null | undefined): number {
@@ -333,6 +375,7 @@ export class FunCollector {
       else this.payHoldRun[i]!++;
       if (ch.item) {
         c.itemHeldTicks++;
+        this.itemStat(ch.id, ch.item.kind)!.heldTicks++;
         if (ch.item.kind === 'hammer' || ch.item.kind === 'goldHammer') c.heldHammer = true;
         if (ch.item.kind === 'goldHammer') c.gotGoldHammer = true;
       }
@@ -377,16 +420,20 @@ export class FunCollector {
           const lh = this.lastHolder.get(e.lootId);
           if (lh !== undefined && this.teamOf(lh) === e.team) holders = [lh];
         }
-        const src = e.variant ? this.sourceOfLoot(e.kind, e.variant) : (this.lootSource.get(e.lootId) ?? this.sourceOfLoot(e.kind, null));
+        const src = e.variant ? this.sourceOfLoot(e.kind, e.variant, null) : (this.lootSource.get(e.lootId) ?? this.sourceOfLoot(e.kind, null, null));
         const pInv = P !== null && holders.includes(P) ? 1 : 0;
-        this.rec.push([e.tick, e.team, e.value, src, pInv, 0]);
+        const nHold = e.holders.length;
+        const mode: Mode = nHold === 0 ? 'loose' : nHold === 1 ? 'solo' : 'team';
+        this.rec.push([e.tick, e.team, e.value, src, pInv, 0, mode]);
         this.inc(this.pointsBySource, src, e.value);
+        if (src === 'piggy') this.inc(this.ev, 'piggyIntact');
         for (const h of holders) {
           this.payoff(h);
           this.firstScore(h, e.tick);
           const s = this.slotOf(h);
           if (s >= 0) {
-            this.sources[s]!.add(src);
+            // distinct value sources: the bank group is one source (content-plan §3.2)
+            this.sources[s]!.add(src === 'bankSafe' ? 'bank' : src);
             this.chars[s]!.points += e.value / holders.length;
           }
         }
@@ -446,6 +493,11 @@ export class FunCollector {
       case 'release':
         if (e.forced) {
           const l = sim.getLoot(e.targetId);
+          if (l && !l.anchored) {
+            // any haul broken (fun-plan WP1 "haul broken >= 4" uses the bank one below)
+            this.inc(this.ev, 'haulBroken');
+            if (e.charId === P) this.inc(this.evP, 'haulBroken');
+          }
           if (l && l.kind === 'bank' && !l.anchored) {
             this.inc(this.ev, 'bankHaulBroken');
             if (e.charId === P) this.inc(this.evP, 'bankHaulBroken');
@@ -546,8 +598,8 @@ export class FunCollector {
         }
         if (tot <= 0) this.inc(this.pointsBySource, 'coins:breakable', e.value);
         this.bagComp.set(e.charId, {});
-        this.rec.push([e.tick, e.team, e.value, `coins:${main}`, pInv, 1]);
-        if (s >= 0) this.sources[s]!.add(main);
+        this.rec.push([e.tick, e.team, e.value, `coins:${main}`, pInv, 1, 'bag']);
+        if (s >= 0) this.sources[s]!.add(main === 'bankSafe' ? 'bank' : main);
         if (e.value >= 50) this.inc(this.ev, 'deposit50');
         this.inc(this.ev, 'deposits');
         break;
@@ -580,6 +632,7 @@ export class FunCollector {
       }
       case 'piggyCrack':
         this.payoff(e.byCharId);
+        this.inc(this.ev, 'piggyCracks');
         if (e.smashed) {
           this.inc(this.ev, 'jackpot');
           this.verb(e.byCharId, 'smash');
@@ -591,6 +644,8 @@ export class FunCollector {
         this.firstAction(e.charId, e.tick);
         const s = this.slotOf(e.charId);
         if (s >= 0) this.chars[s]!.itemPickups++;
+        const ist = this.itemStat(e.charId, e.kind);
+        if (ist) ist.pickups++;
         this.holding.set(e.charId, { used: false });
         this.inc(this.ev, 'itemPickups');
         if (this.firstDropTeam === null) this.firstDropTeam = this.teamOf(e.charId);
@@ -609,6 +664,8 @@ export class FunCollector {
           this.verb(e.charId, 'item');
           const s = this.slotOf(e.charId);
           if (s >= 0) this.chars[s]!.itemUses++;
+          const ist = this.itemStat(e.charId, e.kind);
+          if (ist) ist.uses++;
           const h = this.holding.get(e.charId);
           if (h) h.used = true;
           this.inc(this.ev, 'itemUses');
@@ -621,6 +678,11 @@ export class FunCollector {
       case 'itemHit': {
         this.payoff(e.charId);
         if (e.target === 'char' || e.target === 'police') {
+          const ist = this.itemStat(e.charId, e.kind);
+          if (ist) {
+            ist.hits++;
+            if (e.target === 'char' && e.knockdown) ist.kos++;
+          }
           this.inc(this.ev, 'itemHitChar');
           if (e.charId === P || e.targetId === P) this.inc(this.evP, 'itemHitChar');
         }

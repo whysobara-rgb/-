@@ -24,6 +24,7 @@
  *   npx tsx tools/balance-report.ts --fun --content --variants "v2:items=off v2:items=hammerOnly v2"
  *   npx tsx tools/balance-report.ts --fun --fun-json recs.jsonl # also dump per-match FunRec lines
  *   npx tsx tools/balance-report.ts --fun --content --fun-from a.jsonl=v2,b.jsonl=v2+siren   # report only (=label renames the variant)
+ *   ... --fun-ref v2      # reference variant for the paired-by-seed comparison and gate changes (default: first v2)
  * Fun blocks: P = proxy vs each rival at normal (layouts x 3 rivals x --fun-seeds, default n >= 300),
  * B = normal bot vs bot (same size), T2 = 2:2 smoke (layouts x --fun-seeds-t2, default 10);
  * --fun-blocks P,B selects blocks (lever experiments skip T2). With
@@ -733,7 +734,7 @@ async function main(argv: string[]): Promise<void> {
         recs.push(r);
       }
     }
-    const md = `# Fun / content scorecard (뿌리째 털어라)\n\nFrom ${funFrom}.\n\n${funReport(recs, { content })}`;
+    const md = `# Fun / content scorecard (뿌리째 털어라)\n\nFrom ${funFrom}.\n\n${funReport(recs, { content, ref: get('fun-ref') })}`;
     mkdirSync(dirname(out), { recursive: true });
     writeFileSync(out, md);
     console.log(md);
@@ -795,7 +796,7 @@ async function main(argv: string[]): Promise<void> {
       `Config: police dispatch ${(POLICE.dispatchDelayTicks / 60).toFixed(0)} s · bankPoliceDrag ${BOT_TUNING.bankPoliceDrag} · waveDefer ${BOT_TUNING.waveDefer} · bagCap ${COINS.bagCap} · spill ${COINS.spillFraction} · hammer KD ${ITEMS.hammer.knockdownTicks} ticks · drops ${ITEMS.drop.pairs.join('/')} + axis ${ITEMS.drop.center.join('/')} s`,
       '',
     ].join('\n');
-    parts.unshift(head + funReport(funRecs, { content }));
+    parts.unshift(head + funReport(funRecs, { content, ref: get('fun-ref') }));
   }
   const md = parts.join('\n\n');
   mkdirSync(dirname(out), { recursive: true });

@@ -798,6 +798,9 @@ export const ko = {
   'hud.content.bag.spilled': '와르르! -{value}',
   'hud.content.deposit': '쏟아붓기',
   // --- [C8] end
+  // --- [F3] begin: beat.* (render beats: world labels the GameView draws; hud.mp.theirs / hud.moment.stealChance are WP4's)
+  'beat.decisive.ours': '승부 포인트!',
+  // --- [F3] end
 } as const;
 
 export type StringKey = keyof typeof ko;

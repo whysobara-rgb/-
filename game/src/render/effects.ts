@@ -16,6 +16,7 @@ import { G, PartBuilder } from './models/geometry';
 import { createToonMaterial, matVC } from './models/materials';
 import { scaledCount, type QualityPreset } from './quality';
 import { pawCoinGeometry, piggyShardGeometry } from './models/props';
+import { slamDrop, slamSquash, TEXT_ROTATION } from './upright';
 
 const _v = new THREE.Vector3();
 
@@ -1100,7 +1101,8 @@ const STAMP_STYLE: Readonly<Record<StampKey, { burst: string; burst2: string; to
   whoosh: { burst: '#8FE3C8', burst2: '#DFF8EF', top: '#FFFFFF', bottom: '#DFF8EF', drop: '#2F9479', size: 1.5, spikes: 10 },
 };
 
-function drawStamp(ctx: CanvasRenderingContext2D, w: number, h: number, key: StampKey | 'flash', text: string): void {
+/** Draws one stamp texture (exported for tests: the lettering must stay level). */
+export function drawStamp(ctx: CanvasRenderingContext2D, w: number, h: number, key: StampKey | 'flash', text: string): void {
   ctx.clearRect(0, 0, w, h);
   const cx = w / 2;
   const cy = h / 2 + 4;
@@ -1147,8 +1149,8 @@ function drawStamp(ctx: CanvasRenderingContext2D, w: number, h: number, key: Sta
   ctx.fillStyle = st.burst2;
   ctx.fill();
   ctx.save();
+  // Lettering sits level (upright policy: no baked slant in text textures).
   ctx.translate(cx, cy);
-  ctx.rotate(-0.07);
   const size = text.length > 6 ? 62 : text.length > 4 ? 76 : 96;
   ctx.font = `bold ${size}px ${FONT_STACK}`;
   ctx.textAlign = 'center';
@@ -1253,7 +1255,7 @@ export class StampPool {
     s.x = x;
     s.y = y;
     s.z = z;
-    s.spin = Math.random() < 0.5 ? -1 : 1;
+    s.spin = 0;
     s.flash = false;
   }
 
@@ -1311,9 +1313,12 @@ export class StampPool {
         rise += (1 - k) * 0.4;
       }
       s.mat.opacity = alpha;
-      s.mat.rotation = this.calm ? 0 : s.spin * (t < 0.24 ? 0.2 * (1 - t / 0.24) : 0.03 * Math.sin(t * 7));
-      s.sprite.scale.set(s.size * sc, s.size * s.aspect * sc, 1);
-      s.sprite.position.set(s.x, s.y + rise, s.z);
+      // Words stay upright: the slam reads through a drop + squash-and-stretch, not a spin.
+      s.mat.rotation = TEXT_ROTATION;
+      const q = this.calm ? 0 : slamSquash(t, 0.12, 0.16);
+      const drop = this.calm ? 0 : slamDrop(t, 0.12, s.size * 0.18);
+      s.sprite.scale.set(s.size * sc * (1 + q), s.size * s.aspect * sc * (1 - q), 1);
+      s.sprite.position.set(s.x, s.y + rise + drop, s.z);
     }
   }
 

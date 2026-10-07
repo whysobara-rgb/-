@@ -458,7 +458,23 @@ function addBuilding(b: PartBuilder, def: StaticBoxDef, ctx: Ctx, frontOnly = fa
   const signY = Math.min(h - 0.5, 3.15);
   // Top of the sign frame: facade window boxes above it must clear it.
   const signTop = signY + signW / 8 + 0.08;
-  addSignBoard(b, ctx, 0, signY, zF + 0.04, signW, () => resolveSign(ctx, def.signKey, def.style), st, def.signKey ?? `style:${def.style ?? 'default'}`);
+  const signSource = (): string => resolveSign(ctx, def.signKey, def.style);
+  const signId = def.signKey ?? `style:${def.style ?? 'default'}`;
+  // A facade facing east / west is seen almost edge-on by the north-looking camera, so a flat
+  // wall sign there reads sideways. Those shops hang a blade sign instead: perpendicular to the
+  // wall, at the camera-side end of the facade, its face turned to world +z so the lettering
+  // reads upright, left to right (back face culled, never mirrored).
+  const facadeWorldYaw = -def.angle + facadeYaw(fAxis, fSign);
+  if (Math.abs(Math.sin(facadeWorldYaw)) > 0.7) {
+    const bw = Math.min(1.8, signW);
+    const along = -Math.sin(facadeWorldYaw) >= 0 ? 1 : -1; // local x toward world +z
+    const bx = along * Math.max(0, W / 2 - 0.45);
+    const out = zF + 0.12 + bw / 2;
+    b.add(G.box(), { color: st.trim, pos: [bx, signY + bw / 8 + 0.14, zF + (bw + 0.2) / 2], scale: [0.07, 0.07, bw + 0.2] });
+    b.push([bx, signY, out], [0, -facadeWorldYaw, 0]);
+    addSignBoard(b, ctx, 0, 0, -0.06, bw, signSource, st, signId);
+    b.pop();
+  } else addSignBoard(b, ctx, 0, signY, zF + 0.04, signW, signSource, st, signId);
   // Little lamp over the door.
   b.add(G.sphere(10, 8), { color: '#FFF1C2', pos: [doorX, 2.45, zF + 0.2], scale: 0.09, emissive: 1.2 });
   // --- upper floor windows on all faces + ground-floor windows on the other faces ----------
