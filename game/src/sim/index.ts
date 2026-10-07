@@ -8,3 +8,4 @@ export { Simulation, type SimDebugApi } from './sim';
 export * from './math';
 export { GRAB_CONE } from './actions';
 export { POLICE_ID_BASE, POLICE_RESTUN_IMMUNE_TICKS, officerStepOutSpot, policeEntriesFor } from './police';
+export { matchPointInfo, swingInfo, type MatchPointInfo, type MatchPointOptions, type SwingInfo } from './queries';

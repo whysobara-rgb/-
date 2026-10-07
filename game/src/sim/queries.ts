@@ -6,7 +6,7 @@ import type { SimContext } from './context';
 import { bankFootprint, bankWalls, lootOBBOf } from './actions';
 import { circleOverlapsOBB, obbOverlap, pointInOBB, rayCircle, rayOBB } from './math';
 import { SHAPE_CIRCLE, type StaticShape } from './physics';
-import type { OBB, Vec2 } from './types';
+import type { EntityId, OBB, SimState, TeamId, Vec2 } from './types';
 
 export function staticToOBB(s: StaticShape): OBB {
   return { center: { x: s.x, y: s.y }, half: { x: s.hx, y: s.hy }, angle: Math.atan2(s.uy, s.ux) };
@@ -163,4 +163,141 @@ export function ejectSpot(ctx: SimContext, bankPos: Vec2, bankAngle: number, fro
     }
   }
   return spiralSearch(from, test, 20, 0.35);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Fun round contracts (docs/ARCHITECTURE.md "Fun round contracts"; owner WP4). Pure reads of
+// SimState, no sim behaviour change. Consumers (HUD, MomentTracker, feel, audio tension, tools)
+// call these and never re-derive match point / swing arithmetic themselves.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The single largest load whose recovery right now would END the match (doc §8 end check).
+ *
+ * - `team`: the team that would recover it.
+ * - `kind`: 'win' = that recovery ends the match with `team` ahead (an early decision
+ *   `lead > other + remainingValue`, or the last loot with `team` ahead); 'tie' = it is the
+ *   last loot and its recovery leaves the scores equal (a draw). A 'tie' load is never a win:
+ *   the HUD must not claim "승리 확정" for it.
+ * - `value`: the points it would add (`LootState.estimatedValue`; bank = 500 + loaded safes).
+ * - `lootIds`: the load id first, then (bank) its loaded safe ids ascending — what the view glows.
+ * - `carrierIds`: characters of `team` holding it now, ascending (may be empty while it dwells
+ *   in the zone on its own).
+ */
+export interface MatchPointInfo {
+  team: TeamId;
+  kind: 'win' | 'tie';
+  value: number;
+  lootIds: EntityId[];
+  carrierIds: EntityId[];
+}
+
+/** How far a team is from the other one (HUD "역전까지 N · 남은 M"). */
+export interface SwingInfo {
+  /** Points still needed to draw level (0 when level or ahead). */
+  toTie: number;
+  /**
+   * Points still needed to be strictly ahead (0 when already ahead). Loot values are multiples
+   * of the smallest loot value (100), so "ahead" means deficit + that step (tied -> 100).
+   */
+  toLead: number;
+  /** `state.remainingValue`: every point still on the field. */
+  remaining: number;
+}
+
+export interface MatchPointOptions {
+  /** Mirror of `RuleConfig.earlyDecision` (default true, as in DEFAULT_RULES / every match). */
+  earlyDecision?: boolean;
+}
+
+type MatchPointState = Pick<SimState, 'over' | 'scores' | 'remainingValue' | 'loot' | 'characters'>;
+
+/**
+ * Outcome of `team` recovering `value` points of loot right now, with the exact arithmetic of
+ * `checkEnd` (rules.ts): all loot recovered -> by score; else an early decision when
+ * `max > min + remaining`. null = the match goes on.
+ */
+function endIfRecovered(st: MatchPointState, team: TeamId, value: number, earlyDecision: boolean): 'win' | 'tie' | null {
+  const scores: [number, number] = [st.scores[0], st.scores[1]];
+  scores[team] += value;
+  const remaining = st.remainingValue - value;
+  const other: TeamId = team === 0 ? 1 : 0;
+  if (remaining <= 0) {
+    if (scores[team] === scores[other]) return 'tie';
+    return scores[team] > scores[other] ? 'win' : null;
+  }
+  if (earlyDecision && scores[team] > scores[other] + remaining) return 'win';
+  return null;
+}
+
+/**
+ * Match point right now (null = none, or the match is over). Considers every unrecovered loot
+ * that is in play: dwelling in a recovery zone (`recovery`, for that zone's team) or held by
+ * characters while free (unanchored), for each team holding it. Safes loaded in a bank are
+ * settled with the bank, never on their own, so only the bank counts for them.
+ *
+ * Picks the largest `value`; ties broken by 'win' before 'tie', a load already dwelling in its
+ * zone, more carriers, lower loot id, lower team id (deterministic).
+ */
+export function matchPointInfo(state: Readonly<MatchPointState>, opts: MatchPointOptions = {}): MatchPointInfo | null {
+  if (state.over) return null;
+  const early = opts.earlyDecision ?? true;
+  const teamOf = new Map<EntityId, TeamId>();
+  for (const c of state.characters) teamOf.set(c.id, c.team);
+  let best: (MatchPointInfo & { dwelling: boolean; lootId: EntityId }) | null = null;
+  for (const l of state.loot) {
+    if (l.recovered || l.loadedIn !== null) continue;
+    const teams: TeamId[] = [];
+    if (l.recovery) teams.push(l.recovery.team);
+    if (!l.anchored) {
+      for (const id of l.grabbedBy) {
+        const t = teamOf.get(id);
+        if (t !== undefined && !teams.includes(t)) teams.push(t);
+      }
+    }
+    for (const team of teams) {
+      const kind = endIfRecovered(state, team, l.estimatedValue, early);
+      if (!kind) continue;
+      const carrierIds = l.anchored ? [] : l.grabbedBy.filter((id) => teamOf.get(id) === team).sort((a, b) => a - b);
+      const cand = {
+        team,
+        kind,
+        value: l.estimatedValue,
+        lootIds: l.kind === 'bank' ? [l.id, ...[...l.loadedSafes].sort((a, b) => a - b)] : [l.id],
+        carrierIds,
+        dwelling: l.recovery?.team === team,
+        lootId: l.id,
+      };
+      if (!best || better(cand, best)) best = cand;
+    }
+  }
+  if (!best) return null;
+  return { team: best.team, kind: best.kind, value: best.value, lootIds: best.lootIds, carrierIds: best.carrierIds };
+}
+
+function better(
+  a: MatchPointInfo & { dwelling: boolean; lootId: EntityId },
+  b: MatchPointInfo & { dwelling: boolean; lootId: EntityId },
+): boolean {
+  if (a.value !== b.value) return a.value > b.value;
+  if (a.kind !== b.kind) return a.kind === 'win';
+  if (a.dwelling !== b.dwelling) return a.dwelling;
+  if (a.carrierIds.length !== b.carrierIds.length) return a.carrierIds.length > b.carrierIds.length;
+  if (a.lootId !== b.lootId) return a.lootId < b.lootId;
+  return a.team < b.team;
+}
+
+/** Swing readout for `team` (pure; see SwingInfo). */
+export function swingInfo(state: Readonly<Pick<SimState, 'scores' | 'remainingValue' | 'loot'>>, team: TeamId): SwingInfo {
+  const mine = state.scores[team];
+  const theirs = state.scores[team === 0 ? 1 : 0];
+  let step = Infinity;
+  for (const l of state.loot) if (l.baseValue > 0 && l.baseValue < step) step = l.baseValue;
+  if (!Number.isFinite(step)) step = 100;
+  const deficit = theirs - mine;
+  return {
+    toTie: Math.max(0, deficit),
+    toLead: mine > theirs ? 0 : deficit + step,
+    remaining: state.remainingValue,
+  };
 }
