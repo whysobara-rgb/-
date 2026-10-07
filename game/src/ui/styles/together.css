@@ -70,13 +70,13 @@
   text-shadow: 0.14rem 0.14rem 0 var(--team-dark);
 }
 .uh-together__teamHead .uh-emblem { width: 2.4rem; height: 2.4rem; }
-.uh-together__seats { flex: 1; display: flex; flex-direction: column; gap: 0.9rem; padding: 1rem; min-height: 0; }
+.uh-together__seats { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 1.1rem; padding: 1.1rem; min-height: 0; }
 
 /* --- a joined player ---------------------------------------------------------------------- */
 .uh-together__card {
   position: relative;
-  flex: 1;
-  max-height: 11rem;
+  flex: 0 1 11.5rem;
+  min-height: 8rem;
   display: grid;
   grid-template-columns: auto auto minmax(0, 1fr) auto;
   align-items: center;
@@ -153,8 +153,8 @@
 
 /* --- an empty seat ------------------------------------------------------------------------ */
 .uh-together__empty {
-  flex: 1;
-  max-height: 11rem;
+  flex: 0 1 11.5rem;
+  min-height: 8rem;
   display: flex;
   align-items: center;
   gap: 1rem;

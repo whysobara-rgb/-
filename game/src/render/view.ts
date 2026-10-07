@@ -103,6 +103,7 @@ import { createPropRig, type PropRig } from './models/props';
 // [F3] Render beats (glance, getaway, decisive load, steal chance, run heat, wind-up, barks, results poses).
 import { BarkBubble, BeatLabel, BEATS, GlanceTracker, LabelScreen, PulseRing, WindupRing, departParam, getawayDepart, vanFreeRun, type ChipSize } from './beats';
 import { matchPointInfo, VAN } from '../sim';
+import { sharedFraming, type FramePoint, type SharedFrame } from './sharedCamera';
 import { ko as KO_STRINGS } from '../ui/strings/ko';
 import { en as EN_STRINGS } from '../ui/strings/en';
 
@@ -153,6 +154,8 @@ export interface ViewFocus {
   charId: EntityId;
   grabCandidate: GrabCandidate | null;
   pingTargetIds: EntityId[];
+  /** (local multiplayer) Every human player: 2+ ids = one shared camera frames them all. */
+  group?: EntityId[];
 }
 
 /**
@@ -447,6 +450,8 @@ export class GameView {
   private titleShot: TitleShot | null = null;
   private lastFocusId: EntityId | null = null;
   private lookAhead = { x: 0, y: 0 };
+  /** (local multiplayer) Humans the shared camera frames (null = single-player follow). */
+  private focusGroup: EntityId[] | null = null;
   private titleCheer = new Map<EntityId, number>();
   private fontsRequested = false;
   private readonly botTelegraph = new Map<EntityId, boolean>();
@@ -825,6 +830,7 @@ export class GameView {
 
     // --- camera -------------------------------------------------------------------------
     const focusChar = focus ? sim.getCharacter(focus.charId) ?? null : null;
+    this.focusGroup = focus?.group && focus.group.length > 1 ? focus.group : null;
     if (focusChar && focusChar.id !== this.lastFocusId) {
       this.cam.snap();
       this.lastFocusId = focusChar.id;
@@ -2950,6 +2956,29 @@ export class GameView {
     return cv ? { x: cv.pose.x, y: cv.pose.y } : null;
   }
 
+  /** (local multiplayer) Shared framing of every human (drawn poses) and the loot they hold. */
+  private sharedFrame(sim: Simulation, aspect: number): SharedFrame {
+    const pts: FramePoint[] = [];
+    for (const id of this.focusGroup ?? []) {
+      const c = sim.getCharacter(id);
+      if (!c) continue;
+      const cv = this.chars.get(id);
+      pts.push({ x: cv ? cv.pose.x : c.pos.x, y: cv ? cv.pose.y : c.pos.y, r: 2.2 });
+      const held = c.grab ? sim.getLoot(c.grab.targetId) : undefined;
+      if (held && !held.recovered) {
+        const pose = held.kind === 'bank' ? this.banks.get(held.id)?.pose : this.safes.get(held.id)?.pose;
+        const q = pose ?? held.pos;
+        pts.push({ x: q.x, y: q.y, r: held.kind === 'bank' ? 4.5 : held.kind === 'largeSafe' ? 1.8 : 1.2 });
+      }
+    }
+    return sharedFraming(pts, aspect);
+  }
+
+  /** (local multiplayer) The shared camera's framing right now (tests / HUD), null in single-player. */
+  sharedFrameInfo(sim: Simulation): SharedFrame | null {
+    return this.focusGroup ? this.sharedFrame(sim, this.width / this.height) : null;
+  }
+
   private cameraGoal(sim: Simulation, fc: CharacterState | null, dt: number, cand: GrabCandidate | null = null): CameraGoal {
     const layout = sim.layout;
     const W = layout.size.x;
@@ -3087,6 +3116,13 @@ export class GameView {
         ty = f.y;
         dist = f.dist;
       }
+    }
+    // (local multiplayer) One shared camera: frame every human and what they carry.
+    if (this.focusGroup) {
+      const sf = this.sharedFrame(sim, aspect);
+      tx = sf.x;
+      ty = sf.y;
+      dist = sf.dist;
     }
     // Police pulling up nearby: glance toward the parking spot for a moment (the layouts park
     // behind the shop rows), never so far that the player leaves the frame.

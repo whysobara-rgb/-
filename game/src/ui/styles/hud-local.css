@@ -1,0 +1,8 @@
+/* ======================================================================================== */
+/* Local multiplayer HUD: per-player edge arrows, corner chips, taunt-wheel owner tag.        */
+/* Every player = colour (--p) + "P1".."P4" (never colour alone).                            */
+/* ======================================================================================== */
+
+.uh-arrow[data-kind='player'] .uh-arrow__body { background: var(--p); border-color: var(--pop-ink); }
+.uh-arrow[data-kind='player'] .uh-arrow__pointer { color: var(--p); }
+.uh-arrow__ptag { font-family: var(--uh-font-display); font-size: 1.15rem; line-height: 1; color: var(--pop-ink); }

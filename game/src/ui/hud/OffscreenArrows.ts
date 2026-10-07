@@ -8,6 +8,7 @@ import { h, setClass, setText } from '../core/dom';
 import { icon, lootIcon, teamEmblem } from '../core/icons';
 import { fmtScore, finiteOrNull } from '../core/format';
 import type { OffscreenTarget } from './types';
+import { playerColor, playerInk, playerTag } from '../../shared/players';
 
 interface Arrow {
   el: HTMLElement;
@@ -108,7 +109,7 @@ export class OffscreenArrows {
       // Icon 'arrow' points up (-y); rotate so it points along the angle.
       a.pointer.style.transform = `rotate(${(angle + Math.PI / 2).toFixed(3)}rad) translateY(-2.1rem)`;
     }
-    const kindKey = `${t.kind}:${t.team ?? '-'}`;
+    const kindKey = `${t.kind}:${t.team ?? '-'}:${t.player ?? '-'}`;
     if (kindKey !== a.kindKey) {
       a.kindKey = kindKey;
       a.el.dataset.kind = t.kind;
@@ -119,7 +120,15 @@ export class OffscreenArrows {
       else if (t.kind === 'safe') art = lootIcon('smallSafe');
       else if (t.kind === 'zone') art = t.team !== undefined ? teamEmblem(t.team as TeamId) : icon('van');
       else if (t.kind === 'ping') art = icon('ping');
+      else if (t.kind === 'player') art = h('span', { class: 'uh-arrow__ptag' }, playerTag(t.player ?? 0));
       else art = icon('hand');
+      if (t.kind === 'player') {
+        a.el.style.setProperty('--p', playerColor(t.player ?? 0));
+        a.el.style.setProperty('--p-ink', playerInk(t.player ?? 0));
+      } else {
+        a.el.style.removeProperty('--p');
+        a.el.style.removeProperty('--p-ink');
+      }
       a.badge.replaceChildren(art);
     }
     const v = finiteOrNull(t.value);

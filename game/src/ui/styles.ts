@@ -6,3 +6,4 @@ import './styles/backdrop.css';
 import './styles/screens.css';
 import './styles/together.css';
 import './styles/hud.css';
+import './styles/hud-local.css';

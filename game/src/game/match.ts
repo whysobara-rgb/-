@@ -416,7 +416,23 @@ export class MatchController {
     for (const p of this.sim.state.pings) if (p.team === this.myTeam && p.targetId !== null) pingTargetIds.push(p.targetId);
     if (this.script) for (const id of this.script.focusTargets()) if (!pingTargetIds.includes(id)) pingTargetIds.push(id);
     for (const id of this.funFocusTargets()) if (!pingTargetIds.includes(id)) pingTargetIds.push(id);
-    return { charId: this.meId, grabCandidate: me && !me.grab ? this.sim.getGrabCandidate(this.meId) : null, pingTargetIds };
+    const f: ViewFocus = { charId: this.meId, grabCandidate: me && !me.grab ? this.sim.getGrabCandidate(this.meId) : null, pingTargetIds };
+    // Local multiplayer: one shared camera frames every human.
+    if (this.seats.length > 1) f.group = this.seats.map((s) => s.charId);
+    return f;
+  }
+
+  /** (local multiplayer) Edge arrows in each player's colour for players outside the shared frame. */
+  private playerArrows(): OffscreenTarget[] {
+    if (this.seats.length < 2) return [];
+    const out: OffscreenTarget[] = [];
+    for (const s of this.seats) {
+      const pos = this.svc.view.renderedPos(s.charId, 'char') ?? this.sim.getCharacter(s.charId)?.pos;
+      if (!pos) continue;
+      const p = this.svc.view.project(pos, 1.2);
+      if (!p.onScreen) out.push({ id: `player:${s.index}`, x: p.x, y: p.y, behind: p.behind, kind: 'player', player: s.index, team: s.team });
+    }
+    return out;
   }
 
   // ------------------------------------------------------------------------------------------
@@ -824,6 +840,8 @@ export class MatchController {
     if (extra.length) model.arrows = [...(model.arrows ?? []), ...extra];
     const kick = this.funArrows();
     if (kick.length) model.arrows = [...(model.arrows ?? []), ...kick];
+    const pa = this.playerArrows();
+    if (pa.length) model.arrows = [...(model.arrows ?? []), ...pa];
     if (this.phase === 'ending') {
       model.grab = null;
       model.carry = null;

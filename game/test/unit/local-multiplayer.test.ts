@@ -264,3 +264,28 @@ describe('multi-human match setup', () => {
     expect(a).toEqual(b);
   });
 });
+
+describe('shared camera framing', () => {
+  it('stays at the single-player distance for a tight group, zooms out smoothly, caps at the max', async () => {
+    const { sharedFraming, SHARED_MAX_DIST, visibleExtents } = await import('../../src/render/sharedCamera');
+    const { MATCH_DIST } = await import('../../src/render/camera');
+    const aspect = 16 / 9;
+    const tight = sharedFraming([{ x: 10, y: 10, r: 2 }, { x: 12, y: 11, r: 2 }], aspect);
+    expect(tight.dist).toBe(MATCH_DIST.walk);
+    expect(tight.fits).toBe(true);
+    const dists = [8, 16, 24, 32].map((gap) => sharedFraming([{ x: 0, y: 0, r: 2 }, { x: gap, y: 0, r: 2 }], aspect).dist);
+    for (let i = 1; i < dists.length; i++) expect(dists[i]!).toBeGreaterThanOrEqual(dists[i - 1]!);
+    const wide = sharedFraming([{ x: 0, y: 0, r: 2 }, { x: 120, y: 60, r: 2 }], aspect);
+    expect(wide.dist).toBe(SHARED_MAX_DIST);
+    expect(wide.fits).toBe(false);
+    // the target sits between the players, not on one of them
+    expect(wide.x).toBeCloseTo(60, 5);
+    // everything that fits is inside the visible extents around the target
+    const mid = sharedFraming([{ x: 0, y: 0, r: 2 }, { x: 18, y: 9, r: 2 }], aspect);
+    const e = visibleExtents(mid.dist, aspect);
+    expect(mid.fits).toBe(true);
+    expect(Math.abs(18 - mid.x) + 2).toBeLessThanOrEqual(e.half);
+    expect(mid.y - (0 - 2)).toBeLessThanOrEqual(e.north);
+    expect(9 + 2 - mid.y).toBeLessThanOrEqual(e.south);
+  });
+});

@@ -205,9 +205,11 @@ export interface OffscreenTarget {
   y: number;
   /** True if the point is behind the camera (direction flipped by the projector). */
   behind?: boolean;
-  kind: 'carry' | 'ping' | 'zone' | 'bank' | 'safe';
+  kind: 'carry' | 'ping' | 'zone' | 'bank' | 'safe' | 'player';
   team?: TeamId;
   value?: number;
+  /** kind 'player' (local multiplayer): 0..3 = P1..P4 (colour + tag). */
+  player?: number;
 }
 
 /** Police status for the HUD chip (owner addition beyond doc v0.5). */
