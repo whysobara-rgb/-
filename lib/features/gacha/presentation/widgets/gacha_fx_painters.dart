@@ -1,21 +1,17 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../../../../core/domain/rarity.dart';
-import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/rarity_style.dart';
 
 /// 뽑기 연출용 CustomPainter 모음.
 ///
-/// 외부 엔진 없이 Canvas만으로 그린다. 파티클 수는 등급별 상한
+/// 3차: 무대는 검정이 아니라 등급 색면(슬레이트 → 블루 → 바이올렛 → 금)이고,
+/// 빛은 흰색에 가깝게 맑게 그린다. 외부 엔진 없이 Canvas만으로 그린다. 파티클 수는 등급별 상한
 /// (RevealTimeline.sparkCount)을 넘지 않고, 모든 위치는 시드 고정 난수 +
 /// 시간으로 계산해 프레임마다 객체를 새로 만들지 않는다.
 
-/// 어두운 무대 위에서 쓰는 등급 빛 색(셸의 레어도 색보다 밝게).
-Color stageLight(Rarity r) => switch (r) {
-  Rarity.n => const Color(0xFFE4E8EE),
-  Rarity.r => const Color(0xFF6FA6FF),
-  Rarity.sr => const Color(0xFFC490FF),
-  Rarity.ssr => const Color(0xFFF7CB5C),
-};
+/// 무대 위 빛(빛줄기·입자·충격파) 색. 등급 색면보다 밝다.
+Color stageLight(Rarity r) => r.stageLight;
 
 /// 승급 한 단계의 빛 색: 이전 등급 → (흰 섬광) → 새 등급.
 /// 보라→금처럼 색상환 반대편으로 갈 때 탁한 중간색이 보이지 않게
@@ -30,6 +26,20 @@ Color stageStep(Rarity from, Rarity to, double t) {
       ? Color.lerp(a, mid, t / 0.4)!
       : Color.lerp(mid, b, (t - 0.4) / 0.6)!;
 }
+
+/// 승급 한 단계의 무대 색면: 이전 등급 색면 → (밝은 섬광) → 새 등급 색면.
+StageField stageFieldStep(Rarity from, Rarity to, double t) {
+  if (from == to || t >= 1) return to.field;
+  if (t <= 0) return from.field;
+  final mid = StageField.lerp(from.field, to.field, 0.5).brighten(0.55);
+  return t < 0.4
+      ? StageField.lerp(from.field, mid, t / 0.4)
+      : StageField.lerp(mid, to.field, (t - 0.4) / 0.6);
+}
+
+/// 색면 위 글자색: 금 색면(SSR)은 짙은 갈색, 나머지는 흰색.
+Color stageInk(Rarity r) =>
+    r == Rarity.ssr ? const Color(0xFF3A2600) : Colors.white;
 
 /// 블러 없이 그리는 부드러운 타원 그림자(원형 그라데이션을 세로로 눌러 그린다).
 void softShadow(
@@ -60,86 +70,109 @@ void softShadow(
 
 /// ── 무대 배경 ─────────────────────────────────────────────────────
 ///
-/// 비네팅 + 가장자리에서 새어 드는 빛줄기(light leak) + 바닥 반사.
-/// [energy]가 오를수록 빛이 진해지고 넓어진다.
+/// 등급 색면(가운데 밝고 가장자리 깊은 방사형) + 위에서 내려오는 흰 빛줄기 +
+/// 상자 뒤 후광 + 바닥 반사. 검정이 아니라 채도 높은 색면이라 어둡거나
+/// 탁하지 않다. [energy]가 오를수록 가운데가 밝아지고 빛이 넓어진다.
 class StageBackdropPainter extends CustomPainter {
+  final StageField field;
   final Color color;
   final double energy;
   final double time;
 
+  /// 빛의 중심(세로 비율).
+  final double focusY;
+
   StageBackdropPainter({
+    required this.field,
     required this.color,
     required this.energy,
     required this.time,
+    this.focusY = 0.45,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
     final rect = Offset.zero & size;
-    final c = Offset(size.width / 2, size.height * 0.46);
+    final c = Offset(size.width / 2, size.height * focusY);
+    final e = energy.clamp(0.0, 1.0);
     canvas.drawRect(
       rect,
       Paint()
         ..shader = RadialGradient(
-          center: const Alignment(0, -0.1),
-          radius: 0.95,
+          center: Alignment(0, focusY * 2 - 1),
+          radius: 1.05,
           colors: [
-            Color.lerp(const Color(0xFF15151A), color, 0.06 + 0.10 * energy)!,
-            AppColors.stage,
+            Color.lerp(field.center, Colors.white, 0.18 * e)!,
+            field.mid,
+            field.edge,
           ],
+          stops: [0, 0.42 + 0.12 * e, 1],
         ).createShader(rect),
     );
 
-    final bloomR = size.width * (0.45 + 0.5 * energy);
+    // 위에서 비스듬히 내려오는 흰 빛줄기(블러 대신 늘린 원형 그라데이션).
+    for (var i = 0; i < 4; i++) {
+      final side = i.isEven ? -1.0 : 1.0;
+      final sway = math.sin(time * (0.5 + i * 0.2) + i * 1.7) * 0.06;
+      final origin = Offset(
+        size.width * (0.5 + side * (0.18 + i * 0.12)),
+        -size.height * 0.04,
+      );
+      final angle = side * (0.22 + sway + i * 0.08);
+      final len = size.height * 0.95;
+      final w = size.width * (0.1 + 0.05 * i) * (0.8 + 0.5 * e);
+      canvas.save();
+      canvas.translate(origin.dx, origin.dy);
+      canvas.rotate(angle);
+      canvas.scale(w / len, 1);
+      canvas.drawCircle(
+        Offset.zero,
+        len,
+        Paint()
+          ..shader = RadialGradient(
+            colors: [
+              Colors.white.withValues(alpha: 0.10 + 0.16 * e),
+              Colors.white.withValues(alpha: 0.03 + 0.05 * e),
+              Colors.transparent,
+            ],
+            stops: const [0, 0.5, 1],
+          ).createShader(Rect.fromCircle(center: Offset.zero, radius: len)),
+      );
+      canvas.restore();
+    }
+
+    // 상자 뒤 후광.
+    final bloomR = size.width * (0.42 + 0.45 * e);
     canvas.drawCircle(
       c,
       bloomR,
       Paint()
         ..shader = RadialGradient(
           colors: [
-            color.withValues(alpha: 0.10 + 0.32 * energy),
+            Color.lerp(
+              color,
+              Colors.white,
+              0.5,
+            )!.withValues(alpha: 0.22 + 0.4 * e),
+            color.withValues(alpha: 0.10 + 0.12 * e),
             color.withValues(alpha: 0),
           ],
+          stops: const [0, 0.45, 1],
         ).createShader(Rect.fromCircle(center: c, radius: bloomR)),
     );
 
-    // 빛줄기: 위 양쪽 모서리에서 대각선으로 들어오는 부드러운 띠.
-    // 블러 대신 길쭉하게 늘린 원형 그라데이션으로 가장자리를 부드럽게 한다.
-    if (energy > 0.02) {
-      for (var i = 0; i < 3; i++) {
-        final side = i.isEven ? -1.0 : 1.0;
-        final sway = math.sin(time * (0.6 + i * 0.25) + i) * 0.08;
-        final origin = Offset(
-          size.width * (0.5 + side * (0.62 + i * 0.08)),
-          -size.height * 0.05,
-        );
-        final angle = side * (0.5 + sway + i * 0.12);
-        final len = size.height * 0.95;
-        final w = size.width * (0.16 + 0.08 * i) * (0.7 + 0.5 * energy);
-        canvas.save();
-        canvas.translate(origin.dx, origin.dy);
-        canvas.rotate(angle);
-        canvas.scale(w / len, 1);
-        canvas.drawCircle(
-          Offset.zero,
-          len,
-          Paint()
-            ..shader = RadialGradient(
-              colors: [
-                color.withValues(alpha: 0.24 * energy),
-                color.withValues(alpha: 0.07 * energy),
-                Colors.transparent,
-              ],
-              stops: const [0, 0.45, 1],
-            ).createShader(Rect.fromCircle(center: Offset.zero, radius: len)),
-        );
-        canvas.restore();
-      }
+    // 무대 동심원(아주 옅게).
+    final ring = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1
+      ..color = Colors.white.withValues(alpha: 0.06 + 0.05 * e);
+    for (var k = 1; k <= 4; k++) {
+      canvas.drawCircle(c, size.width * (0.3 + 0.17 * k), ring);
     }
 
     final floor = Rect.fromCenter(
-      center: Offset(size.width / 2, size.height * 0.64),
-      width: size.width * 1.1,
+      center: Offset(size.width / 2, size.height * (focusY + 0.2)),
+      width: size.width * 1.2,
       height: size.height * 0.16,
     );
     canvas.drawOval(
@@ -147,7 +180,7 @@ class StageBackdropPainter extends CustomPainter {
       Paint()
         ..shader = RadialGradient(
           colors: [
-            color.withValues(alpha: 0.10 + 0.22 * energy),
+            Colors.white.withValues(alpha: 0.12 + 0.2 * e),
             Colors.transparent,
           ],
         ).createShader(floor),
@@ -156,249 +189,11 @@ class StageBackdropPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant StageBackdropPainter old) =>
-      old.color != color || old.energy != energy || old.time != time;
-}
-
-/// ── 아이소메트릭 박스 ─────────────────────────────────────────────
-///
-/// 흑연색 상자. 뚜껑 이음새와 균열로 등급 빛이 새어 나온다.
-class VaultBoxPainter extends CustomPainter {
-  final double appear;
-  final double crack;
-  final Color color;
-  final double pulse;
-  final double lidOpen;
-  final double intensity;
-
-  VaultBoxPainter({
-    required this.appear,
-    required this.crack,
-    required this.color,
-    this.pulse = 1,
-    this.lidOpen = 0,
-    this.intensity = 1,
-  });
-
-  static const _top = Color(0xFF3A3A42);
-  static const _left = Color(0xFF26262C);
-  static const _right = Color(0xFF18181C);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (appear <= 0) return;
-    final c = size.center(Offset.zero) + const Offset(0, 6);
-    final s =
-        size.width *
-        0.25 *
-        pulse *
-        (0.6 + 0.4 * Curves.easeOutBack.transform(appear.clamp(0.0, 1.0)));
-    final cos30 = math.cos(math.pi / 6);
-    final opacity = appear.clamp(0.0, 1.0);
-
-    final t = c + Offset(0, -s);
-    final ul = c + Offset(-s * cos30, -s / 2);
-    final ur = c + Offset(s * cos30, -s / 2);
-    final ll = c + Offset(-s * cos30, s / 2);
-    final lr = c + Offset(s * cos30, s / 2);
-    final b = c + Offset(0, s);
-
-    softShadow(
-      canvas,
-      b + Offset(0, s * 0.18),
-      s * 1.25,
-      0.2,
-      Colors.black.withValues(alpha: 0.65 * opacity),
-    );
-
-    final glow = (0.2 + 0.8 * crack) * intensity;
-    final glowR = s * (1.6 + 1.1 * crack);
-    canvas.drawCircle(
-      c,
-      glowR,
-      Paint()
-        ..shader = RadialGradient(
-          colors: [
-            color.withValues(alpha: (0.45 * glow).clamp(0.0, 0.85) * opacity),
-            color.withValues(alpha: 0),
-          ],
-        ).createShader(Rect.fromCircle(center: c, radius: glowR)),
-    );
-
-    final lidLift = Offset(
-      0,
-      -s * 1.8 * Curves.easeIn.transform(lidOpen.clamp(0.0, 1.0)),
-    );
-    final lidAlpha = (1 - lidOpen * 1.4).clamp(0.0, 1.0);
-
-    final leftFace = Path()..addPolygon([ul, c, b, ll], true);
-    final rightFace = Path()..addPolygon([c, ur, lr, b], true);
-    canvas.drawPath(
-      leftFace,
-      Paint()..color = _left.withValues(alpha: opacity),
-    );
-    canvas.drawPath(
-      rightFace,
-      Paint()..color = _right.withValues(alpha: opacity),
-    );
-
-    const seamT = 0.22;
-    final seamL1 = Offset.lerp(ul, ll, seamT)!;
-    final seamC = Offset.lerp(c, b, seamT)!;
-    final seamR1 = Offset.lerp(ur, lr, seamT)!;
-
-    if (crack > 0) {
-      final rng = math.Random(7);
-      final count = (crack * 7).ceil().clamp(0, 7);
-      for (var i = 0; i < count; i++) {
-        final onLeft = i.isEven;
-        final a = onLeft ? seamL1 : seamC;
-        final bEdge = onLeft ? seamC : seamR1;
-        final start = Offset.lerp(a, bEdge, 0.2 + rng.nextDouble() * 0.6)!;
-        final path = Path()..moveTo(start.dx, start.dy);
-        var p = start;
-        const segs = 4;
-        final reach = s * 0.95 * (crack * 1.2 - i * 0.11).clamp(0.0, 1.0);
-        for (var k = 1; k <= segs; k++) {
-          p = p + Offset((rng.nextDouble() - 0.5) * s * 0.24, reach / segs);
-          path.lineTo(p.dx, p.dy);
-        }
-        canvas.save();
-        canvas.clipPath(onLeft ? leftFace : rightFace);
-        canvas.drawPath(
-          path,
-          Paint()
-            ..color = color.withValues(alpha: 0.65 * opacity)
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 7
-            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5),
-        );
-        canvas.drawPath(
-          path,
-          Paint()
-            ..color = Color.lerp(
-              color,
-              Colors.white,
-              0.6,
-            )!.withValues(alpha: opacity)
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 1.6
-            ..strokeCap = StrokeCap.round
-            ..strokeJoin = StrokeJoin.round,
-        );
-        canvas.restore();
-      }
-    }
-
-    final seamPath = Path()
-      ..moveTo(seamL1.dx, seamL1.dy)
-      ..lineTo(seamC.dx, seamC.dy)
-      ..lineTo(seamR1.dx, seamR1.dy);
-    final seamStrength = (0.3 + 0.7 * crack) * opacity;
-    canvas.drawPath(
-      seamPath,
-      Paint()
-        ..color = color.withValues(alpha: (0.85 * seamStrength).clamp(0.0, 1.0))
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 4 + 7 * crack * intensity
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 4 + 7 * crack),
-    );
-    canvas.drawPath(
-      seamPath,
-      Paint()
-        ..color = Color.lerp(
-          color,
-          Colors.white,
-          0.55,
-        )!.withValues(alpha: seamStrength)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5,
-    );
-
-    if (lidOpen > 0) {
-      final beamH = s * 4.5 * lidOpen;
-      final beamRect = Rect.fromLTRB(
-        ul.dx + s * 0.15,
-        seamC.dy - beamH,
-        ur.dx - s * 0.15,
-        seamC.dy,
-      );
-      canvas.drawRect(
-        beamRect,
-        Paint()
-          ..shader = LinearGradient(
-            begin: Alignment.bottomCenter,
-            end: Alignment.topCenter,
-            colors: [
-              Colors.white.withValues(alpha: 0.95 * (1 - lidOpen * 0.6)),
-              color.withValues(alpha: 0.55 * (1 - lidOpen * 0.6)),
-              color.withValues(alpha: 0),
-            ],
-          ).createShader(beamRect)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10),
-      );
-    }
-
-    canvas.save();
-    canvas.translate(lidLift.dx, lidLift.dy);
-    final lidLeft = Path()..addPolygon([ul, c, seamC, seamL1], true);
-    final lidRight = Path()..addPolygon([c, ur, seamR1, seamC], true);
-    final topFace = Path()..addPolygon([t, ur, c, ul], true);
-    canvas.drawPath(
-      lidLeft,
-      Paint()
-        ..color = const Color(0xFF2E2E35).withValues(alpha: opacity * lidAlpha),
-    );
-    canvas.drawPath(
-      lidRight,
-      Paint()
-        ..color = const Color(0xFF1F1F24).withValues(alpha: opacity * lidAlpha),
-    );
-    canvas.drawPath(
-      topFace,
-      Paint()..color = _top.withValues(alpha: opacity * lidAlpha),
-    );
-    final edge = Paint()
-      ..color = Colors.white.withValues(alpha: 0.16 * opacity * lidAlpha)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1;
-    canvas.drawPath(topFace, edge);
-    canvas.drawLine(c, seamC, edge);
-    final inset = Path()
-      ..addPolygon([
-        Offset.lerp(t, c, 0.22)!,
-        Offset.lerp(ur, ul, 0.22)!,
-        Offset.lerp(c, t, 0.22)!,
-        Offset.lerp(ul, ur, 0.22)!,
-      ], true);
-    canvas.drawPath(
-      inset,
-      Paint()
-        ..color = color.withValues(alpha: 0.35 * opacity * lidAlpha)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1,
-    );
-    canvas.restore();
-
-    canvas.drawPath(
-      Path()
-        ..moveTo(ll.dx, ll.dy)
-        ..lineTo(b.dx, b.dy)
-        ..lineTo(lr.dx, lr.dy),
-      Paint()
-        ..color = Colors.white.withValues(alpha: 0.07 * opacity)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant VaultBoxPainter old) =>
-      old.appear != appear ||
-      old.crack != crack ||
+      old.field != field ||
       old.color != color ||
-      old.pulse != pulse ||
-      old.lidOpen != lidOpen ||
-      old.intensity != intensity;
+      old.energy != energy ||
+      old.time != time ||
+      old.focusY != focusY;
 }
 
 /// ── 바닥 링 ──────────────────────────────────────────────────────
@@ -600,21 +395,25 @@ class LightRaysPainter extends CustomPainter {
     // 원형 그라데이션을 칠한다. 넓고 옅은 띠 + 좁고 밝은 띠 두 겹.
     final shader = RadialGradient(
       colors: [
-        color.withValues(alpha: 0.34 * intensity),
-        color.withValues(alpha: 0.12 * intensity),
+        Color.lerp(
+          color,
+          Colors.white,
+          0.4,
+        )!.withValues(alpha: 0.36 * intensity),
+        color.withValues(alpha: 0.14 * intensity),
         color.withValues(alpha: 0),
       ],
-      stops: const [0.08, 0.42, 1],
+      stops: const [0.06, 0.42, 1],
     ).createShader(Rect.fromCircle(center: c, radius: r));
     final wide = Paint()..shader = shader;
     final core = Paint()
       ..shader = RadialGradient(
         colors: [
-          Colors.white.withValues(alpha: 0.22 * intensity),
-          color.withValues(alpha: 0.10 * intensity),
+          Colors.white.withValues(alpha: 0.42 * intensity),
+          Colors.white.withValues(alpha: 0.12 * intensity),
           color.withValues(alpha: 0),
         ],
-        stops: const [0.05, 0.3, 0.8],
+        stops: const [0.04, 0.32, 0.85],
       ).createShader(Rect.fromCircle(center: c, radius: r));
     for (var i = 0; i < rays; i++) {
       final a = rotation + i / rays * 2 * math.pi;
@@ -730,14 +529,25 @@ class GoldLeaf {
   });
 }
 
-/// SSR 금박·색종이 팔레트(금·샴페인·백색 — 무지개 아님).
+/// SSR 금박·색종이 팔레트(백색·샴페인·짙은 금 — 금 색면 위에서 보이게,
+/// 무지개 아님).
 const List<Color> kGoldLeafPalette = [
-  Color(0xFFF7CB5C),
-  Color(0xFFFFE6A6),
   Color(0xFFFFFFFF),
-  Color(0xFFD9A43A),
   Color(0xFFFFF4D6),
-  Color(0xFFB8862B),
+  Color(0xFFFFFFFF),
+  Color(0xFFB47A00),
+  Color(0xFFFFE08A),
+  Color(0xFF8A5A00),
+];
+
+/// 흰 바탕(결과 화면) 위 색종이: 금·짙은 금·샴페인·캡슐 레드.
+const List<Color> kConfettiOnLight = [
+  Color(0xFFF2B01E),
+  Color(0xFFB47A00),
+  Color(0xFFFFD86B),
+  Color(0xFFE32D1A),
+  Color(0xFFF7C948),
+  Color(0xFF9442FF),
 ];
 
 /// ── SSR 전용: 금박과 리본 색종이가 흩날린다 ──────────────────────────
@@ -747,7 +557,11 @@ class GoldLeafPainter extends CustomPainter {
 
   GoldLeafPainter({required this.progress, required this.pieces});
 
-  static List<GoldLeaf> generate(int count, {int seed = 99}) {
+  static List<GoldLeaf> generate(
+    int count, {
+    int seed = 99,
+    List<Color> palette = kGoldLeafPalette,
+  }) {
     final rng = math.Random(seed);
     return List.generate(
       count,
@@ -759,7 +573,7 @@ class GoldLeafPainter extends CustomPainter {
         swayFreq: 1.2 + rng.nextDouble() * 2.5,
         swayAmp: 8 + rng.nextDouble() * 18,
         rotSpeed: (rng.nextDouble() - 0.5) * 12,
-        color: kGoldLeafPalette[rng.nextInt(kGoldLeafPalette.length)],
+        color: palette[rng.nextInt(palette.length)],
         ribbon: i % 3 == 0,
       ),
     );

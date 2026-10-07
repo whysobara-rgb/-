@@ -11,14 +11,17 @@ import '../../../core/network/api_client.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/theme/rarity_style.dart';
 import '../../../core/utils/format.dart';
 import '../../../shared/providers/auth_provider.dart';
+import '../../../shared/widgets/pack_art.dart';
 import '../../../shared/widgets/rarity_tag.dart';
 import '../data/gacha_repository.dart';
 import '../domain/draw_result.dart';
 import '../domain/gacha_models.dart';
 import '../domain/reveal_timeline.dart';
 import 'gacha_result_page.dart';
+import 'widgets/box_thumb.dart';
 import 'widgets/gacha_fx_painters.dart';
 import 'widgets/reveal_card.dart';
 import 'widgets/reveal_spread.dart';
@@ -91,6 +94,19 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
   bool _dragging = false;
 
   bool get _multi => widget.count > 1;
+
+  /// 여는 박스의 패키지(박스 사진 대신 늘 패키지 그림을 연다).
+  late final PackStyle _pack = widget.gacha.pack;
+
+  /// 지금 무대에 밝혀진 등급(상단 글자색을 색면에 맞춘다).
+  Rarity get _litRarity {
+    if (_multi || _spread) return Rarity.n;
+    final tl = _timeline;
+    if (tl == null) return Rarity.n;
+    if (_hold != null) return tl.highest;
+    return tl.at(_seqMs).lit;
+  }
+
   double get _time => _ambient.value * 20;
 
   @override
@@ -414,8 +430,9 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
   }
 
   Widget _buildTopBar(String title) {
+    final ink = stageInk(_litRarity);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(Space.gutter, Space.x2, Space.x2, 0),
+      padding: const EdgeInsets.fromLTRB(Space.gutter, Space.x2, Space.x3, 0),
       child: Row(
         children: [
           Expanded(
@@ -424,37 +441,72 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: AppText.caption.copyWith(
-                color: Colors.white.withValues(alpha: 0.6),
+                color: ink.withValues(alpha: 0.75),
+                fontWeight: FontWeight.w600,
               ),
             ),
           ),
           ValueListenableBuilder<bool>(
             valueListenable: _sfx.muted,
-            builder: (context, muted, _) => IconButton(
-              tooltip: muted ? '소리 켜기' : '소리 끄기',
-              onPressed: () => _sfx.setMuted(!muted),
-              icon: Icon(
-                muted ? Icons.volume_off_rounded : Icons.volume_up_rounded,
-                color: Colors.white.withValues(alpha: muted ? 0.5 : 0.85),
-                size: 22,
+            builder: (context, muted, _) => Padding(
+              padding: const EdgeInsets.only(right: Space.x2),
+              child: Material(
+                color: Colors.white.withValues(alpha: 0.2),
+                shape: const CircleBorder(),
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  onTap: () => _sfx.setMuted(!muted),
+                  child: Tooltip(
+                    message: muted ? '소리 켜기' : '소리 끄기',
+                    child: SizedBox(
+                      width: 36,
+                      height: 36,
+                      child: Icon(
+                        muted
+                            ? Icons.volume_off_rounded
+                            : Icons.volume_up_rounded,
+                        color: ink.withValues(alpha: muted ? 0.55 : 0.9),
+                        size: 20,
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ),
           ),
-          TextButton(
-            onPressed: _skip,
-            style: TextButton.styleFrom(
-              foregroundColor: Colors.white,
-              minimumSize: const Size(0, 36),
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              backgroundColor: Colors.white.withValues(alpha: 0.08),
-              side: BorderSide(color: Colors.white.withValues(alpha: 0.22)),
-              shape: const StadiumBorder(),
-            ),
-            child: Text(
-              '건너뛰기',
-              style: AppText.bodyStrong.copyWith(
-                color: Colors.white,
-                fontSize: 13,
+          // 건너뛰기: 어느 색면 위에서도 읽히는 흰 알약.
+          Material(
+            color: Colors.white,
+            shape: const StadiumBorder(),
+            elevation: 0,
+            child: InkWell(
+              onTap: _skip,
+              customBorder: const StadiumBorder(),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 9,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '건너뛰기',
+                      style: AppText.bodyStrong.copyWith(
+                        color: AppColors.text,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        height: 1,
+                      ),
+                    ),
+                    const SizedBox(width: 2),
+                    const Icon(
+                      Icons.fast_forward_rounded,
+                      size: 15,
+                      color: AppColors.text,
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -478,6 +530,9 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
         final light = moment == null
             ? stageLight(Rarity.n)
             : stageStep(moment.from, moment.to, moment.colorT);
+        final field = moment == null
+            ? Rarity.n.field
+            : stageFieldStep(moment.from, moment.to, moment.colorT);
 
         final phase = moment?.phase;
         final climaxSeg = tl?.segment(RevealPhase.climax);
@@ -681,6 +736,7 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
                 children: [
                   CustomPaint(
                     painter: StageBackdropPainter(
+                      field: field,
                       color: light,
                       energy: energy,
                       time: _time,
@@ -728,18 +784,18 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
                                     ),
                                   ),
                                 if (boxOpacity > 0)
-                                  Opacity(
+                                  _StagePack(
+                                    style: _pack,
+                                    appear: _summon.value,
                                     opacity: boxOpacity,
-                                    child: CustomPaint(
-                                      painter: VaultBoxPainter(
-                                        appear: _summon.value,
-                                        crack: crack,
-                                        color: light,
-                                        pulse: pulse,
-                                        lidOpen: lidOpen,
-                                        intensity: 0.75 + 0.25 * r.rank,
-                                      ),
-                                    ),
+                                    pulse: pulse,
+                                    lift: lidOpen,
+                                    seamGlow:
+                                        crack * (0.75 + 0.25 * r.rank / 3),
+                                    sealGlow: stepFlash > 0
+                                        ? (stepFlash / 0.28).clamp(0.0, 1.0)
+                                        : crack * 0.55,
+                                    glow: light,
                                   ),
                               ],
                             ),
@@ -774,40 +830,57 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
                                   scale:
                                       (slow ? 0.2 : 0.35) +
                                       (slow ? 0.8 : 0.65) * cardE,
-                                  child: GestureDetector(
-                                    onPanStart: (_) =>
-                                        setState(() => _dragging = true),
-                                    onPanUpdate: (d) => setState(() {
-                                      _tilt = Offset(
-                                        (_tilt.dx + d.delta.dx / 90).clamp(
-                                          -1,
-                                          1,
+                                  child: Stack(
+                                    alignment: Alignment.center,
+                                    children: [
+                                      if (flip > 0.5)
+                                        Opacity(
+                                          opacity: ((flip - 0.5) * 2).clamp(
+                                            0.0,
+                                            1.0,
+                                          ),
+                                          child: CardGlow(
+                                            rarity: r,
+                                            width: cardW,
+                                          ),
                                         ),
-                                        (_tilt.dy + d.delta.dy / 90).clamp(
-                                          -1,
-                                          1,
+                                      GestureDetector(
+                                        onPanStart: (_) =>
+                                            setState(() => _dragging = true),
+                                        onPanUpdate: (d) => setState(() {
+                                          _tilt = Offset(
+                                            (_tilt.dx + d.delta.dx / 90).clamp(
+                                              -1,
+                                              1,
+                                            ),
+                                            (_tilt.dy + d.delta.dy / 90).clamp(
+                                              -1,
+                                              1,
+                                            ),
+                                          );
+                                        }),
+                                        onPanEnd: (_) => setState(() {
+                                          _dragging = false;
+                                          _tilt = Offset.zero;
+                                        }),
+                                        child: FlipCard(
+                                          flip: flip,
+                                          tilt: tilt,
+                                          front: RevealCardFace(
+                                            result: _outcome!.best!,
+                                            width: cardW,
+                                            tilt: tilt,
+                                            glow: 0,
+                                          ),
+                                          back: RevealCardBack(
+                                            width: cardW,
+                                            glow: r.rank >= 1 ? r : null,
+                                            pulse: _time % 1,
+                                            charge: 1 - flip,
+                                          ),
                                         ),
-                                      );
-                                    }),
-                                    onPanEnd: (_) => setState(() {
-                                      _dragging = false;
-                                      _tilt = Offset.zero;
-                                    }),
-                                    child: FlipCard(
-                                      flip: flip,
-                                      tilt: tilt,
-                                      front: RevealCardFace(
-                                        result: _outcome!.best!,
-                                        width: cardW,
-                                        tilt: tilt,
                                       ),
-                                      back: RevealCardBack(
-                                        width: cardW,
-                                        glow: r.rank >= 1 ? r : null,
-                                        pulse: _time % 1,
-                                        charge: 1 - flip,
-                                      ),
-                                    ),
+                                    ],
                                   ),
                                 ),
                               ),
@@ -871,8 +944,8 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
                           gradient: RadialGradient(
                             radius: 0.8,
                             colors: [
-                              Colors.black.withValues(alpha: tensionDim * 0.3),
-                              Colors.black.withValues(alpha: tensionDim),
+                              field.edge.withValues(alpha: tensionDim * 0.2),
+                              field.edge.withValues(alpha: tensionDim * 0.85),
                             ],
                           ),
                         ),
@@ -907,7 +980,11 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
                       child: Padding(
                         padding: const EdgeInsets.only(bottom: Space.x5),
                         child: holding
-                            ? _HoldBar(progress: holdT, onTap: _navigate)
+                            ? _HoldBar(
+                                progress: holdT,
+                                rarity: r,
+                                onTap: _navigate,
+                              )
                             : _StatusLine(
                                 text: tl == null
                                     ? (_apiDone ? '' : '박스를 준비하고 있어요')
@@ -963,6 +1040,7 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
               children: [
                 CustomPaint(
                   painter: StageBackdropPainter(
+                    field: Rarity.n.field,
                     color: light,
                     energy: energy,
                     time: _time,
@@ -999,15 +1077,15 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
                                     color: light,
                                   ),
                                 ),
-                                CustomPaint(
-                                  painter: VaultBoxPainter(
-                                    appear: _summon.value,
-                                    crack: 0.6 * chargeT,
-                                    color: light,
-                                    pulse: 1 + 0.04 * chargeT,
-                                    lidOpen: burstT,
-                                    intensity: 0.8 + 0.2 * r.rank,
-                                  ),
+                                _StagePack(
+                                  style: _pack,
+                                  appear: _summon.value,
+                                  opacity: 1,
+                                  pulse: 1 + 0.04 * chargeT,
+                                  lift: burstT,
+                                  seamGlow: 0.65 * chargeT,
+                                  sealGlow: 0.4 * chargeT,
+                                  glow: light,
                                 ),
                               ],
                             ),
@@ -1066,9 +1144,11 @@ class _GachaAnimationPageState extends State<GachaAnimationPage>
       children: [
         CustomPaint(
           painter: StageBackdropPainter(
+            field: Rarity.n.field,
             color: stageLight(Rarity.n),
             energy: 0.25,
             time: _time,
+            focusY: 0.4,
           ),
         ),
         SafeArea(
@@ -1127,16 +1207,20 @@ class _RevealCaption extends StatelessWidget {
             textAlign: TextAlign.center,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: AppText.title1.copyWith(color: Colors.white),
+            style: AppText.title1.copyWith(
+              color: stageInk(result.rarity),
+              fontSize: 24,
+            ),
           ),
           const SizedBox(height: 4),
           Text(
             extraCount > 0
                 ? '정가 ${formatWon(result.estimatedValue)} · 외 $extraCount개'
                 : '정가 ${formatWon(result.estimatedValue)}',
-            style: AppText.num(
-              AppText.callout,
-            ).copyWith(color: result.rarity.light, fontWeight: FontWeight.w700),
+            style: AppText.num(AppText.callout).copyWith(
+              color: stageInk(result.rarity).withValues(alpha: 0.85),
+              fontWeight: FontWeight.w800,
+            ),
           ),
         ],
       ),
@@ -1157,42 +1241,101 @@ class _StatusLine extends StatelessWidget {
         text,
         textAlign: TextAlign.center,
         style: AppText.callout.copyWith(
-          color: Colors.white.withValues(alpha: 0.7),
+          color: Colors.white.withValues(alpha: 0.8),
+          fontWeight: FontWeight.w600,
         ),
       ),
     );
   }
 }
 
-/// 공개 후: 결과 보기 버튼(자동으로 넘어가기까지의 진행선 포함).
+/// 공개 후: 결과 보기 버튼(흰 알약) + 자동으로 넘어가기까지의 진행선.
 class _HoldBar extends StatelessWidget {
   final double progress;
+  final Rarity rarity;
   final VoidCallback onTap;
-  const _HoldBar({required this.progress, required this.onTap});
+  const _HoldBar({
+    required this.progress,
+    required this.rarity,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final ink = stageInk(rarity);
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         SizedBox(
           width: double.infinity,
-          child: FilledButton(onPressed: onTap, child: const Text('결과 보기')),
+          child: FilledButton(
+            onPressed: onTap,
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.white,
+              foregroundColor: AppColors.text,
+              shape: const StadiumBorder(),
+            ),
+            child: const Text('결과 보기'),
+          ),
         ),
-        const SizedBox(height: Space.x2),
+        const SizedBox(height: Space.x3),
         SizedBox(
           width: 120,
-          height: 2,
+          height: 3,
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(1),
+            borderRadius: BorderRadius.circular(2),
             child: LinearProgressIndicator(
               value: progress,
-              backgroundColor: Colors.white.withValues(alpha: 0.12),
-              color: Colors.white.withValues(alpha: 0.5),
+              backgroundColor: ink.withValues(alpha: 0.18),
+              color: ink.withValues(alpha: 0.7),
             ),
           ),
         ),
       ],
+    );
+  }
+}
+
+/// 연출 무대의 박스 패키지: 등장(작게→크게), 맥동, 뚜껑 열림, 이음새·봉인 빛.
+class _StagePack extends StatelessWidget {
+  final PackStyle style;
+  final double appear;
+  final double opacity;
+  final double pulse;
+  final double lift;
+  final double seamGlow;
+  final double sealGlow;
+  final Color glow;
+
+  const _StagePack({
+    required this.style,
+    required this.appear,
+    required this.opacity,
+    required this.pulse,
+    required this.lift,
+    required this.seamGlow,
+    required this.sealGlow,
+    required this.glow,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final a = appear.clamp(0.0, 1.0);
+    if (a <= 0 || opacity <= 0) return const SizedBox.shrink();
+    return Opacity(
+      opacity: (a * opacity).clamp(0.0, 1.0),
+      child: Transform.scale(
+        scale: (0.6 + 0.4 * Curves.easeOutBack.transform(a)) * pulse,
+        child: PackArt(
+          style: style,
+          scale: 0.5,
+          center: const Offset(0.5, 0.55),
+          lift: lift,
+          seamGlow: seamGlow,
+          sealGlow: sealGlow,
+          glow: glow,
+        ),
+      ),
     );
   }
 }

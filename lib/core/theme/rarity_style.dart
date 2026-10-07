@@ -69,9 +69,9 @@ extension RarityStyle on Rarity {
   /// 슬레이트 → 블루 → 바이올렛 → 빛나는 금으로 밝고 진해진다.
   StageField get field => switch (this) {
     Rarity.n => const StageField(
-      Color(0xFF4A5878),
-      Color(0xFF26304A),
-      Color(0xFF111729),
+      Color(0xFF7487B0),
+      Color(0xFF3A4A74),
+      Color(0xFF1A2244),
     ),
     Rarity.r => const StageField(
       Color(0xFF4B8DFF),

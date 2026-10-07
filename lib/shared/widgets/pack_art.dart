@@ -369,6 +369,9 @@ class PackArt extends StatelessWidget {
   final double seamGlow;
   final Color? glow;
 
+  /// 봉인 주위 후광(0~1). 연출에서 지금까지 밝혀진 등급 색으로 빛난다.
+  final double sealGlow;
+
   /// 바닥 그림자.
   final bool shadow;
 
@@ -380,6 +383,7 @@ class PackArt extends StatelessWidget {
     this.lift = 0,
     this.seamGlow = 0,
     this.glow,
+    this.sealGlow = 0,
     this.shadow = true,
   });
 
@@ -393,6 +397,7 @@ class PackArt extends StatelessWidget {
         lift: lift,
         seamGlow: seamGlow,
         glow: glow,
+        sealGlow: sealGlow,
         shadow: shadow,
       ),
     );
@@ -517,6 +522,7 @@ class PackPainter extends CustomPainter {
   final double lift;
   final double seamGlow;
   final Color? glow;
+  final double sealGlow;
   final bool shadow;
 
   PackPainter({
@@ -526,6 +532,7 @@ class PackPainter extends CustomPainter {
     this.lift = 0,
     this.seamGlow = 0,
     this.glow,
+    this.sealGlow = 0,
     this.shadow = true,
   });
 
@@ -859,7 +866,24 @@ class PackPainter extends CustomPainter {
     );
 
     // ── 포일 봉인: 뚜껑과 몸통에 걸쳐 붙어 있다 ──
-    _seal(canvas, Offset(mid, lb), w * 0.125);
+    if (sealGlow > 0) {
+      final sc = Offset(mid, lb);
+      final hr = w * (0.3 + 0.18 * sealGlow);
+      canvas.drawCircle(
+        sc,
+        hr,
+        Paint()
+          ..shader = RadialGradient(
+            colors: [
+              Colors.white.withValues(alpha: 0.9 * sealGlow),
+              glowColor.withValues(alpha: 0.6 * sealGlow),
+              glowColor.withValues(alpha: 0),
+            ],
+            stops: const [0, 0.35, 1],
+          ).createShader(Rect.fromCircle(center: sc, radius: hr)),
+      );
+    }
+    _seal(canvas, Offset(mid, lb), w * 0.125 * (1 + 0.12 * sealGlow));
 
     if (lidAlpha < 1) canvas.restore();
     canvas.restore();
@@ -1302,5 +1326,6 @@ class PackPainter extends CustomPainter {
       old.lift != lift ||
       old.seamGlow != seamGlow ||
       old.glow != glow ||
+      old.sealGlow != sealGlow ||
       old.shadow != shadow;
 }
