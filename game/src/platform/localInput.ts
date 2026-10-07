@@ -71,7 +71,8 @@ export function keySetsFor(bindings: Readonly<Bindings> | null | undefined, bOve
   const kbSrc = bindings?.keyboard ?? DEFAULT_BINDINGS.keyboard;
   const bBase = { ...cloneBindings({ keyboard: KEYBOARD_B_DEFAULTS as ActionBindings, gamepad: DEFAULT_BINDINGS.gamepad }).keyboard, ...(bOverride ?? {}) };
   const reservedForB = new Set<string>([...RIGHT_HAND_RESERVED]);
-  for (const a of MATCH_ACTIONS) for (const c of bBase[a] ?? []) reservedForB.add(c);
+  // B's numpad alternates are not reserved: A may rebind onto them (B then loses that alternate).
+  for (const a of MATCH_ACTIONS) for (const c of bBase[a] ?? []) if (!c.startsWith('Numpad')) reservedForB.add(c);
   const kbA = emptyActions();
   for (const a of MATCH_ACTIONS) {
     kbA[a] = (kbSrc[a] ?? []).filter((c) => !reservedForB.has(c) && !c.startsWith('Arrow'));

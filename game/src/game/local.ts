@@ -104,7 +104,7 @@ export function lobbyStep(s: LobbyState, device: LocalDeviceId, action: LobbyAct
     if (p.ready) return { state: setReady(s, device, false), event: 'unready' };
     return { state: leave(s, device), event: 'left' };
   }
-  if (!p) return { state: s, event: null };
+  if (!p || p.ready) return { state: s, event: null };
   const team: TeamId = action === 'left' ? 0 : 1;
   if (p.team === team) return { state: s, event: null };
   const n = setTeam(s, device, team);
