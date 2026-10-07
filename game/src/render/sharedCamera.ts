@@ -84,13 +84,16 @@ export function sharedFraming(points: readonly FramePoint[], aspect: number, min
     }
   }
   const e = visibleExtents(dist, aspect);
-  // North shows more ground than south: place the target so both ends keep the same share of margin.
+  // The look-at point is the screen centre: aim at the group's centre, nudged only as far as needed
+  // to keep both ends inside (north shows more ground than south). Past the max distance, the
+  // middle of what can be shown.
   const n = e.north * INNER;
   const so = e.south * INNER;
   // feasible ty: maxY - ty <= so and ty - minY <= n  ->  ty in [maxY - so, minY + n]
   const lo = maxY - so;
   const hi = minY + n;
-  const y = lo <= hi ? (lo + hi) / 2 : (lo + hi) / 2;
+  const cy = (minY + maxY) / 2;
+  const y = lo <= hi ? Math.min(hi, Math.max(lo, cy)) : (lo + hi) / 2;
   const x = (minX + maxX) / 2;
   return { x, y, dist, fits };
 }
