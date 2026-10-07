@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../../demo/backend/demo_http_client.dart';
+import '../../demo/demo_config.dart';
 import '../config/app_config.dart';
 import 'token_storage.dart';
 
@@ -212,6 +214,7 @@ class ApiException implements Exception {
 /// - 성공 응답 `{statusCode:10000, message, data}`는 `data`만 돌려주고,
 ///   그 밖의 응답은 [ApiException]으로 던진다.
 /// - 테스트는 `httpClient`에 `package:http/testing.dart`의 MockClient를 넣는다.
+/// - `--dart-define=DEMO_MODE=true`면 모든 요청이 [DemoHttpClient]로 간다.
 class ApiClient {
   static const String baseUrl = AppConfig.apiBaseUrl;
 
@@ -279,7 +282,11 @@ class ApiClient {
     final request = http.Request(method, Uri.parse('$baseUrl$path'))
       ..headers.addAll(headers);
     if (body != null) request.body = jsonEncode(body);
-    final client = _httpClient ?? http.Client();
+    // 체험판(DEMO_MODE)은 네트워크 대신 브라우저 안의 DemoBackend로 보낸다.
+    // 플래그가 꺼진 빌드에서는 상수 false라 이 분기가 컴파일 단계에서 빠진다.
+    final client =
+        _httpClient ??
+        (DemoConfig.enabled ? DemoHttpClient.instance : http.Client());
     try {
       final streamed = await client.send(request).timeout(_timeout);
       final response = await http.Response.fromStream(
