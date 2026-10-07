@@ -19,6 +19,8 @@ import {
   MOMENT_STAMP_COOLDOWN_TICKS,
   MOMENT_STAMP_LOOK,
   MomentStamper,
+  LOOSE_HOLD_TICKS,
+  PromptLatch,
   PROMPT_SEEN_TICKS,
   STOP_AFTER_PROMPT_TICKS,
   stampEviction,
@@ -106,6 +108,81 @@ describe('decisive-load prompt', () => {
       },
     });
     expect(ties + wins).toBeGreaterThan(0);
+  });
+});
+
+describe('prompt latch (a dropped decisive load keeps its prompt)', () => {
+  const loose = (o: Record<string, unknown> = {}) => ({ id: 10, kind: 'largeSafe', baseValue: 300, estimatedValue: 300, recovered: false, anchored: false, loadedIn: null, grabbedBy: [], recovery: null, ...o });
+  const at = (tick: number, o: Partial<SimState> = {}, l: Record<string, unknown> = {}): SimState =>
+    st({ tick, scores: [1500, 1400], remainingValue: 300, loot: [loose(l)] as unknown as SimState['loot'], ...o });
+  const info = mp({ team: 0, kind: 'win', value: 300, lootIds: [10], carrierIds: [1] });
+
+  it('holds the last loot load while it lies loose, for at most LOOSE_HOLD_TICKS', () => {
+    const p = new PromptLatch();
+    expect(p.update(info, at(100, {}, { grabbedBy: [1] }))).toBe(info);
+    expect(p.update(null, at(101))).toMatchObject({ team: 0, kind: 'win', value: 300, lootIds: [10], carrierIds: [] });
+    expect(p.update(null, at(100 + LOOSE_HOLD_TICKS))).not.toBeNull();
+    expect(p.update(null, at(101 + LOOSE_HOLD_TICKS))).toBeNull();
+    // and once dropped it stays dropped
+    expect(p.update(null, at(102 + LOOSE_HOLD_TICKS))).toBeNull();
+  });
+
+  it('lets go as soon as anything changes the arithmetic or the other team takes over', () => {
+    const cases: [string, SimState][] = [
+      ['opponent grabs it', at(110, {}, { grabbedBy: [2] })],
+      ['opponent zone recovery', at(110, {}, { recovery: { team: 1, ticks: 3 } })],
+      ['a score changed', at(110, { scores: [1500, 1500], remainingValue: 200 })],
+      ['load value changed', at(110, {}, { estimatedValue: 200 })],
+      ['recovered', at(110, {}, { recovered: true })],
+      ['anchored again', at(110, {}, { anchored: true })],
+      ['loaded into a bank', at(110, {}, { loadedIn: 7 })],
+      ['match over', at(110, { over: true })],
+    ];
+    for (const [why, s] of cases) {
+      const p = new PromptLatch();
+      p.update(info, at(100, {}, { grabbedBy: [1] }));
+      expect(p.update(null, s), why).toBeNull();
+    }
+    // a coin-bag load is never held (a bag that stops counting has spilled)
+    const p = new PromptLatch();
+    p.update(mp({ lootIds: [10], bagCharIds: [1] }), at(100));
+    expect(p.update(null, at(101))).toBeNull();
+    const q = new PromptLatch();
+    q.update(mp({ lootIds: [], carrierIds: [2], bagCharIds: [2], team: 1 }), at(100));
+    expect(q.update(null, at(101))).toBeNull();
+  });
+
+  it('on a real match a held prompt is always still true: that team scoring the load ends it', () => {
+    let held = 0;
+    for (const [layout, seed] of [
+      ['plaza', 83433],
+      ['counter', 5],
+    ] as const) {
+      const p = new PromptLatch();
+      runMatch({
+        layout,
+        seed,
+        team0: [{ personality: 'hodadak', difficulty: 'normal', humanProxy: true }],
+        team1: [{ personality: 'hodadak', difficulty: 'normal' }],
+        rules: { police: true },
+        onTick: (sim) => {
+          const s = sim.state;
+          const raw = matchPointInfo(s);
+          const shown = p.update(raw, s);
+          if (raw || !shown) return;
+          held++;
+          const l = s.loot.find((x) => x.id === shown.lootIds[0])!;
+          expect(l.recovered).toBe(false);
+          const after: [number, number] = [s.scores[0], s.scores[1]];
+          after[shown.team] += l.estimatedValue;
+          const rem = s.remainingValue - l.estimatedValue;
+          const other = shown.team === 0 ? 1 : 0;
+          if (shown.kind === 'tie') expect(rem === 0 && after[0] === after[1]).toBe(true);
+          else expect(rem <= 0 ? after[shown.team] > after[other] : after[shown.team] > after[other] + rem).toBe(true);
+        },
+      });
+    }
+    expect(held).toBeGreaterThan(0);
   });
 });
 
