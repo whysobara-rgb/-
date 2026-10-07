@@ -31,7 +31,7 @@ class BoxCard extends StatelessWidget {
                 if (box.soldOut)
                   Container(
                     decoration: BoxDecoration(
-                      color: AppColors.bg.withValues(alpha: 0.6),
+                      color: AppColors.canvas.withValues(alpha: 0.6),
                       borderRadius: Radii.thumb,
                     ),
                     alignment: Alignment.center,
@@ -41,13 +41,13 @@ class BoxCard extends StatelessWidget {
                         vertical: 5,
                       ),
                       decoration: const BoxDecoration(
-                        color: AppColors.ink,
+                        color: AppColors.text,
                         borderRadius: Radii.chip,
                       ),
                       child: Text(
                         '품절',
                         style: AppText.caption.copyWith(
-                          color: AppColors.onInk,
+                          color: AppColors.canvas,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
@@ -69,7 +69,7 @@ class BoxCard extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: AppText.body.copyWith(
               height: 1.35,
-              color: box.soldOut ? AppColors.inkTertiary : AppColors.ink,
+              color: box.soldOut ? AppColors.textTertiary : AppColors.text,
             ),
           ),
           const SizedBox(height: 2),
@@ -77,7 +77,7 @@ class BoxCard extends StatelessWidget {
             formatGp(box.price),
             style: AppText.num(AppText.headline).copyWith(
               fontWeight: FontWeight.w700,
-              color: box.soldOut ? AppColors.inkTertiary : AppColors.ink,
+              color: box.soldOut ? AppColors.textTertiary : AppColors.text,
             ),
           ),
           if (box.pityThreshold != null) ...[
@@ -86,7 +86,7 @@ class BoxCard extends StatelessWidget {
               '천장 ${formatNumber(box.pityThreshold!)}회',
               style: AppText.num(
                 AppText.caption,
-              ).copyWith(color: AppColors.inkTertiary),
+              ).copyWith(color: AppColors.textTertiary),
             ),
           ],
         ],

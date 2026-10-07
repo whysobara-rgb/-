@@ -17,36 +17,65 @@ class GpBadge extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(right: Space.x3),
       child: Center(
-        child: InkWell(
-          borderRadius: Radii.button,
-          onTap: () =>
-              context.read<TabNavigator>().goTo(context, AppTab.wallet),
-          child: Container(
-            height: 32,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            decoration: BoxDecoration(
-              border: Border.all(color: AppColors.line),
-              borderRadius: Radii.button,
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  formatNumber(balance),
-                  style: AppText.num(AppText.bodyStrong).copyWith(height: 1),
-                ),
-                const SizedBox(width: 3),
-                Text(
-                  'GP',
-                  style: AppText.micro.copyWith(
-                    color: AppColors.inkSecondary,
-                    fontWeight: FontWeight.w700,
-                    height: 1,
+        child: Material(
+          color: AppColors.raised,
+          shape: const StadiumBorder(
+            side: BorderSide(color: AppColors.hairline),
+          ),
+          child: InkWell(
+            customBorder: const StadiumBorder(),
+            onTap: () =>
+                context.read<TabNavigator>().goTo(context, AppTab.wallet),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(5, 5, 12, 5),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const GpCoin(size: 20),
+                  const SizedBox(width: 6),
+                  Text(
+                    formatNumber(balance),
+                    style: AppText.num(
+                      AppText.bodyStrong,
+                    ).copyWith(height: 1, fontWeight: FontWeight.w800),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// GP 코인 글리프: 제이드 원 안의 "G".
+class GpCoin extends StatelessWidget {
+  final double size;
+  const GpCoin({super.key, this.size = 18});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: const BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF7FF5C9), AppColors.brand, AppColors.brandPressed],
+        ),
+      ),
+      child: Text(
+        'G',
+        style: TextStyle(
+          fontFamily: AppText.family,
+          fontSize: size * 0.56,
+          height: 1,
+          fontWeight: FontWeight.w900,
+          color: AppColors.onBrand,
         ),
       ),
     );

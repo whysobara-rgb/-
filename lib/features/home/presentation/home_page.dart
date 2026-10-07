@@ -113,7 +113,7 @@ class _HomePageState extends State<HomePage> {
     return Scaffold(
       appBar: AppBar(title: const _Wordmark(), actions: const [GpBadge()]),
       body: RefreshIndicator(
-        color: AppColors.ink,
+        color: AppColors.text,
         onRefresh: _load,
         child: CustomScrollView(
           slivers: [
@@ -198,7 +198,7 @@ class _Wordmark extends StatelessWidget {
           TextSpan(text: '가치가차'),
           TextSpan(
             text: '.',
-            style: TextStyle(color: AppColors.accent),
+            style: TextStyle(color: AppColors.brand),
           ),
         ],
       ),
@@ -260,14 +260,16 @@ class _Chip extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 12),
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: selected ? AppColors.ink : AppColors.bg,
-          border: Border.all(color: selected ? AppColors.ink : AppColors.line),
+          color: selected ? AppColors.text : AppColors.canvas,
+          border: Border.all(
+            color: selected ? AppColors.text : AppColors.hairline,
+          ),
           borderRadius: const BorderRadius.all(Radius.circular(16)),
         ),
         child: Text(
           label,
           style: AppText.callout.copyWith(
-            color: selected ? AppColors.onInk : AppColors.ink,
+            color: selected ? AppColors.canvas : AppColors.text,
             fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
           ),
         ),
@@ -283,7 +285,7 @@ class _TrustFooter extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      color: AppColors.bgSubtle,
+      color: AppColors.surface,
       padding: const EdgeInsets.fromLTRB(
         Space.gutter,
         Space.x6,
@@ -310,7 +312,7 @@ class _TrustFooter extends StatelessWidget {
                 context.read<TabNavigator>().goTo(context, AppTab.wallet),
             style: OutlinedButton.styleFrom(
               minimumSize: const Size(0, 36),
-              backgroundColor: AppColors.bg,
+              backgroundColor: AppColors.canvas,
               textStyle: AppText.callout.copyWith(fontWeight: FontWeight.w600),
             ),
             child: const Text('월 충전 한도 설정'),

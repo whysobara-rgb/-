@@ -12,17 +12,18 @@ class Space {
   static const double x6 = 24;
   static const double x8 = 32;
   static const double x10 = 40;
+  static const double x12 = 48;
 
   /// 페이지 좌우 여백.
   static const double gutter = 20;
 
-  /// 섹션 사이를 띄우는 회색 띠 높이 (그림자 대신 사용).
-  static const double sectionGap = 8;
+  /// 홈·상세에서 섹션과 섹션 사이.
+  static const double section = 36;
 
   static const EdgeInsets page = EdgeInsets.symmetric(horizontal: gutter);
 }
 
-/// 모서리 반경. 세 가지만 쓴다.
+/// 모서리 반경.
 class Radii {
   Radii._();
 
@@ -30,26 +31,31 @@ class Radii {
   static const double sm = 4;
 
   /// 썸네일·버튼·입력창.
-  static const double md = 8;
+  static const double md = 10;
 
   /// 카드·시트·다이얼로그.
-  static const double lg = 12;
+  static const double lg = 16;
+
+  /// 배너·히어로 카드.
+  static const double xl = 22;
 
   static const BorderRadius chip = BorderRadius.all(Radius.circular(sm));
   static const BorderRadius thumb = BorderRadius.all(Radius.circular(md));
   static const BorderRadius button = BorderRadius.all(Radius.circular(md));
   static const BorderRadius card = BorderRadius.all(Radius.circular(lg));
+  static const BorderRadius hero = BorderRadius.all(Radius.circular(xl));
+  static const BorderRadius pill = BorderRadius.all(Radius.circular(999));
   static const BorderRadius sheet = BorderRadius.vertical(
-    top: Radius.circular(lg),
+    top: Radius.circular(xl),
   );
 }
 
-/// 셸 모션. 짧고 표준 커브만.
+/// 셸 모션. 짧고 표준 커브만. 뽑기 연출의 타임라인은 reveal_timeline.dart.
 class Motion {
   Motion._();
 
   static const Duration fast = Duration(milliseconds: 150);
-  static const Duration normal = Duration(milliseconds: 200);
-  static const Duration slow = Duration(milliseconds: 250);
+  static const Duration normal = Duration(milliseconds: 220);
+  static const Duration slow = Duration(milliseconds: 300);
   static const Curve curve = Curves.easeOutCubic;
 }

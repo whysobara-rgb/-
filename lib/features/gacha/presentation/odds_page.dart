@@ -285,7 +285,7 @@ class _OddsBody extends StatelessWidget {
               '표시된 확률은 서버 추첨에 쓰는 가중치를 그대로 환산한 값이며, 소수점 넷째 자리까지 보여드려요. '
               '설정이 바뀌면 이 화면에 바로 반영돼요.',
             ),
-            style: AppText.caption.copyWith(color: AppColors.inkTertiary),
+            style: AppText.caption.copyWith(color: AppColors.textTertiary),
           ),
         ),
       ],
@@ -323,7 +323,7 @@ class _FigureGrid extends StatelessWidget {
             Text(
               f.sub!,
               style: AppText.micro.copyWith(
-                color: AppColors.inkTertiary,
+                color: AppColors.textTertiary,
                 fontWeight: FontWeight.w500,
               ),
             ),
@@ -344,7 +344,7 @@ class _FigureGrid extends StatelessWidget {
               const VerticalDivider(
                 width: 1,
                 thickness: 1,
-                color: AppColors.line,
+                color: AppColors.hairline,
               ),
               Expanded(
                 child: i + 1 < figures.length
@@ -358,7 +358,7 @@ class _FigureGrid extends StatelessWidget {
     }
     return Container(
       decoration: BoxDecoration(
-        border: Border.all(color: AppColors.line),
+        border: Border.all(color: AppColors.hairline),
         borderRadius: Radii.card,
       ),
       child: Column(children: rows),
@@ -399,8 +399,8 @@ class _Table extends StatelessWidget {
         Container(
           decoration: const BoxDecoration(
             border: Border(
-              top: BorderSide(color: AppColors.ink),
-              bottom: BorderSide(color: AppColors.line),
+              top: BorderSide(color: AppColors.text),
+              bottom: BorderSide(color: AppColors.hairline),
             ),
           ),
           child: row([
@@ -419,10 +419,10 @@ class _Table extends StatelessWidget {
         if (footer != null)
           Container(
             decoration: const BoxDecoration(
-              color: AppColors.bgSubtle,
+              color: AppColors.surface,
               border: Border(
-                top: BorderSide(color: AppColors.line),
-                bottom: BorderSide(color: AppColors.line),
+                top: BorderSide(color: AppColors.hairline),
+                bottom: BorderSide(color: AppColors.hairline),
               ),
             ),
             child: row(
@@ -520,7 +520,7 @@ class _RuleBlock extends StatelessWidget {
               vertical: Space.x1,
             ),
             decoration: const BoxDecoration(
-              color: AppColors.bgSubtle,
+              color: AppColors.surface,
               borderRadius: Radii.card,
             ),
             child: Column(children: rows),

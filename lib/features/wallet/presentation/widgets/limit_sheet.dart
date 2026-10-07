@@ -150,7 +150,7 @@ class _LimitSheetState extends State<_LimitSheet> {
           Container(
             padding: const EdgeInsets.all(Space.x4),
             decoration: const BoxDecoration(
-              color: AppColors.bgSubtle,
+              color: AppColors.surface,
               borderRadius: Radii.card,
             ),
             child: Text(
@@ -159,7 +159,7 @@ class _LimitSheetState extends State<_LimitSheet> {
                   : _immediate
                   ? '저장하면 바로 적용돼요.'
                   : '한도를 올리거나 해제하면 7일 뒤(${formatMonthDay(effectiveDate)})에 적용돼요. 그 전까지는 지금 한도가 유지돼요.',
-              style: AppText.caption.copyWith(color: AppColors.ink),
+              style: AppText.caption.copyWith(color: AppColors.text),
             ),
           ),
           const SizedBox(height: Space.x5),
@@ -206,7 +206,7 @@ class _Option extends StatelessWidget {
                   ? Icons.radio_button_checked
                   : Icons.radio_button_unchecked,
               size: 22,
-              color: selected ? AppColors.ink : AppColors.inkDisabled,
+              color: selected ? AppColors.text : AppColors.textDisabled,
             ),
           ],
         ),

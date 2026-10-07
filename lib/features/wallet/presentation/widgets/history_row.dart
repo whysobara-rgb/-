@@ -28,10 +28,10 @@ class HistoryRow extends StatelessWidget {
             width: 40,
             height: 40,
             decoration: const BoxDecoration(
-              color: AppColors.bgSubtle,
+              color: AppColors.surface,
               shape: BoxShape.circle,
             ),
-            child: Icon(entry.reason.icon, size: 20, color: AppColors.ink),
+            child: Icon(entry.reason.icon, size: 20, color: AppColors.text),
           ),
           const SizedBox(width: Space.x3),
           Expanded(
@@ -55,9 +55,9 @@ class HistoryRow extends StatelessWidget {
             children: [
               Text(
                 formatSignedGp(entry.signedAmount),
-                style: AppText.num(AppText.bodyStrong).copyWith(
-                  color: positive ? AppColors.positive : AppColors.ink,
-                ),
+                style: AppText.num(
+                  AppText.bodyStrong,
+                ).copyWith(color: positive ? AppColors.brand : AppColors.text),
               ),
               if (entry.balanceAfter != null) ...[
                 const SizedBox(height: 2),
@@ -65,7 +65,7 @@ class HistoryRow extends StatelessWidget {
                   formatGp(entry.balanceAfter!),
                   style: AppText.num(
                     AppText.caption,
-                  ).copyWith(color: AppColors.inkTertiary),
+                  ).copyWith(color: AppColors.textTertiary),
                 ),
               ],
             ],

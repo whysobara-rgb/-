@@ -103,7 +103,7 @@ class _AttendanceCardState extends State<AttendanceCard> {
         Space.x4,
       ),
       decoration: BoxDecoration(
-        border: Border.all(color: AppColors.line),
+        border: Border.all(color: AppColors.hairline),
         borderRadius: Radii.card,
       ),
       child: Column(
@@ -128,9 +128,10 @@ class _AttendanceCardState extends State<AttendanceCard> {
               if (status.streakDay > 0)
                 Text(
                   '${status.streakDay}일 연속',
-                  style: AppText.num(
-                    AppText.caption,
-                  ).copyWith(color: AppColors.ink, fontWeight: FontWeight.w700),
+                  style: AppText.num(AppText.caption).copyWith(
+                    color: AppColors.text,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
             ],
           ),
@@ -156,7 +157,7 @@ class _AttendanceCardState extends State<AttendanceCard> {
               height: 44,
               alignment: Alignment.center,
               decoration: const BoxDecoration(
-                color: AppColors.bgSubtle,
+                color: AppColors.surface,
                 borderRadius: Radii.button,
               ),
               child: Text(
@@ -207,15 +208,15 @@ class _DayCell extends StatelessWidget {
     final Color fg;
     BoxBorder? border;
     if (done) {
-      bg = AppColors.ink;
-      fg = AppColors.onInk;
+      bg = AppColors.text;
+      fg = AppColors.canvas;
     } else if (today) {
-      bg = AppColors.accentTint;
-      fg = AppColors.accent;
-      border = Border.all(color: AppColors.accent, width: 1.2);
+      bg = AppColors.brandTint;
+      fg = AppColors.brand;
+      border = Border.all(color: AppColors.brand, width: 1.2);
     } else {
-      bg = AppColors.bgSubtle;
-      fg = AppColors.inkSecondary;
+      bg = AppColors.surface;
+      fg = AppColors.textSecondary;
     }
 
     return AnimatedContainer(

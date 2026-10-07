@@ -122,7 +122,7 @@ class _WalletPageState extends State<WalletPage> {
     return Scaffold(
       appBar: AppBar(title: const Text('충전')),
       body: RefreshIndicator(
-        color: AppColors.ink,
+        color: AppColors.text,
         onRefresh: _refresh,
         child: ListView(
           padding: const EdgeInsets.only(bottom: Space.x10),
@@ -151,7 +151,7 @@ class _WalletPageState extends State<WalletPage> {
                       Text(
                         'GP',
                         style: AppText.title2.copyWith(
-                          color: AppColors.inkSecondary,
+                          color: AppColors.textSecondary,
                         ),
                       ),
                     ],
@@ -251,9 +251,10 @@ class _LimitSection extends StatelessWidget {
                 const Spacer(),
                 Text(
                   '남은 한도 ${formatWon(limit.remainingThisMonth ?? 0)}',
-                  style: AppText.num(
-                    AppText.callout,
-                  ).copyWith(color: AppColors.ink, fontWeight: FontWeight.w600),
+                  style: AppText.num(AppText.callout).copyWith(
+                    color: AppColors.text,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ],
             ),
@@ -263,10 +264,8 @@ class _LimitSection extends StatelessWidget {
               child: LinearProgressIndicator(
                 value: limit.usedRatio,
                 minHeight: 6,
-                color: limit.usedRatio >= 1
-                    ? AppColors.negative
-                    : AppColors.ink,
-                backgroundColor: AppColors.bgMuted,
+                color: limit.usedRatio >= 1 ? AppColors.danger : AppColors.text,
+                backgroundColor: AppColors.high,
               ),
             ),
             const SizedBox(height: Space.x2),
@@ -287,7 +286,7 @@ class _LimitSection extends StatelessWidget {
                 vertical: 10,
               ),
               decoration: const BoxDecoration(
-                color: AppColors.bgSubtle,
+                color: AppColors.surface,
                 borderRadius: Radii.button,
               ),
               child: Row(
@@ -295,7 +294,7 @@ class _LimitSection extends StatelessWidget {
                   const Icon(
                     Icons.schedule,
                     size: 16,
-                    color: AppColors.inkSecondary,
+                    color: AppColors.textSecondary,
                   ),
                   const SizedBox(width: 6),
                   Expanded(
@@ -303,7 +302,7 @@ class _LimitSection extends StatelessWidget {
                       _pendingText(pending),
                       style: AppText.num(
                         AppText.caption,
-                      ).copyWith(color: AppColors.ink),
+                      ).copyWith(color: AppColors.text),
                     ),
                   ),
                 ],

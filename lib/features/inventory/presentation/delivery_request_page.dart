@@ -183,9 +183,9 @@ class _DeliveryRequestPageState extends State<DeliveryRequestPage> {
                 InfoRow(
                   label: '신청 후 보유',
                   value: enough ? formatGp(balance - _deliveryFee) : 'GP 부족',
-                  valueStyle: AppText.num(AppText.bodyStrong).copyWith(
-                    color: enough ? AppColors.ink : AppColors.negative,
-                  ),
+                  valueStyle: AppText.num(
+                    AppText.bodyStrong,
+                  ).copyWith(color: enough ? AppColors.text : AppColors.danger),
                 ),
                 const SizedBox(height: Space.x3),
                 Text(
@@ -199,8 +199,8 @@ class _DeliveryRequestPageState extends State<DeliveryRequestPage> {
       ),
       bottomNavigationBar: DecoratedBox(
         decoration: const BoxDecoration(
-          color: AppColors.bg,
-          border: Border(top: BorderSide(color: AppColors.line)),
+          color: AppColors.canvas,
+          border: Border(top: BorderSide(color: AppColors.hairline)),
         ),
         child: SafeArea(
           top: false,
@@ -248,7 +248,7 @@ class _Field extends StatelessWidget {
           Text(
             label,
             style: AppText.caption.copyWith(
-              color: AppColors.ink,
+              color: AppColors.text,
               fontWeight: FontWeight.w600,
             ),
           ),

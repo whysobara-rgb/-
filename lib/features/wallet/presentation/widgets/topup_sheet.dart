@@ -116,7 +116,7 @@ class _TopupSheetState extends State<_TopupSheet> {
               vertical: Space.x2,
             ),
             decoration: const BoxDecoration(
-              color: AppColors.bgSubtle,
+              color: AppColors.surface,
               borderRadius: Radii.card,
             ),
             child: Column(
@@ -140,13 +140,13 @@ class _TopupSheetState extends State<_TopupSheet> {
             const SizedBox(height: Space.x2),
             Text(
               problem,
-              style: AppText.caption.copyWith(color: AppColors.negative),
+              style: AppText.caption.copyWith(color: AppColors.danger),
             ),
           ],
           const SizedBox(height: Space.x2),
           Text(
             '데모 환경이라 실제 결제 없이 바로 충전돼요.',
-            style: AppText.caption.copyWith(color: AppColors.inkTertiary),
+            style: AppText.caption.copyWith(color: AppColors.textTertiary),
           ),
           const SizedBox(height: Space.x4),
           PrimaryButton(
@@ -185,7 +185,7 @@ class _AmountTile extends StatelessWidget {
         decoration: BoxDecoration(
           borderRadius: Radii.button,
           border: Border.all(
-            color: selected ? AppColors.ink : AppColors.line,
+            color: selected ? AppColors.text : AppColors.hairline,
             width: selected ? 1.5 : 1,
           ),
         ),
@@ -193,7 +193,7 @@ class _AmountTile extends StatelessWidget {
           label,
           style: AppText.num(
             AppText.bodyStrong,
-          ).copyWith(color: disabled ? AppColors.inkDisabled : AppColors.ink),
+          ).copyWith(color: disabled ? AppColors.textDisabled : AppColors.text),
         ),
       ),
     );

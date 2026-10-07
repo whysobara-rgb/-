@@ -72,7 +72,7 @@ class _PointHistoryPageState extends State<PointHistoryPage> {
           Container(
             height: 44,
             decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: AppColors.line)),
+              border: Border(bottom: BorderSide(color: AppColors.hairline)),
             ),
             padding: Space.page,
             child: Row(
@@ -97,7 +97,7 @@ class _PointHistoryPageState extends State<PointHistoryPage> {
                     title: '내역이 없어요',
                   )
                 : RefreshIndicator(
-                    color: AppColors.ink,
+                    color: AppColors.text,
                     onRefresh: _load,
                     child: ListView.separated(
                       itemCount: _items.length,
@@ -133,7 +133,7 @@ class _Tab extends StatelessWidget {
         decoration: BoxDecoration(
           border: Border(
             bottom: BorderSide(
-              color: selected ? AppColors.ink : Colors.transparent,
+              color: selected ? AppColors.text : Colors.transparent,
               width: 2,
             ),
           ),
@@ -141,7 +141,7 @@ class _Tab extends StatelessWidget {
         child: Text(
           label,
           style: AppText.bodyStrong.copyWith(
-            color: selected ? AppColors.ink : AppColors.inkTertiary,
+            color: selected ? AppColors.text : AppColors.textTertiary,
           ),
         ),
       ),

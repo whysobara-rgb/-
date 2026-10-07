@@ -91,7 +91,7 @@ class _GachaResultPageState extends State<GachaResultPage> {
                 vertical: Space.x2,
               ),
               decoration: const BoxDecoration(
-                color: AppColors.bgSubtle,
+                color: AppColors.surface,
                 borderRadius: Radii.card,
               ),
               child: Column(
@@ -102,7 +102,7 @@ class _GachaResultPageState extends State<GachaResultPage> {
                     value: formatGp(total),
                     valueStyle: AppText.num(
                       AppText.headline,
-                    ).copyWith(color: AppColors.accent),
+                    ).copyWith(color: AppColors.brand),
                   ),
                   const Hairline(),
                   InfoRow(label: '전환 후 보유', value: formatGp(balance + total)),
@@ -213,7 +213,7 @@ class _GachaResultPageState extends State<GachaResultPage> {
               ),
               child: Text(
                 keepAll('보관한 상품은 보관함에서 언제든 배송 신청하거나 포인트로 전환할 수 있어요.'),
-                style: AppText.caption.copyWith(color: AppColors.inkTertiary),
+                style: AppText.caption.copyWith(color: AppColors.textTertiary),
               ),
             ),
           ],
@@ -298,7 +298,7 @@ class _Summary extends StatelessWidget {
               value: formatGp(outcome.totalExchange),
               valueStyle: AppText.num(
                 AppText.bodyStrong,
-              ).copyWith(color: AppColors.inkSecondary),
+              ).copyWith(color: AppColors.textSecondary),
             ),
         ],
       ),
@@ -435,7 +435,7 @@ class _ResultTile extends StatelessWidget {
                 Positioned(
                   left: 6,
                   top: 6,
-                  child: RarityTag(result.rarity, solid: true, dense: true),
+                  child: RarityTag(result.rarity, dense: true),
                 ),
                 if (result.isPity || result.isBonus)
                   Positioned(
@@ -452,14 +452,14 @@ class _ResultTile extends StatelessWidget {
           result.name,
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
-          style: AppText.caption.copyWith(color: AppColors.ink, height: 1.35),
+          style: AppText.caption.copyWith(color: AppColors.text, height: 1.35),
         ),
         const SizedBox(height: 2),
         Text(
           formatWon(result.estimatedValue),
           style: AppText.num(
             AppText.caption,
-          ).copyWith(fontWeight: FontWeight.w700, color: AppColors.ink),
+          ).copyWith(fontWeight: FontWeight.w700, color: AppColors.text),
         ),
       ],
     );
@@ -495,7 +495,7 @@ class _PityLine extends StatelessWidget {
                       text: '$remaining회',
                       style: AppText.num(
                         AppText.bodyStrong,
-                      ).copyWith(color: AppColors.ink),
+                      ).copyWith(color: AppColors.text),
                     ),
                   ],
                 ),
@@ -533,8 +533,8 @@ class _BottomActions extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: const BoxDecoration(
-        color: AppColors.bg,
-        border: Border(top: BorderSide(color: AppColors.line)),
+        color: AppColors.canvas,
+        border: Border(top: BorderSide(color: AppColors.hairline)),
       ),
       child: SafeArea(
         top: false,

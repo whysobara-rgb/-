@@ -15,10 +15,10 @@ void main() {
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.dark,
-      statusBarBrightness: Brightness.light,
-      systemNavigationBarColor: AppColors.bg,
-      systemNavigationBarIconBrightness: Brightness.dark,
+      statusBarIconBrightness: Brightness.light,
+      statusBarBrightness: Brightness.dark,
+      systemNavigationBarColor: AppColors.canvas,
+      systemNavigationBarIconBrightness: Brightness.light,
     ),
   );
   runApp(const GachaVaultApp());
@@ -40,22 +40,26 @@ class GachaVaultApp extends StatelessWidget {
               (gp ?? GpProvider())..syncFromUser(auth.currentUser),
         ),
       ],
-      child: MaterialApp(
-        title: '가치가차',
-        debugShowCheckedModeBanner: false,
-        theme: AppTheme.light,
-        themeMode: ThemeMode.light,
-        // 넓은 화면(웹)에서도 모바일 폭으로 가운데 정렬한다.
-        builder: (context, child) => ColoredBox(
-          color: AppColors.bgSubtle,
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 480),
-              child: child,
+      // 로그인 전(로그인·가입)은 1차의 페이퍼 테마, 로그인 후는 나이트 볼트.
+      // auth 화면은 흰 바탕을 전제로 색을 직접 지정하고 있어 테마만 바꾼다.
+      child: Selector<AuthProvider, bool>(
+        selector: (_, auth) => auth.isLoggedIn || auth.isInitializing,
+        builder: (context, vault, _) => MaterialApp(
+          title: '가치가차',
+          debugShowCheckedModeBanner: false,
+          theme: vault ? AppTheme.vault : AppTheme.paper,
+          // 넓은 화면(웹)에서도 모바일 폭으로 가운데 정렬한다.
+          builder: (context, child) => ColoredBox(
+            color: vault ? Colors.black : AppColors.bgSubtle,
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 480),
+                child: child,
+              ),
             ),
           ),
+          home: const AuthGate(),
         ),
-        home: const AuthGate(),
       ),
     );
   }

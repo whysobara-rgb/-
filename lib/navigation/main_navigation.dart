@@ -56,8 +56,8 @@ class _BottomBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: const BoxDecoration(
-        color: AppColors.bg,
-        border: Border(top: BorderSide(color: AppColors.line)),
+        color: AppColors.canvas,
+        border: Border(top: BorderSide(color: AppColors.hairline)),
       ),
       child: SafeArea(
         top: false,
@@ -97,7 +97,7 @@ class _BarItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = selected ? AppColors.accent : AppColors.inkTertiary;
+    final color = selected ? AppColors.brand : AppColors.textTertiary;
     return Semantics(
       selected: selected,
       button: true,
@@ -114,7 +114,7 @@ class _BarItem extends StatelessWidget {
             Text(
               label,
               style: AppText.micro.copyWith(
-                color: selected ? AppColors.ink : AppColors.inkTertiary,
+                color: selected ? AppColors.text : AppColors.textTertiary,
                 fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
                 height: 1,
               ),

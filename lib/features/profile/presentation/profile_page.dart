@@ -107,7 +107,7 @@ class _ProfilePageState extends State<ProfilePage> {
             Expanded(
               child: FilledButton(
                 onPressed: () => Navigator.of(sheet).pop(true),
-                style: FilledButton.styleFrom(backgroundColor: AppColors.ink),
+                style: FilledButton.styleFrom(backgroundColor: AppColors.text),
                 child: const Text('로그아웃'),
               ),
             ),
@@ -144,7 +144,7 @@ class _ProfilePageState extends State<ProfilePage> {
     return Scaffold(
       appBar: AppBar(title: const Text('MY')),
       body: RefreshIndicator(
-        color: AppColors.ink,
+        color: AppColors.text,
         onRefresh: _load,
         child: ListView(
           padding: const EdgeInsets.only(bottom: Space.x10),
@@ -163,7 +163,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     height: 52,
                     alignment: Alignment.center,
                     decoration: const BoxDecoration(
-                      color: AppColors.bgSubtle,
+                      color: AppColors.surface,
                       shape: BoxShape.circle,
                     ),
                     child: Text(
@@ -171,7 +171,7 @@ class _ProfilePageState extends State<ProfilePage> {
                           ? user!.nickname.characters.first
                           : '·',
                       style: AppText.title2.copyWith(
-                        color: AppColors.inkSecondary,
+                        color: AppColors.textSecondary,
                       ),
                     ),
                   ),
@@ -204,7 +204,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     Space.x4,
                   ),
                   decoration: BoxDecoration(
-                    border: Border.all(color: AppColors.line),
+                    border: Border.all(color: AppColors.hairline),
                     borderRadius: Radii.card,
                   ),
                   child: Row(
@@ -221,7 +221,7 @@ class _ProfilePageState extends State<ProfilePage> {
                       const Icon(
                         Icons.chevron_right,
                         size: 20,
-                        color: AppColors.inkTertiary,
+                        color: AppColors.textTertiary,
                       ),
                     ],
                   ),
@@ -237,14 +237,14 @@ class _ProfilePageState extends State<ProfilePage> {
                 child: Row(
                   children: [
                     _Stat(label: '뽑기', value: _drawCount, unit: '회'),
-                    const VerticalDivider(width: 1, color: AppColors.line),
+                    const VerticalDivider(width: 1, color: AppColors.hairline),
                     _Stat(
                       label: '보관 중',
                       value: _storedCount,
                       unit: '개',
                       onTap: () => tabs.select(AppTab.inventory),
                     ),
-                    const VerticalDivider(width: 1, color: AppColors.line),
+                    const VerticalDivider(width: 1, color: AppColors.hairline),
                     _Stat(label: '배송 완료', value: _deliveredCount, unit: '개'),
                   ],
                 ),
@@ -289,7 +289,7 @@ class _ProfilePageState extends State<ProfilePage> {
             MenuRow(
               icon: Icons.logout,
               label: '로그아웃',
-              labelColor: AppColors.inkSecondary,
+              labelColor: AppColors.textSecondary,
               showChevron: false,
               onTap: _logout,
             ),
@@ -302,7 +302,7 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
               child: Text(
                 '가치가차 1.0.0',
-                style: AppText.caption.copyWith(color: AppColors.inkTertiary),
+                style: AppText.caption.copyWith(color: AppColors.textTertiary),
               ),
             ),
           ],

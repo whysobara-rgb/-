@@ -100,7 +100,7 @@ class _AsyncListState<T> extends State<_AsyncList<T>>
     if (items == null) return const LoadingView();
     final sparse = items.isNotEmpty && items.length < 5;
     return RefreshIndicator(
-      color: AppColors.ink,
+      color: AppColors.text,
       onRefresh: _load,
       child: ListView.separated(
         padding: const EdgeInsets.only(bottom: Space.x8),
@@ -121,7 +121,7 @@ class _AsyncListState<T> extends State<_AsyncList<T>>
               ),
               child: Text(
                 widget.sparseNote ?? '기록이 쌓이면 더 채워져요.',
-                style: AppText.caption.copyWith(color: AppColors.inkTertiary),
+                style: AppText.caption.copyWith(color: AppColors.textTertiary),
               ),
             );
           }
@@ -166,7 +166,7 @@ class _RankNumber extends StatelessWidget {
       '$rank',
       style: AppText.num(AppText.headline).copyWith(
         fontWeight: FontWeight.w800,
-        color: rank <= 3 ? AppColors.ink : AppColors.inkTertiary,
+        color: rank <= 3 ? AppColors.text : AppColors.textTertiary,
       ),
     ),
   );
@@ -346,14 +346,17 @@ class _WinsTab extends StatelessWidget {
               children: [
                 Text(
                   formatWon(w.estimatedValue),
-                  style: AppText.num(
-                    AppText.callout,
-                  ).copyWith(color: AppColors.ink, fontWeight: FontWeight.w600),
+                  style: AppText.num(AppText.callout).copyWith(
+                    color: AppColors.text,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   w.relativeTimeLabel,
-                  style: AppText.caption.copyWith(color: AppColors.inkTertiary),
+                  style: AppText.caption.copyWith(
+                    color: AppColors.textTertiary,
+                  ),
                 ),
               ],
             ),

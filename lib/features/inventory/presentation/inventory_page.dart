@@ -184,7 +184,7 @@ class _InventoryPageState extends State<InventoryPage> {
                 vertical: Space.x2,
               ),
               decoration: const BoxDecoration(
-                color: AppColors.bgSubtle,
+                color: AppColors.surface,
                 borderRadius: Radii.card,
               ),
               child: Column(
@@ -196,7 +196,7 @@ class _InventoryPageState extends State<InventoryPage> {
                     value: formatGp(total),
                     valueStyle: AppText.num(
                       AppText.headline,
-                    ).copyWith(color: AppColors.accent),
+                    ).copyWith(color: AppColors.brand),
                   ),
                   const Hairline(),
                   InfoRow(label: '전환 후 보유', value: formatGp(balance + total)),
@@ -287,7 +287,7 @@ class _InventoryPageState extends State<InventoryPage> {
             icon: const Icon(Icons.expand_more, size: 18),
             label: Text(
               _sort.label,
-              style: AppText.callout.copyWith(color: AppColors.ink),
+              style: AppText.callout.copyWith(color: AppColors.text),
             ),
           ),
           const SizedBox(width: Space.x2),
@@ -298,7 +298,7 @@ class _InventoryPageState extends State<InventoryPage> {
           : _error != null && _items.isEmpty
           ? ErrorView(message: _error!, onRetry: _load)
           : RefreshIndicator(
-              color: AppColors.ink,
+              color: AppColors.text,
               onRefresh: _load,
               child: CustomScrollView(
                 slivers: [
@@ -326,7 +326,7 @@ class _InventoryPageState extends State<InventoryPage> {
                           ],
                         ),
                         style: AppText.body.copyWith(
-                          color: AppColors.inkSecondary,
+                          color: AppColors.textSecondary,
                         ),
                       ),
                     ),
@@ -376,7 +376,7 @@ class _InventoryPageState extends State<InventoryPage> {
                               Text(
                                 '보관 중 상품 전체 선택',
                                 style: AppText.callout.copyWith(
-                                  color: AppColors.ink,
+                                  color: AppColors.text,
                                 ),
                               ),
                             ],
@@ -459,14 +459,16 @@ class _FilterChip extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 12),
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: selected ? AppColors.ink : AppColors.bg,
-          border: Border.all(color: selected ? AppColors.ink : AppColors.line),
+          color: selected ? AppColors.text : AppColors.canvas,
+          border: Border.all(
+            color: selected ? AppColors.text : AppColors.hairline,
+          ),
           borderRadius: const BorderRadius.all(Radius.circular(16)),
         ),
         child: Text(
           label,
           style: AppText.num(AppText.callout).copyWith(
-            color: selected ? AppColors.onInk : AppColors.ink,
+            color: selected ? AppColors.canvas : AppColors.text,
             fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
           ),
         ),
@@ -493,7 +495,7 @@ class _ItemRow extends StatelessWidget {
       onTap: actionable ? onTap : null,
       child: AnimatedContainer(
         duration: Motion.fast,
-        color: AppColors.bg,
+        color: AppColors.canvas,
         padding: const EdgeInsets.fromLTRB(
           Space.x3,
           Space.x3,
@@ -525,7 +527,7 @@ class _ItemRow extends StatelessWidget {
                         const SizedBox(width: 4),
                         QuietLabel(
                           item.status.label,
-                          color: AppColors.inkSecondary,
+                          color: AppColors.textSecondary,
                         ),
                       ],
                       if (item.isLocked) ...[
@@ -533,7 +535,7 @@ class _ItemRow extends StatelessWidget {
                         const Icon(
                           Icons.lock_outline,
                           size: 14,
-                          color: AppColors.inkTertiary,
+                          color: AppColors.textTertiary,
                         ),
                       ],
                     ],
@@ -557,7 +559,7 @@ class _ItemRow extends StatelessWidget {
                     '${formatMonthDay(item.acquiredAt)} 획득',
                     style: AppText.num(
                       AppText.caption,
-                    ).copyWith(color: AppColors.inkTertiary),
+                    ).copyWith(color: AppColors.textTertiary),
                   ),
                 ],
               ),
@@ -591,8 +593,8 @@ class _SelectionBar extends StatelessWidget {
         .fold<int>(0, (s, i) => s + (i.exchangeValue ?? 0));
     return DecoratedBox(
       decoration: const BoxDecoration(
-        color: AppColors.bg,
-        border: Border(top: BorderSide(color: AppColors.line)),
+        color: AppColors.canvas,
+        border: Border(top: BorderSide(color: AppColors.hairline)),
       ),
       child: SafeArea(
         top: false,
@@ -650,7 +652,7 @@ class _SelectionBar extends StatelessWidget {
                                 '포인트 전환 ${formatGp(exchangeTotal)}',
                                 style: AppText.num(
                                   AppText.headline,
-                                ).copyWith(color: AppColors.onInk),
+                                ).copyWith(color: AppColors.canvas),
                               ),
                             ),
                     ),

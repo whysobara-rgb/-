@@ -3,14 +3,31 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 
-/// 섹션 사이 8px 회색 띠. 카드 그림자 대신 이걸로 영역을 나눈다.
+/// 공통 UI 조각.
+///
+/// 시트·토스트·버튼·로딩처럼 로그인(페이퍼) 화면도 함께 쓰는 위젯은
+/// 색을 [Theme]에서 읽어 두 테마에서 모두 맞게 그린다.
+
+/// 섹션 사이 띠. 볼트에서는 바탕보다 한 단 깊은 홈(groove).
 class SectionBand extends StatelessWidget {
   final double height;
-  const SectionBand({super.key, this.height = Space.sectionGap});
+  const SectionBand({super.key, this.height = 8});
 
   @override
-  Widget build(BuildContext context) =>
-      Container(height: height, color: AppColors.bgSubtle);
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      height: height,
+      decoration: BoxDecoration(
+        color: dark ? const Color(0xFF040405) : AppColors.bgSubtle,
+        border: dark
+            ? const Border.symmetric(
+                horizontal: BorderSide(color: AppColors.hairline, width: 0.5),
+              )
+            : null,
+      ),
+    );
+  }
 }
 
 /// 1px 헤어라인. [inset]만큼 좌우를 띄운다.
@@ -21,24 +38,32 @@ class Hairline extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Padding(
     padding: EdgeInsets.symmetric(horizontal: inset),
-    child: const Divider(height: 1, thickness: 1, color: AppColors.line),
+    child: Divider(
+      height: 1,
+      thickness: 1,
+      color: Theme.of(context).dividerColor,
+    ),
   );
 }
 
-/// 섹션 제목 + (선택) 우측 텍스트 액션.
+/// 섹션 제목 + (선택) 영문 아이브로 + 우측 텍스트 액션.
 class SectionHeader extends StatelessWidget {
   final String title;
+  final String? eyebrow;
   final String? subtitle;
   final String? actionLabel;
   final VoidCallback? onAction;
+  final Widget? trailing;
   final EdgeInsetsGeometry padding;
 
   const SectionHeader({
     super.key,
     required this.title,
+    this.eyebrow,
     this.subtitle,
     this.actionLabel,
     this.onAction,
+    this.trailing,
     this.padding = const EdgeInsets.fromLTRB(
       Space.gutter,
       Space.x6,
@@ -58,14 +83,19 @@ class SectionHeader extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: AppText.title2),
+                if (eyebrow != null) ...[
+                  Text(eyebrow!, style: AppText.eyebrow),
+                  const SizedBox(height: 5),
+                ],
+                Text(title, style: AppText.title2.copyWith(fontSize: 19)),
                 if (subtitle != null) ...[
-                  const SizedBox(height: 2),
+                  const SizedBox(height: 3),
                   Text(subtitle!, style: AppText.caption),
                 ],
               ],
             ),
           ),
+          ?trailing,
           if (actionLabel != null)
             InkWell(
               onTap: onAction,
@@ -84,7 +114,7 @@ class SectionHeader extends StatelessWidget {
                     const Icon(
                       Icons.chevron_right,
                       size: 16,
-                      color: AppColors.inkSecondary,
+                      color: AppColors.textSecondary,
                     ),
                   ],
                 ),
@@ -120,7 +150,7 @@ class InfoRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(width: 96, child: Text(label, style: AppText.callout)),
+          SizedBox(width: 104, child: Text(label, style: AppText.callout)),
           Expanded(
             child: Text(
               value,
@@ -156,6 +186,7 @@ class MenuRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final fg = labelColor ?? AppColors.text;
     return InkWell(
       onTap: onTap,
       child: Padding(
@@ -166,16 +197,11 @@ class MenuRow extends StatelessWidget {
         child: Row(
           children: [
             if (icon != null) ...[
-              Icon(icon, size: 22, color: labelColor ?? AppColors.ink),
+              Icon(icon, size: 21, color: fg.withValues(alpha: 0.85)),
               const SizedBox(width: Space.x3),
             ],
             Expanded(
-              child: Text(
-                label,
-                style: AppText.body.copyWith(
-                  color: labelColor ?? AppColors.ink,
-                ),
-              ),
+              child: Text(label, style: AppText.body.copyWith(color: fg)),
             ),
             if (value != null)
               Text(value!, style: AppText.num(AppText.callout)),
@@ -184,12 +210,43 @@ class MenuRow extends StatelessWidget {
               const Icon(
                 Icons.chevron_right,
                 size: 20,
-                color: AppColors.inkTertiary,
+                color: AppColors.textTertiary,
               ),
             ],
           ],
         ),
       ),
+    );
+  }
+}
+
+/// 표면 카드: 한 단 밝은 면 + 헤어라인.
+class SurfaceCard extends StatelessWidget {
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+  final BorderRadius borderRadius;
+  final Color color;
+  final Color? borderColor;
+
+  const SurfaceCard({
+    super.key,
+    required this.child,
+    this.padding = const EdgeInsets.all(Space.x4),
+    this.borderRadius = Radii.card,
+    this.color = AppColors.surface,
+    this.borderColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: borderRadius,
+        border: Border.all(color: borderColor ?? AppColors.hairline),
+      ),
+      child: child,
     );
   }
 }
@@ -202,11 +259,14 @@ class LoadingView extends StatelessWidget {
   @override
   Widget build(BuildContext context) => SizedBox(
     height: height,
-    child: const Center(
+    child: Center(
       child: SizedBox(
         width: 22,
         height: 22,
-        child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.ink),
+        child: CircularProgressIndicator(
+          strokeWidth: 2,
+          color: Theme.of(context).colorScheme.onSurface,
+        ),
       ),
     ),
   );
@@ -282,8 +342,17 @@ class EmptyView extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 32, color: AppColors.inkTertiary),
-              const SizedBox(height: Space.x3),
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppColors.surface,
+                  border: Border.all(color: AppColors.hairline),
+                ),
+                child: Icon(icon, size: 24, color: AppColors.textSecondary),
+              ),
+              const SizedBox(height: Space.x4),
               Text(title, style: AppText.headline, textAlign: TextAlign.center),
               if (message != null) ...[
                 const SizedBox(height: Space.x1),
@@ -324,18 +393,19 @@ class PrimaryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     final button = FilledButton(
       onPressed: loading ? null : onPressed,
       style: color != null
           ? FilledButton.styleFrom(backgroundColor: color)
           : null,
       child: loading
-          ? const SizedBox(
+          ? SizedBox(
               width: 20,
               height: 20,
               child: CircularProgressIndicator(
                 strokeWidth: 2,
-                color: AppColors.inkTertiary,
+                color: scheme.onSurfaceVariant,
               ),
             )
           : Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -357,6 +427,7 @@ Future<T?> showAppSheet<T>({
     isScrollControlled: isScrollControlled,
     useSafeArea: true,
     builder: (sheetContext) {
+      final theme = Theme.of(sheetContext);
       return Padding(
         padding: EdgeInsets.only(
           bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
@@ -372,9 +443,9 @@ Future<T?> showAppSheet<T>({
                 child: Container(
                   width: 36,
                   height: 4,
-                  decoration: const BoxDecoration(
-                    color: AppColors.line,
-                    borderRadius: BorderRadius.all(Radius.circular(2)),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.outline,
+                    borderRadius: const BorderRadius.all(Radius.circular(2)),
                   ),
                 ),
               ),
@@ -387,7 +458,14 @@ Future<T?> showAppSheet<T>({
                 ),
                 child: Row(
                   children: [
-                    Expanded(child: Text(title, style: AppText.title2)),
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: AppText.title2.copyWith(
+                          color: theme.colorScheme.onSurface,
+                        ),
+                      ),
+                    ),
                     IconButton(
                       tooltip: '닫기',
                       onPressed: () => Navigator.of(sheetContext).pop(),
@@ -403,6 +481,36 @@ Future<T?> showAppSheet<T>({
       );
     },
   );
+}
+
+/// 시트 안의 정보 묶음 바탕.
+class SheetPanel extends StatelessWidget {
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+  const SheetPanel({
+    super.key,
+    required this.child,
+    this.padding = const EdgeInsets.symmetric(
+      horizontal: Space.x4,
+      vertical: Space.x2,
+    ),
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        color: dark
+            ? AppColors.canvas.withValues(alpha: 0.6)
+            : AppColors.bgSubtle,
+        borderRadius: Radii.card,
+        border: dark ? Border.all(color: AppColors.hairline) : null,
+      ),
+      child: child,
+    );
+  }
 }
 
 /// 스낵바 한 줄.

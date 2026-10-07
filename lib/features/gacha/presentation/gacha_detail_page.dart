@@ -193,7 +193,7 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
             value: formatGp(cost - balance),
             valueStyle: AppText.num(
               AppText.headline,
-            ).copyWith(color: AppColors.negative),
+            ).copyWith(color: AppColors.danger),
           ),
         ],
         confirmLabel: '충전하러 가기',
@@ -227,7 +227,7 @@ class _GachaDetailPageState extends State<GachaDetailPage> {
           : detail == null
           ? ErrorView(message: _error ?? '박스 정보를 불러오지 못했어요', onRetry: _load)
           : RefreshIndicator(
-              color: AppColors.ink,
+              color: AppColors.text,
               onRefresh: _load,
               child: ListView(
                 controller: _scroll,
@@ -291,7 +291,7 @@ class _Headline extends StatelessWidget {
           ],
           const SizedBox(height: Space.x4),
           if (detail.soldOut) ...[
-            const QuietLabel('품절', color: AppColors.negative),
+            const QuietLabel('품절', color: AppColors.danger),
             const SizedBox(height: Space.x2),
           ],
           Row(
@@ -353,8 +353,8 @@ class _StockLine extends StatelessWidget {
           child: LinearProgressIndicator(
             value: total == 0 ? 0 : sold / total,
             minHeight: 4,
-            color: AppColors.ink,
-            backgroundColor: AppColors.bgMuted,
+            color: AppColors.text,
+            backgroundColor: AppColors.high,
           ),
         ),
         const SizedBox(height: 6),
@@ -382,7 +382,7 @@ class _PitySection extends StatelessWidget {
       ),
       padding: const EdgeInsets.all(Space.x4),
       decoration: BoxDecoration(
-        border: Border.all(color: AppColors.line),
+        border: Border.all(color: AppColors.hairline),
         borderRadius: Radii.card,
       ),
       child: Column(
@@ -501,7 +501,7 @@ class _OddsBar extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          const ColoredBox(color: AppColors.bgMuted),
+          const ColoredBox(color: AppColors.high),
           FractionallySizedBox(
             alignment: Alignment.centerLeft,
             widthFactor: factor < 0.03 && factor > 0 ? 0.03 : factor,
@@ -620,7 +620,7 @@ class _Guide extends StatelessWidget {
                         child: Container(
                           width: 3,
                           height: 3,
-                          color: AppColors.inkTertiary,
+                          color: AppColors.textTertiary,
                         ),
                       ),
                       Expanded(
@@ -676,15 +676,15 @@ class _DrawBar extends StatelessWidget {
           child: const _TwoLine(
             title: '품절',
             price: '준비된 수량이 모두 판매됐어요',
-            color: AppColors.inkTertiary,
+            color: AppColors.textTertiary,
           ),
         ),
       );
     }
     return DecoratedBox(
       decoration: const BoxDecoration(
-        color: AppColors.bg,
-        border: Border(top: BorderSide(color: AppColors.line)),
+        color: AppColors.canvas,
+        border: Border(top: BorderSide(color: AppColors.hairline)),
       ),
       child: SafeArea(
         top: false,
@@ -708,7 +708,7 @@ class _DrawBar extends StatelessWidget {
                   child: _TwoLine(
                     title: '1회 뽑기',
                     price: formatGp(price),
-                    color: canSingle ? AppColors.ink : AppColors.inkTertiary,
+                    color: canSingle ? AppColors.text : AppColors.textTertiary,
                   ),
                 ),
               ),
@@ -726,7 +726,7 @@ class _DrawBar extends StatelessWidget {
                     price: canMulti
                         ? formatGp(price * 10)
                         : '남은 수량 ${formatNumber(left ?? 0)}개',
-                    color: canMulti ? AppColors.onInk : AppColors.inkTertiary,
+                    color: canMulti ? AppColors.canvas : AppColors.textTertiary,
                   ),
                 ),
               ),
@@ -747,8 +747,8 @@ class _BarFrame extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: const BoxDecoration(
-        color: AppColors.bg,
-        border: Border(top: BorderSide(color: AppColors.line)),
+        color: AppColors.canvas,
+        border: Border(top: BorderSide(color: AppColors.hairline)),
       ),
       child: SafeArea(
         top: false,
@@ -834,7 +834,7 @@ class _ConfirmSheetBody extends StatelessWidget {
               vertical: Space.x2,
             ),
             decoration: const BoxDecoration(
-              color: AppColors.bgSubtle,
+              color: AppColors.surface,
               borderRadius: Radii.card,
             ),
             child: Column(children: rows),

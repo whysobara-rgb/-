@@ -700,19 +700,14 @@ class _RevealCard extends StatelessWidget {
       ),
       child: Container(
         decoration: const BoxDecoration(
-          color: AppColors.stageRaised,
+          color: AppColors.raised,
           borderRadius: BorderRadius.all(Radius.circular(Radii.lg - 1.5)),
         ),
         padding: const EdgeInsets.all(Space.x3),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              child: ProductImage(
-                url: result.imageUrl,
-                background: const Color(0xFFF2F2F0),
-              ),
-            ),
+            Expanded(child: ProductImage(url: result.imageUrl)),
             const SizedBox(height: Space.x3),
             RarityTag(result.rarity),
           ],
@@ -732,7 +727,7 @@ class _CardBack extends StatelessWidget {
       width: 196,
       height: 248,
       decoration: BoxDecoration(
-        color: AppColors.stageRaised,
+        color: AppColors.raised,
         borderRadius: Radii.card,
         border: Border.all(
           color: grade.primaryColor.withValues(alpha: 0.6),
