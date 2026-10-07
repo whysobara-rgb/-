@@ -94,7 +94,9 @@ class AppTheme {
         backgroundColor: bg,
         foregroundColor: text,
         elevation: 0,
-        scrolledUnderElevation: 0,
+        // 내용이 앱바 밑으로 지나가면 아주 옅은 그림자 한 줄로 경계를 만든다.
+        scrolledUnderElevation: 1,
+        shadowColor: const Color(0x29101828),
         centerTitle: false,
         titleSpacing: Space.gutter,
         surfaceTintColor: Colors.transparent,
