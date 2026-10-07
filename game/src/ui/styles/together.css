@@ -130,6 +130,7 @@
 .uh-together__teamPick { display: flex; align-items: center; gap: 0.4rem; }
 .uh-together__arrow,
 .uh-together__readyBtn {
+  font: inherit;
   display: grid;
   place-items: center;
   min-width: 3rem;
@@ -187,6 +188,7 @@
 }
 .uh-together__joinLabel { font-family: var(--uh-font-display); font-size: 1.6rem; color: var(--pop-sun); text-shadow: 0.12rem 0.12rem 0 var(--pop-ink); margin-right: 0.4rem; }
 .uh-together__hint {
+  font: inherit;
   display: inline-flex;
   align-items: center;
   gap: 0.6rem;

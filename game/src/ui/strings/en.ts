@@ -817,7 +817,7 @@ export const en: Record<StringKey, string> = {
   'together.style.coop': 'Co-op!',
   'together.style.versus.desc': 'Star Crew vs Moon Crew, friend vs friend',
   'together.style.coop.desc': 'All on one team: rob the bot team together',
-  'together.count': '{humans} players · {bots} bots',
+  'together.count': 'Players {humans} · Bots {bots}',
   'together.nobody': 'Nobody here yet',
   'together.waiting': 'Pick a team with ◀ ▶, grab to get ready. Once everyone is ready, pick the match.',
   'together.full': 'Two per team, tops',
