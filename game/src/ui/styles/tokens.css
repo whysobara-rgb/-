@@ -1,0 +1,151 @@
+/*
+ * Design tokens — 뿌리째 털어라 "toy box pop".
+ *
+ * Bright pop palette (sunny yellow, tomato, mint, sky, grape) with one deep plum ink for every
+ * outline and hard shadow, cream paper, over the live dusk 3D scenes.
+ *
+ * Sizing: 1rem = 16px at 1920x1080 and scales with the smaller of width/16 and height/9, so
+ * 720p..4K and 16:10/21:9 all keep the same proportions. --uh-ui-scale (0.8..1.4) is the
+ * player's UI size setting, applied on top. All UI dimensions are in rem.
+ *
+ * Team / loot colors (--uh-team0 ...) are injected at runtime from src/shared/teams.ts.
+ */
+:root {
+  --uh-ui-scale: 1;
+  font-size: calc(min(0.8333333vw, 1.4814815vh) * var(--uh-ui-scale));
+
+  --uh-font-display: 'Jua', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif;
+  --uh-font-body: 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif;
+
+  /* --- Pop palette ---------------------------------------------------------------------- */
+  --pop-ink: #2A2131;
+  --pop-ink-2: #4A3B5C;
+  --pop-cream: #FFF6E6;
+  --pop-paper: #FFEFD6;
+  --pop-sun: #FFD23F;
+  --pop-sun-l: #FFE88A;
+  --pop-sun-d: #E0A417;
+  --pop-tomato: #FF5A4E;
+  --pop-tomato-l: #FF9A8F;
+  --pop-tomato-d: #C8352C;
+  --pop-mint: #4FD6A6;
+  --pop-mint-l: #A9F0D3;
+  --pop-mint-d: #1F9A6E;
+  --pop-sky: #4FB6FF;
+  --pop-sky-l: #ADDCFF;
+  --pop-sky-d: #2479C8;
+  --pop-grape: #8E6CF0;
+  --pop-grape-l: #CDBDFF;
+  --pop-grape-d: #5A3FC0;
+  --pop-pink: #FF8FB8;
+  --pop-pink-l: #FFC6DA;
+  --pop-night: #2B1F5C;
+  --pop-night-2: #3D2C7A;
+
+  /* Hard offset shadow (no blur): the sticker look. */
+  --pop-drop: 0.375rem;
+  --pop-shadow: var(--pop-drop) var(--pop-drop) 0 var(--pop-ink);
+  --pop-shadow-lg: 0.625rem 0.625rem 0 var(--pop-ink);
+  --pop-line: 0.25rem;
+  --pop-line-thin: 0.1875rem;
+
+  /* Legacy names (kept so every stylesheet speaks the same palette) */
+  --uh-night-950: #150F2B;
+  --uh-night-900: #1E1838;
+  --uh-night-800: var(--pop-night);
+  --uh-night-700: var(--pop-night-2);
+  --uh-plum-600: #58397A;
+  --uh-plum-500: var(--pop-grape-d);
+  --uh-rose-400: #D9688A;
+  --uh-coral-400: var(--pop-tomato);
+  --uh-peach-300: #FFBE94;
+  --uh-gold-200: var(--pop-sun-l);
+  --uh-gold-300: var(--pop-sun);
+  --uh-gold-400: #FFC21F;
+  --uh-gold-600: var(--pop-sun-d);
+
+  --uh-cream-50: var(--pop-cream);
+  --uh-cream-100: var(--pop-paper);
+  --uh-cream-200: #F6E2C4;
+  --uh-cream-300: #E9CFA8;
+  --uh-ink: var(--pop-ink);
+  --uh-ink-700: var(--pop-ink-2);
+  --uh-ink-500: #7A6A8C;
+  --uh-ink-300: #B4A9C6;
+
+  --uh-mint-300: var(--pop-mint-l);
+  --uh-mint-400: var(--pop-mint);
+  --uh-mint-600: var(--pop-mint-d);
+  --uh-red-300: var(--pop-tomato-l);
+  --uh-red-400: var(--pop-tomato);
+  --uh-red-600: var(--pop-tomato-d);
+  --uh-sky-400: var(--pop-sky);
+  --uh-focus: var(--pop-sun);
+
+  /* Team / loot (fallbacks; overwritten from teams.ts by installTheme()) */
+  --uh-team0: #FF8A3D; --uh-team0-tint: #FFE3CC; --uh-team0-dark: #B4501A;
+  --uh-team1: #3D8BFF; --uh-team1-tint: #D6E6FF; --uh-team1-dark: #1D4FA6;
+  --uh-loot-small: #7FB77E; --uh-loot-small-dark: #3F6E3E;
+  --uh-loot-large: #5B6BBF; --uh-loot-large-dark: #2E3A80;
+  --uh-loot-bank: #F2C14E; --uh-loot-bank-dark: #9C7413;
+
+  /* Spacing (4/8 px grid at 1080p) */
+  --uh-sp-1: 0.25rem;
+  --uh-sp-2: 0.5rem;
+  --uh-sp-3: 0.75rem;
+  --uh-sp-4: 1rem;
+  --uh-sp-5: 1.5rem;
+  --uh-sp-6: 2rem;
+  --uh-sp-7: 2.5rem;
+  --uh-sp-8: 3.5rem;
+
+  /* Type scale (small steps keep a pixel floor so 720p / Steam Deck stays legible) */
+  --uh-fs-2xs: max(0.875rem, calc(13px * var(--uh-ui-scale)));
+  --uh-fs-xs: max(1rem, calc(14px * var(--uh-ui-scale)));
+  --uh-fs-sm: max(1.125rem, calc(15px * var(--uh-ui-scale)));
+  --uh-fs-md: max(1.3125rem, calc(16px * var(--uh-ui-scale)));
+  --uh-fs-lg: 1.625rem;
+  --uh-fs-xl: 2.125rem;
+  --uh-fs-2xl: 3rem;
+  --uh-fs-3xl: 4.5rem;
+  --uh-fs-hero: 8rem;
+
+  /* Shape */
+  --uh-r-sm: 0.75rem;
+  --uh-r-md: 1.125rem;
+  --uh-r-lg: 1.75rem;
+  --uh-r-xl: 2.5rem;
+  --uh-line: var(--pop-line-thin);
+  --uh-line-thick: var(--pop-line);
+  --uh-lift: 0.375rem;
+
+  /* Elevation (soft shadows only under the hard ones, for depth over the 3D) */
+  --uh-shadow-soft: 0 1rem 2rem rgba(20, 8, 40, 0.28);
+  --uh-shadow-deep: 0 1.5rem 3.5rem rgba(20, 8, 40, 0.42);
+
+  /* Motion: overshoot everywhere */
+  --uh-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --uh-ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --uh-ease-boing: cubic-bezier(0.18, 1.9, 0.5, 0.9);
+  --uh-dur-fast: 120ms;
+  --uh-dur: 220ms;
+  --uh-dur-slow: 420ms;
+
+  /* Patterns (paper overlays) */
+  --pat-dots: radial-gradient(circle at 50% 50%, rgba(42, 33, 49, 0.09) 0 0.22rem, transparent 0.24rem);
+  --pat-dots-size: 1.25rem 1.25rem;
+  --pat-stripes: repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.16) 0 0.75rem, transparent 0.75rem 1.5rem);
+  --pat-paw: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 80'%3E%3Cg fill='%232A2131' fill-opacity='.1'%3E%3Cellipse cx='22' cy='30' rx='8' ry='7'/%3E%3Cellipse cx='12' cy='19' rx='3.2' ry='4'/%3E%3Cellipse cx='19' cy='13' rx='3.2' ry='4'/%3E%3Cellipse cx='26' cy='13' rx='3.2' ry='4'/%3E%3Cellipse cx='33' cy='19' rx='3.2' ry='4'/%3E%3Cellipse cx='58' cy='66' rx='8' ry='7'/%3E%3Cellipse cx='48' cy='55' rx='3.2' ry='4'/%3E%3Cellipse cx='55' cy='49' rx='3.2' ry='4'/%3E%3Cellipse cx='62' cy='49' rx='3.2' ry='4'/%3E%3Cellipse cx='69' cy='55' rx='3.2' ry='4'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* Reduced motion: the setting toggles this class on <html>. */
+html.uh-reduced-motion *,
+html.uh-reduced-motion *::before,
+html.uh-reduced-motion *::after {
+  animation-duration: 1ms !important;
+  animation-iteration-count: 1 !important;
+  animation-delay: 0ms !important;
+  transition-duration: 1ms !important;
+  transition-delay: 0ms !important;
+  scroll-behavior: auto !important;
+}

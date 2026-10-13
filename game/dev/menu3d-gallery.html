@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>뿌리째 털어라 — 3D menu gallery</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #1e1838; }
+      #app { position: fixed; inset: 0; }
+      #m3d-hud { position: fixed; left: 8px; top: 8px; z-index: 100; padding: 6px 10px; border-radius: 8px; background: rgba(0,0,0,.65); color: #9effc8; font: 12px/1.4 monospace; pointer-events: none; white-space: pre; }
+      #m3d-hud[hidden] { display: none; }
+      #m3d-nav { position: fixed; right: 8px; top: 8px; z-index: 100; display: flex; gap: 6px; flex-wrap: wrap; max-width: 60vw; justify-content: flex-end; }
+      #m3d-nav a { padding: 4px 10px; border-radius: 8px; background: rgba(0,0,0,.6); color: #ffd66b; font: 13px system-ui; text-decoration: none; }
+      #m3d-nav[hidden] { display: none; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="m3d-hud"></div>
+    <nav id="m3d-nav"></nav>
+    <script type="module" src="../src/menu3d/dev/gallery.ts"></script>
+  </body>
+</html>

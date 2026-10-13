@@ -1,0 +1,154 @@
+/* [C8] Content 2.0 HUD: item slot in the dash button, bag chip, deposit ring, prop / breakable /
+   item tags, minimap item markers. Imported by src/ui/hud/ContentHud.ts. Everything
+   pointer-events: none (inherited from .uh-hud / .uh-world). Text never under --uh-fs-xs
+   (14 px at 720p). */
+
+.uh-cglyph { display: block; overflow: visible; }
+
+/* ---------------------------------------------------------------------------------------- */
+/* Item slot: the sticker replaces the bolt; pips + lifetime ring; item cooldown ring        */
+/* ---------------------------------------------------------------------------------------- */
+
+.uh-item { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+.uh-item[hidden] { display: none; }
+.uh-dash[data-item] .uh-dash__icon { opacity: 0; transition: opacity var(--uh-dur-fast); }
+.uh-item__glyph { position: relative; z-index: 1; width: 3.75rem; height: 3.75rem; display: grid; place-items: center; transition: transform var(--uh-dur) cubic-bezier(0.34, 1.56, 0.64, 1); }
+.uh-item__art { width: 100%; height: 100%; filter: drop-shadow(0.12rem 0.16rem 0 rgba(42, 33, 49, 0.6)); }
+
+.uh-item__cd { position: absolute; inset: -0.1rem; width: calc(100% + 0.2rem); height: calc(100% + 0.2rem); transform: rotate(-90deg); opacity: 0; transition: opacity var(--uh-dur-fast); }
+.uh-item__cdBg { fill: none; stroke: rgba(255, 246, 230, 0.15); stroke-width: 6; }
+.uh-item__cdFg { fill: none; stroke: var(--pop-cream); stroke-width: 6; stroke-linecap: round; transform: scaleY(-1); transform-origin: 50% 50%; }
+
+.uh-item__life { position: absolute; inset: -0.85rem; width: calc(100% + 1.7rem); height: calc(100% + 1.7rem); transform: rotate(-90deg); }
+.uh-item__lifeBg { fill: none; stroke: rgba(42, 33, 49, 0.7); stroke-width: 5; }
+.uh-item__lifeFg { fill: none; stroke: var(--pop-pink); stroke-width: 3.2; stroke-linecap: round; transform: scaleY(-1); transform-origin: 50% 50%; transition: stroke-dashoffset 0.2s linear; }
+.uh-dash[data-item='goldHammer'] .uh-item__lifeFg { stroke: var(--pop-sun); }
+.uh-item.is-low .uh-item__lifeFg { stroke: var(--pop-tomato); animation: uh-item-blink 0.5s steps(2) infinite; }
+@keyframes uh-item-blink { 50% { opacity: 0.25; } }
+
+.uh-item__pips { position: absolute; z-index: 2; left: 50%; bottom: -0.85rem; transform: translateX(-50%); display: flex; gap: 0.2rem; padding: 0.22rem 0.4rem; border-radius: 999px; background: var(--pop-ink); box-shadow: 0 0 0 0.12rem var(--pop-cream); }
+.uh-item__pips[hidden] { display: none; }
+.uh-item__pip { width: 0.6rem; height: 0.8rem; border-radius: 0.22rem; background: var(--pop-sun); }
+.uh-item__pip.is-spent { background: transparent; box-shadow: inset 0 0 0 0.13rem rgba(255, 246, 230, 0.45); }
+
+/* Armed (empty hands): dash = the item. The item's cooldown replaces the dash ring + label. */
+.uh-dash[data-item][data-armed='1'] .uh-dash__ring { opacity: 0; }
+.uh-dash[data-item][data-armed='1'] .uh-item__cd { opacity: 1; }
+.uh-dash[data-item][data-armed='1'] .uh-dash__label { display: none; }
+.uh-dash[data-item][data-armed='1'] .uh-dash__btn { background: var(--pop-grape-d); animation: none; }
+.uh-dash[data-item][data-armed='1'][data-item-ready='1'] .uh-dash__btn { background: var(--pop-pink); animation: uh-breathe 1.2s ease-in-out infinite; }
+.uh-dash[data-item='goldHammer'][data-armed='1'][data-item-ready='1'] .uh-dash__btn { background: var(--pop-sun); }
+.uh-dash[data-item][data-armed='1'][data-item-ready='1'] .uh-item__cdFg { stroke: var(--pop-cream); }
+.uh-dash[data-item-phase='windup'] .uh-item__glyph { transform: rotate(-38deg) scale(1.12); }
+.uh-dash[data-item-phase='active'] .uh-item__glyph { transform: rotate(30deg) scale(1.05); }
+
+/* Stowed (carrying loot): dash = carry boost; the sticker shrinks into a corner badge. */
+.uh-dash[data-item][data-armed='0'] .uh-dash__icon { opacity: 1; }
+.uh-dash[data-item][data-armed='0'] .uh-item__glyph { transform: translate(2.1rem, -2.1rem) scale(0.55); }
+.uh-dash[data-item][data-armed='0'] .uh-item__glyph::before { content: ''; position: absolute; inset: -0.35rem; border-radius: 50%; background: var(--pop-cream); border: 0.25rem solid var(--pop-ink); z-index: -1; }
+.uh-dash[data-item][data-armed='0'] .uh-item__pips { opacity: 0.6; }
+
+.uh-item__verb { padding: 0 0.875rem 0.05rem; border-radius: 999px; font-family: var(--uh-font-display); font-size: var(--uh-fs-md); line-height: 1.35; white-space: nowrap; color: var(--pop-cream); background: var(--pop-grape-d); border: 0.15rem solid var(--pop-ink); margin-top: 0.35rem; }
+.uh-item__verb[hidden] { display: none; }
+.uh-dash:not([data-armed='1']) .uh-item__verb { display: none; }
+.uh-dash[data-item-ready='1'] .uh-item__verb { color: var(--pop-ink); background: var(--pop-pink); }
+.uh-dash[data-item='goldHammer'][data-item-ready='1'] .uh-item__verb { background: var(--pop-sun); }
+
+/* ---------------------------------------------------------------------------------------- */
+/* Bag chip: "주머니 120 · 차 앞에 쏟아요" (carried value — styled like the luggage tag, never  */
+/* like the scoreboard)                                                                       */
+/* ---------------------------------------------------------------------------------------- */
+
+.uh-bag { position: relative; display: inline-flex; align-items: center; gap: 0.55rem; margin-bottom: 0.35rem; padding: 0.3rem 1rem 0.35rem 0.45rem; border-radius: 0.6rem 1.4rem 1.4rem 0.6rem; color: var(--pop-ink); background: var(--pop-paper); border: 0.18rem solid var(--pop-ink); box-shadow: 0.2rem 0.25rem 0 var(--pop-ink); transition: background-color var(--uh-dur); }
+.uh-bag[hidden] { display: none; }
+.uh-bag__art { width: 3rem; height: 3rem; flex: none; }
+.uh-bag__glyph { width: 100%; height: 100%; }
+.uh-bag__body { display: flex; flex-direction: column; gap: 0.2rem; min-width: 7rem; }
+.uh-bag__row { display: flex; align-items: baseline; gap: 0.45rem; }
+.uh-bag__label { font-size: var(--uh-fs-xs); font-weight: 900; color: var(--pop-grape-d); white-space: nowrap; }
+.uh-bag__value { font-family: var(--uh-font-display); font-size: var(--uh-fs-xl); line-height: 1; }
+.uh-bag__bar { display: block; height: 0.55rem; border-radius: 1rem; background: rgba(42, 33, 49, 0.14); border: 0.12rem solid var(--pop-ink); overflow: hidden; }
+.uh-bag__bar i { display: block; height: 100%; background: var(--pop-sun); transform-origin: left center; transform: scaleX(0); transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.uh-bag__note { padding-left: 0.6rem; border-left: 0.15rem dashed rgba(42, 33, 49, 0.35); font-size: var(--uh-fs-sm); font-weight: 800; color: var(--pop-ink-2); white-space: nowrap; }
+.uh-bag[data-state='full'] .uh-bag__bar i { background: var(--pop-tomato); }
+.uh-bag[data-state='full'] .uh-bag__note { color: var(--pop-tomato-d); }
+.uh-bag[data-state='deposit'] { background: var(--pop-mint-l); }
+.uh-bag[data-state='deposit'] .uh-bag__note { color: var(--pop-mint-d); }
+.uh-bag[data-state='done'] { background: var(--pop-mint); }
+.uh-bag[data-state='done'] .uh-bag__note { color: var(--pop-ink); }
+.uh-bag[data-state='spill'] .uh-bag__note { color: var(--pop-tomato-d); }
+.uh-bag__delta { position: absolute; left: 50%; top: -0.5rem; transform: translate(-50%, 0); opacity: 0; font-family: var(--uh-font-display); font-size: var(--uh-fs-xl); color: var(--pop-tomato); -webkit-text-stroke: 0.12em var(--pop-ink); paint-order: stroke fill; pointer-events: none; white-space: nowrap; }
+
+/* ---------------------------------------------------------------------------------------- */
+/* Deposit ring (쏟아붓기) under my feet                                                       */
+/* ---------------------------------------------------------------------------------------- */
+
+.uh-deposit { position: absolute; left: 0; top: 0; width: 0; height: 0; will-change: transform; pointer-events: none; --tc: var(--pop-sun); }
+.uh-deposit[hidden] { display: none; }
+.uh-deposit[data-team='0'] { --tc: var(--uh-team0); }
+.uh-deposit[data-team='1'] { --tc: var(--uh-team1); }
+.uh-deposit__floor { position: absolute; left: -6rem; top: -6rem; width: 12rem; height: 12rem; }
+.uh-deposit__ring { width: 100%; height: 100%; display: block; scale: 1 0.44; overflow: visible; }
+.uh-deposit__bg { fill: none; stroke: var(--pop-ink); stroke-width: 12; opacity: 0.75; }
+.uh-deposit__track { fill: none; stroke: var(--tc); stroke-width: 7; opacity: 0.55; }
+.uh-deposit__fg { fill: none; stroke: var(--pop-sun); stroke-width: 7; stroke-linecap: round; }
+.uh-deposit__tag { position: absolute; left: 0; top: 2.9rem; transform: translate(-50%, 0); display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.05rem 0.7rem 0.1rem 0.2rem; border-radius: 999px; white-space: nowrap; color: var(--pop-ink); background: var(--pop-mint-l); border: 0.15rem solid var(--pop-ink); box-shadow: 0.12rem 0.16rem 0 var(--pop-ink); }
+.uh-deposit__coin { width: 1.6rem; height: 1.6rem; }
+.uh-deposit__label { font-family: var(--uh-font-display); font-size: var(--uh-fs-sm); line-height: 1.3; }
+.uh-deposit__value { font-family: var(--uh-font-display); font-size: var(--uh-fs-sm); line-height: 1.3; color: var(--pop-mint-d); }
+
+/* ---------------------------------------------------------------------------------------- */
+/* World tags: props, breakables, item name tags                                              */
+/* ---------------------------------------------------------------------------------------- */
+
+.uh-ctags { position: absolute; inset: 0; pointer-events: none; }
+.uh-ctag { position: absolute; left: 0; top: 0; will-change: transform; }
+.uh-ctag[hidden] { display: none; }
+.uh-ctag__in { position: relative; transform: translate(-50%, -100%); display: flex; align-items: center; gap: 0.35rem; padding: 0.15rem 0.75rem 0.2rem 0.25rem; border-radius: 999px; white-space: nowrap; color: var(--pop-ink); background: var(--pop-cream); border: 0.15rem solid var(--pop-ink); box-shadow: 0.15rem 0.2rem 0 var(--pop-ink); }
+.uh-ctag__art { flex: none; }
+.uh-ctag__glyph { width: 2rem; height: 2rem; }
+.uh-ctag__text { display: flex; align-items: baseline; gap: 0.4rem; }
+.uh-ctag__main { font-family: var(--uh-font-display); font-size: var(--uh-fs-md); line-height: 1.25; }
+.uh-ctag__sub { font-size: var(--uh-fs-xs); font-weight: 800; color: var(--pop-ink-2); }
+.uh-ctag__sub:empty { display: none; }
+.uh-ctag.has-sub .uh-ctag__sub::before { content: '·'; margin-right: 0.4rem; color: var(--pop-ink-2); }
+.uh-ctag__pips { display: flex; gap: 0.15rem; }
+.uh-ctag__pips:empty { display: none; }
+.uh-ctag__pips i { width: 0.5rem; height: 0.75rem; border-radius: 0.15rem; background: rgba(42, 33, 49, 0.18); }
+.uh-ctag__pips i.is-on { background: var(--pop-tomato); }
+
+.uh-ctag--prop.is-focus .uh-ctag__in { background: var(--pop-sun); box-shadow: 0.2rem 0.25rem 0 var(--pop-ink); }
+.uh-ctag--prop[data-variant='goldSafe'] .uh-ctag__in { background: var(--pop-sun-l); }
+
+.uh-ctag--breakable .uh-ctag__in { padding: 0.1rem 0.6rem 0.12rem 0.2rem; background: rgba(255, 246, 230, 0.92); box-shadow: 0.1rem 0.14rem 0 var(--pop-ink); }
+.uh-ctag--breakable .uh-ctag__glyph { width: 1.6rem; height: 1.6rem; }
+.uh-ctag--breakable .uh-ctag__main { font-size: var(--uh-fs-sm); }
+
+/* Item name tag (first sightings): a grape speech tag with the sticker and a how-to line. */
+.uh-ctag--item .uh-ctag__in { gap: 0.5rem; padding: 0.25rem 1rem 0.3rem 0.3rem; border-radius: 1.1rem; color: var(--pop-cream); background: var(--pop-grape-d); box-shadow: 0.2rem 0.25rem 0 var(--pop-ink); margin-bottom: 0.6rem; }
+.uh-ctag--item .uh-ctag__in::after { content: ''; position: absolute; left: 50%; bottom: -0.62rem; width: 0.9rem; height: 0.9rem; background: var(--pop-grape-d); border-right: 0.15rem solid var(--pop-ink); border-bottom: 0.15rem solid var(--pop-ink); transform: translateX(-50%) rotate(45deg); }
+.uh-ctag--item .uh-ctag__art { width: 2.75rem; height: 2.75rem; display: grid; place-items: center; border-radius: 50%; background: var(--pop-cream); border: 0.15rem solid var(--pop-ink); }
+.uh-ctag--item .uh-ctag__glyph { width: 2.3rem; height: 2.3rem; }
+.uh-ctag--item .uh-ctag__text { flex-direction: column; align-items: flex-start; gap: 0; }
+.uh-ctag--item .uh-ctag__main { font-size: var(--uh-fs-lg); }
+.uh-ctag--item .uh-ctag__sub { color: var(--pop-sun-l); font-size: var(--uh-fs-sm); }
+.uh-ctag--item.has-sub .uh-ctag__sub::before { content: none; }
+.uh-ctag--item[data-item='goldHammer'] .uh-ctag__in, .uh-ctag--item[data-item='goldHammer'] .uh-ctag__in::after { color: var(--pop-ink); background: var(--pop-sun); }
+.uh-ctag--item[data-item='goldHammer'] .uh-ctag__sub { color: var(--pop-ink-2); }
+.uh-ctag--item.is-incoming .uh-ctag__in { animation: uh-ctag-bob 0.9s ease-in-out infinite; }
+@keyframes uh-ctag-bob { 50% { transform: translate(-50%, calc(-100% - 0.35rem)); } }
+
+/* ---------------------------------------------------------------------------------------- */
+/* Minimap item markers (descending crate pulses, ground item sits on a cream disc)           */
+/* ---------------------------------------------------------------------------------------- */
+
+.uh-mm__item { width: 1.55rem; height: 1.55rem; display: grid; place-items: center; border-radius: 50%; background: var(--pop-cream); border: 0.13rem solid var(--pop-ink); }
+.uh-mm__item svg { width: 1.25rem; height: 1.25rem; }
+.uh-mm__itemRing { width: 2.3rem; height: 2.3rem; border-radius: 50%; border: 0.16rem solid var(--pop-sun); opacity: 0; }
+.uh-mm--item[data-incoming='1'] .uh-mm__item { opacity: 0.8; border-style: dashed; }
+.uh-mm--item[data-incoming='1'] .uh-mm__itemRing { animation: uh-mm-ping 1s ease-out infinite; }
+.uh-mm--item[data-item='goldHammer'] .uh-mm__item { background: var(--pop-sun); }
+
+.uh-reduced-motion .uh-item.is-low .uh-item__lifeFg,
+.uh-reduced-motion .uh-ctag--item.is-incoming .uh-ctag__in,
+.uh-reduced-motion .uh-mm--item[data-incoming='1'] .uh-mm__itemRing { animation: none; }

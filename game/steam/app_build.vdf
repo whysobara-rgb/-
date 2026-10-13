@@ -1,0 +1,21 @@
+// SteamPipe app build script for 뿌리째 털어라 (Uproot Heist).
+// Paths are relative to this file. tools/package-steam.mjs stages the content and writes a copy
+// of this script with absolute paths and the real IDs to release/steam/scripts/.
+// Placeholder IDs: 480 is Valve's public test app; 481/482 are example depot IDs.
+// Replace them with the App ID / depot IDs from partner.steamgames.com (see docs/STEAM_RELEASE.md).
+"AppBuild"
+{
+	"AppID" "480"
+	"Desc" "Uproot Heist build"
+	// "1" = dry run (no upload), useful to validate the scripts
+	"Preview" "0"
+	// Never auto-publish to the default branch; set a beta branch name here (or in the tool) if wanted.
+	"SetLive" ""
+	"ContentRoot" "../release/steam/content/"
+	"BuildOutput" "../release/steam/output/"
+	"Depots"
+	{
+		"481" "depot_build_windows.vdf"
+		"482" "depot_build_linux.vdf"
+	}
+}

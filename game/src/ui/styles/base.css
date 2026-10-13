@@ -1,0 +1,205 @@
+/* Root overlay, layers, typography utilities, glyph chips. */
+
+.uh-root {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  font-family: var(--uh-font-body);
+  font-size: var(--uh-fs-md);
+  line-height: 1.45;
+  color: var(--uh-cream-50);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  user-select: none;
+  -webkit-user-select: none;
+  word-break: keep-all;
+  overflow-wrap: break-word;
+  z-index: 10;
+}
+
+.uh-root *,
+.uh-root *::before,
+.uh-root *::after {
+  box-sizing: border-box;
+}
+
+.uh-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.uh-layer--backdrop { z-index: 0; }
+.uh-layer--world { z-index: 1; }
+.uh-layer--hud { z-index: 2; }
+.uh-layer--screens { z-index: 3; }
+.uh-layer--dialogs { z-index: 4; }
+.uh-layer--pointer { z-index: 6; pointer-events: none; }
+.uh-layer--toasts { z-index: 7; }
+.uh-layer--wipe { z-index: 8; pointer-events: none; }
+
+/* Interactive screens opt back into pointer events. */
+.uh-screen {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+}
+
+.uh-screen[hidden] { display: none !important; }
+/* A terminal action fired (UiScreen.leave): ignore the pointer until game flow moves on. */
+.uh-screen.is-exiting { pointer-events: none; }
+.uh-screen.is-exiting * { pointer-events: none !important; }
+
+/* Shrink-to-fit measurement pass (UiScreen.fitToViewport): ignore transient geometry. */
+/* Transforms never change layout, so drop them (rotated stickers, focus lifts, entrance
+   animations) and focus rings while measuring the pure layout overflow. */
+.uh-measuring *,
+.uh-measuring *::before {
+  animation: none !important;
+  transition: none !important;
+  transform: none !important;
+}
+/* Separate rule on purpose: the production CSS minifier folds rotate/scale/translate that sit
+   next to `transform` into one `transform` shorthand, which leaves the individual properties
+   (rotated stamps and stickers) in place and makes every results-like screen shrink to 0.5. */
+.uh-measuring :where(*),
+.uh-measuring :where(*)::before {
+  rotate: none !important;
+  scale: none !important;
+  translate: none !important;
+}
+.uh-measuring [data-nav]::after { display: none !important; }
+/* Decorations that deliberately hang outside their box (logo roots, sparkles) never force a shrink. */
+.uh-measuring .uh-deco { display: none !important; }
+
+/* 16:9 safe frame centred in any aspect ratio (21:9 gets side margins, 16:10 extra height). */
+.uh-frame {
+  position: relative;
+  /* --uh-fit = shrink-to-fit zoom applied by UiScreen (vh lengths are zoomed too). */
+  width: min(100%, calc(177.7778vh / var(--uh-fit, 1)));
+  height: 100%;
+  margin: 0 auto;
+  padding: var(--uh-sp-7) var(--uh-sp-8);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.uh-scroll {
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(46, 36, 66, 0.45) transparent;
+  overscroll-behavior: contain;
+}
+
+.uh-scroll::-webkit-scrollbar { width: 0.5rem; }
+.uh-scroll::-webkit-scrollbar-thumb { background: rgba(46, 36, 66, 0.4); border-radius: 1rem; }
+
+.uh-display {
+  font-family: var(--uh-font-display);
+  font-weight: 400;
+  letter-spacing: 0.01em;
+}
+
+/* Cream display text with ink outline + chunky drop (titles on the dusk sky). */
+.uh-outline-text {
+  font-family: var(--uh-font-display);
+  color: var(--uh-cream-50);
+  -webkit-text-stroke: 0.4rem var(--uh-ink);
+  paint-order: stroke fill;
+  text-shadow: 0 0.3rem 0 var(--uh-ink), 0 0.6rem 1.2rem rgba(10, 4, 30, 0.45);
+}
+
+.uh-num {
+  font-family: var(--uh-font-display);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+.uh-muted { color: var(--uh-ink-500); }
+
+.uh-sr {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  overflow: hidden; clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------------------------------- */
+/* Glyph chips (button prompts)                                                              */
+/* ---------------------------------------------------------------------------------------- */
+
+.uh-glyph {
+  --g-face: var(--uh-cream-50);
+  --g-ink: var(--uh-ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  min-width: 1.75em;
+  height: 1.75em;
+  padding: 0 0.45em;
+  font-family: var(--uh-font-display);
+  /* Key caps stay legible on 720p / Steam Deck (same floor as --uh-fs-2xs). */
+  font-size: max(0.85em, calc(13px * var(--uh-ui-scale)));
+  line-height: 1;
+  color: var(--g-ink);
+  background: var(--g-face);
+  border: 0.125rem solid var(--uh-ink);
+  border-radius: 0.45em;
+  box-shadow: 0 0.18em 0 var(--uh-ink);
+  transform: translateY(-0.09em);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.uh-glyph--wide { padding: 0 0.6em; }
+.uh-glyph--pad { border-radius: 50%; padding: 0; width: 1.85em; height: 1.85em; min-width: 1.85em; }
+.uh-glyph--shoulder { border-radius: 0.7em; padding: 0 0.7em; }
+.uh-glyph--mouse { border-radius: 0.9em; }
+.uh-glyph--empty { opacity: 0.5; }
+.uh-pad-a { --g-face: #7FD87A; }
+.uh-pad-b { --g-face: #FF7A7A; }
+.uh-pad-x { --g-face: #7AB8FF; }
+.uh-pad-y { --g-face: #FFD45E; }
+
+.uh-icon {
+  width: 1.2em;
+  height: 1.2em;
+  flex: none;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.uh-emblem {
+  width: 1.4em;
+  height: 1.4em;
+  flex: none;
+  display: inline-block;
+  vertical-align: middle;
+  overflow: visible;
+}
+
+.uh-loot-icon {
+  width: 2em;
+  height: 2em;
+  flex: none;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.uh-raccoon {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+/* Missing-translation marker shows in dev builds as ⟦key⟧; make it impossible to miss. */
+.uh-root [data-missing-i18n] { outline: 2px dashed #f0f; }

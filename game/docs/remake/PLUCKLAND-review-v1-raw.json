@@ -1,0 +1,467 @@
+[
+ [
+  "review:design",
+  {
+   "verdict": "The remake goes after the right causes of \"boring after one minute\". The old game had one verb with no context, no growth and no surprise. This design adds a world, a gated growth path (paws), something revealed under every pluck, and an emotional finale, and the rules are unusually coherent (root grammar §4, the four constitution questions §1, failure that matches the tone §13). The weakness is where the fun is supposed to come from. Most of the design effort goes into the act of pulling (§5), but most of the lasting fun would come from what moving things does to the world. The underground-fishing minigame (§5) has stakes that are almost all assisted away, makes few decisions and puts heavy load on the grab button. Consequences are mostly one-off jokes (§8). Content density is low for 5-6 hours: 28 objects, one gimmick per chapter, 6 combos. As written, I expect the first 20 minutes to be delightful and hours 2-5 to feel thin and repetitive, which brings back the old problem on a longer timer.",
+   "score": 6,
+   "strengths": [
+    "The fiction is the rule set (§2, three laws). Roots mean pluckable, a plucked spot reveals something, and moved things carry their properties. That gives players expectations by sight alone (constitution question 4), which is the strongest anti-confusion idea in the document. The root grammar audit (§4-3, §17) turns it into something the team can actually check.",
+    "Grade readability is excellent (§4-1). Color, shape and sound are layered, and a refused pluck gives a grade-specific flash and sound with no text, then auto-marks the map. That is a Metroid-style 'come back later' promise delivered without UI.",
+    "The fishing minigame's resistance types are deterministic and telegraphed (§5-2), and environment tags change the rhythm (wet ground easier, frozen harder, a hot stone thaws). This ties the minigame to the puzzle layer, which is the right instinct.",
+    "The no-break / no-death constraint is a real design asset, not a gimmick. It cleanly separates the game from Donkey Kong Bananza (§16), and Chapter 5 (§10) turns it into the story's answer: when pulling a stake shakes a League home, you move the home intact. Drawing moral stakes from the core constraint is the best moment in the document.",
+    "The emotional throughline of the line-up pull is strong. The Chapter 0 pear-tree heave-ho returns in the finale with a line as long as your village population (§10). Collection effort becomes something you see and hear (the 'Yeongcha!' chorus, §15) instead of an achievement pop-up.",
+    "Wishes as tag and position conditions (§11) turn village decoration into a light puzzle with no fail state. Rewards are useful (fast travel, map reveal) rather than cosmetic.",
+    "The validation plan (§19) has behavioral metrics with gates, such as 'grabs an unprompted object 3+ times per minute' and 'Why doesn't this work?' at most once per 30 minutes. This is exactly the discipline the first game lacked."
+   ],
+   "issues": [
+    {
+     "severity": "critical",
+     "section": "§8 pluck reaction list, §2 law 2, §16 shorts series",
+     "problem": "Most consequences are scripted one-line gags: sneeze, apple on the head, ants with protest signs, the shopkeeper screaming. A gag is funny once and dead by the fifth mailbox. Seven of the 28 objects have no tag at all, so plucking them changes nothing in the system. The minute-to-minute loop is pluck, fish, carry/place, consequence, and in this design the consequence step, where Katamari, Donut County and Untitled Goose Game get their replay value, is mostly authored flavor. This is the same failure mode as 'feels like a mini-game': the verb repeats but the world response doesn't grow.",
+     "fix": "Split reactions into two layers. (a) A one-off gag the first time, saved in the field guide. (b) A systemic rule that fires every time and combines with others, like Goose Game's rule-driven NPCs. Example rules: an owner always follows their uprooted house and complains until it is replanted; animals flock to heat; residents gather under light and shade; chickens chase whoever freed them. Move a house next to a hot-stone spring and residents migrate there on their own. A small set of these rules, applied to all objects and villagers, produces surprises the team never has to author one by one."
+    },
+    {
+     "severity": "critical",
+     "section": "§10 area design, §8 / §18 content count, §1 length",
+     "problem": "There is one gimmick per chapter, and each chapter is about 55-60 minutes (5-6 hours over 6 chapters). Nintendo's intro-apply-twist-graduate structure is used per level (5-15 minutes) in Mario titles, not per hour. 28 object types over 330 minutes is one new object about every 12 minutes, and the 'You can pluck THIS too?' series (§16) needs a much bigger surprise catalog. The document never says what fills the time between the 15-25 fishing fights per chapter (§5-4). Reference points: Donut County runs about 2 hours with hundreds of objects, and A Short Hike runs about 1.5-3 hours with a dense small map. Both kept their length short to protect density.",
+     "fix": "Give each chapter 3 sub-gimmicks on one theme. For Chapter 2: wind direction, gliding updrafts, fog clearing. Run intro-apply-twist-graduate per 10-15 minute area. Add 60-100 cheap 'garnish' pluckables (S/M grade, one reaction each, data rows on the existing Pluckable sheet) plus chapter-local variants, such as upside-down versions in Chapter 3 and frozen ones in Chapter 4. Write a minute-by-minute beat sheet for Chapter 1 before production. If density can't reach one new thing every 3-5 minutes, cut the main game to about 4 hours rather than pad it. The §21 plan to merge Chapters 4 and 5 points the same way."
+    },
+    {
+     "severity": "critical",
+     "section": "§5 underground fishing, §5-3 hidden assists, §1 control promise",
+     "problem": "The fishing minigame is in an identity crisis. §1 promises 'the feel of outlasting something heavy', but §5 stacks a 0.3s judgment window that looks like 0.15s, a 0.3s grace period at max tension, auto-weakening after failures (-20%, then -40%), a gentle hook, and a glove that lengthens the tired window by another 20% (§12). Failure barely exists, so this is a ritual, not a contest. Inside the fight the decisions are also thin: five fixed rhythms, solved once learned, and the outcome is the same object either way. Gating every meaningful action behind a low-decision QTE is a known risk (compare Zelda and Stardew, which keep fishing as a side activity). It doesn't break exploration at 1.5-5 seconds, but it is the part that will feel like homework (§21 lists this risk as only 'medium').",
+     "fix": "Decide that fishing is a short, juicy, near-guaranteed ritual for progression, plus an optional skill layer with real rewards. Tie performance to outcomes the document already contains but leaves unconnected. Field guide size records (§12, 'mailbox 1.8m, personal best') should come from fishing performance. A perfect hook should guarantee sparkle soil and rare variants, the way fish size works in fishing games. Stick direction at the final 'Ssuk!' should choose where the object flies or lands. Add mastery fast-pluck: after N clean pulls of a type, that type pops instantly, so growth feels like Katamari scale instead of the same fight 120 times. Replace the stacked hidden assists with one visible assist option."
+    },
+    {
+     "severity": "major",
+     "section": "§3 control scheme, §5-1 flow",
+     "problem": "The two-button promise is kept literally but broken cognitively. Grab means tap to pluck, hold to fish, re-press on the bite, hold to pull and release to give slack, release to place, grab plus stick flick to throw, and hold behind someone to line up. The stick means move, throw direction and eel counter-steer. Concrete conflicts: (1) Releasing places what you carry, so carrying requires holding grab the whole time. If grab and jump are both face buttons, one thumb can't hold one and press the other. (2) A stick flick to throw will fire by accident while walking with an M object. (3) Re-pressing on the bite means releasing, and release means slack in the next phase. (4) There is no way to cancel a fight except failing it.",
+     "fix": "Put grab on a trigger (RT/ZR) and jump on a face button. An analog trigger also improves fishing: trigger depth sets pull force, which reads as tension without UI. Make carrying a latch: grab once to pick up, grab again to place. Throw by holding grab plus a jump-button tap, or by a long-hold aim, not a raw stick flick. Drop the separate bite re-press for M grade; the fight starts on the first strong pull. Keep a timed hook only as the sparkle-soil bonus. Add 'move away = cancel, no penalty'."
+    },
+    {
+     "severity": "major",
+     "section": "§3, §6 placement, §7-1 wind and light cones, §9 Chapter 2, §11 grid village",
+     "problem": "No input for rotating or facing a placed object is defined, yet the puzzles depend on it. The wind tree is a 6m frontal cone and the Chapter 2 boss requires planting it the opposite way. Light can be a cone, the mirror reflects, and the village uses grid placement. With two buttons and magnetic snap, players can't aim these, which will produce exactly the 'Why doesn't this work?' moments §19 targets.",
+     "fix": "Define orientation explicitly. Either placed objects face the direction the raccoon faces at release (simple, readable, no new button), or the stick rotates the preview while grab is held still. The preview should show the facing arrow (§6 already draws the wind arrow). Add this to the grammar validation phase (§18)."
+    },
+    {
+     "severity": "major",
+     "section": "§7-2 tag combo table, §15 time of day",
+     "problem": "Three of the six combos only extend the range of an existing effect: heat + water makes steam that counts as wind, heat + wind melts ice like heat but wider, and wind + water carries water farther. Only weight + elastic (launch), light + water (rainbow bridge) and weight + water (dam) give new verbs. Light's main use is 'reveals paths in darkness', but §15 bans dark nights, so light has nowhere to work. Light and elastic are never a chapter gimmick, and 'wind (weak)' on the umbrella mushroom adds tag strengths, which quietly breaks the fixed table. Six tags are enough for 5 chapters only if each tag gets a dedicated teaching arc and the combos create new verbs.",
+     "fix": "Swap the range-extension combos for verb combos. Examples: heat + elastic makes a hot-air balloon lift (a light object floats and carries the raccoon), light + wind spins a windmill or lighthouse to sweep a beam that reveals roots, weight + wind gives a stable sail-cart for the procession. Give darkness venues: the caves and cellars revealed under plucked spots (§2 law 2) are natural dark spaces for the light tag. Map every tag to a chapter that teaches it. Either drop strength levels or make them a visible rule."
+    },
+    {
+     "severity": "major",
+     "section": "§6 moving procession",
+     "problem": "The procession turns hauling into leading an escort. Players broadly dislike escort missions, because the follower is slow and the player can only wait or clear the way. Pikmin's carrying is fun for reasons this design leaves out: parallel delegation, efficiency choices and a day timer. 'Teleport after 0.5s when stuck' (§21) is a symptom fix. Hauling home was also the core loop of the original game, so a slow procession risks bringing back what testers already found dull.",
+     "fix": "Let the procession walk any path the player has already cleared on autopilot, while the player scouts and solves the next obstacle ahead. Keep processions short, with a fast-forward 'Yeongcha' march once the path is clear. Make obstacles the procession hits immediately readable, ideally solvable in 1-2 moves. If the procession becomes a puzzle, it should be the way-making puzzle from §6, not waiting."
+    },
+    {
+     "severity": "major",
+     "section": "§12 progression, §11 village",
+     "problem": "The long loop is thin. Paws go up five steps tied to bosses, which is a strictly linear gate. There are 3 gloves, and 2 of the 3 make fishing easier still, so 'progression' removes the skill layer. Root seeds (§11) have only one or two glove purchases to spend on, so the currency dies early. The 'bring back' column (§10) lists about 10 key structures, which is a very small village to decorate across 5 chapters. If ordinary plucked objects can't come home, village decoration won't carry a long loop.",
+     "fix": "Let any plucked object, garnish included, be brought home through a 'move-in cart' with capacity that grows with population. The village then becomes a living trophy case of everything you pulled, which is Katamari's star-making payoff applied to a town. Give root seeds lasting uses: rare variants replanted in the village, decorations, new resident move-ins that open new wishes. Make gloves change how you play, not how easy fishing is. Examples: a throw-arc glove, a 'pull two S objects at once' glove, a glove that previews what is under the root."
+    },
+    {
+     "severity": "major",
+     "section": "§1 constraint, §13 failure and save, §5-3",
+     "problem": "No-death is fine on its own. A Short Hike, Untitled Goose Game and Donut County have no death and stay engaging. The problem is that tension is also removed everywhere else. Fishing can't really fail, placement snaps, falls replant your object, wishes can't fail, and a reset stump exists. There is no time pressure, scarcity or social risk outside Chapter 5. Goose Game keeps tension with chases and getting caught, and Pikmin keeps it with the clock.",
+     "fix": "Add soft, non-lethal tension beats in every chapter. Examples: a moving set piece (the land splitting, a tide coming in, a rolling boulder chase in Chapter 1), timed windows (the rainbow bridge already lasts 8s; make more of these), and a dokkaebi that steals back what you placed. Most of all, bring Chapter 5's social stakes ('my pluck affects someone') earlier as a recurring thread, through owners reacting and residents following their houses."
+    },
+    {
+     "severity": "minor",
+     "section": "§3 line-up row, §5-3 line-up sync",
+     "problem": "In single player, the line-up row ('hold behind a target someone else is pulling') has no clear trigger, because the co-op that would make it common is cut (§18). The finale adds a third timing system, a ±0.15s 'Yeongcha' beat, after hook timing and tension holding. That is new input at the most emotional moment.",
+     "fix": "Make line-up pulls a scripted, context-only event that residents start, with the same hold/release rhythm as normal fishing so no new skill is introduced. Present the beat as audio-visual sync that assists rather than judges."
+    },
+    {
+     "severity": "minor",
+     "section": "§5-2 'no randomness', §5-3 bonus pity timer, §8 'sometimes a big turnip', §12 rare variants and size records",
+     "problem": "The document says 'no randomness' but has a pity timer (a gacha concept), random 'sometimes' rewards, hidden rare variants, and size records with no defined source. That muddles what the player is supposed to master.",
+     "fix": "State the rule clearly: control and resistance are deterministic, reveals may be random. Better still, make reveals depend on skill, so performance sets size and variant chance. That removes the pity timer and gives fishing its purpose."
+    },
+    {
+     "severity": "minor",
+     "section": "§2 law 2 (regrowth), §17 save",
+     "problem": "'Over time sprouts return the spot to normal' is unclear. If a cave or channel opened by plucking closes again, the player's work gets undone, which hurts the 'I changed the world' fantasy (§1 core emotion).",
+     "fix": "Say that only the hole refills, cosmetically, and only after its contents are taken. Placed objects and opened routes stay put. Treat regrowth as the world healing, not as a reset."
+    },
+    {
+     "severity": "minor",
+     "section": "§19 validation metrics",
+     "problem": "Most metrics test learnability and first impressions. None directly tests the original complaint about quitting after one minute, or the mid-game sag that is this design's biggest risk.",
+     "fix": "Add retention gates. Examples: share of testers who choose to keep playing at minutes 1, 10 and 30 when offered an exit; minutes until the first 'what next?' lull; whether testers say they want to see the next object or the next chapter. Run them on Chapter 2 or 3 builds, not only the Chapter 0-1 demo."
+    }
+   ],
+   "topRecommendations": [
+    "Move the fun from pulling to what moving things causes. Structure each 10-15 minute area like Untitled Goose Game's to-do list: wishes and requests solved by moving things, each with several solutions (§7's 'right tag works' already supports this). Back it with a small set of systemic rules: owners follow their homes, animals flock to heat, residents gather at light and shade, freed animals chase you. Then every pluck creates new world states instead of replaying a one-off gag (§8). Raise gimmick density from one per chapter to about three per chapter (§10).",
+    "Rebuild fishing as a short, analog, single-input tug with real outcomes. Grab on the analog trigger (pull force = trigger depth), carry as a latch, no separate bite re-press. Keep the 5 telegraphed rhythms (§5-2), but tie performance to size records, rare variants, sparkle soil and landing direction. Add mastery fast-pluck so learned object types pop instantly. Replace the stacked hidden assists (§5-3, §12 Fisher's glove) with one visible assist mode. Also define how placed objects face (§3/§6), since the Chapter 2 and light/wind puzzles depend on it.",
+    "Make the catalog bigger and the long loop more visible. Add 60-100 cheap garnish pluckables plus chapter-local variants on the existing data-driven Pluckable sheet (§17). Let anything plucked move to the home village so it grows into a trophy case that feeds wishes, procession speed and the finale line. Give each chapter a landmark finale pluck and procession home, so growth is felt continuously within each chapter (Katamari-style scale escalation) rather than only as five paw upgrades. If density still falls short, cut the main game to about 4 hours rather than pad it."
+   ]
+  }
+ ],
+ [
+  "review:market",
+  {
+   "verdict": "The concept has a real market hook. Uprooting a whole house with the family still inside, plus no combat, no death and Korean folklore, gives it a shareable 'cozy oddity' angle in a growing category. As positioned and scoped in v1, though, it is a long-shot commercial bet, for five reasons. The brand is framed defensively against Donkey Kong Bananza, a Switch 2 exclusive that is not on Steam. PLUCKLAND looks legally free, but the word works against the fantasy. The 15-month solo scope (6 chapters, 9-11h) is bigger than the market asks for at this price. The web/Electron stack rules out Nintendo, the genre's best platform. The marketing section lists tactics with no numeric gates. A well-executed first year is roughly 12k-40k units, about $75k-240k net to the studio. The typical outcome for an unknown solo studio is 1.5k-5k units, about $9k-30k net.",
+   "score": 5.5,
+   "strengths": [
+    "Hook clarity (sections 1, 8, 16). The reactions where a resident is still attached are exactly the 3-second, sound-on moments that work in Shorts and TikTok: the grandpa who comes up with the bench (section 8, M-tier) and the shop owner hanging from the roof screaming (L-tier). The planned weekly shorts series '이것까지 뽑힌다고?' ('You can pluck even this?') is the right escalation format.",
+    "The design's limits double as selling points (section 1 constraint, section 13). No death and no combat fit the Cozy, Wholesome and Relaxing tags. Per GameDiscoverCo data cited by Outlook India, use of 'cozy' as a primary descriptor among games with over $100k lifetime revenue rose 675% between 2022 and 2025 (https://respawn.outlookindia.com/gaming/gaming-news/steam-vibe-shift-why-cozy-is-the-most-dominant-keyword-of-2026).",
+    "Price and length are at or above market expectations (section 1). Comparable games are shorter at similar or higher prices. A Short Hike: about 2h at $7.99, roughly 22k reviews, 99% positive (https://raijin.gg/app/1055540/A_Short_Hike). Donut County: 2-3h at $12.99, about 11k reviews (https://isthereanydeal.com/steam/app/702670). Lil Gator Game: $19.99, 4k+ reviews, 99% positive (https://www.notebookcheck.com/Steam-Cozy-3D-Adventure-mit-4-000-Bewertungen-99-positiv-laesst-Spieler-wieder-Kind-sein-jetzt-zum-Tiefstpreis-im-Sale.1087781.0.html). Tinykin: $24.99, about 4.2k reviews (https://gg.deals/au/pack/tiny-terrys-tinykin/). A 5-6h main story at $14.99 is not under-delivering.",
+    "The name is clear of conflicts so far. Searches across the web, the App Store and itch.io found no game, app or trademark called 'Pluckland' or 'Pluck Land'. The nearest results are unrelated: 'Pluck: A Berry Sweet Adventure', an iOS match-3 game (https://apps.apple.com/app/id987559656); 'Pluck', an itch.io farming prototype (https://bunnyegg.itch.io/pluck); and 'Plucked', a game-jam title (https://dannydestroyer.itch.io/plucked). 'Dokkaebi' is not blocked by DokeV, which is now an open-world adventure slipped to 2H 2028 (https://gurugamer.com/pc-console/dokev-from-pearl-abyss-targets-second-half-of-2028-release-27170/amp).",
+    "The mute protagonist and text-free teaching (sections 2 and 14) make localisation cheap. That makes full Simplified Chinese and Japanese realistic at launch, and those are two of the strongest markets for cute or cozy Steam games.",
+    "Sections 18 and 19 gate each stage on observable metrics: the 3-week feel test, the 'why doesn't this work?' count, the demo completion rate. That discipline is rare and also protects the marketing calendar.",
+    "The Steam asset rules in section 16 are concrete and correct: the first three GIFs are chosen, and every screenshot must show a visible root. They assume the store page does most of the selling. presskit.gg reports that 68-88% of Next Fest wishlists come from people who never play the demo (https://presskit.gg/field-guides/analyzing-next-fest-results)."
+   ],
+   "issues": [
+    {
+     "severity": "critical",
+     "section": "17-18 (tech) / 16 (go-to-market)",
+     "problem": "The web stack (three.js + Electron) effectively rules out Nintendo Switch and Switch 2. Electron ships Chromium, and console holders do not accept browser wrappers. The known JS-to-Switch route is a native rewrite, as CrossCode did via JS to Haxe to C++ (https://forum.playcanvas.com/t/nintendo-switch-port/39020). For cozy 3D adventures, Switch is often as large as Steam or larger; A Short Hike and Lil Gator Game both rely on it. The plan therefore caps lifetime revenue at roughly half of what the genre normally earns, and does not acknowledge this.",
+     "fix": "Decide now and write it in section 17. Option (a): accept Steam-only (plus Steam Deck Verified) and size the budget to the Steam-only revenue range below. Option (b): during the 3-week feel test, prototype the pull minigame in an engine with a console path (Godot or Unity) and compare. The sim/render split helps here: keep the deterministic sim in portable TypeScript or C#-ready logic so a later port is a renderer rewrite, not a game rewrite. Either way, plan to pitch a porting publisher after a good Next Fest instead of planning to self-port."
+    },
+    {
+     "severity": "critical",
+     "section": "18 (scope/schedule), 1 (length)",
+     "problem": "Fifteen months solo for 6 chapters plus a finale is far beyond typical solo output in a custom web engine. The scope also includes 28 pluckables with unique reactions, 5 dokkaebi set pieces, a pathfinding carry procession, a gravity-inversion chapter, a home-village grid editor and a wish system. The market does not require 5-6h main and 9-11h total at $14.99, so this scope buys mostly risk. A late or thin launch is the single biggest revenue risk. Section 21 lists the 4-chapter fallback only as a reaction to slippage.",
+     "fix": "Make the shipped baseline 3 chapters plus finale, about 3-4h main and 5-6h total, at $14.99. Chapters 4 and 5 become stretch goals or a free update. Cut chapter 3 (gravity inversion) first: it is the most expensive to build and the least tied to the roots fantasy. The market data supports this. Lil Gator Game (about 3-4h at $19.99) and Smushi Come Home (about 3h, solo dev, 2.8k reviews, https://raijin.gg/app/1740300/Smushi_Come_Home) did fine at that length."
+    },
+    {
+     "severity": "major",
+     "section": "16 (differentiation row), 21 (Bananza risk)",
+     "problem": "The positioning is defined against Bananza ('not destroying but replanting'). Donkey Kong Bananza (Nintendo, Switch 2, July 17 2025) has a Metacritic score of about 91, was a Game of the Year nominee at The Game Awards 2025, and sold 4.78M units by June 30 2026 (https://insider-gaming.com/donkey-kong-bananza-review-embargo-date/, https://mynintendonews.com/2025/11/17/donkey-kong-bananza-up-for-game-of-year-at-game-awards-2025/, https://www.nintendo.co.jp/ir/en/finance/software/index.html). Its core verbs include grabbing chunks of terrain, ripping them out, carrying and throwing them (https://www.sportskeeda.com/esports/what-can-donkey-kong-donkey-kong-bananza). So 'grab, rip out, throw' already reads as Bananza, and 'we don't break things' is a distinction viewers will not see in a 3-second clip. The slogan 'Don't break it. Move it.' only makes sense if you already know the game it is reacting to, and it invites the comparison. On the other hand, Bananza is not on PC, so on Steam there is no direct competitor.",
+     "fix": "Keep the Bananza comparison as an internal design check only. Lead the public positioning with what Bananza cannot do: carrying people's whole lives with them, the moving-day festival, residents riding along, the home village you replant. Suggested store line: 'Pull up a whole house - with the family still inside - and move your village to a new land.' In press pitches, compare to cozy games (Pikmin meets Animal Crossing house-moving, the playful energy of Untitled Goose Game), not to Bananza. Retire the defensive slogan, or keep it only as a secondary tagline."
+    },
+    {
+     "severity": "major",
+     "section": "1 / 16 (English title PLUCKLAND)",
+     "problem": "No conflict was found: web searches across Steam-indexed pages, itch.io and the app stores returned no 'Pluckland' (see strengths). Direct USPTO, EUIPO and KIPRIS queries could not be run from this environment, because the proxy blocked the registry and Steam hosts. The semantic problems are real, though. In English, 'pluck' suggests small things (feathers, eyebrows, hairs, a chicken being plucked, guitar strings) and also means 'courage'. It does not suggest uprooting houses. '-land' makes it sound like a generic casual or mobile game. Search autocomplete for 'Pluck' surfaces The Plucky Squire, Devolver's 2024 game with about 4k reviews (https://raijin.gg/app/1627570/The_Plucky_Squire). Rootbound, a physics adventure about plants by ex-Piranha Bytes developers due on Steam in 2026, already occupies the 'roots' theme (https://www.gematsu.com/2025/03/physics-based-action-adventure-game-rootbound-announced-for-pc).",
+     "fix": "Before the Steam page opens in month 5: (1) Run formal searches in USPTO Trademark Search, EUIPO eSearch, WIPO Global Brand Database and KIPRIS in classes 9, 28 and 41, and check the .com domain plus the main social handles. (2) Shortlist 3-5 names that say 'uproot' or 'move house', not 'pluck', and A/B test them with capsule mockups on English-speaking players. Measure recall and whether people can guess the genre (this is already a section 19 metric). Example directions to check: Uproot & Roam, Everything Has Roots, Moving Day, Roots Up! Do not adopt any of them without the same availability checks. Keep the Korean title 《뿌리째》 (Ppurijjae, 'roots and all'). It is a strong Korean title, but as an ordinary adverb it will be weak as a trademark, so register the logo/stylised mark. It also reuses the old game's name '뿌리째 털어라'; if that version was ever public, decide whether that link helps or hurts."
+    },
+    {
+     "severity": "major",
+     "section": "5 (underground fishing) vs 16 (trailer/GIFs)",
+     "problem": "The core verb is a tension minigame: hold, release, then pull at the right time. In video, a tension minigame looks the same whatever the object is, and the original game was dismissed as feeling 'like a mini-game'. If marketing clips show the pulling, viewers will read it as a minigame collection. The section 16 trailer spends seconds 5-20 on an escalating series of plucks, which is good, but the plan never says to keep the pull meter out of the shots.",
+     "fix": "Set a marketing rule: no GIF or short shows more than about 1 second of the pull struggle. Every clip is setup, then the reveal (what comes up and what was underneath, section 8), then how the world changes. Pick the capsule and GIF moments by which ones change the space: house plus residents, the moving procession crossing a river, the steam updraft. In section 19, add a cold-viewer test: show 10-second clips to strangers and ask 'what is this game?'"
+    },
+    {
+     "severity": "major",
+     "section": "16 (launch strategy) / 18 (schedule)",
+     "problem": "The marketing plan names tactics but sets no numbers, so it cannot drive decisions. Next Fest rewards momentum the game already has. A February 2026 analysis attributed to How To Market A Game found a strong correlation between wishlists before the festival and wishlists gained during it (r=0.825), and two thirds of games ended in the low tiers (https://recognizingpatterns.substack.com/p/steam-next-fest-june-2026-communities). Japanese indie developers reported median gains of about 1-2k wishlists (https://automaton-media.com/en/news/steam-next-fest-disappoints-japanese-indie-devs-with-meager-wishlist-gains-but-theres-an-important-catch-to-how-the-algorithm-works/). Demos released months before the festival earned about 2.5x the median wishlists (https://www.steampageanalyzer.com/blog/do-steam-demos-increase-sales). A weekly shorts cadence for 10 months is about 40 edited clips, a heavy load for a solo developer during production.",
+     "fix": "Add wishlist gates: about 7k by Next Fest entry, 20k+ after Next Fest, and a 30-50k launch target. Below 10k at month 12, cut scope or delay. Release the demo publicly 1-2 months before the chosen Next Fest edition (February, June or October), not during it. Batch-record shorts in two production sprints. Add channels the plan is missing: the Wholesome Direct and Wholesome Games submissions, Steam cozy-themed festivals, outreach to cozy streamers in Japan and Taiwan, and a publisher or porting-partner pitch deck ready for the week after Next Fest."
+    },
+    {
+     "severity": "major",
+     "section": "1 (price)",
+     "problem": "$19.99 is at the top of what the market accepts for an unknown studio. GameDiscoverCo's September 2024 to September 2025 data shows median first-week sales of 0.15x wishlists overall, but 0.10x for games priced above $10 (https://newsletter.gamediscover.co/p/the-state-of-steam-wishlist-conversions). The median price of top new Steam releases fell from $19.50 to $15.64 between February 2023 and October 2025 (https://gamedevreports.substack.com/p/gamediscoverco-people-are-spending).",
+     "fix": "Launch at $14.99 with a 10-15% launch discount. Use regional pricing, especially for Korea, China and Latin America. Consider $19.99 only if the full 6-chapter version ships and the demo converts well."
+    },
+    {
+     "severity": "minor",
+     "section": "16 (capsule concept)",
+     "problem": "The capsule idea, tiny Ssuki lifting an inn 100 times his size with a guest's surprised face in the window, depends on detail that disappears at small capsule sizes (231x87 and the 184x69 search thumbnail). The guest's face and even the raccoon will become noise. The root grade colours are also the main way the game teaches what can be pulled.",
+     "fix": "Make the readable shape a huge glowing root bundle pulled out of the ground, with the house as the silhouette. Use a short, thick logo. Test the capsule at 184x69 next to real cozy capsules before committing."
+    },
+    {
+     "severity": "minor",
+     "section": "2 (protagonist)",
+     "problem": "'너구리' means raccoon dog (tanuki), but the design describes a raccoon. English and Japanese audiences treat those as different animals, and raccoons are a crowded indie mascot. The masked-raccoon look will lose its identity in a sea of cute animal capsules.",
+     "fix": "Choose one deliberately. A tanuki fits better with the Korean and East Asian folklore framing (dokkaebi) and stands out more in Western stores. Lean into the oversized forepaws as the silhouette people remember."
+    },
+    {
+     "severity": "minor",
+     "section": "21 (risks)",
+     "problem": "The risk table leaves out the main commercial risks: the platform cap from no Switch path, discoverability (only about 3% of 2025 Steam releases reached 1,000 reviews, https://www.steampageanalyzer.com/blog/median-steam-game-2026, a secondary source), and naming or trademark risk.",
+     "fix": "Add these rows: no console path; wishlist gate missed; name conflict or weak recall. Give each a trigger and a planned response."
+    }
+   ],
+   "topRecommendations": [
+    "Revenue range for the first year on Steam, assuming $14.99 list and about $6 net per unit after discounts, regional pricing, Steam's 30% and refunds. Typical for an unknown solo studio's first premium game: 5-15k wishlists at launch; first week at 0.10x is 500-1,500 units; first year about 3x the first week is 1.5k-5k units. That is about $15-50k gross and $9-30k net, with roughly 50-170 reviews at the current Boxleiter ratio of about 30x (https://www.steampageanalyzer.com/blog/steam-review-to-sales-multiplier, https://wp.vginsights.com/how-to-estimate-steam-video-game-sales/2). Well executed, with viral shorts and a strong Next Fest: 50-100k wishlists, 12k-40k units in year one, about $125-400k gross and $75-240k net, around 400-1,300 reviews. That is comparable to Smushi Come Home (solo dev, 2.8k reviews, estimated 48k units, https://raijin.gg/app/1740300/Smushi_Come_Home). Breakout at Tinykin or Lil Gator scale (4k+ reviews, 100k+ units): low single-digit percent probability. A Tiny Glade-type result (616k units in the first month, https://gigazine.net/gsc_news/en/20241120-tiny-glade-600k-sold-reason) should not be used as a planning reference.",
+    "Cut the shipped scope to 3 chapters plus the finale (3-4h main) at $14.99, and keep chapters 4-5 as stretch goals. Shipping on time with polish is worth more than the extra length.",
+    "Decide the platform strategy now. Either commit to Steam-only and budget for it, or test an engine with a console path during the 3-week feel prototype. Electron cannot reach Switch.",
+    "Replace Bananza-relative positioning with the moving-house and riding-residents fantasy. Public line: 'Pull up a whole house - with the family still inside.' Keep the pull-meter UI out of marketing clips.",
+    "Validate the English title before opening the Steam page: formal USPTO, EUIPO, KIPRIS and WIPO searches, a domain and handle check, and an A/B capsule test against names that say 'uproot' or 'move' rather than 'pluck'.",
+    "Add numeric wishlist gates to section 18 (about 7k before Next Fest, 20k+ after, a 30-50k launch target). Release the demo publicly 1-2 months before Next Fest. Add the Wholesome Direct, cozy festivals and Asian cozy streamers to the plan, and ship full Simplified Chinese and Japanese at launch since the game has almost no text."
+   ]
+  }
+ ],
+ [
+  "review:production",
+  {
+   "verdict": "Judged on production scope, schedule and tech feasibility, this is one of the more production-aware design docs a solo studio could write. A Pluckable component driven by the §8 data sheet, a fixed set of 6 tag combos, no randomness, phase gates and a cut plan prepared in advance are all habits of a mature team. But the full scope (7 areas, 28 objects with bespoke reactions and holes, 5 bespoke bosses, a procession, a village with 15 wishes, the finale) won't fit in 15 months for one human reviewer. The binding limits are level design in true 3D, feel tuning and playtest throughput. Agent coding speed is not the bottleneck, and the previous game shows it: about 150k lines in a week still felt like a one-minute mini-game. The doc also skips the two decisions that cost the most: how levels get authored (there is no editor on the web stack) and the engine/platform choice. Cut to 4-5 areas, model puzzles on a tile grid with integer heights, and use the vertical slice to measure how long each content type takes. Do that and a 15-month PC release is realistic, with roughly 40-50% of the old codebase reused.",
+   "score": 5.5,
+   "strengths": [
+    "§17's data-driven Pluckable, with §8's five required fields doubling as the data sheet, suits AI agents well. Rows are cheap to add, and the grammar audit (§4-3/§17) can be an automated test, as the old repo already does with tools/layout-check.ts and test/sim/content-contracts.test.ts.",
+    "§7-2 fixes the combos at six and judges by tag, not by object. That stops the combinatorial blow-up that usually kills systemic puzzle games, and the tag queries are just radius checks, so they are cheap.",
+    "§5-2 bans randomness, §5-4 fixes feel numbers and §5-3 sets assist values. Fishing can be built and tuned from day 1 against concrete targets, not vibes.",
+    "§18-19 gate production on feel and grammar before content, which directly answers the previous game's failure (players quit after a minute).",
+    "The doc already carries a cut plan (§21 merges chapters 4 and 5) and an out-of-scope list (§18: co-op, the party-battle festival mode, photo mode).",
+    "The old repo's best parts are exactly the expensive 'juice' layer the remake needs. src/render/uproot.ts (938 lines) already does roots arching out under tension, trembling, the pop, the dirt explosion, shockwaves and craters. src/render/models (procedural kit with geometry/materials/outline/palette/occlusion), raccoon.ts (rig with strain/cheer/tumble expressions), game/feel.ts (hit-stop and rumble), audio (procedural WebAudio engine, mixer, spatial audio, sequencer, captions, voice), platform/input.ts (rebinding, glyphs, rumble, local multiplayer), save.ts (versioned), steam.ts plus tools/package-steam.mjs, settings and accessibility, the HTML UI shell, and the vitest/playwright/headless-tool culture.",
+    "The silent protagonist and text-free UI (§2, §14) save real money on localization and on writing cutscene dialogue."
+   ],
+   "issues": [
+    {
+     "severity": "critical",
+     "section": "§18 (schedule) / §10 (area design)",
+     "problem": "Full scope doesn't fit in the 'main production, months 9-14' window. The plan gives about 6 months to finish chapter 1 and build chapters 2-5, the finale, 4 more dokkaebi, the village and wishes, cutscenes and localization. For one owner reviewing AI output, a realistic cost per chapter is about 6-7 weeks: greybox 1, puzzle iteration with playtests 1.5-2, art dressing 1, boss 1.5-2, music and sound 0.5, polish 1. Five chapters is 30-35 weeks. Add the village and wishes (about 6), the finale (about 3), and QA, performance work and Steam Deck testing (about 6), and full scope lands around months 17-19. That is roughly 25-35% over plan. AI agents shrink coding time, not the time it takes the owner to play, judge and re-tune.",
+     "fix": "Plan scope at 4 chapters plus village plus finale and treat a 5th chapter as stretch. Keep 15 months, but re-forecast at the end of the vertical slice using the measured cost per content type (see the vertical-slice issue). Give the owner's own playtime a weekly budget; it is the real constraint."
+    },
+    {
+     "severity": "critical",
+     "section": "§10 / §17 (missing: level authoring pipeline)",
+     "problem": "Nothing says how 7 true-3D areas with height, cliffs, water, hidden holes, procession paths and collectible placement get built. The old game's levels were code (src/sim/layouts) for flat 2D arenas. That works when the layout is a list of rectangles, but becomes very painful for vertical puzzle spaces. AI agents are weak at spatial puzzle readability, and three.js has no scene editor. This is the single largest hidden cost in the plan.",
+     "fix": "Constrain the world to a tile grid of 1 m cells with heights in 0.5 m steps, a diorama look like Captain Toad. Author each area as text/JSON tile maps plus an object list. Extend tools/layout-svg.ts into an auto-rendered isometric preview plus a solvability checker. The grid also simplifies jumping, camera rules, procession pathing, placement snap (§6), water flow (§7-2 'dam'), the village grid (§11) and the grammar audit (§17). If freeform terrain is ever needed, use Blender as the editor and export glTF with custom properties; never build an in-game editor."
+    },
+    {
+     "severity": "major",
+     "section": "§17 / tech base (engine choice not addressed)",
+     "problem": "Web/three.js+Electron vs Unity is undecided, and so is the platform target. A cozy, Nintendo-like puzzle adventure has its natural second market on Switch, and HANDOFF.md itself names a Switch port as revenue growth. Electron cannot ship on Switch without a rewrite. Unity would give you Cinemachine (quarter-view camera with occlusion), PhysX character controller, NavMesh with dynamic carving (procession), Timeline (finale and cutscenes), ProBuilder (greybox) and console export. Against that, Unity throws away the ~40-50% reusable TypeScript (procedural models, the audio engine, the UI). Its scene/prefab YAML is hostile to AI agents, and the headless test loop that made the agent workflow productive gets slower.",
+     "fix": "Run the 3-week feel test on the web stack (maximum reuse; the question is design, not tech). Decide the engine by week 6, before the vertical slice, on three explicit criteria. (1) Is console a committed business goal? If yes, lean Unity. (2) Can one area be greyboxed and playtested in 2 days or less in the chosen pipeline? (3) Does a dense greybox area hold 60 fps on an integrated GPU or Steam Deck in Electron? For a PC/Steam-only release built by agents, web plus a grid world is the better fit."
+    },
+    {
+     "severity": "major",
+     "section": "§13 / §17 (save) vs §2 (regrowth) vs §7 (tag puzzles)",
+     "problem": "The rules contradict each other. §17 saves only 'plucked or not' per chapter area, with automatic restore. Yet tag puzzles depend on where objects were moved: a hot stone next to ice, a dam, a replanted wind tree. §2 says plucked spots regrow back to the original. It's unclear whether a moved bridge or stone stays, vanishes or reverts. If the player quits mid-puzzle, the reload state is undefined, which breaks the 'never betray' promise and creates soft-locks.",
+     "fix": "Define it explicitly. Regrowth closes only the hole; the moved object stays where it was placed. Save full transform and tag state for every moved Pluckable in the area (only dozens per area, so trivial size). The reset stump (§13) restores the authored layout. Adapt the versioned migration pattern from src/platform/save.ts."
+    },
+    {
+     "severity": "major",
+     "section": "§8 (28 objects x 5 fields) / §2 'plucking leaves a space'",
+     "problem": "'Plucked spot' and 'reaction' hide very uneven costs. Particles plus a raccoon expression take about 0.5 day. Reactions with a secondary actor (chickens chasing, grandpa riding the bench, ants with protest signs, a shopkeeper hanging off the roof, guests at windows, a letter carrying a hint) take 2-4 days each with model, animation, AI and sound. Spots that change the level (caves, waterways, basements, hot springs, a sea cave) are level design, not object data. Each one is a hidden sub-space. A further 28 rare variants are cheap only if they are recolor or pattern changes.",
+     "fix": "Tier the 28 rows. A: generic reaction only (about 12 rows). B: secondary-actor reaction (cap at about 8). C: level-changing hole (cap at about 8, built from 5-6 reusable hole prefabs: critter scatter, collectible pocket, water source, steam vent, tunnel pair, mini-basement). Make rare variants procedural palette/pattern swaps only. Add a cost column to the §8 table."
+    },
+    {
+     "severity": "major",
+     "section": "§6 procession / §9 dokkaebi / §10 chapter 3",
+     "problem": "These are the three most expensive new systems and the doc treats each as a single line. Procession: dynamic path blocking, 'clear a way' puzzles, crowd-carrying visuals and 20-40 villagers. The raccoon rig is about 15 rigid-part draw calls per character, so a crowd costs hundreds of draws. Dokkaebi: 5 bespoke actors and arenas, about 1.5-3 weeks each. Chapter 3 gravity reversal: if the player or camera flips, it breaks the camera, input mapping, the physics controller and the readability of the fixed quarter view.",
+     "fix": "Procession: move only on authored path-graph edges with authored 'gates' that open on world-state conditions; no general navmesh. Render villagers as instanced rigid parts with shader animation. Dokkaebi: one shared 3-phase state machine (stubborn / shake / release) with per-boss data and one bespoke behaviour each. Chapter 3: keep gravity reversal at the object level (things hanging from cliff undersides 'fall up' onto ledges). Never flip the player or camera. If chapters must be cut, chapter 3 or a merged 4/5 is the place."
+    },
+    {
+     "severity": "major",
+     "section": "Tech: physics of jump, throw, roll, bounce",
+     "problem": "Chapter 1's core is boulders rolling downhill. §7 adds elastic bounce, updrafts and umbrella gliding, and §6 adds throws. Rigid-body physics on 3D terrain is the classic source of 'why did it do that', which contradicts §1's 'never betrays' and §5-2's predictability. The old src/sim/physics.ts is 2D with OBB colliders (height is purely visual), so it can't be extended to true 3D.",
+     "fix": "Split puzzle logic from juice. Puzzle objects are kinematic with discrete outcomes on the grid: a boulder rolls tile by tile down the steepest slope, throws follow fixed arcs and snap to the landing spot (§6 magnet), elastic sends to a fixed height or tile. The character uses a simple kinematic controller on the heightfield (or Rapier's KinematicCharacterController if the terrain is freeform). Physics engines only for cosmetic debris."
+    },
+    {
+     "severity": "major",
+     "section": "§19 verification gates",
+     "problem": "8 hard metrics, at least 5 fresh testers per round, and 'don't proceed if any metric misses' will stall a solo schedule. 80% of n=5 means 4 of 5 people, which is statistical noise. Recruiting fresh testers about 10 times means roughly 50 or more people, a real logistics cost that the schedule doesn't account for.",
+     "fix": "Each phase gets 2 hard gates and the rest are tracked. Feel test: unprompted grabs and 'I failed' attribution. Grammar test: 'why doesn't this work?' count and the 3-minute learning rate. Vertical slice: completion rate and 'can I play the next one?'. Build telemetry early (attempts per minute, fail reasons, session length) so each session yields numbers, not just video. Book a tester pipeline (Steam Playtest, Discord, remote recorded sessions) from week 1."
+    },
+    {
+     "severity": "major",
+     "section": "Tech: three.js performance in a dense world",
+     "problem": "The old renderer merges static scenery per material. In the remake almost everything is movable (every object has roots), so static merging no longer works. Add 28 types with instances, roots per object, a crowd, particles and foliage, and draw calls can explode on integrated GPUs and Steam Deck. The old 'high' preset assumes a 4096 shadow map on a mid-range discrete GPU.",
+     "fix": "InstancedMesh per Pluckable type (pull one instance out on pluck, put it back on plant). Merge only non-root terrain. Set a perf budget from day 1 (for example under 300 draw calls and under 500k triangles on 'low', 60 fps on Steam Deck) and enforce it with an automated harness, extending src/render/dev/model-selftest.ts and the countTriangles helper. Keep the quality presets in quality.ts. Evaluate three's WebGPURenderer only if the budget fails."
+    },
+    {
+     "severity": "minor",
+     "section": "Tech: quarter-view camera with height",
+     "problem": "The old camera.ts is fixed-yaw, 55° pitch, for a flat plane. With cliffs and overhangs, the raccoon disappears behind terrain on the camera side. When jumping or throwing, depth is hard to read, and following vertical motion makes the camera bob.",
+     "fix": "Keep fixed yaw (old doc §4 rule) and change it only at authored camera zones in 90° steps. Lock vertical follow during jumps (Mario-style, update on landing). Always show the blob shadow straight down (already in the raccoon model) plus a landing marker for throws. Reuse occlusion.ts (x-ray cylinder plus ghost fade) for terrain. Level rule: nothing taller than 1.5 m on the camera side of a walkable path."
+    },
+    {
+     "severity": "minor",
+     "section": "Determinism (§17 implicit)",
+     "problem": "The lockstep 60 Hz determinism of the old sim existed for online play and replays, so a single-player game doesn't need it. But fully dropping a fixed step risks frame-rate-dependent fishing windows (0.15/0.3 s in §5-1) and loses headless testability.",
+     "fix": "Drop strict cross-machine determinism, but keep a fixed-timestep sim separate from rendering. Timestamp inputs for the hook windows, and record inputs to reproduce playtest bugs. Keep headless puzzle-solvability tests in CI (a bot replays the authored solution of every puzzle after each content change)."
+    },
+    {
+     "severity": "minor",
+     "section": "§11 wishes / §14 text-free UI",
+     "problem": "Wishes are written as quoted sentences ('I want to sell where I can see the sea') in a game that promises no text. Conveying placement conditions with pictograms is a design and production task (icon language, thought bubbles, playtests) that isn't scoped. Only 5 of the 15 promised wishes are specified.",
+     "fix": "Budget a pictogram-bubble system (about 1 week) and draw every wish from the same tag/range query vocabulary the puzzles use. Ship 10 wishes, not 15, unless the vertical slice shows they are cheap."
+    },
+    {
+     "severity": "minor",
+     "section": "Repo strategy (not in doc)",
+     "problem": "The reusable code is tangled with the old 2D sim. 13 model files, audio director/sfx/spatial and platform input/save all import src/sim types, and the old repo carries unfinished WIP (bank push steering, the bot balance work). Forking the old repo and mutating it would drag in dead systems (police, scoring, bots, tournament).",
+     "fix": "Start a new project (or monorepo) and spend about one week of agent time extracting packages. Kit: geometry, materials, outline, palette, textures, occlusion, raccoon rig. Fx: uproot choreography decoupled from LootState and driven by a plain {progress, straining, popped} interface. Audio: dsp, mixer, sequencer, sfxkit, captions, voice. Platform: input, save, settings, steam. Plus the UI core and packaging tools. Leave src/sim, src/ai, src/game behind (except nav-graph ideas)."
+    }
+   ],
+   "topRecommendations": [
+    "First 3-week feel test, reusing existing code. Week 1: new kinematic raccoon controller on a small grid greybox (2 height levels plus a ramp) with the reused raccoon rig, InputManager, fixed-yaw camera with vertical lock and blob shadow. Grab tap/hold, then the fishing state machine with §5-2 carp and catfish curves as data, wired into the reused uproot.ts roots/pop/crater, feel.ts hit-stop/rumble and the old strain/groan audio loops. Week 2: S-grade instant pluck (grass, pebble, bouncy mushroom), carrying (S overhead, M at 75%), placement preview plus magnet snap, kinematic S/M throws, instant re-grab, and three showcase reactions (mailbox letters, apple tree, bench with grandpa). Also the brand sound 'kkigigik... ssuk!' and one micro-goal (clear a blocked path by moving 3 things). Week 3: live tuning panel, telemetry, 5 fresh testers, two iterations. Exclude tags, procession, village, story, bosses. Exit: 3 or more unprompted grabs per minute, self-attributed fails, and testers voluntarily keep playing the sandbox for 5 minutes or more (the old game lost players at about 1 minute).",
+    "Define the vertical slice as 'one of every repeatable content type at final quality', not just 'chapter 0 complete plus half of chapter 1'. That means chapter 0 complete (3-minute text-free tutorial, silver-root refusal, the pear-tree line-up climax) plus the first half of chapter 1. It must contain 12-15 Pluckables with all five fields, 2 hole prefabs, 3 tags (weight, water, elastic) and 2 combos, 1 procession haul (the merchant cart), 1 dokkaebi (the stubborn jangseung, pulled forward from the demo), village replanting with 2 wishes, autosave, and 60 fps on Steam Deck. Log the hours spent per type, then re-forecast the remaining schedule from those measured costs.",
+    "Use the tile grid with integer heights as the world model and text/JSON maps as the authoring pipeline, with an auto-rendered isometric preview and CI solvability bots. This is the single decision that makes level design for a solo team plus agents tractable.",
+    "Cut to chapter 0, 1 (weight/rolling), 2 (wind) and a merged 3/4 (heat/water/steam with optional object-level 'fall-up' hanging objects; never flip the player). Then chapter 5 (stake city plus the emotional turn) leading into the finale. Drop the separate gravity-flip chapter before you drop chapter 5, because chapter 5 carries the story's payoff. Target 4-4.5 hours of main play at $14.99.",
+    "Decide engine and platform by week 6. Stay on web/Electron for PC/Steam with the agent workflow (keeps 40-50% reuse). Switch to Unity only if a console/Switch release is a committed goal and the owner wants hands-on editor-based level design.",
+    "Make puzzle physics kinematic and discrete (boulders roll tile by tile, throws land on fixed snapped arcs, elastic sends to a fixed height). Fix the save/regrowth contradiction: moved objects stay and their transforms are saved, regrowth only closes holes. Add a cost-tier column to the §8 table (A generic / B secondary-actor / C level-changing hole) with caps per tier."
+   ]
+  }
+ ],
+ [
+  "review:consistency",
+  {
+   "verdict": "The rules are more disciplined than most indie design docs: there is a constitution, one data schema (section 8 doubles as section 17's data sheet), a single feedback language for root tiers, and pacing gates. The audit still found a few contradictions that break the core loop as written. Paw gating (4-1, 12) doesn't fit the chapter content (10). The chapter 0 teaching beat teaches the wrong colour rule. The \"every visible root is pluckable\" rule (4-3) is broken by the game's own lock states. The procession's path-building puzzle is undone by its own anti-stuck teleport (21). The save model (17) can't hold the puzzle states the chapters rely on. Most of the rest are wording or scope fixes, but about six are structural and need settling before the 3-week feel prototype.",
+   "score": 5,
+   "strengths": [
+    "The constitution (section 1, four questions) is a real filter, not decoration. Most contradictions below can be resolved by applying it strictly, which shows it is well chosen.",
+    "The section 8 schema (grade / resistance / tag / hole / reaction, all five required) plus 17's single Pluckable component is a clean data-driven spine. It makes this audit possible and keeps a solo build tractable.",
+    "The three-layer root tier signal (colour + shape + sound, 4-1), backed by a shape-first accessibility default (14), is strong and consistent with the no-text teaching goal.",
+    "Resistance types with a fixed rhythm and a tell for every spike (5-2) give a predictable, learnable pull. Moving variation into the environment (wet/frozen ground) is the right call and ties fishing to tags.",
+    "Fail states (13) all match the emotion: no death, no loss, a pratfall. The final line-up scaling with village population (10) pays the whole progression off emotionally.",
+    "Section 19 has measurable go/no-go gates per principle, and 20 traces each principle to a section. Few solo docs do this."
+   ],
+   "issues": [
+    {
+     "severity": "critical",
+     "section": "4-1 / 12 / 10 / 8 (paw gating vs chapter content)",
+     "problem": "4-1 gates M at '1장', L at '2~3장', XL at '4~5장'. 12 says paws rise one step per freed dokkaebi, and dokkaebi exist only in chapters 1-5. Walk the table: chapter 0 must bring home 우물 (M, 메기) with zero paw steps. Chapter 1's own gimmick object, the round boulder, comes before the chapter 1 dokkaebi. Chapter 2's 비틀기 makes a procession path for 숲속 여관 (L) while paws are 1. Chapter 3 brings home 안개 종탑 (XL) at paws 2. The chapter 2 dokkaebi 막힌 풍차 is XL in section 8, yet 9 says every dokkaebi ends with a normal 땅속 낚시 at paws 1. Nearly every chapter's 'bring home' item is above the player's paw level. The ranges '2~3장' and '4~5장' are also undefined: which L needs 2 and which needs 3? The unit '장' reads as 'chapter' in 4-1 but as 'stage' in 12.",
+     "fix": "Rename the unit to 앞발 단계 (paw stage 0-5) everywhere and give each tier one number: S=0, M=1, L=2, XL=4 (or 3). Grant stage 1 at the end of chapter 0 (the pear-tree pull itself) rather than from a dokkaebi. State that the dokkaebi release pull ignores paw gating, since the 흔들기 phase is the gate. Then re-check every '데려올 것' against the paw stage at that point in the table. For example, move 종탑 to chapter 4 or make it L, and make the chapter 2 inn the reward for freeing the windmill, not a mid-chapter puzzle."
+    },
+    {
+     "severity": "critical",
+     "section": "4-1 vs 10 (chapter 0) vs 19",
+     "problem": "4-1 makes the pear tree '줄 서기 전용 / 무지개 결', but chapter 0's 비틀기 is '은빛 배나무가 안 뽑힘', and 19 tests '은빛 거부' within 3 minutes. Silver is the L colour. So the first rejection teaches 'silver = needs the whole village'. From chapter 2 on, silver objects can be plucked solo once paws are high enough, so the tutorial teaches a false rule. That is exactly the 'why doesn't this work?' moment 19 is measuring.",
+     "fix": "Make the pear tree rainbow in 10 and 19, matching 4-1, and teach 'rainbow = line-up'. If an early paw-lock rejection is also wanted, put a silver L house in chapter 0 that flashes and refuses, gets its map icon, and is plucked on a return visit in chapter 2. Two different refusals, two different lessons."
+    },
+    {
+     "severity": "critical",
+     "section": "4-3 vs 4-1 / 4-2 / 9 / 7-1",
+     "problem": "4-3: '뿌리가 보이는데 뽑히지 않는 물체는 게임에 하나도 두지 않는다.' Yet the game deliberately has visible-root-but-unpluckable states: paw-locked objects (4-1), stake-pinned objects (4-2), dokkaebi in their 고집 phase (9), and the line-up-only pear tree when alone. 7-1's light tag 'reveals hidden roots', so some pluckables have no visible roots, which breaks the other half of the rule. The 17 grammar audit, as specified ('roots visible but no Pluckable'), cannot catch any of these, because they all carry the Pluckable component.",
+     "fix": "Restate 4-3 as: 'No object is permanently unpluckable. Every temporary refusal has exactly one of four readable locks: paw tier (flash + tier sound), stake (visible iron), dokkaebi (eyes), line-up (rainbow). Hidden roots belong only to buried things you cannot see, never to visible scenery.' Extend the editor audit to check that each Pluckable has a reachable unlock state by the end of the game."
+    },
+    {
+     "severity": "critical",
+     "section": "6 (procession) vs 21 (teleport) vs 17",
+     "problem": "6 makes the procession the long-haul puzzle: when a narrow path or river blocks it, the player must clear a route ('긴 운반이 그대로 길 만들기 퍼즐'). 21 makes the procession move only on predefined path nodes and teleport after 0.5 s when blocked. The teleport skips the puzzle, and predefined nodes can't follow routes the player builds by moving things. 6 also says multiple objects can be carried at once as population rises; with 쑥이 empty-handed in front, it is unclear how 2+ processions are led, routed or parked.",
+     "fix": "Separate the two cases. Blocked by geometry the player is meant to fix → the procession halts at an authored 'wait point' and residents point at the obstacle (no teleport). Blocked by AI jank → teleport, but only along already-valid nodes. Make the node graph dynamic: placed objects with the right tags/size add or remove edges (bridge, dam, rainbow bridge). Cap active processions at 1 for launch, and let population raise speed only."
+    },
+    {
+     "severity": "critical",
+     "section": "2 (second law) vs 17 (save) vs 13 (stump)",
+     "problem": "2 says plucked holes reveal caves/cellars and 'over time sprouts grow and it returns to the original'. Undefined: (a) whether the original object regrows, which would let you duplicate wells and heat stones without limit and farm records, or only the hole closes, which could seal the player in a cellar or undo a revealed water channel; (b) how long it takes. 17 saves only '뽑힘 여부 (자동 복구)' per chapter, but chapter puzzles depend on where objects were placed (dams, boulder order, stairs of houses in chapter 3, pressed switches). 13 promises '언제든 종료 가능', so quitting mid-puzzle silently resets placements, or loses an L object mid-procession. 13's 되돌림 그루터기 resets 'the zone layout' without saying whether freed dokkaebi, collected items, recruited residents and pity counters also reset.",
+     "fix": "Save per-zone object state: position, rotation, rooted/held, plus revealed-hole flags (cheap with a deterministic sim). Narrow the regrowth law to cosmetic S-tier ground cover, and use regrowth as the automatic recovery for objects that leave bounds (they re-sprout at their origin). Holes never close while they lead somewhere. The stump resets only placement state for that zone, never progression flags. On quit during a procession, re-plant the object at its last valid node."
+    },
+    {
+     "severity": "major",
+     "section": "5-2 vs 8 / 5-3 / 12 (randomness)",
+     "problem": "5-2: '무작위 요소는 쓰지 않는다.' But: 8 순무 새싹 '가끔 큰 순무' (random); 5-3 '반짝이는 흙이 10회 연속 안 나오면 다음 회차에 확정' (a pity timer only makes sense on a random roll). Meanwhile 4-2 and 12 treat sparkly soil as a visible marker you can spot from afar with wet paws, i.e. authored, which makes the pity timer meaningless. 12's codex logs sizes as 'personal records' ('우체통 1.8m, 개인 신기록') and has hidden rare variants; both imply variance. The bite moment in 5-1 ('툭!' timing) has no specified schedule, and bite delays are classically random.",
+     "fix": "Scope the rule explicitly: 'Inputs and resistance are deterministic; rewards are authored.' Remove the pity timer. Make the big turnip deterministic and readable (e.g. a turnip sprout inside a water tag's range is always big, which also teaches tags). Make the recorded size a function of pull quality (perfect hook + plucks in the tired phase), so records reward skill, not dice. Give each resistance type a fixed bite delay. Place rare variants by hand in set locations."
+    },
+    {
+     "severity": "major",
+     "section": "1 (부수지 않는다) vs 5-1 / 7-1 / 10 ch5 / 3",
+     "problem": "Several mechanics read as breaking. 5-1 failure is a '뚝!' snap, and 'the root gets weaker next time', which implies damage. 7-1's weight tag 'collapses thin floors'. Chapter 5's houses 'shake' with the risk of '무너뜨리지 않고'; if collapse can never happen the tension is fake, and if it can, the constitution is broken. Throwing (3, 6) has no landing rule: does a thrown stone re-root, bounce, hit residents? Can you throw the bench with grandpa still on it (8)? 7-2 weight + bounce launches heavy things. Chapter 1's boulder rolling off a cliff has no stated outcome.",
+     "fix": "Change the fail SFX to a slip ('쭉-' + pratfall); the root slips back underground, it doesn't snap. Reword 5-1/13 to say 'your grip gets better', not 'the root weakens'. Thin floors 'sink' into a lower level and can be pulled back up. In chapter 5, shaking houses tilt and their residents leave in alarm (a wish/population consequence) but never collapse; say this in the doc. Thrown objects always land upright and lightly re-root; residents dodge; objects carrying NPCs can't be thrown (NPC hops off first). Out-of-bounds objects re-sprout at their origin."
+    },
+    {
+     "severity": "major",
+     "section": "3 (two buttons) vs 3 / 5-2 / 5-1 / 7-1",
+     "problem": "'버튼은 잡기와 점프 두 개뿐', but: (a) the throw is 'grab + stick flick', which is ambiguous because the stick also moves the character, so any sharp turn while carrying risks a throw; (b) eel resistance uses counter-steering on the stick; (c) wind and light cones and the big mirror need a facing (7-1 '정면 6m 원뿔'; chapter 2's dokkaebi is beaten by planting a wind tree 'facing the opposite way'), but no input sets rotation; (d) the line-up '영차' beat (5-3 ±0.15 s) has no input defined; (e) 5-1's hook asks you to 'press again' while already holding, but releasing is also the 버티기 'give slack' and the carry-place input; (f) jump behaviour during fishing, and empty-handed jump height, are not defined; (g) holding grab for an entire carry is tiring and clashes with the toggle accessibility option.",
+     "fix": "Rewrite the promise as 'two action buttons + stick (move/aim)'. Make carrying latched: grab press = pick up, grab press = place at the preview, grab hold+release = throw in the stick direction, so no flick is needed. A placed object faces the way 쑥이 faces when it is placed; allow nudging the facing while the preview shows. Hook = release-and-press within the window, and before the bite, releasing cancels the attempt with no penalty. Line-up beat = grab press on the beat. Jump is disabled during fishing (state it)."
+    },
+    {
+     "severity": "major",
+     "section": "3 / 5-3 / 5-4 / 5-2 (S tier)",
+     "problem": "3 says S plucks instantly on a short press; 5-3 lists 'S plucks in 0.2 s with no fishing' as a hidden correction; 5-4 gives S an 'average fishing time' of 0.2 s; 5-2 gives S objects the 피라미 resistance type ('no resistance'). So S both does and doesn't enter fishing, and 피라미 is a resistance type that is never used. The short-vs-long press split also adds a hold-detection delay to every M+ pull for no reason, since the target's grade already decides the outcome. A short press on M+ is undefined.",
+     "fix": "Branch on grade, not press length: grab on S = 0.2 s pluck animation however long you hold; grab on M+ = start fishing. Delete 피라미 from 5-2 and 17's 'five curves' (four types); move the S rule from 5-3 into 3."
+    },
+    {
+     "severity": "major",
+     "section": "3 / 6 (holding L+) and 16 (capsule art)",
+     "problem": "3: 'L급 이상을 들고 있으면 점프 불가', but 6 says L+ can't be held solo at all and switches to a procession with 쑥이 empty-handed, so the jump rule describes an impossible state. 16's capsule shows 'tiny 쑥이 lifting an inn 100x her size'. That is something the game rules forbid, and it is the store's main promise.",
+     "fix": "Delete the L+ jump clause. Either change the capsule to 쑥이 leading a procession that carries the inn, or add a deliberate 'landing pose': at the 쑥! moment 쑥이 briefly hoists the L/XL object overhead (1 s) before the residents take it. That is cheap, honest, and it makes the capsule true."
+    },
+    {
+     "severity": "major",
+     "section": "3 / 4-1 / 6 / 18 (line-up and residents, co-op residue)",
+     "problem": "3's line-up row ('grab-hold behind a target someone else is already pulling') describes the player joining another puller, which is the co-op framing cut in 18. In single player the player is always the front puller. 4-1 requires 'N residents', with N undefined. 6 recruits 'nearby residents' for processions in places like cliffs and cloud coasts where nobody lives, then says the count scales with home-village population, so residents apparently travel with you. That contradicts 11, where the village is a separate replanted place. 'Population' is never defined: does a brought well count? A freed dokkaebi that 'returns to its original object and becomes a resident' (9)? Both object and resident?",
+     "fix": "Define one entity: 이웃 (resident) = an NPC with a name and a wish. Brought objects without an owner don't count. Residents follow 쑥이 as an entourage during chapters and live in the village between chapters. Replace 3's line-up row with: 'grab-hold on a rainbow root → residents line up behind you'. Set N per line-up target (pear tree N=3 = the chapter 0 villagers; 대말뚝 N = main-path minimum)."
+    },
+    {
+     "severity": "major",
+     "section": "7-1 / 11 / 17 (tag ranges vs village grid)",
+     "problem": "Tag ranges are in metres (3 m radius, 6 m cone), the village is saved on a grid of undefined cell size, and the footprints of L/XL objects probably exceed 3 m (the pear tree has ground-spanning giant roots). '배나무 반경 3m 안에 물 태그' doesn't say whether it is measured from the centre, where it may fall inside the trunk, or from the edge. Tags with motion side effects ('바람: 가벼운 것을 밀어냄', 'water flows', '열: 주민이 모여 쉼') have no village-mode rules; a wind tree in the village would push decorations forever. 11's 'load previous layout with one button' meets a different terrain every chapter (sea edge, high ground), so the layout may not fit.",
+     "fix": "Express every range in grid cells, measured from the footprint edge (e.g. radius 2 cells, cone 4 cells), and use the same numbers in chapters by snapping tag sources to a hidden grid. In the village, evaluate tags as static coverage only (no pushing or flowing). The 'load layout' button places what fits and returns the rest to a 'moving cart' inventory with a visible list."
+    },
+    {
+     "severity": "major",
+     "section": "11 (wishes) vs 10 / 12",
+     "problem": "Some wishes depend on one chapter's geography: the inn keeper needs 'ch4, sea-side edge'; the bell keeper needs 'highest point in the village centre'. The village is replanted every chapter, so a wish could be met in chapter 4 and broken in chapter 5. 11 says wishes have 'no fail condition', but doesn't say whether rewards like 빠른 이동 are latched or revoked. 단단 joins at the end of chapter 5, so the only window to place her house before the finale is undefined. Rewards are mistimed: 'reveal part of the next chapter's map' is useless if earned late. Fast travel only unlocks in chapter 4 through an optional wish, while 4-1's rejection icons ask the player to come back. Is returning to earlier chapters even possible? 18 promises 15 wishes; 5 are listed.",
+     "fix": "Latch: once met, a wish stays granted forever, and re-layout is cosmetic. Rewrite location wishes as tag/relationship conditions that any terrain can satisfy ('inn can see water tiles', 'bell tower is the tallest object and within 3 cells of the plaza'), with chapter 4's coast as the natural first chance. Define chapter revisits explicitly (e.g. from the village, any cleared chapter can be entered at its checkpoint stumps). Give basic fast travel by default; the inn wish adds shortcuts. Add a pre-finale village phase so 단단's wish can be done."
+    },
+    {
+     "severity": "major",
+     "section": "7-2 (six fixed combos) vs 7-1 / 9 / 19",
+     "problem": "Six tags give 15 pairs, but only 6 are defined, and 7-1 already contains a seventh interaction ('weight: not blown by wind'). Chapter 2's dokkaebi needs wind + wind cancellation, which isn't a combo. Chapter 4 stacks water/wet ground on frozen ground; which modifier wins? 7-2's steam 'counts as wind', but steam has no facing while wind is a forward cone, and whether steam then chains (steam + water = spray?) is unclear. 우산버섯 has '바람(약)', a tag strength the system doesn't have. Are tags active only when planted (2: '놓인 자리') or also while carried (the heat stone juggled 'hot' in 8)? 19 targets 70% success for off-script solutions, but any of the nine undefined pairs will read as 'why doesn't this work?'.",
+     "fix": "Publish a full 6x6 matrix: each pair is either a named combo or explicitly 'no interaction', with no implicit chains (combo outputs never combine again). Steam = vertical updraft column with a fixed radius. Same-tag rules: wind vs opposite wind cancels; heat + frozen ground removes frozen first, then wet applies. Remove tag strengths (make the umbrella mushroom a glide property, not a wind tag). Tags are active when planted or carried, except held heat only melts within 1 cell."
+    },
+    {
+     "severity": "major",
+     "section": "8 rule vs 8 table / 10 / 17",
+     "problem": "8: 'all five columns must be filled; if one is empty it's excluded.' But the tag column has '—' for 풀포기, 순무 새싹, 우체통, 사과나무, 작은 집, 상점 and 대말뚝. Resistance '줄 서기' for the pear tree and 대말뚝 is not one of 5-2's types or 17's 'five curve assets'. Objects central to the chapters are missing from the 28: chapter 1's 둥근 바위 (the gimmick itself), 행상 수레, 장승, chapter 3's upside-down houses, ice, snow. 2's 'all things carry properties' also conflicts with tagless objects.",
+     "fix": "Allow 'no tag' as a valid value and say so (tagless objects are what make tagged ones stand out). Add 'line-up' as a sixth rhythm asset in 5-2/17. Add the round boulder, cart, 장승 and upside-down variants to the list (or swap out lower-value entries to stay at 28), and add a 'chapter' column so the data sheet shows where each object first appears."
+    },
+    {
+     "severity": "major",
+     "section": "17 (tags instead of physics) vs 10 / 7 / HANDOFF tech base",
+     "problem": "17 says 'no physics simulation, range tag checks'. But chapter 1's gimmick is rolling boulders down slopes to a cliff, chapter 3 is gravity reversal (things 'fall upward' and become steps), 7-2's weight + bounce launches objects in arcs, water 'flows' and can be dammed (7-1, 7-2, 8's bridge/watermill), and gliding/updrafts need vertical movement. The current engine (HANDOFF) is a deterministic 60 Hz 2D sim, while this design is fully vertical (cliffs, high points, upside-down terrain). Constitution Q1 ('explainable by pluck/place/throw') is also stretched by rolling, gliding and gravity reversal as verbs.",
+     "fix": "Say what IS simulated: (1) authored rails/splines for rolling and bounce arcs (deterministic, no rigid bodies); (2) water as a graph of authored channels with gates (dam = gate closed); (3) a per-zone gravity flag; (4) 2.5D sim with discrete height levels. Decide now whether the old sim is reused or replaced, and budget it in 18. Add rolling, gliding and bouncing to the constitution as consequences of placing objects with properties, not new verbs."
+    },
+    {
+     "severity": "major",
+     "section": "4-3 / 15 (everything has visible roots) vs world dressing",
+     "problem": "15 has 'a hint of roots at the base of every object', and 4-3 says no visible root may be unpluckable. So every prop in a 3D quarter-view world must be a fully specified Pluckable from a 28-entry list, or be rootless terrain. Filling villages, forests and a stake city (hospitals, schools, farms from 2) then means either massive repetition of 28 types or a huge content burden. Hundreds of live Pluckables also allow sequence breaks (carry anything anywhere) and raise the question of what may be brought home.",
+     "fix": "Add a third, explicitly specified class: 'grounded dressing' (merged into terrain: stone walls, cliff houses, distant skyline beyond the play boundary) with a consistent visual rule, e.g. plinth or no visible base, and add it to the audit. Treat the 28 as archetypes with cosmetic skins (all trees = apple/wind/pear behaviour). State that only objects marked 데려올 것 (plus a short list of decor) can be taken across chapter borders."
+    },
+    {
+     "severity": "major",
+     "section": "5-1 / 5-3 / 13 / 14 (failure, weakening, accessibility)",
+     "problem": "5-1 says the root weakens 'from the next attempt' after any failure; 5-3 says -20% only after 2 fails and -40% after 3; 13 says 'next attempt easier'. The 0.3 s grace window relies on releasing the hold, but in 14's 'toggle pull' mode it is unclear whether pressing again counts as releasing. Undefined: what happens on a missed or non-perfect hook (5-1 only defines the perfect case); how progress moves when you hold through a 버팀 phase or release during 지침; whether there is a floor beyond -40%. 5-4's M average of 1.5 s is shorter than one 메기 cycle (1.4 + 0.5 s with slow progress), but 우물, 뜨거운 돌 and 쇠말뚝 are M/메기.",
+     "fix": "Use one table: after fail 1 → -15%, fail 2 → -30%, fail 3+ → -45% plus a visible tell that the grip is better. Add a 'pull assist' accessibility toggle (auto-hold through 버팀, auto-pull in 지침). Define the hook outcomes: perfect = 30% head start, normal = 0%, missed = root sinks back, retry with no penalty. Write the progress formula (holding in 버팀: tension up, progress 0; holding in 지침: progress x2; releasing: tension down, progress decays slowly). Set the 5-4 averages per resistance type, not per tier."
+    },
+    {
+     "severity": "minor",
+     "section": "10 (one gimmick per chapter) vs 10 table / 19",
+     "problem": "'기믹은 챕터당 하나', but chapter 0 lists 뽑기, 놓기, 줄 서기; chapter 1 lists 무게, 굴리기; chapter 4 lists 열, 물, 증기. 19 expects pluck, place, properties, silver rejection and line-up all learned in the first 3 minutes, which compresses chapter 0's four-beat structure into 3 minutes. Fishing, the core skill, is not on that list, and tags aren't introduced until chapter 1.",
+     "fix": "Reword to 'one new rule per chapter' (chapter 4's rule = 'tags combine'; chapter 1's = 'weight', with rolling as its twist). Change the 19 metric to 'first 10 minutes: pluck, fish, place, refusal, line-up', and test tags in chapter 1."
+    },
+    {
+     "severity": "minor",
+     "section": "14 (three UI elements) vs 4-1 / 11 / 12",
+     "problem": "14 limits on-screen UI to button prompts, placement preview and tag range. But 4-1 auto-marks refusals 'on the map'; there is a codex (12), a glove swap, fast travel (11), and a layout-load button (11). A map's existence, form and access button are never specified.",
+     "fix": "Reword as 'three in-play overlays'. List the menus separately (map, codex, gloves, village layout) and say how the map opens (pause menu) and whether it is a diegetic object, such as 쑥이's map scroll."
+    },
+    {
+     "severity": "minor",
+     "section": "2 / 5-1 / 12 (wet paws vs wet ground)",
+     "problem": "Two different 'wet' states are mixed: wet paws (lore 2, 5-1: see underground root lines) and wet ground (5-2: longer tired phase). How paws get wet without the chapter 3 glove is never stated. The 젖은 앞발 장갑 permanently removes that mechanic from chapter 3 on.",
+     "fix": "Define it: touching a water tag or a puddle wets paws for 20 s, shown by a dripping paw; wet ground is a tile state. Or drop wet paws and make the chapter 3 glove simply 'see root lines'."
+    },
+    {
+     "severity": "minor",
+     "section": "12 (gloves / 뿌리씨앗 economy)",
+     "problem": "'장갑: 뿌리씨앗으로 교환', but gloves are also given at fixed points (chapter 1 cart, chapter 3), and the only listed source of 뿌리씨앗 is one wish. The 새싹 장갑 has no effect, so the 'one at a time' choice is really between two gloves. This axis is thin and its economy is undefined.",
+     "fix": "Either drop the currency and hand gloves out at fixed story beats, or list the 뿌리씨앗 sources (wishes, sparkly soil, codex milestones) and add 2-3 more gloves with real trade-offs."
+    },
+    {
+     "severity": "minor",
+     "section": "10 (finale scaling) vs 10 (minimum guarantee)",
+     "problem": "The finale says tension limit and progress speed grow with line length, i.e. difficulty depends on collection, while the next paragraph says collection scales spectacle and faces. Players who skipped content get the hardest climax, which goes against the 'release' emotion.",
+     "fix": "Make the pull difficulty fixed and tuned for the main-path minimum. Let line length scale only the chorus, the camera framing and the number of ending faces."
+    },
+    {
+     "severity": "minor",
+     "section": "18 vs 19 (gate metric wording)",
+     "problem": "18's grammar gate is '\"왜 이건 안 돼?\" 1회 이하' with no time base; 19 says 'per 30 minutes'. 19's gates use percentages (80%, 70%, majority) on n=5, where one tester swings the result by 20 points, and the rule 'if any metric misses, don't advance' becomes noise-driven.",
+     "fix": "Use one definition (per 30 min) everywhere, and state the gates as counts for n=5 (e.g. 4 of 5). Re-test with a fresh 5 before blocking a phase."
+    },
+    {
+     "severity": "minor",
+     "section": "13 (cliff fall) / traversal rules",
+     "problem": "'Items held are replanted at that spot': at the fall point (mid-air?) or at the origin? Water, the sea (구름해안, 구름섬 '바다가 보임') and rivers have no rule (swim? respawn?). 6 says rivers block processions, but whether 쑥이 can swim, climb or step up ledges, and how high she can jump, is undefined. Puzzle design depends on these numbers.",
+     "fix": "Add a traversal spec: jump height, step height, swim yes/no, glide distance. On any fall or deep water: 쑥이 tumbles to the last safe tile, and the held object re-plants at the last valid placement tile nearest the edge."
+    }
+   ],
+   "topRecommendations": [
+    "Rebuild the progression spine before prototyping. Use a single paw-stage unit (0-5) with one value per tier, grant stage 1 at the end of chapter 0, exempt the dokkaebi release pull from paw gating, then re-check every 데려올 것 item and dokkaebi tier in 8/9/10 against the paw stage at that moment. Make the chapter 0 pear tree rainbow so the first refusal teaches the right rule.",
+    "Rewrite 4-3 as 'no permanent refusals', with exactly four readable lock types (paw, stake, dokkaebi, line-up). Add a third 'grounded dressing' class for set dressing, and extend the editor audit to check that every Pluckable has a reachable unlock.",
+    "Replace the 17 save model with per-zone object state, narrow the regrowth law to cosmetic S-tier plants plus re-sprouting out-of-bounds objects, and make the stump reset placements only, never progression.",
+    "Pin down the input contract: two action buttons plus stick; latched carry (press to pick up, press to place, hold-release to throw); facing set at placement; hook as release-press; line-up beat on grab; no jump while fishing. Then drop the press-length split and the 피라미 type.",
+    "Scope 'no randomness' to inputs, author all rewards, remove the pity timer, and make codex sizes a skill output. Publish the full 6x6 tag matrix with explicit no-ops, grid-based ranges measured from footprint edges, and latched, terrain-agnostic wishes. Also decide what is actually simulated (rails, water graph, gravity flag, height levels) versus the existing 2D deterministic sim."
+   ]
+  }
+ ]
+]

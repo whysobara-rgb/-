@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>뿌리째 털어라 — UI gallery</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #1e1838;
+      }
+      #app {
+        position: fixed;
+        inset: 0;
+        z-index: 1;
+      }
+      /* Fake game view behind the HUD (dev only): the layout drawn as an oblique ground. */
+      .dev-scene {
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        overflow: hidden;
+        background: linear-gradient(180deg, #c9b6e4 0%, #e9d9c4 40%, #d8c2a2 100%);
+        perspective: 1400px;
+      }
+      .dev-scene canvas {
+        position: absolute;
+        left: -15%;
+        top: -10%;
+        width: 130%;
+        height: 125%;
+        transform: rotateX(38deg);
+        transform-origin: 50% 60%;
+        filter: saturate(0.9);
+      }
+      .dev-index {
+        position: fixed;
+        inset: 0;
+        overflow: auto;
+        padding: 24px 32px;
+        font: 15px/1.7 system-ui, sans-serif;
+        color: #fff8ee;
+        background: #241b47;
+        z-index: 50;
+      }
+      .dev-index a {
+        color: #ffd66b;
+        margin-right: 8px;
+      }
+      .dev-index b {
+        display: inline-block;
+        width: 180px;
+      }
+      #dev-log {
+        position: fixed;
+        left: 50%;
+        bottom: 8px;
+        transform: translateX(-50%);
+        padding: 4px 12px;
+        border-radius: 8px;
+        background: rgba(0, 0, 0, 0.7);
+        color: #9effc8;
+        font: 13px/1.4 monospace;
+        opacity: 0;
+        transition: opacity 0.2s;
+        z-index: 100;
+        pointer-events: none;
+      }
+      #dev-log.is-on {
+        opacity: 1;
+      }
+      .dev-perf {
+        position: fixed;
+        right: 24px;
+        top: 50%;
+        padding: 16px 20px;
+        border-radius: 12px;
+        background: rgba(0, 0, 0, 0.8);
+        color: #9effc8;
+        font: 16px/1.5 monospace;
+        z-index: 100;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="dev-log"></div>
+    <script type="module" src="../src/ui/dev/gallery.ts"></script>
+  </body>
+</html>

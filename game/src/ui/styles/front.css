@@ -1,0 +1,398 @@
+/*
+ * Front door (C10, calm pass) + boot splash + van wipe. Imported by MainMenu.ts / BootSplash.ts.
+ *
+ * One focal point: the logo and 게임 시작 in a left column over a soft scrim; the 3D gang stands
+ * in the right half. Four type sizes only (logo 4.25rem, 게임 시작 2.75rem, list 2.125rem, small
+ * 1.3125rem), one accent (sun yellow, 게임 시작 only), cream text, one outline weight
+ * (--pop-line), spacing on the 8 px grid (0.5rem steps at 1080p).
+ * Portrait / phone width: the same column moves to the bottom (MainMenu sets .is-tall).
+ */
+
+.uh-screen--menu {
+  --front-text: var(--pop-cream);
+  --front-muted: rgba(255, 246, 230, 0.74);
+  /* deep cool dusk (navy-indigo): over the warm scene it reads as evening, not as a brown haze */
+  --front-shade: 22, 26, 54;
+}
+
+/* Depth-of-field feel: the 3D behind the column goes soft (no panel, no edge: it fades out). */
+.uh-front__soften {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  -webkit-backdrop-filter: blur(0.5rem);
+  backdrop-filter: blur(0.5rem);
+  -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 30%, transparent 46%);
+  mask-image: linear-gradient(90deg, #000 0%, #000 30%, transparent 46%);
+}
+/* Calmer scene (a touch less saturation and contrast), then one deep, mostly flat dusk shade
+   under the column (it holds ~0.8 across the list, so the props behind it never compete with
+   the text even without the blur) and a soft vignette at the far edges. */
+.uh-front__scrim {
+  --scrim:
+    linear-gradient(90deg, rgba(var(--front-shade), 0.84) 0%, rgba(var(--front-shade), 0.8) 30%, rgba(var(--front-shade), 0.5) 42%, rgba(var(--front-shade), 0.14) 52%, rgba(var(--front-shade), 0) 60%),
+    radial-gradient(130% 110% at 70% 42%, rgba(var(--front-shade), 0) 58%, rgba(var(--front-shade), 0.26) 100%);
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  -webkit-backdrop-filter: saturate(0.92) contrast(0.95);
+  backdrop-filter: saturate(0.92) contrast(0.95);
+  background: var(--scrim);
+}
+
+.uh-front {
+  padding: 4rem 4rem 3rem 7.5rem;
+  color: var(--front-text);
+}
+.uh-front__zoom { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+/* Low graphics quality: no backdrop filters; the same shade, a little deeper under the column. */
+.uh-screen--menu.is-lite .uh-front__soften { display: none; }
+.uh-screen--menu.is-lite .uh-front__scrim {
+  --scrim:
+    linear-gradient(90deg, rgba(var(--front-shade), 0.88) 0%, rgba(var(--front-shade), 0.86) 32%, rgba(var(--front-shade), 0.56) 43%, rgba(var(--front-shade), 0.16) 53%, rgba(var(--front-shade), 0) 61%),
+    radial-gradient(130% 110% at 70% 42%, rgba(var(--front-shade), 0) 58%, rgba(var(--front-shade), 0.26) 100%);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* --- top row: logo (left), player chip (right) -------------------------------------------- */
+.uh-front__top {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 2rem;
+}
+
+.uh-mechip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.375rem 1.25rem 0.375rem 0.375rem;
+  border-radius: 999px;
+  background: rgba(var(--front-shade), 0.56);
+  color: var(--front-text);
+}
+.uh-mechip__art {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 50%;
+  background: var(--pop-cream);
+  border: var(--pop-line) solid var(--pop-ink);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+.uh-mechip__art .uh-portrait { width: 125%; margin-top: 0.5rem; }
+.uh-mechip__name {
+  font-family: var(--uh-font-display);
+  font-size: max(1.3125rem, calc(14px / var(--fz, 1)));
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* --- the column ---------------------------------------------------------------------------- */
+.uh-front__main {
+  flex: none;
+  align-self: flex-start;
+  margin-top: 4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 3rem;
+}
+.uh-front__hero { display: flex; flex-direction: column; align-items: flex-start; gap: 1rem; }
+.uh-front__playRow { display: flex; align-items: center; gap: 1.5rem; }
+
+/* 게임 시작: the only coloured control */
+.uh-play {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  flex: none;
+  width: 26rem;
+  height: 6rem;
+  padding: 0 2rem 0 0.75rem;
+  border-radius: 999px;
+  background: var(--pop-sun);
+  border: var(--pop-line) solid var(--pop-ink);
+  box-shadow: 0 0.375rem 0 var(--pop-ink), 0 1rem 2rem rgba(var(--front-shade), 0.3);
+  color: var(--pop-ink);
+  cursor: pointer;
+  transition: transform var(--uh-dur) var(--uh-ease-bounce), box-shadow var(--uh-dur-fast) var(--uh-ease-out);
+}
+.uh-play__icon {
+  flex: none;
+  width: 4.25rem;
+  height: 4.25rem;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--pop-ink);
+  color: var(--pop-sun);
+}
+.uh-play__icon .uh-icon { width: 2.25rem; height: 2.25rem; translate: 0.15rem 0; }
+.uh-play__label {
+  font-family: var(--uh-font-display);
+  font-size: 2.75rem;
+  line-height: 1;
+  white-space: nowrap;
+}
+.uh-play.is-focused {
+  transform: scale(1.03);
+  box-shadow: 0 0.375rem 0 var(--pop-ink), 0 0 0 0.375rem var(--pop-cream), 0 1.25rem 2.5rem rgba(var(--front-shade), 0.36);
+}
+.uh-play:active, .uh-play.is-pressed { transform: translateY(0.25rem) scale(0.99); box-shadow: 0 0.125rem 0 var(--pop-ink); }
+
+/* caption under 게임 시작: what one press starts */
+.uh-front__caption {
+  margin: 0;
+  padding-left: 1.5rem;
+  font-size: max(1.3125rem, calc(14px / var(--fz, 1)));
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--front-muted);
+}
+
+/* Small text controls (setup link, goal line, list items) share one focus look: a cream pill. */
+.uh-front__link,
+.uh-goal,
+.uh-goal__close,
+.uh-mitem {
+  transition: background-color var(--uh-dur-fast) var(--uh-ease-out), color var(--uh-dur-fast) var(--uh-ease-out), transform var(--uh-dur) var(--uh-ease-bounce);
+}
+.uh-front__link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.5rem 0.75rem 0.5rem 1rem;
+  border-radius: 999px;
+  font-size: max(1.3125rem, calc(14px / var(--fz, 1)));
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--front-text);
+  text-shadow: 0 0.125rem 0.5rem rgba(var(--front-shade), 0.6);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.uh-front__link span { text-decoration: underline; text-decoration-thickness: 0.125rem; text-underline-offset: 0.25rem; text-decoration-color: rgba(255, 246, 230, 0.45); }
+.uh-front__link .uh-icon { width: 1.25rem; height: 1.25rem; }
+.uh-front__link.is-focused { background: var(--pop-cream); color: var(--pop-ink); text-shadow: none; }
+.uh-front__link.is-focused span { text-decoration-color: transparent; }
+
+/* next goal: one line + a small x */
+.uh-front__goalRow { display: flex; align-items: center; gap: 0.5rem; margin-left: 0.75rem; max-width: 100%; }
+.uh-goal {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 2.5rem;
+  padding: 0 0.5rem 0 0.75rem;
+  border-radius: 999px;
+  font-size: max(1.3125rem, calc(14px / var(--fz, 1)));
+  font-weight: 700;
+  color: var(--front-text);
+  cursor: pointer;
+}
+.uh-goal__icon .uh-icon { width: 1.375rem; height: 1.375rem; display: block; }
+.uh-goal__label { flex: none; color: var(--front-muted); }
+.uh-goal__title { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.uh-goal__arrow .uh-icon { width: 1.25rem; height: 1.25rem; display: block; }
+.uh-goal.is-focused { background: var(--pop-cream); color: var(--pop-ink); }
+.uh-goal.is-focused .uh-goal__label { color: var(--uh-ink-700); }
+.uh-goal__close {
+  flex: none;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--front-muted);
+  cursor: pointer;
+}
+.uh-goal__close svg { width: 1.25rem; height: 1.25rem; }
+.uh-goal__close.is-focused { background: var(--pop-cream); color: var(--pop-ink); }
+
+/* the quiet list */
+.uh-front__list { display: flex; flex-direction: column; gap: 1rem; }
+.uh-front__group { display: flex; flex-direction: column; }
+.uh-front__group + .uh-front__group { padding-top: 1rem; border-top: 0.125rem solid rgba(255, 246, 230, 0.2); width: 20rem; }
+.uh-mitem {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 20rem;
+  height: 3.5rem;
+  padding: 0 1.5rem;
+  border-radius: 999px;
+  color: var(--front-text);
+  cursor: pointer;
+}
+.uh-mitem__label {
+  font-family: var(--uh-font-display);
+  font-size: 2.125rem;
+  line-height: 1;
+  white-space: nowrap;
+  text-shadow: 0 0.125rem 0.5rem rgba(var(--front-shade), 0.5);
+}
+.uh-mitem__badge {
+  font-size: max(1rem, calc(14px / var(--fz, 1)));
+  font-weight: 800;
+  line-height: 1;
+  padding: 0.25rem 0.5rem;
+  border-radius: 999px;
+  border: 0.125rem solid currentColor;
+  opacity: 0.9;
+}
+.uh-mitem.is-focused { background: var(--pop-cream); color: var(--pop-ink); }
+.uh-mitem.is-focused .uh-mitem__label { text-shadow: none; }
+.uh-mitem:active, .uh-mitem.is-pressed { transform: scale(0.97); }
+
+/* one quiet line: what the focused control does */
+.uh-front__foot { margin-top: auto; padding-top: 2rem; }
+.uh-front__hint {
+  margin: 0;
+  max-width: 60rem;
+  min-height: 1.3em;
+  font-size: max(1.3125rem, calc(14px / var(--fz, 1)));
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--front-muted);
+}
+
+/* --- portrait / phone: the column at the bottom, full width -------------------------------- */
+.uh-screen--menu.is-tall .uh-front__scrim,
+.uh-screen--menu.is-tall.is-lite .uh-front__scrim {
+  --scrim: linear-gradient(0deg, rgba(var(--front-shade), 0.84) 0%, rgba(var(--front-shade), 0.7) 45%, rgba(var(--front-shade), 0) 70%);
+}
+.uh-screen--menu.is-tall .uh-front { padding: 0; width: 100%; }
+.uh-screen--menu.is-tall .uh-front__zoom { flex: none; }
+.uh-screen--menu.is-tall .uh-front__top { flex-direction: column; align-items: center; }
+.uh-screen--menu.is-tall .uh-mechip { display: none; }
+.uh-screen--menu.is-tall .uh-front__main { width: 100%; margin-top: auto; gap: 2rem; }
+.uh-screen--menu.is-tall .uh-front__soften { display: none; }
+.uh-screen--menu.is-tall .uh-front__playRow { width: 100%; flex-direction: column; align-items: stretch; gap: 0.5rem; }
+.uh-screen--menu.is-tall .uh-play { width: 100%; }
+.uh-screen--menu.is-tall .uh-front__link { align-self: flex-start; }
+.uh-screen--menu.is-tall .uh-front__foot { display: none; }
+.uh-screen--menu.is-tall .uh-front__group,
+.uh-screen--menu.is-tall .uh-front__group + .uh-front__group,
+.uh-screen--menu.is-tall .uh-mitem { width: 100%; }
+
+/* ======================================================================================== */
+/* Boot splash                                                                               */
+/* ======================================================================================== */
+.uh-screen--boot { background: var(--pop-cream); cursor: pointer; }
+.uh-boot {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2.5rem;
+  background: radial-gradient(120% 100% at 50% 45%, var(--pop-cream) 55%, var(--pop-paper) 100%);
+  color: var(--pop-ink);
+}
+.uh-boot__stamp {
+  width: 10rem;
+  height: 10rem;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--pop-tomato);
+  border: var(--pop-line) solid var(--pop-ink);
+  box-shadow: 0 0.375rem 0 var(--pop-ink);
+  color: var(--pop-cream);
+  animation: uh-boot-thunk 0.5s 0.15s cubic-bezier(0.3, 0, 0.4, 1.3) both;
+}
+.uh-boot__stamp svg { width: 6.25rem; height: 6.25rem; }
+@keyframes uh-boot-thunk {
+  0% { opacity: 0; transform: scale(2.2) rotate(-14deg); }
+  55% { opacity: 1; transform: scale(0.9, 0.84) rotate(2deg); }
+  78% { transform: scale(1.04, 0.98); }
+  100% { opacity: 1; transform: none; }
+}
+.uh-boot__ring {
+  position: absolute;
+  width: 10rem;
+  height: 10rem;
+  border-radius: 50%;
+  border: 0.25rem solid var(--pop-ink);
+  opacity: 0;
+  animation: uh-boot-ring 0.6s 0.42s var(--uh-ease-out) both;
+  pointer-events: none;
+}
+@keyframes uh-boot-ring {
+  from { opacity: 0.35; transform: scale(1); }
+  to { opacity: 0; transform: scale(1.9); }
+}
+.uh-boot__mark { position: relative; display: grid; place-items: center; }
+.uh-boot__title { margin: 0; font: inherit; }
+.uh-boot__logo { --lfs: 5.5rem; animation: uh-boot-rise 0.5s 0.7s var(--uh-ease-out) both; }
+@keyframes uh-boot-rise {
+  from { opacity: 0; transform: translateY(1rem); }
+  to { opacity: 1; transform: none; }
+}
+.uh-boot__note {
+  position: absolute;
+  left: 50%;
+  bottom: 4rem;
+  translate: -50% 0;
+  width: min(80rem, calc(100% - 32px));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  margin: 0;
+  font-size: max(1.3125rem, calc(14px / var(--fz, 1)));
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--uh-ink-700);
+  text-align: center;
+  animation: uh-boot-rise 0.4s 1s var(--uh-ease-out) both;
+}
+.uh-boot__note .uh-icon { flex: none; width: max(1.75rem, 18px); height: max(1.75rem, 18px); color: var(--pop-tomato-d); }
+.uh-boot__skip {
+  position: absolute;
+  right: 3rem;
+  top: 2.5rem;
+  font-size: max(1.3125rem, calc(14px / var(--fz, 1)));
+  font-weight: 700;
+  color: var(--uh-ink-500);
+  animation: uh-boot-rise 0.4s 1.1s var(--uh-ease-out) both;
+}
+/* Animations wait until the warm-up frame behind the splash is over (BootSplash adds .is-live). */
+.uh-boot:not(.is-live) * { animation-play-state: paused !important; }
+.uh-screen--boot.is-leaving { animation: uh-boot-out 0.28s var(--uh-ease-out) forwards; }
+@keyframes uh-boot-out { to { opacity: 0; } }
+html.uh-reduced-motion .uh-boot__ring { display: none; }
+
+/* ======================================================================================== */
+/* Van wipe (게임 시작 -> loading)                                                              */
+/* ======================================================================================== */
+.uh-vanwipe { position: absolute; inset: 0; overflow: hidden; pointer-events: all; }
+.uh-vanwipe__curtain {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -12%;
+  width: 124%;
+  background-color: var(--pop-tomato);
+  background-image: repeating-linear-gradient(-60deg, rgba(255, 246, 230, 0.22) 0 3rem, transparent 3rem 6rem), var(--pat-paw);
+  background-size: auto, 8rem 8rem;
+  border-right: 0.6rem solid var(--pop-ink);
+  transform: translateX(-100%);
+}
+.uh-vanwipe__van {
+  position: absolute;
+  top: 50%;
+  right: -2rem;
+  width: 30rem;
+  translate: 100% -55%;
+}
+.uh-vanwipe__van svg { width: 100%; height: auto; display: block; filter: drop-shadow(0.5rem 0.6rem 0 rgba(42, 33, 49, 0.45)); }
+.uh-vanwipe__fade { position: absolute; inset: 0; background: var(--pop-tomato); opacity: 0; }

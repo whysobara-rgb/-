@@ -1,0 +1,21 @@
+{
+  "sim": {"wps": [
+    {"id": "C1", "ports": "5001-5009", "owns": "src/sim/coins.ts, src/sim/breakables.ts, src/sim/rules.ts, src/sim/world.ts, src/sim/sim.ts, src/sim/context.ts, new helpers in src/sim/queries.ts, the COINS/BREAKABLES blocks of src/sim/config.ts, one-line hook calls in src/sim/police.ts (spillBag on tackle, heldValue for targeting), test/sim/coins*.test.ts, test/sim/content-fuzz*.test.ts"},
+    {"id": "C3", "ports": "5011-5019", "owns": "src/sim/physics.ts, src/sim/props.ts, the PROPS block of src/sim/config.ts, test/sim/props*.test.ts"},
+    {"id": "C2 (wave 1 scope only: item framework, drops/deck/schedule/warning/expiry, 뿅망치, 황금 뿅망치)", "ports": "5021-5029", "owns": "src/sim/items.ts, src/sim/actions.ts (dash routing, swing arcs), the stun entry point in src/sim/police.ts, the ITEMS block of src/sim/config.ts, test/sim/items*.test.ts"},
+    {"id": "C4 (wave 1 scope only: v2 compositions per §3.2 on plaza/shortcut/counter, item pads, event spots, starter sockets, breakable placements, hammerable fences, validator additions)", "ports": "5031-5039", "owns": "src/sim/layouts/{plaza,shortcut,counter,builder,validate,meta,strings}.ts, tools/layout-check.ts, test/sim/layouts*.test.ts (src/sim/gimmicks.ts is wave 2)"}
+  ]},
+  "pres": {"wps": [
+    {"id": "C10", "ports": "5101-5109", "owns": "src/ui/screens/MainMenu.ts, new src/ui/screens/BootSplash.ts, new src/ui/components/{ModeCard,PlayerCard,NextGoalCard,NewsTicker}.ts, src/menu3d/scenes/hideout.ts, src/menu3d/kit.ts, the boot/title/front-door section of src/game/app.ts, index.html inline splash background, electron/main.cjs (backgroundColor + show:false until ready-to-show only), public/news.json, a 'front.*' strings block in src/ui/strings/{ko,en}.ts"},
+    {"id": "C7a", "ports": "5111-5119", "owns": "new src/render/coins.ts, new src/render/items.ts, new src/render/models/props.ts (ATM, 돼지, 돈나무, gold safe, crate, 꿀꺽 vending machine), attach points + hit reactions in src/render/models/raccoon.ts, effects in src/render/effects.ts, ONE 'extras' registration in src/render/view.ts, src/render/dev/** galleries"},
+    {"id": "C9 (wave 1 sounds: hammer, clash, coins climb/spill, ATM, oink, root-rip, bill flutter, crate/vending, supply drop, golden hammer sting)", "ports": "5121-5129", "owns": "new src/audio/sfxItems.ts, new src/audio/sfxProps.ts, its own namespaced section of src/audio/director.ts, src/audio/captions.ts entries, src/audio/ids.ts additions, test/unit/audio-content*.test.ts"},
+    {"id": "C8 (wave 1 scope: item icon in dash ring + pips + lifetime, bag chip, deposit ring, first-sighting item name tags, proximity prop labels, minimap pads/drops/coin density)", "ports": "5131-5139", "owns": "new components under src/ui/hud/ (ItemSlot, BagChip, DepositRing, PropLabels) with ONE mount point in src/ui/hud/Hud.ts, src/ui/hud/Minimap.ts + mapDraw.ts additions, src/ui/hud/adapters.ts content fields, an 'hud.content.*' strings block in src/ui/strings/{ko,en}.ts"}
+  ]},
+  "fun": {"wps": [
+    {"id": "F9", "ports": "5201-5209", "owns": "src/platform/save.ts, src/platform/progress.ts, test/unit/platform*.test.ts, test/unit/progress*.test.ts"},
+    {"id": "F5", "ports": "5211-5219", "owns": "src/game/moments.ts, src/shared/moments.ts (add-only), src/game/feel.ts, new src/game/replay.ts, the tracker/cues/command-log section of src/game/match.ts, test/unit/game-moments*.test.ts, test/unit/replay*.test.ts"},
+    {"id": "F4", "ports": "5221-5229", "owns": "matchPointInfo/swingInfo extensions in src/sim/queries.ts (bag loads), stamps/banners/crown/banner-queue/final-10s in src/ui/hud/{Hud,Effects}.ts, src/ui/hud/adapters.ts tension fields, the moments->HUD and banner-queue section of src/game/match.ts, 'hud.mp.*' and 'hud.moment.*' strings blocks"},
+    {"id": "F3", "ports": "5231-5239", "owns": "the beats in src/render/view.ts (glance, playGetaway, setDecisiveLoad, setStealChance, setResultsPoses, setBotWindup, showBark), src/render/camera.ts, src/render/moods.ts, results-stage code in src/render/**"},
+    {"id": "F8", "ports": "5241-5249", "owns": "the tension section of src/audio/director.ts (onMoments, setTension), new tension cues in src/audio/sfx*.ts (its own file sfxTension.ts), captions for them, test/unit/audio-tension*.test.ts"}
+  ]}
+}

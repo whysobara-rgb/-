@@ -1,0 +1,35 @@
+{
+ "verdict": "fix-needed",
+ "issues": [
+  {
+   "severity": "medium",
+   "file": "/home/user/-/game/src/sim/layouts/plaza.ts",
+   "description": "Draws are still above the doc §19 limit on fresh seeds, in every block. Doc §19 says to fix the cause when draws pass 10%. The fixer found the cause (each side takes its own copy of the last mirrored pair of small safes) but never tried the lever the task allowed: symmetric changes to safe positions. Only bot knobs were tried. 2v2 on plaza is the worst case.",
+   "evidence": "My fresh run: `npx tsx tools/balance-report.ts --seeds 4 --seeds-proxy1 20 --seed-base 3700000 --workers 3 --json` (1404 matches, 0 invariant violations). Output: scratchpad/review-balance2/fresh.md and fresh.json.\n\n| block | n | draws (95% range) |\n|---|---|---|\n| proxy vs bot 1v1 | 360 | 15.3% (12–19); plaza 20% |\n| bot vs bot, equal difficulty | 432 | 14.6%; counter 18% |\n| 2v2 bots | 180 | 20.6%; plaza 30% |\n| proxy + bot mate 2v2 | 108 | 21.3%; plaza 33% |\n\n- 35 of the 55 proxy-vs-bot draws (64%) end 1600–1600 with every safe recovered.\n- In a separate 216-match scan at normal (scan_t / scan_n / holds_n), draws were 34/216 = 15.7%. 22 of those are 1600–1600; most of the rest are equal-score endings when the final countdown runs out.\n- Leftover loot in those endings is again mirrored pairs: counter #13/#14 at (6, 11.46)/(62, 11.46), plaza #11/#12 at (3, 13.5)/(77, 13.5).\n- Proxy-vs-bot draws in the fixer's own runs: 9% / 9% / 16% / 18%. My set agrees with the high end.\n- The report's checks list 'proxy-vs-bot draws <10%' and 'draws<10%' as not met."
+  },
+  {
+   "severity": "medium",
+   "file": "/home/user/-/game/src/ai/bot.ts",
+   "description": "Tackle chains still happen whenever the target is not a bank, or while the bot is straining (pulling a load loose). The let-go/stun reflex is skipped while straining (bot.ts:3251, `me.grab && me.protectTicks <= REFLEX_LEAD_TICKS && !me.straining`). The pack-hold / give-up logic only covers banks (addHeat returns at bot.ts:656 for other loot). So a bot can keep straining a safe beside the parked car while two officers take turns tackling it every 2.0 s, which is exactly the pattern from the original high finding.",
+   "evidence": "Shortcut, nunchi:challenge vs hodadak:challenge, seed 3704017 (scratchpad/review-balance2/c5.json):\n- Hodadak (char 2) is tackled at 97.9, 99.9, 101.9, 103.9 and 105.9 s (exactly 2.0 s apart), then again at 110.0 s.\n- During this it strains bank 4, then large safe 12, at (34.9–35.1, 44.5–47.0).\n- The two officers of the wave that just arrived stand right there, at (34–37, 45–49), next to the south curb.\n- Its only responses are two dash-stuns, at 98.8 and 104.6 s, each made from the ground after it had already been knocked down.\n- The harness reports chainLongest = 5.\n\nAcross my fresh run of 1404 matches, the longest chain per match was 5 in 1 match, 4 in 19 and 3 in 191. The fixer reported that the longest chain is 4."
+  },
+  {
+   "severity": "low",
+   "file": "/home/user/-/game/src/ai/bot.ts",
+   "description": "The pack hold ignores the score, the time left and the near-home rule. The test `(pack && heat >= 2)` (bot.ts:670) skips the nearHome bonus and never checks the clock or the score. The held bank is also removed from the candidate list (bot.ts:1301) before the new `clinch` boost runs, so the endgame arithmetic cannot bring it back. A trailing bot can therefore leave the bank that would win the match, a few metres from home, for 25 s in the final minute.",
+   "evidence": "Plaza, tongkeun vs hodadak, normal, seed 6600031 (scratchpad/review-balance2/d2.json, t_d2.png):\n- At 198.47 s team 0 trails 1200–1500 with 41 s left.\n- Bank 3 (worth 500) sits at (10.4, 21.0), about 4 m from team 0's zone edge (zone center (10, 31), half-height 5.5).\n- Log: 'end haul:3: hounded by the police (a pack): later', then 'goal guard u=0.02'.\n- It resumes 'goal haul:3' only at 223.58 s and loses 1200–1500.\n\nA scratch monkeypatch (scratchpad/review-balance2/one.ts) skips the hold in the last 60 s when the bank would cover the deficit. On the same seed team 0 then wins 1700–1500.\n\nHow often (holds.ts, 108 normal 1v1 matches): in 29 matches a trailing bot takes such a hold in the final 60 s on a bank that would cover the deficit. A same-seed A/B (ab.ts) changed only 4 results (the trailing teams' result score went 15.0 → 15.5), so the overall effect is small."
+  },
+  {
+   "severity": "low",
+   "file": "/home/user/-/game/src/ai/params.ts",
+   "description": "The hodadak buff (aggression 0.45 → 0.6, intercept 0.55 → 0.7) blurred its doc §11 identity ('가까운 금고를 자주 회수', recovers nearby safes often). On fresh seeds the report's check 'hodadak most small' now fails. Hodadak is also still the clearly weakest rival against nunchi.",
+   "evidence": "Personality signatures in fresh.md (seeds 3700000):\n\n| personality | small-safe recoveries per match |\n|---|---|\n| hodadak | 3.25 |\n| nunchi | 3.31 |\n| tongkeun | 1.64 |\n\nThe report marks '- [ ] hodadak most small'. On the old seeds (F_old.md) it barely passes, 3.27 vs 3.24. The fixer's 'Signature checks all pass: hodadak 3.88' rests on a single seed set.\n\nHead to head in my equal-difficulty block, hodadak scores 35% against nunchi overall (29% at challenge, 33% at normal; n=72). That is within the 75% limit but still lopsided."
+  },
+  {
+   "severity": "low",
+   "file": "/home/user/-/game/src/ai/bot.ts",
+   "description": "There is still a regrab loop between a bank and a fence. A bot holding a bank's wall with its back to shortcut's north fence regrabs the same wrong face every 0.53 s for about 17 s. The bank never moves and no police are present. The stall rescue fires only at the end. The report says the bank/fence pinning was fixed and that the longest stuck window is 14.6 s, and the stuck>5s == 0 target is still missed (66 incidents in 1404 matches).",
+   "evidence": "Shortcut, nunchi:normal vs tongkeun:novice, seed 3701017, slot 1. Logs and positions are in scratchpad/review-balance2/s1.json and t_s1.png.\n- From 65.68 s to 82.10 s the bot logs 'regrab bank 3 (pull, face score -0.13)' about every 32 ticks (the regrab branch at bot.ts:2924-2933, limit 30 when the face score < -0.1).\n- The bot sits at (36.1, 15.7–15.9), right against fence.north (center (35, 15.5), half-extents 5.25 × 0.15).\n- The bank stays at (34.42, 19.74) at 70 s and 75 s, and (34.45, 19.70) at 80 s.\n- The officers start leaving at 71 s.\n- 'bank 3 stalled (1)' appears only at 84.17 s.\n- The harness records a 17.1 s stuck incident ('haul:3:grab' at (36.2, 15.9)), the longest in the run."
+  }
+ ]
+}

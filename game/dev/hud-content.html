@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>뿌리째 털어라 — Content HUD harness</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #e9d9c4;
+      }
+      #scene {
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+      }
+      #scene canvas {
+        display: block;
+      }
+      #app {
+        position: fixed;
+        inset: 0;
+        z-index: 1;
+      }
+      #dev-info {
+        position: fixed;
+        right: 8px;
+        top: 8px;
+        z-index: 100;
+        padding: 4px 10px;
+        border-radius: 8px;
+        background: rgba(0, 0, 0, 0.6);
+        color: #9effc8;
+        font: 12px/1.4 monospace;
+        pointer-events: none;
+        white-space: pre;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="scene"></div>
+    <div id="app"></div>
+    <div id="dev-info"></div>
+    <script type="module" src="/src/ui/hud/dev/hudContentHarness.ts"></script>
+  </body>
+</html>

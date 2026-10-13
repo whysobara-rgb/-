@@ -1,0 +1,244 @@
+/**
+ * 수집 광장 (Collection Plaza) — the first-playable match layout (doc §9, §16).
+ *
+ * Identity (doc §9 table): outer small safes are easy to reach, while the banks'
+ * wide recovery paths are relatively long. A central park (flower beds, kiosks and
+ * a round fountain plaza) sits between the two banks and both zones, so a bank can
+ * never cut across: it has to roll along the north or south boulevard and swing
+ * down into the zone (~37 m to the near south bank, ~46 m to the north one: the zones sit 5 m
+ * south of the middle so the two teams race for the same near bank). Small safes tucked in the corners
+ * next to each van reward steady early collecting; the two large safes wait on the
+ * loading docks behind the on-axis stores (reached through the service lanes), and two small
+ * safes guard the fountain.
+ *
+ * Paths: shop rows have 1.1 m alleys (small safes) and one 2.5 m gate lane each
+ * (large safes) into a 2.5 m service lane; the park has a 2.5 m flower road from
+ * the fountain to each zone and 1.1 m hedge alleys from the boulevards.
+ *
+ * Authored for the west half; the builder mirrors everything to the east half.
+ * The layout is also north/south symmetric (helper `ns`), with different shops.
+ */
+import { BREAKABLE_SPECS, PROP_SPECS } from '../config';
+import { LayoutBuilder } from './builder';
+import type { LayoutDesignMeta } from './meta';
+import type { LayoutDef } from '../types';
+
+const W = 80;
+const H = 52;
+const AX = W / 2;
+const PI = Math.PI;
+
+const BANK_N = { x: AX, y: 12.5 };
+const BANK_S = { x: AX, y: H - 12.5 };
+/**
+ * (balance pass) Zones 5 m south of the middle line: the south bank becomes the nearer, contested
+ * haul for both teams and the north bank the long one. With both banks exactly as far, mirrored
+ * play hauled one each and split the field evenly (1v1 draws ~20 %). Mirror symmetry (x) holds.
+ */
+const ZONE_DY = 5;
+const ZONE = { x: 10, y: 26 + ZONE_DY };
+/** Loading dock in the back of each on-axis store (half width, depth from the service lane). */
+const DOCK_HALF = 1.75; // 1.05 m beside the large safe: no raccoon-wide pocket (was 1.5 -> 0.8 m)
+const DOCK_DEPTH = 2;
+/** Large safe in the dock: 1.05 m from the back wall (it pokes 0.25 m into the service lane). */
+const DOCK_SAFE_Y = 2.5 + DOCK_DEPTH - 0.6 - 1.05;
+/** (v2) Half depth of the ATM (PROP_SPECS.atm.half.y): it stands flush on a shop front. */
+const PROPS_ATM_DEPTH = PROP_SPECS.atm.half.y;
+/** (v2) Gap that counts as flush with a wall (validator: <= POCKET_FLUSH, > overlap margin). */
+const FLUSH = 0.06;
+
+function build(): { def: LayoutDef; meta: LayoutDesignMeta } {
+  const b = new LayoutBuilder({
+    id: 'plaza',
+    size: { x: W, y: H },
+    nameKey: 'layout.plaza.name',
+    descKey: 'layout.plaza.desc',
+    groundStyle: 'plaza',
+  });
+
+  /** Runs `fn` for the north band (y as given) and the south band (y mirrored). */
+  const ns = (fn: (y: (v: number) => number, side: 'n' | 's') => void): void => {
+    fn((v) => v, 'n');
+    fn((v) => H - v, 's');
+  };
+
+  // --- teams ---------------------------------------------------------------------
+  b.zone(ZONE, { x: 1.6, y: ZONE.y }, -PI / 2);
+  b.spawn(5.5, ZONE.y - 4.25, 0);
+  b.spawn(5.5, ZONE.y + 2.75, 0);
+
+  // --- banks + routes ----------------------------------------------------------------
+  const bn = b.bank(BANK_N.x, BANK_N.y, PI / 2);
+  const bs = b.bank(BANK_S.x, BANK_S.y, PI / 2);
+  // Along the boulevard, then swing down/up into the zone (the park blocks the diagonal).
+  b.route(bn, [BANK_N, { x: 14, y: 12.5 }, { x: 10.5, y: 16.5 }, ZONE]);
+  b.route(bs, [BANK_S, { x: 12.5, y: H - 12.5 }, { x: 10.2, y: H - 15.5 }, ZONE]);
+
+  // --- shop rows (north + south) with a service lane behind ------------------------------
+  // Service lane y 0..2.5; shops y 2.5..6.5; boulevard below (banks roll at y = 12.5).
+  // x: 4..11.45 | alley 11.45..12.55 | 12.55..20.75 | gate lane 20.75..23.25 |
+  //    23.25..AX-8.55 | alley AX-8.55..AX-7.45 | on-axis store AX-7.45..AX+7.45
+  type Shop = [style: string, sign: string, eastStyle: string, eastSign: string, height: number];
+  const rows: Record<'n' | 's', Shop[]> = {
+    n: [
+      ['cafe', 'sign.cafe', 'tea', 'sign.tea', 6],
+      ['bakery', 'sign.bakery', 'bakery', 'sign.donut', 6.5],
+      ['toy', 'sign.toy', 'arcade', 'sign.arcade', 7],
+    ],
+    s: [
+      ['flower', 'sign.flower', 'icecream', 'sign.icecream', 6],
+      ['books', 'sign.books', 'music', 'sign.music', 6.5],
+      ['ramen', 'sign.ramen', 'laundry', 'sign.laundry', 7],
+    ],
+  };
+  ns((y, side) => {
+    const spans: [number, number][] = [
+      [4, 11.45],
+      [12.55, 20.75],
+      [23.25, AX - 8.55],
+    ];
+    spans.forEach(([x0, x1], i) => {
+      const [style, signKey, eStyle, eSign, h] = rows[side][i];
+      b.rect(`shop.${side}${i}`, 'building', x0, y(2.5), x1, y(6.5), h, { style, signKey, east: { style: eStyle, signKey: eSign } });
+    });
+    // On-axis block behind each bank: two shops (post office | photo studio north, pharmacy |
+    // greengrocer south) joined by a low loading-dock gate set back 2 m, so the large safe
+    // waits in a 3 x 2 m dock off the service lane and the lane itself stays clear.
+    b.rect(`store.${side}`, 'building', AX - 7.45, y(2.5), AX - DOCK_HALF, y(6.5), 7.5, {
+      style: side === 'n' ? 'brick' : 'pharmacy',
+      signKey: side === 'n' ? 'sign.post' : 'sign.pharmacy',
+      east: side === 'n' ? { style: 'glass', signKey: 'sign.photo' } : { style: 'grocery', signKey: 'sign.grocery' },
+    });
+    b.rect(`dock.${side}`, 'wall', AX - DOCK_HALF, y(2.5 + DOCK_DEPTH), AX + DOCK_HALF, y(6.5), 3.2);
+    // Declared paths.
+    b.path(`alley.${side}1`, 'narrow', { x: 12, y: y(3) }, { x: 12, y: y(6) });
+    b.path(`alley.${side}2`, 'narrow', { x: AX - 8, y: y(3) }, { x: AX - 8, y: y(6) });
+    b.path(`gate.${side}`, 'medium', { x: 22, y: y(3) }, { x: 22, y: y(6) });
+    b.path(`service.${side}a`, 'medium', { x: 5, y: y(1.25) }, { x: 10.5, y: y(1.25) });
+    b.path(`service.${side}b`, 'medium', { x: 13.5, y: y(1.25) }, { x: 19.5, y: y(1.25) });
+    b.path(`service.${side}c`, 'medium', { x: 24.5, y: y(1.25) }, { x: AX - 9.5, y: y(1.25) });
+    b.path(`service.${side}d`, 'medium', { x: AX - 6.5, y: y(1.25) }, { x: AX - DOCK_HALF - 0.5, y: y(1.25) });
+    // Street lamps on the shop-front curb (thin poles keep the boulevard clear for banks).
+    for (const lx of [8, 16.5, 27.5, AX - 4]) b.circle(`lamp.${side}${lx}`, 'lamp', lx, y(7.0), 0.15, 3.2);
+    // Corner tree in the outer nook (leaves a 2.5 m path between lane and boulevard).
+    b.circle(`tree.${side}corner`, 'tree', 0.9, y(6.2), 0.6, 4.5);
+    b.circle(`tree.${side}west`, 'tree', 1.4, y(17.6), 0.6, 4.5);
+  });
+
+  // --- central park ----------------------------------------------------------------------
+  b.circle('fountain', 'fountain', AX, 26, 2.6, 1.2);
+  ns((y, side) => {
+    // Hedge/kiosk blocks between boulevard and flower road, split by a 1.1 m hedge alley at x = 25.
+    b.rect(`bed.${side}a`, 'planter', 18, y(18.5), 24.45, y(24.75), 0.9);
+    b.rect(`kiosk.${side}`, 'kiosk', 25.55, y(18.5), AX - 6, y(21), 2.6, { style: side === 'n' ? 'tteokbokki' : 'lemonade' });
+    b.rect(`bed.${side}b`, 'planter', 25.55, y(21), AX - 6, y(24.75), 0.9);
+    b.path(`hedge.${side}`, 'narrow', { x: 25, y: y(19) }, { x: 25, y: y(24.25) });
+    // Trees growing in the beds.
+    b.circle(`tree.${side}a`, 'tree', 20.5, y(20.75), 0.9, 5);
+    b.circle(`tree.${side}b`, 'tree', 22.75, y(23.0), 0.7, 4.5);
+    b.circle(`tree.${side}c`, 'tree', AX - 7.75, y(23.0), 0.7, 4.5);
+    // Fountain-plaza benches (facing the fountain) and lamps.
+    b.box(`bench.${side}`, 'bench', AX - 3, y(21.5), 0.9, 0.3, 0.5, { angle: side === 'n' ? -PI / 5 : PI / 5 });
+    b.circle(`lamp.f${side}`, 'lamp', AX - 4.75, y(19.25), 0.15, 3.2);
+  });
+  b.path('flower.a', 'medium', { x: 18.5, y: 26 }, { x: 24, y: 26 });
+  b.path('flower.b', 'medium', { x: 26, y: 26 }, { x: AX - 6.5, y: 26 });
+
+  // --- loot ---------------------------------------------------------------------------------
+  b.safe('smallSafe', 3.0, 13.5); // NW corner nook, a short jog from the van (zones moved south)
+  b.safe('smallSafe', 3.0, H - 10.0); // SW corner nook
+  b.safe('smallSafe', AX, 21.0); // fountain north (contested, on axis)
+  b.safe('smallSafe', AX, H - 21.0); // fountain south
+  // 1.05 m clear of the dock walls on every side (at 3.4 it left a 0.5 m wedge pocket behind it)
+  b.safe('largeSafe', AX, DOCK_SAFE_Y); // loading dock behind the post office
+  b.safe('largeSafe', AX, H - DOCK_SAFE_Y); // loading dock behind the pharmacy
+
+  // --- chokepoints ----------------------------------------------------------------------------
+  b.choke('choke.plaza.flowerRoadW', 'choke.plaza.flowerRoadW', 21, 26, 2.5, { id: 'choke.plaza.flowerRoadE', nameKey: 'choke.plaza.flowerRoadE' });
+  b.choke('choke.plaza.bakeryAlley', 'choke.plaza.bakeryAlley', 12, 7.5, 2, { id: 'choke.plaza.donutAlley', nameKey: 'choke.plaza.donutAlley' });
+  b.choke('choke.plaza.bookAlley', 'choke.plaza.bookAlley', 12, H - 7.5, 2, { id: 'choke.plaza.musicAlley', nameKey: 'choke.plaza.musicAlley' });
+  b.choke('choke.plaza.fountain', 'choke.plaza.fountain', AX, 22.6, 4);
+  b.choke('choke.plaza.postLane', 'choke.plaza.postLane', AX, 1.25, 3);
+
+  // --- decor (visual only) ----------------------------------------------------------------------
+  ns((y, side) => {
+    const n = side === 'n';
+    // Shop-front terraces: umbrellas, flower pots, balloons by the toy store / arcade.
+    b.decor('umbrella', 7.0, y(8.2), 0, { color: n ? '#F25C54' : '#4FB0C6', east: { color: '#F7B32B' } });
+    b.decor('umbrella', 9.6, y(8.4), 0, { color: n ? '#FFD166' : '#F7B6D2', east: { color: '#7BDFF2' } });
+    b.decor('flowers', 15.0, y(7.3), 0, { color: '#F28DB2' });
+    b.decor('flowers', 18.5, y(7.3), 0, { color: '#FFD166' });
+    b.decor('balloon', 26.0, y(7.6), 0, { color: '#FF6FA5', east: { color: '#7BDFF2' } });
+    b.decor('balloon', 27.0, y(7.4), 0, { color: '#FFD166' });
+    b.decor('sign', AX - 6, y(7.6), 0);
+    b.decor('flowers', AX - 2.5, y(7.3), 0, { color: '#C3A6F2' });
+    // Service lane clutter (medium lanes only; narrow alleys stay clean).
+    b.decor('crate', 6.0, y(0.6), 0);
+    b.decor('crate', 6.9, y(0.6), 0.4);
+    b.decor('trash', 15.5, y(0.6), 0);
+    b.decor('crate', 26.5, y(0.6), 0.3);
+    b.decor('trash', AX - 4.5, y(0.6), 0);
+    // Park edges and beds.
+    b.decor('flowers', 19.0, y(18.0), 0, { color: '#F7B6D2' });
+    b.decor('flowers', 23.5, y(18.0), 0, { color: '#C3A6F2' });
+    b.decor('bush', AX - 6.5, y(18.0), 0);
+    b.decor('flowers', 19.2, y(23.4), 0, { color: '#FF8FAB' });
+    b.decor('flowers', 27.5, y(23.6), 0, { color: '#FFD166' });
+    b.decor('flowers', 31.0, y(22.0), 0, { color: '#F28DB2' });
+    b.decor('flowers', AX - 4, y(23.5), 0, { color: '#FFD166' });
+    // Corner nook + boulevard dressing.
+    b.decor('bush', 1.0, y(0.9), 0);
+    b.decor('flowers', 2.4, y(7.5), 0, { color: '#F28DB2' });
+    b.decor('cone', 1.0, y(13.5), 0);
+    b.decor('puddle', 13.5, y(10.0), 0, { scale: 1.2 });
+    b.decor('puddle', 30.0, y(14.5), 0, { scale: 0.9 });
+    b.decor('sign', 17.0, y(17.6), 0); // bus-stop style post at the park corner
+  });
+  // Arrows toward the van on the flower road and the boulevard exits.
+  b.decor('arrow', 17.5, 25.0, PI);
+  b.decor('arrow', 17.5, 27.0, PI);
+  b.decor('arrow', 3.0, 18.5, PI / 2);
+  b.decor('arrow', 3.0, ZONE.y + 5.5, -PI / 2);
+  b.decor('balloon', AX - 6.6, 24.2, 0, { color: '#FFD166' });
+  b.decor('balloon', AX - 6.6, 27.8, 0, { color: '#7BDFF2' });
+  b.decor('umbrella', AX - 4.2, 26.0, 0, { color: '#F25C54', east: { color: '#4FB0C6' } });
+
+  // --- police (owner addition) --------------------------------------------------------------
+  // Cars pull up at the curb outside the north edge (wave 1) and the south edge (wave 2) on the
+  // mirror axis; officers hop the fence into the post-office service lane (never parked on it).
+  b.policeCurbs();
+
+  // --- Content 2.0 composition (content-plan §3.2; LayoutDef.v2, 4,000) -----------------------
+  // Retrofit of the classic loot: both dock large safes and the NW corner-nook small safe stay;
+  // the fountain-north small safe becomes the 대왕 돼지저금통 (kickoff ball), the fountain-south one
+  // the 돈나무; the SW corner-nook small safe makes way for the ATM starter socket on the shop front
+  // right below the zone. Crates sit on each spawn's first path (north to the corner safe, south to
+  // the ATM); the 꿀꺽 vending machine leans on the park bed facing the fountain (contested middle).
+  b.v2Safe('largeSafe', AX, DOCK_SAFE_Y);
+  b.v2Safe('largeSafe', AX, H - DOCK_SAFE_Y);
+  b.v2Safe('smallSafe', 3.0, 13.5); // NW corner nook (kept)
+  b.prop('piggy', AX, 21.0); // fountain north: kickoff ball
+  b.prop('moneyTree', AX, 31.0, PI / 2); // fountain south (along the axis): careful-carry tree, 2.5 m flower road home
+  b.prop('atm', 5.5, H - 6.5 - FLUSH - PROPS_ATM_DEPTH, PI); // starter socket: flush on the flower shop front, facing the zone
+  b.breakable('crate.north', 'crate', 4.5, 19.0); // spawn 0's path to the corner safe
+  b.breakable('crate.south', 'crate', 3.0, 43.4); // spawn 1's path to the ATM
+  b.breakable('vending', 'vending', AX - 6 + FLUSH + BREAKABLE_SPECS.vending.half.y, 23.0, -PI / 2); // on the park bed, facing the fountain
+  b.itemPad('pad.flower', 19.5, 26); // flower road (서쪽 꽃길), 12-18 m from both spawns
+  b.itemPad('pad.axis', AX, 34.0); // fountain south, by the bank front
+  b.eventSpot(AX, 18.75); // fountain north, on the boulevard edge
+  b.waive(
+    'truck',
+    'spot 0',
+    'both curbs are walled off the axis by the loading-dock walls (frozen classic statics), so no spot 0 gives the cash truck a straight drive in: the plan owner / C5 must define its plaza entry',
+  );
+
+  return b.build(
+    'Collection plaza: banks north/south of a central park must roll the long way along the boulevards and swing into the zones; ' +
+      'corner small safes near each van reward steady early collecting; large safes in the service lanes need the 2.5 m gate lanes; ' +
+      'fountain small safes are the contested middle.',
+  );
+}
+
+const built = build();
+export const PLAZA: LayoutDef = built.def;
+export const PLAZA_META: LayoutDesignMeta = built.meta;

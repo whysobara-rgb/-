@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>뿌리째 털어라 — View Harness</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #c8b4c6;
+        font-family: 'Jua', 'Noto Sans KR', sans-serif;
+      }
+      #app {
+        position: fixed;
+        inset: 0;
+      }
+      #hud {
+        position: fixed;
+        left: 12px;
+        top: 12px;
+        padding: 8px 12px;
+        border-radius: 12px;
+        background: rgba(46, 42, 54, 0.78);
+        color: #fff3de;
+        font-size: 13px;
+        line-height: 1.45;
+        max-width: 460px;
+        pointer-events: none;
+        white-space: pre-line;
+      }
+      #hud.hidden {
+        display: none;
+      }
+      #labels {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+      }
+      .lbl {
+        position: absolute;
+        transform: translate(-50%, -100%);
+        padding: 1px 6px;
+        border-radius: 8px;
+        background: rgba(46, 42, 54, 0.8);
+        color: #ffe7a1;
+        font-size: 12px;
+        white-space: nowrap;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="labels"></div>
+    <div id="hud"></div>
+    <script type="module" src="/src/render/dev/view-harness.ts"></script>
+  </body>
+</html>
