@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { PROP_RULES, PROP_SPECS } from '../../src/sim/config';
 import { knockDown } from '../../src/sim/actions';
 import type { SimContext } from '../../src/sim/context';
-import { addUnanchorProgress, mirrorValues } from '../../src/sim/props';
+import { addUnanchorProgress, mirrorValues, propHaulValue } from '../../src/sim/props';
 import { computeRemainingValue } from '../../src/sim/rules';
 import { Simulation } from '../../src/sim/sim';
 import type { Command, LayoutDef, PropPlacementDef, RuleConfig, SimEvent, StaticBoxDef, TeamId, Vec2 } from '../../src/sim/types';
@@ -230,6 +230,31 @@ describe('대왕 돼지저금통', () => {
     sim.step(idle(2));
     sim.debug.setVelocity(pig.id, { x: 5, y: 0 });
     expect(ofType(play(sim, 120, () => idle(2)), 'piggyCrack')).toEqual([]);
+  });
+
+  it('hauled intact it pays only the haul cap: the jackpot share pops back out at its home spot (mirror-symmetric)', () => {
+    const haul = (team: TeamId) => {
+      const sim = propSim([{ variant: 'piggy', pos: { x: 50, y: 30 }, angle: 0 }]);
+      const pig = sim.state.loot[0]!;
+      expect(propHaulValue(pig)).toBe(PROP_RULES.piggy.haulCap);
+      sim.debug.teleport(pig.id, { x: team === 0 ? 10 : 90, y: 30 });
+      const evs = play(sim, 200, () => idle(2));
+      const rec = ofType(evs, 'recovered').find((e) => e.lootId === pig.id)!;
+      const spawns = ofType(evs, 'coinSpawn').filter((e) => e.sourceId === pig.id);
+      return { rec, spawns, piles: sim.state.coins.map((c) => ({ x: +(c.pos.x - 50).toFixed(5), y: +(c.pos.y - 30).toFixed(5), v: c.value })) };
+    };
+    const a = haul(0);
+    expect(a.rec).toMatchObject({ team: 0, value: PROP_RULES.piggy.haulCap, innerValue: PROP_RULES.piggy.haulCap });
+    expect(a.spawns.length).toBe(1);
+    expect(a.spawns[0]!.source).toBe('spurt');
+    expect(a.spawns[0]!.pos).toEqual({ x: 50, y: 30 });
+    const total = a.piles.reduce((s, p) => s + p.v, 0);
+    expect(total).toBe(300 - PROP_RULES.piggy.haulCap);
+    // the burst is symmetric about the axis, so either team's haul leaves the same scramble
+    expect(a.piles.filter((p) => p.x < -1e-6).reduce((s, p) => s + p.v, 0)).toBe(a.piles.filter((p) => p.x > 1e-6).reduce((s, p) => s + p.v, 0));
+    const b = haul(1);
+    expect(b.rec).toMatchObject({ team: 1, value: PROP_RULES.piggy.haulCap });
+    expect(JSON.stringify([...b.piles].sort((p, q) => p.x - q.x || p.y - q.y))).toBe(JSON.stringify([...a.piles].sort((p, q) => p.x - q.x || p.y - q.y)));
   });
 });
 

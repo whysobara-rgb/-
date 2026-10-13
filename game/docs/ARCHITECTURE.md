@@ -281,6 +281,26 @@ Notes:
 - Unit tests guarding the frozen shapes: `test/sim/queries-fun.test.ts`,
   `test/unit/fun-contracts.test.ts` (owners update the "stub" expectations when they implement).
 
+### Add-only changes after day 0 (fun wave 1 + integration)
+
+Same rule as above: optional fields / new members only, nothing renamed or re-meant.
+
+| Change | File | Owner | Notes |
+|---|---|---|---|
+| `Moment.cause?` (`'hit' \| 'spill' \| 'steal' \| 'grab' \| 'score'`), `Moment.by?`, `Moment.bagCharIds?` (on `matchPointOn` / `matchPointStopped`) | `src/shared/moments.ts` | F5 | HUD "막았다!" stamps, audio |
+| `MatchPointInfo.bagCharIds?` (bag carriers of the load; `lootIds` empty for a bag-only load), `MatchPointInfo.uprooting?` + `MatchPointOptions.uprooting?` (HUD prompt only; tracker / audio / render keep the default) | `src/sim/queries.ts` | F4 | game flow feeds `view.setDecisiveLoad([...lootIds, ...bagCharIds], side)`: the view no longer re-queries `matchPointInfo` for bags |
+| `Hud.queueBanner(spec)` (one centre plate at a time; C8 event banners go through it) | `src/ui/hud/Hud.ts` | F4 | |
+| `MatchController.kickoffCueInfo()`, `momentSnapshot()`, `commandLog`, `replayCheck()` (tests, bug reports) | `src/game/match.ts` | F5 | `replayCommandLog` replays a log in a fresh Simulation |
+| `RECORD_MIN_FASTER_TICKS` (1 s), `RECORD_MIN_VALUE` (splash 50, deposit 100): the bar a record must clear to count as "new" | `src/platform/progress.ts` | F9 | `MatchOutcomeResult.newRecords: NewRecordInfo[]` (kind, value, previous) is add-only too |
+| `SaveManagerOptions.countSession` (the app-wide manager counts funnel `sessionStarted` on its first load; game flow never bumps it) | `src/platform/save.ts` | F9 | |
+| `MAX_ACHIEVEMENTS` 64, `MAX_ADAPT_LINE_KEY` 64, `MAX_ADAPT_PARAMS` 4, `MAX_ADAPT_PARAM_KEY` 32, `MAX_ADAPT_PARAM_VALUE` 64 (sanitizer caps; worst case fits 64 KB) | `src/platform/save.ts` | F9 | |
+| `MatchAudioDirector.onBark(charId, key, sim)` (a rival bark's blip; called by `funObserve` next to `view.showBark`, same "show others' taunts" gate) | `src/audio/director.ts` | F8 | |
+| `GameView.getawayInfo()` (tests), `setResultsPoses` wired: `toResults` calls it after `setMode('results')` (which clears the poses) with `rival: 'taunt'` when the rival won, else `'slump'`, `player: cosmetics.victoryPose ?? 'wiggle'` | `src/render/view.ts`, `src/game/app.ts` | F3 / WP6 | |
+| `app.ts` save v2 wiring: `onMatchFinished` -> `recordMatchOutcome` (summary from `matchOutcomeFacts`; tutorial counts in the funnel only; a local-multiplayer match only bumps `matchFinished`), funnel `matchStarted` / `resultsShown` / `rematchPress` / `nextPress` / `menuPress`; `ResultsScreenProps.newRecord?` = the first broken record (one small chip in the headline, `results.hook.record.<kind>`) | `src/game/app.ts`, `src/ui/screens/ResultsScreen.ts` | WP6 | never shown in local multiplayer |
+| `OffscreenArrows.avoidEl` (the scoreboard; Hud sets it): a top-edge arrow slides sideways along the edge past the board | `src/ui/hud/OffscreenArrows.ts` | wiring | |
+| `PreviewSceneOptions.content?` (`sim.rules.content`): a v2 match previews `layout.v2.safes` + the props; east mirror twins get `mirrorTwinYaw` like the match view | `src/menu3d/scenes/preview.ts` | wiring | |
+| `PROP_RULES.piggy.haulCap` (200) + `propHaulValue(l)`: an intact piggy carries at most 200 of its 300 coins into a van; when its recovery starts the 100 above the cap bursts back out at its home spot on the axis (radial, `'spurt'`, mirror-symmetric). Smashed = all 300 as loose coins. Value table only: the piggy's 300 and the field's 4,000 are unchanged, conservation holds every tick | `src/sim/config.ts`, `src/sim/props.ts` | wiring (C3 block) | bots value a piggy haul with `propHaulValue`; `PropGoals` smashes it with a hammer when the spill beats the haul (or an opponent holds it) and dashes an opponent-carried piggy that is one crack from open |
+
 ## Content 2.0 contracts (C0, frozen day 0)
 
 Plan: `plans/content-plan.md` (§3 economy, §4 shared sim contracts, §5 content, §6 packages).

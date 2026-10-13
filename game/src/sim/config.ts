@@ -458,6 +458,14 @@ export const PROP_RULES = {
     /** One knock = one crack: further wall cracks wait this long (contacts re-report while settling). */
     wallCrackDebounceTicks: secondsToTicks(0.3),
     hazardCracks: 1,
+    /**
+     * The jackpot share only a smash pays out: an intact piggy carries at most this much of its
+     * coins into a van. When its recovery starts, the coins above the cap (100 of the 300) burst
+     * back out at its home spot on the axis (radial, mirror-symmetric, 'spurt' coins). Smashed
+     * = 300 in loose coins around the smash; hauled intact = 200 + a 100 scramble in the middle.
+     * Value table only (no multiplier): the 300 total and the field's 4,000 are unchanged.
+     */
+    haulCap: 200,
   },
   /** One dash counts once per prop: further contacts of the same dasher wait this long. */
   dashHitDebounceTicks: secondsToTicks(0.3),

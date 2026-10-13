@@ -30,6 +30,7 @@ import { CHARACTER } from '../../src/sim/config';
 import type { Simulation } from '../../src/sim/sim';
 import type { LayoutDef, SafeKind } from '../../src/sim/types';
 import { cmd, makeSim, openLayout } from './fixtures/layouts';
+import { makeMatch, stepMatch } from '../ai/helpers';
 
 const W = { x: -1, y: 0 };
 const D = 180 / Math.PI;
@@ -674,6 +675,42 @@ describe('control bug 10: pushing a bank at its door pushes the bank (no lurch i
       expect(Math.max(...r.char)).toBeLessThan(12);
       expect(mean(r.load)).toBeLessThan(4);
       expect(r.vmax).toBeLessThan(1.03 * 1.15);
+    }
+  });
+});
+
+describe('control bug 11: a pusher past the end of its wall goes with the wall (no wedge on a corner)', () => {
+  // before: past the end of its slide range the pusher's grip followed only the bank's translation
+  // (eased back at 0.6 m/s): a bank swinging free off a snag at ~20 deg/s ran its wall out from
+  // under the pusher, who slid off the corner into the next shop front and pinned the bank there.
+  // Two bots hauling a bank round the shortcut crossing: 39.7 s / 4 grabs (seed 7, south bank) and
+  // 41.8 s / 5 grabs (seed 11, north bank) instead of ~34 s (both let go and walked round it again)
+  it('two bots haul a bank round the shortcut crossing without wedging', () => {
+    for (const [seed, bi] of [
+      [5, 1],
+      [7, 1],
+      [11, 0],
+    ] as const) {
+      const { sim, bots } = makeMatch(
+        'shortcut',
+        [
+          { team: 0, bot: { personality: 'tongkeun', difficulty: 'normal' } },
+          { team: 0, bot: { personality: 'hodadak', difficulty: 'normal' } },
+        ],
+        seed,
+      );
+      const bank = sim.state.loot.filter((l) => l.kind === 'bank')[bi]!;
+      for (const b of bots) b?.assignTask(sim, { kind: 'haul', targetId: bank.id });
+      let grabs = 0;
+      const ev = stepMatch(sim, bots, 45 * 60, undefined, (_s, e) => {
+        for (const x of e) if (x.type === 'grab' && x.targetId === bank.id) grabs++;
+        return e.some((x) => x.type === 'recovered' && x.lootId === bank.id);
+      });
+      const rec = ev.find((e) => e.type === 'recovered' && e.lootId === bank.id);
+      const tag = `seed ${seed} bank ${bi}`;
+      expect(rec, tag).toBeDefined();
+      expect(rec!.tick / 60, tag).toBeLessThan(37);
+      expect(grabs, tag).toBeLessThanOrEqual(3);
     }
   });
 });

@@ -18,8 +18,18 @@ import type { RivalId } from '../types';
 import { seriesPips } from './TournamentScreen';
 import { playerColor, playerTag } from '../../shared/players';
 import { TEAM_STYLES } from '../../shared/teams';
+import { TICK_RATE } from '../../sim/config';
 
 export type ResultOutcome = 'win' | 'lose' | 'draw';
+
+/** "신기록! 한 방 1,100점 (전에는 800)" — seconds for the fastest first recovery (value in ticks). */
+function recordChip(r: { kind: string; value: number; previous: number }): HTMLElement {
+  const fmt = (v: number): string => (r.kind === 'fastestFirstRecovery' ? String(Math.round(v / TICK_RATE)) : Math.round(v).toLocaleString());
+  const el = chip({ key: `results.hook.record.${r.kind}`, params: { value: fmt(r.value), previous: fmt(r.previous) } }, 'gold', 'sparkle');
+  el.classList.add('uh-res__record');
+  el.dataset.kind = r.kind;
+  return el;
+}
 
 export interface ResultEventView {
   /** Usually { key: 'event.bankWhole', params: { building: 500, safes: 500, total: 1000 } }. */
@@ -64,6 +74,11 @@ export interface ResultsScreenProps {
   onMenu: () => void;
   /** (local multiplayer) Team-neutral headline (versus) + per-player highlights. */
   local?: ResultsLocalView | null;
+  /**
+   * [WP6] A personal record this match really broke (recordMatchOutcome's first `newRecords`
+   * entry; kind = RecordKind). One small chip in the headline; null / absent = none.
+   */
+  newRecord?: { kind: string; value: number; previous: number } | null;
 }
 
 export interface ResultsLocalView {
@@ -255,6 +270,7 @@ export class ResultsScreen extends UiScreen<ResultsScreenProps> {
             { class: 'uh-res__headline' },
             versus ? null : chunky(t(`results.${p.outcome}.sub`), { tag: 'p', cls: 'uh-res__sub', tone: 'cream' }),
             p.reason ? chip(`results.reason.${p.reason}`, 'night', p.reason === 'time' ? 'clock' : 'flag') : null,
+            p.newRecord ? recordChip(p.newRecord) : null,
           ),
         ),
         h('div', { class: 'uh-res__scores' }, scoreCard(0), h('div', { class: 'uh-res__vs', 'aria-hidden': 'true' }, h('i'), h('i')), scoreCard(1)),

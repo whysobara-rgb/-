@@ -24,12 +24,23 @@ interface Arrow {
   seen: boolean;
 }
 
+/** How often the avoid element is re-measured (layout read; ms). */
+const AVOID_MS = 250;
+
 export class OffscreenArrows {
   readonly el: HTMLDivElement;
   private readonly active = new Map<string | number, Arrow>();
   private readonly free: Arrow[] = [];
   private w = 0;
   private h = 0;
+  /**
+   * HUD element arrows must stay clear of (the scoreboard; set by Hud). Measured at most every
+   * AVOID_MS against this layer's box; a top-edge arrow that would sit on it slides sideways
+   * along the edge to just past the board (the pointer still aims at the real direction).
+   */
+  avoidEl: HTMLElement | null = null;
+  private avoid: { l: number; r: number; b: number } | null = null;
+  private avoidAt = -Infinity;
 
   constructor() {
     this.el = h('div', { class: 'uh-arrows', 'aria-hidden': 'true' });
@@ -39,6 +50,21 @@ export class OffscreenArrows {
   setViewport(w: number, hgt: number): void {
     this.w = w;
     this.h = hgt;
+    this.avoidAt = -Infinity;
+  }
+
+  /** The avoid rect in this layer's px (null = none / hidden / not laid out). */
+  private avoidRect(now: number): { l: number; r: number; b: number } | null {
+    if (now - this.avoidAt < AVOID_MS) return this.avoid;
+    this.avoidAt = now;
+    this.avoid = null;
+    const el = this.avoidEl;
+    if (!el || !el.isConnected) return null;
+    const r = el.getBoundingClientRect();
+    if (!(r.width > 0 && r.height > 0)) return null;
+    const host = this.el.getBoundingClientRect();
+    this.avoid = { l: r.left - host.left, r: r.right - host.left, b: r.bottom - host.top };
+    return this.avoid;
   }
 
   update(targets: readonly OffscreenTarget[] | undefined, remPx: number): void {
@@ -60,9 +86,15 @@ export class OffscreenArrows {
         const hw = cx - margin;
         const hh = cy - margin;
         const k = Math.min(hw / Math.max(1e-3, Math.abs(dx)), hh / Math.max(1e-3, Math.abs(dy)));
-        const x = cx + dx * k;
+        let x = cx + dx * k;
         const y = cy + dy * k;
         const angle = Math.atan2(dy, dx);
+        // clear of the scoreboard: the arrow body (+ pointer) never overlaps the board
+        const board = this.avoidRect(typeof performance !== 'undefined' ? performance.now() : 0);
+        if (board) {
+          const pad = remPx * 2.6;
+          if (y - pad < board.b && x + pad > board.l && x - pad < board.r) x = x < (board.l + board.r) / 2 ? Math.max(margin, board.l - pad) : Math.min(this.w - margin, board.r + pad);
+        }
         let a = this.active.get(t.id);
         if (!a) {
           a = this.acquire();

@@ -238,6 +238,7 @@ export class Hud {
     this.banners.onTopPlate = (up) => setClass(this.el, 'has-topplate', up);
     this.worldEl = h('div', { class: 'uh-world' }, this.labels.el, this.arrows.el, this.popups.el, this.stamps.worldEl);
     this.worldEl.hidden = true;
+    this.arrows.avoidEl = this.top; // top-edge arrows stay clear of the scoreboard
     root.layer('hud').appendChild(this.el);
     root.layer('world').appendChild(this.worldEl);
     // [C8] mount point

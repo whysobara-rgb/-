@@ -12,6 +12,10 @@
  *   a hammer = 2, a wall / loot impact >= 5 m/s = 1, a hazard (fountain show, pile driver, quake)
  *   = 1. On the last crack every pile bursts out radially and the shell is removed from play
  *   (`recovered = true`, `recoveredBy = null`, no `recovered` event: it scored nothing).
+ *   The smash pays more than the haul: an intact piggy carries at most `PROP_RULES.piggy.haulCap`
+ *   (200) into a van. When its recovery starts, the coins above the cap (the 100 jackpot share)
+ *   burst back out at its home spot on the axis (radial, 'spurt'), so hauled intact = 200 + a
+ *   scramble in the middle, smashed = all 300 around the smash (`propHaulValue`).
  * - 돈나무 (careful carry): once uprooted, every impact faster than 2.5 m/s while it moves (wall,
  *   loot, a raccoon it is swung into) sheds one 지폐 다발, debounced 0.3 s; so does a dash into it
  *   once uprooted (an anchored tree never sheds to a dash) and its carrier being knocked down. A
@@ -128,6 +132,18 @@ export function createPropLoot(ctx: SimContext, variant: PropVariant, pos: Vec2,
 const innerOf = (spec: PropSpec): number => spec.inner.c10 * 10 + spec.inner.c50 * 50;
 
 /**
+ * Points a loot item pays when recovered intact from now on: shell + coins inside, except that
+ * an intact piggy never carries more than `PROP_RULES.piggy.haulCap` of its coins into a van (the
+ * rest is the smash-only jackpot share; it bursts back out at the piggy's home spot when its
+ * recovery starts). Plain safes / banks: their estimate. For bots and HUD readouts.
+ */
+export function propHaulValue(l: Readonly<LootState>): number {
+  if (!l.variant) return l.estimatedValue;
+  const inner = l.innerValue ?? 0;
+  return l.baseValue + (l.variant === 'piggy' ? Math.min(inner, PROP_RULES.piggy.haulCap) : inner);
+}
+
+/**
  * Add `amount` of uproot progress (a fraction of the item's uproot time: hammer small 1.0 /
  * large 0.5 / bank 0.25, stomper 0.35, quake 0.5, …) to an anchored, unrecovered, non-dormant
  * loot item. On reaching 1 the item is freed exactly like a pull and the existing `unanchored`
@@ -191,6 +207,8 @@ interface PropRuntime {
   crackReadyTick: number;
   /** Per dasher (character id): first tick its contacts count as a new dash hit again. */
   dashReady: Map<EntityId, number>;
+  /** Where the prop stood at build (piggy: the jackpot share bursts back out here). */
+  home: Vec2;
 }
 
 interface PendingImpact {
@@ -237,7 +255,8 @@ export class PropSystem extends ContentSystemBase {
   private rtOf(idx: number): PropRuntime {
     let r = this.rts.get(idx);
     if (!r) {
-      r = { lastProgress: this.ctx.state.loot[idx]!.unanchorProgress, shedReadyTick: 0, crackReadyTick: 0, dashReady: new Map() };
+      const l = this.ctx.state.loot[idx]!;
+      r = { lastProgress: l.unanchorProgress, shedReadyTick: 0, crackReadyTick: 0, dashReady: new Map(), home: { x: l.pos.x, y: l.pos.y } };
       this.rts.set(idx, r);
     }
     return r;
@@ -388,6 +407,7 @@ export class PropSystem extends ContentSystemBase {
     const R = PROP_RULES.atm;
     for (const [idx, prt] of this.rts) {
       const l = st.loot[idx]!;
+      if (l.variant === 'piggy' && l.recovery && !l.recovered) this.burpJackpot(idx, prt);
       if (l.variant !== 'atm' || l.recovered) continue;
       const p = l.unanchorProgress;
       if (p <= prt.lastProgress) {
@@ -534,6 +554,28 @@ export class PropSystem extends ContentSystemBase {
     this.releaseCoins(idx, PROP_RULES.atm.spurtCoins, 'spurt', dir, by, 10);
   }
 
+  /**
+   * An intact piggy whose recovery is running holds at most `haulCap` coins: the jackpot share
+   * above it bursts back out at the piggy's home spot (radial along the axis: mirror-symmetric,
+   * so either team's haul leaves the same scramble). Once per piggy in practice (it is then at
+   * the cap). Emits `propHit` (how 'impact', no hitter) so render / audio see the pop.
+   */
+  private burpJackpot(idx: number, prt: PropRuntime): void {
+    const l = this.ctx.state.loot[idx]!;
+    const excess = (l.innerValue ?? 0) - PROP_RULES.piggy.haulCap;
+    if (excess < 10) return;
+    const spec = PROP_SPECS.piggy;
+    const inner = l.innerValue ?? 0;
+    const have50 = Math.min(spec.inner.c50, Math.floor(inner / 50));
+    const n50 = Math.min(have50, Math.floor(excess / 50));
+    const n10 = Math.floor((excess - n50 * 50) / 10);
+    const dir = angleVec(AXIS_DIR);
+    let coins = 0;
+    if (n50 > 0) coins += this.releaseCoins(idx, n50, 'spurt', dir, null, 50, 'radial', prt.home);
+    if (n10 > 0) coins += this.releaseCoins(idx, n10, 'spurt', dir, null, 10, 'radial', prt.home);
+    if (coins > 0) emit(this.ctx, { type: 'propHit', tick: this.ctx.state.tick, lootId: l.id, byCharId: null, how: 'impact', coins });
+  }
+
   /** Crack the piggy; on the smashing crack burst everything and remove the shell. Returns piles spawned. */
   private crack(idx: number, cracks: number, byCharId: EntityId | null, dir: Vec2): number {
     const st = this.ctx.state;
@@ -575,7 +617,7 @@ export class PropSystem extends ContentSystemBase {
    * burst: spawnCoins, then innerValue / estimatedValue drop by exactly the pile values. Returns
    * the number of piles spawned (0 when empty).
    */
-  private releaseCoins(idx: number, n: number, source: CoinSpawnSource, dir: Vec2, byCharId: EntityId | null, prefer: 10 | 50, pattern: 'fan' | 'radial' = 'fan'): number {
+  private releaseCoins(idx: number, n: number, source: CoinSpawnSource, dir: Vec2, byCharId: EntityId | null, prefer: 10 | 50, pattern: 'fan' | 'radial' = 'fan', origin?: Vec2): number {
     const st = this.ctx.state;
     const l = st.loot[idx]!;
     const spec = PROP_SPECS[l.variant!];
@@ -600,7 +642,7 @@ export class PropSystem extends ContentSystemBase {
     const ux = dl > 1e-9 ? dir.x / dl : Math.cos(body.a);
     const uy = dl > 1e-9 ? dir.y / dl : Math.sin(body.a);
     const off = pattern === 'radial' ? 0 : Math.max(l.half.x, l.half.y) + SPAWN_GAP;
-    const pos = { x: body.x + ux * off, y: body.y + uy * off };
+    const pos = origin ? { x: origin.x, y: origin.y } : { x: body.x + ux * off, y: body.y + uy * off };
     let sum = 0;
     for (const v of values) sum += v;
     this.ctx.content!.coins.spawnCoins({ pos, dir: Math.atan2(uy, ux), values, pattern, source, sourceId: l.id, byCharId });

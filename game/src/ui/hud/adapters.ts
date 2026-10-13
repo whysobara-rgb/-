@@ -342,6 +342,9 @@ export function labelsFromSim(
       const pi = o.players?.get(c.id);
       if (!p.onScreen) continue;
       if (pi !== undefined) labels.push({ kind: 'name', id: c.id, x: p.x, y: p.y, text: { text: `P${pi + 1}` }, team: c.team, player: pi });
+      // my own '나' tag steps aside while I carry: the carry card names the load, and the tag
+      // would otherwise cut across the held load's value tag right above my head
+      else if (!o.players && c.id === me.id && heldLoot) continue;
       else labels.push({ kind: 'name', id: c.id, x: p.x, y: p.y, text: characterNameRef(c, o.players ? null : me.id, me.team), team: c.team, isMe: !o.players && c.id === me.id });
     }
   }

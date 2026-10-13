@@ -136,7 +136,7 @@ The identity sentence must stay true: **"뿌리째 뽑아서 우리 차로 끌�
 | 큰 금고 | 300 | 0 | – |
 | 은행 | 500 + loaded unrecovered safes | 0 | – (interior 2 small + 1 large, unchanged) |
 | **동전 ATM** | 100 | 100 (10 × 동전 10) | While a character strains to uproot it: 2 coins at 1/3 and 2 at 2/3 of progress. Dash bonk (approach ≥ 4 m/s, 0.5 s cooldown per ATM): 2 coins. Hammer hit: 3 coins + 0.5 uproot progress. Whatever is left rides inside. |
-| **대왕 돼지저금통** | 0 | 300 (4 × 지폐 50 + 10 × 동전 10) | Free-standing and kickable. 3 cracks smash it: an opposing dash hit = 1, a hammer hit = 2, a wall impact ≥ 5 m/s = 1, fountain show / pile driver = 1. On the last crack, every coin bursts out radially ("잭팟!"). Recovered intact it pays 300. |
+| **대왕 돼지저금통** | 0 | 300 (4 × 지폐 50 + 10 × 동전 10) | Free-standing and kickable. 3 cracks smash it: an opposing dash hit = 1, a hammer hit = 2, a wall impact ≥ 5 m/s = 1, fountain show / pile driver = 1. On the last crack, every coin bursts out radially ("잭팟!"). Recovered intact it pays 200 (`PROP_RULES.piggy.haulCap`, integration 2026-10-13): when its recovery starts, the 100 jackpot share pops back out at its home spot on the axis, so only a smash pays all 300. |
 | **돈나무** | 100 | 200 (4 × 지폐 50) | Uproot 2.5 s. One bundle sheds per impact > 2.5 m/s (wall, bump, its carrier knocked down). A hammer hit sheds 2. |
 | **나무 상자** (breakable) | – | 20 (2 × 10) | Broken by 1 dash hit or 1 hammer hit. |
 | **자판기** (breakable, 3 HP) | – | 60 (6 × 10) | Dash hit: −1 HP, pops 1 coin. Hammer: −3. At 0 HP the rest pops out. |

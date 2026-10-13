@@ -451,6 +451,8 @@ html.uh-reduced-motion .uh-title__press > * { animation: none; }
 .uh-m3d-tag .uh-emblem { width: 1.3rem; height: 1.3rem; }
 .uh-m3d-tag--smallSafe { background: #D9F2D3; }
 .uh-m3d-tag--largeSafe { background: #D8DDFF; font-size: 1.35rem; }
+.uh-m3d-tag--prop { background: #FFE7B3; padding-left: 0.6rem; }
+.uh-m3d-tag--piggy { background: #FFD6E4; }
 .uh-m3d-tag--bank { flex-direction: row; background: var(--pop-sun); font-size: 1.6rem; padding: 0.15rem 0.8rem 0.2rem 0.35rem; }
 .uh-m3d-tag--bank .uh-loot-icon { width: 2rem; height: 2rem; }
 .uh-m3d-tag__sub { font-family: var(--uh-font-body); font-size: 0.85rem; font-weight: 800; color: var(--pop-ink-2); }
@@ -745,6 +747,7 @@ html.uh-reduced-motion .uh-title__press > * { animation: none; }
 .uh-res__stamp { font-size: 6rem; padding: 0.15em 0.6em 0.25em; }
 .uh-res__headline { display: flex; flex-direction: column; align-items: flex-start; gap: 0.5rem; }
 .uh-res__sub { font-size: var(--uh-fs-xl); }
+.uh-res__record { font-size: var(--uh-fs-sm); padding: 0.15rem 0.75rem; }
 
 .uh-res__scores { display: flex; align-items: stretch; justify-content: center; gap: 1.5rem; flex: none; }
 .uh-res__team {

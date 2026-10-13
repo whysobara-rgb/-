@@ -73,6 +73,27 @@ describe('hudModelFromSim', () => {
     expect(trName('Guest Raccoon')).toBe('Guest Raccoon');
   });
 
+  it("hides my own '나' tag while I carry (the carry card names the load)", () => {
+    const sim = new Simulation({
+      ...setup(),
+      roster: [
+        { team: 0, isBot: false, name: 'Player1', look: { hat: 'teamCapA' } },
+        { team: 0, isBot: true, name: 'ally-bot', look: { hat: 'teamCapA' } },
+        { team: 1, isBot: true, name: 'bot-a', look: { hat: 'hodadakBand', rival: 'hodadak' } },
+        { team: 1, isBot: true, name: 'bot-b', look: { hat: 'teamCapB' } },
+      ],
+    });
+    const me = sim.state.characters.find((c) => c.id === sim.characterBySlot(0).id)!;
+    const project = (p: { x: number; y: number }) => ({ x: p.x, y: p.y, onScreen: true });
+    const names = () =>
+      (hudModelFromSim(sim, { meId: me.id, myTeam: 0, project }).labels ?? []).filter((l) => l.kind === 'name').map((l) => (l.kind === 'name' ? l.text : null));
+    expect(names()).toContain('name.you');
+    const safe = sim.state.loot.find((l) => l.kind === 'smallSafe')!;
+    (me as { grab: unknown }).grab = { targetId: safe.id };
+    expect(names()).not.toContain('name.you');
+    expect(names()).toContain('name.ally');
+  });
+
   it('reports practice mode for untimed rules', () => {
     const sim = new Simulation({ ...setup(), layout: LAYOUTS.tutorial, roster: [setup().roster[0]], rules: { timeLimit: false } });
     const m = hudModelFromSim(sim, { meId: sim.characterBySlot(0).id, myTeam: 0 });

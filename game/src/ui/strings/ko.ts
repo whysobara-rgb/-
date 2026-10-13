@@ -666,6 +666,12 @@ export const ko = {
   'hud.moment.climaxBadge': '도주 준비!',
   // --- [WP4] end
   // --- [WP6] begin: results.hook.*, rivalLine.* (WP6 may also reword existing results.* keys in place)
+  'results.hook.record.biggestHaul': '신기록! 한 방 {value}점 (전에는 {previous})',
+  'results.hook.record.layoutBestScore': '여기서 낸 최고 점수 {value}점 (전에는 {previous})',
+  'results.hook.record.layoutBestMargin': '최대 점수 차 신기록 {value}점 (전에는 {previous})',
+  'results.hook.record.biggestSplash': '동전 털기 신기록 {value}점 (전에는 {previous})',
+  'results.hook.record.biggestDeposit': '한 번에 쏟아붓기 신기록 {value}점 (전에는 {previous})',
+  'results.hook.record.fastestFirstRecovery': '첫 회수 신기록 {value}초 (전에는 {previous}초)',
   // --- [WP6] end
   // --- [WP7] begin: cup.*, onboard.* (cup tabs, first-hour strip, menu "이어서 / 다음 목표" card)
   // --- [WP7] end

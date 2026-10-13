@@ -425,6 +425,7 @@ async function main(): Promise<void> {
         teamLabels: series ? [null, 'rival.hodadak.name'] : undefined,
         actions: series ? { rematch: false, next: true } : { rematch: true, next: false },
         playerHat: 'teamCapA',
+        newRecord: outcome === 'win' && !series ? { kind: 'biggestHaul', value: 1100, previous: 800 } : null,
         onRematch: () => devLog('onRematch'),
         onNext: () => devLog('onNext'),
         onMenu: () => go('menu'),

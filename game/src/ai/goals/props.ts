@@ -8,6 +8,12 @@
  *   behind it relative to the way home and dash it ~6 m that way; then carry it (collect goal).
  *   When the other team touched it last and it already has 2 cracks, a dash cracks it open
  *   (잭팟: every coin bursts out, mostly toward the kicker's side) — the smash when contested.
+ *   An opponent CARRYING it is fair game too: one crack from open (or trailing with it cracked),
+ *   dash the piggy itself out of their hands into a jackpot.
+ * - kickPiggy / 'hammer': with a 뿅망치 (2 cracks a swing) the piggy nobody of ours holds gets
+ *   smashed when that pays: the smash spills all 300 around me, the intact haul pays only 200
+ *   (PROP_RULES.piggy.haulCap: the jackpot share pops back to the middle) — and an opponent's
+ *   haul is denied outright.
  *
  * Uprooting / hauling the props themselves (ATM tug-spurt, 돈나무 careful carry, carrying the piggy)
  * are the bot's regular collect goals (bot.ts), valued at shell + coins inside.
@@ -16,6 +22,7 @@ import { CHARACTER, COINS, DASH, PROP_RULES, TICK_RATE } from '../../sim/config'
 import type { BreakableState, Command, LootState, Vec2 } from '../../sim/types';
 import { V } from '../geom';
 import { boxSurfacePoint, hammerGeom, holdsHammer, lootSurfacePoint, reachesPoint, swingBusy, swingCommand, usableHammer, aimWithError } from '../itemSense';
+import { propHaulValue } from '../../sim/props';
 import type { BotView, Candidate, Goal, GoalProvider } from './types';
 
 const WALK = 5;
@@ -83,28 +90,51 @@ export class PropGoals implements GoalProvider {
       }
     }
     // ---- piggy kick / smash ----
-    if (hammer) return; // (a hammer would crack our own ball: carry it instead)
+    const diff = st.scores[view.team] - st.scores[(1 - view.team) as 0 | 1];
     for (const l of st.loot) {
       if (l.variant !== 'piggy' || l.recovered || l.dormant || l.airborne) continue;
-      if (heldBySeen(view, l)) continue;
+      if (mateHolds(view, l)) continue;
+      const oppHolds = view.oppHolding(l.id).length > 0;
       const d = V.dist(l.pos, me.pos);
-      if (d > 14) continue;
       const key = `kick:${l.id}`;
       if (view.blacklisted(key) || view.claimedByOther(key)) continue;
+      const cracks = l.cracks ?? 0;
+      const coinsIn = l.innerValue ?? 0;
+      const haul = propHaulValue(l);
       const opps = view.opponents().filter((o) => o.last && o.age < 90 && !o.last.knockedDown);
       let oppD = Infinity;
       for (const o of opps) oppD = Math.min(oppD, V.dist(o.last!.pos, l.pos));
+      if (hammer) {
+        // two cracks a swing: smash it where it stands when the spill beats the haul (or it is
+        // theirs on the way home); the coins burst around me, the nearest raccoon
+        if (d > 16 || coinsIn <= 0) continue;
+        const swings = Math.ceil(Math.max(1, PROP_RULES.piggy.cracksToSmash - cracks) / PROP_RULES.piggy.hammerCracks);
+        const share = oppD < 5 ? 0.55 : 0.75;
+        const gain = coinsIn * share + (oppHolds ? haul * 0.6 : 0);
+        if (!oppHolds && gain < haul) continue;
+        const t = d / WALK + swings * 0.9 + SCOOP_S * 1.5;
+        out.push(view.mk('kickPiggy', key, l.id, (gain / t) * wSmash * (W.props ?? 1), Math.round(gain), t, { sub: 'hammer' }));
+        continue;
+      }
+      if (d > 14) continue;
       const lastOpp = l.lastHolder !== null && view.sim.state.characters[l.lastHolder - 1]?.team !== view.team;
-      const value = view.lootValue(l);
+      if (oppHolds) {
+        // carried by them: a dash into the piggy itself cracks it (they touched it last) — only
+        // worth it as the jackpot crack, or trailing with it already cracked
+        if (cracks < PROP_RULES.piggy.cracksToSmash - 1 && !(diff < 0 && cracks >= 1)) continue;
+        const t = d / WALK + Math.max(0, dashWait - d / WALK) + 1.2;
+        const gain = coinsIn * 0.5 + haul * 0.5;
+        out.push(view.mk('kickPiggy', key, l.id, (gain / t) * (W.props ?? 1), Math.round(gain), t, { sub: 'smash' }));
+        continue;
+      }
+      const value = haul;
       let sub: 'kick' | 'smash' | null = null;
       let u = 0;
-      const diff = st.scores[view.team] - st.scores[(1 - view.team) as 0 | 1];
-      const cracks = l.cracks ?? 0;
       // (contested and one crack from open, or trailing with it already cracked: bust it open)
       if (lastOpp && oppD < 8 && (cracks >= PROP_RULES.piggy.cracksToSmash - 1 || (diff < 0 && cracks >= 1))) {
         // 잭팟 when contested: crack it open where we stand closest
         sub = 'smash';
-        u = (value * 0.5) / (d / WALK + Math.max(0, dashWait - d / WALK) + 1.2);
+        u = (coinsIn * 0.6) / (d / WALK + Math.max(0, dashWait - d / WALK) + 1.2);
       } else if (oppD < 9 && oppD < d + 4) {
         // the kickoff scramble: kick it toward home before they get a hand on it
         sub = 'kick';
@@ -176,7 +206,7 @@ export class PropGoals implements GoalProvider {
   }
 
   execute(view: BotView, g: Goal): Command | null {
-    if (g.kind === 'kickPiggy') return this.execKick(view, g);
+    if (g.kind === 'kickPiggy') return g.sub === 'hammer' ? this.execPiggyHammer(view, g) : this.execKick(view, g);
     return g.sub === 'atm' ? this.execAtm(view, g) : this.execSmash(view, g);
   }
 
@@ -353,6 +383,49 @@ export class PropGoals implements GoalProvider {
     const behind = V.sub(l.pos, V.scale(dir, l.half.x + CHARACTER.radius + 1.0));
     if (view.nav.clearanceAt(behind.x, behind.y) < 0.5) return null;
     return dir;
+  }
+
+  /** Walk into hammer reach of the piggy and swing (2 cracks a swing) until it bursts. */
+  private execPiggyHammer(view: BotView, g: Goal): Command {
+    const st = view.sim.state;
+    const me = view.me();
+    const l = g.targetId !== null ? view.sim.getLoot(g.targetId) : undefined;
+    if (!l || l.recovered || l.airborne) {
+      view.endGoal('piggy gone');
+      return still();
+    }
+    const held = holdsHammer(me);
+    if (me.grab || !held) {
+      view.endGoal('hands busy');
+      return still();
+    }
+    if (mateHolds(view, l)) {
+      view.endGoal('a mate has it');
+      return still();
+    }
+    if (swingBusy(me)) return still();
+    if (g.pressedTick !== undefined && g.pressedTick >= 0) {
+      // the swing ran: next one (the cracks are re-read), give up after a few whiffs
+      if (st.tick - g.pressedTick < 20) return still();
+      g.pressedTick = -1;
+      g.tries = (g.tries ?? 0) + 1;
+      if (g.tries > 4) {
+        view.endGoal('missed', 6 * TICK_RATE);
+        return still();
+      }
+    }
+    const q = lootSurfacePoint(l, me.pos);
+    const ready = usableHammer(me);
+    if (ready && reachesPoint(view, q, ready.kind, 0.25)) {
+      g.phase = 'itemWindup';
+      g.pressedTick = st.tick;
+      return swingCommand(view, aimWithError(view, V.sub(q, me.pos)), l.id);
+    }
+    if (V.dist(me.pos, q) < hammerGeom(held.kind).reach) return { ...still(), aim: V.sub(q, me.pos) };
+    g.phase = 'approach';
+    const m = view.moveTo(l.pos, 'walk', l.half.x + hammerGeom(held.kind).reach * 0.6, { slow: 0.9 });
+    if (m.stuck) view.endGoal('stuck', 5 * TICK_RATE);
+    return move(m.move);
   }
 
   private execKick(view: BotView, g: Goal): Command {

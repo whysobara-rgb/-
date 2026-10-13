@@ -102,7 +102,7 @@ import { createViewExtras, type ViewExtra, type ViewExtrasHost } from './extras'
 import { createPropRig, type PropRig } from './models/props';
 // [F3] Render beats (glance, getaway, decisive load, steal chance, run heat, wind-up, barks, results poses).
 import { BarkBubble, BeatLabel, BEATS, GlanceTracker, LabelScreen, PulseRing, WindupRing, departParam, getawayDepart, vanFreeRun, type ChipSize } from './beats';
-import { matchPointInfo, VAN } from '../sim';
+import { VAN } from '../sim';
 import { sharedFraming, type FramePoint, type SharedFrame } from './sharedCamera';
 import { lootTwinPlacements, mirrorTwinYaw } from './upright';
 import { ko as KO_STRINGS } from '../ui/strings/ko';
@@ -1195,9 +1195,8 @@ export class GameView {
    * every tick (idempotent).
    *
    * Content 2.0 (F3 delta): a coin bag can be the decisive load. A character id among `ids`
-   * marks that bag carrier (ring at its feet, label over its head); when `ids` is empty but
-   * `side` is set (a bag-only load: `lootIds` is empty), the carriers come from
-   * `matchPointInfo().bagCharIds` (WP4's query; nothing is re-derived here).
+   * marks that bag carrier (ring at its feet, label over its head). Game flow passes
+   * `[...lootIds, ...bagCharIds]` from `matchPointInfo()` (WP4's query; nothing is re-derived here).
    */
   setDecisiveLoad(ids: readonly EntityId[], side: 'ours' | 'theirs' | null): void {
     const s = side === 'ours' || side === 'theirs' ? side : null;
@@ -1209,7 +1208,6 @@ export class GameView {
     for (let i = 0; i < n; i++) this.decisiveIds.push(ids[i]!);
     const sideChanged = s !== this.decisiveSide;
     this.decisiveSide = s;
-    this.bagFallbackAt = -1;
     if (!s) this.decisiveLabel.hide();
     else if (sideChanged || !this.decisiveLabel.shown) {
       this.refreshLabelScreen();
@@ -1365,9 +1363,6 @@ export class GameView {
   }
 
   // --- [F3] beat internals ---------------------------------------------------------------------
-
-  /** Bag-only decisive load: carriers resolved from matchPointInfo (refreshed at most 4x / s). */
-  private bagFallbackAt = -1;
 
   private zoneOf(team: TeamId): LayoutDef['zones'][number] | null {
     const zs = this.layout?.zones;
@@ -1578,15 +1573,6 @@ export class GameView {
         if (lootId === null && this.loadRadius(id) > 0) lootId = id;
         else if (this.chars.has(id) && !this.bagIds.includes(id)) this.bagIds.push(id);
       }
-      if (lootId === null && !this.bagIds.length) {
-        if (this.bagFallbackAt < 0 || this.time - this.bagFallbackAt > 0.25) {
-          this.bagFallbackAt = this.time;
-          this.bagFallback.length = 0;
-          const mp = matchPointInfo(sim.state, { earlyDecision: sim.rules.earlyDecision });
-          if (mp && mp.bagCharIds) for (const id of mp.bagCharIds) this.bagFallback.push(id);
-        }
-        for (let i = 0; i < this.bagFallback.length; i++) if (this.chars.has(this.bagFallback[i]!)) this.bagIds.push(this.bagFallback[i]!);
-      }
     }
     const color = side === 'theirs' ? '#FF5A5F' : '#FFD23F';
     let labelX = 0;
@@ -1688,8 +1674,6 @@ export class GameView {
     }
   }
 
-  private readonly bagFallback: EntityId[] = [];
-
   /** Free the per-match beat visuals (rings per character, barks) and reset every beat. */
   private resetBeats(): void {
     this.glanceT.clear();
@@ -1699,8 +1683,6 @@ export class GameView {
     this.decisiveSide = null;
     this.decisiveLabel.hide();
     this.decisiveHl = null;
-    this.bagFallback.length = 0;
-    this.bagFallbackAt = -1;
     this.stealPos = null;
     this.stealLabel.hide();
     this.runHeat.team = null;

@@ -69,6 +69,7 @@ import { BootSplash } from '../ui/screens/BootSplash';
 import { vanWipe, type MainMenuProps, type NextGoalView } from '../ui/screens/MainMenu';
 import { t as tFront } from '../ui/i18n';
 import { bumpFunnel, setLastQuick } from '../platform/progress';
+import { matchOutcomeFacts, recordMatchOutcome, type NewRecordInfo } from '../platform/progress';
 import { getNative } from '../platform/native';
 import { tournamentAchievements, wardrobeAchievement } from './achievements';
 import { MatchController, type MatchSummary } from './match';
@@ -171,6 +172,8 @@ export class App {
   private match: MatchController | null = null;
   private lastSummary: MatchSummary | null = null;
   private lastRecord: GameRecord | null = null;
+  /** [WP6] The record the last finished match broke (results chip; null = none). */
+  private lastNewRecord: NewRecordInfo | null = null;
   private titleSim: Simulation;
   private sceneTime = 0;
   private frameNo = 0;
@@ -1469,7 +1472,7 @@ export class App {
       if (this.stateValue === 'preview' && this.match === ctl) this.beginMatch();
     };
     const police = sim.rules.police === true;
-    const pscene = this.scene3d(PreviewScene, () => new PreviewScene({ layout: sim.layout, police, policeEntries: police ? policeEntriesFor(sim.layout) : [], myTeam: ctl.myTeam }), false);
+    const pscene = this.scene3d(PreviewScene, () => new PreviewScene({ layout: sim.layout, police, policeEntries: police ? policeEntriesFor(sim.layout) : [], myTeam: ctl.myTeam, content: sim.rules.content }), false);
     const preview = new LayoutPreview({
       layout: sim.layout,
       context: opts.context ?? null,
@@ -1515,6 +1518,7 @@ export class App {
     // Local match: presses that started it (and keys still held) do not reach the players.
     if (m.isLocal) this.localRouter?.flush();
     m.beginCountdown();
+    bumpFunnel('matchStarted', this.d.save);
   }
 
   private openPause(): void {
@@ -1602,6 +1606,7 @@ export class App {
   private onMatchFinished(summary: MatchSummary): void {
     this.lastSummary = summary;
     const cfg = summary.config;
+    this.lastNewRecord = this.recordOutcome(summary);
     if (cfg.kind === 'tutorial') {
       this.markTutorialDone();
       this.offerAfterTutorial();
@@ -1623,6 +1628,44 @@ export class App {
     }
     this.lastRecord = record;
     this.toResults(summary, record);
+  }
+
+  /**
+   * [WP6] Save v2 bookkeeping of a finished match (head-to-head, personal bests, recent list,
+   * funnel) in one write; returns the most notable record it broke. Local multiplayer only counts
+   * in the funnel: a couch match is not P1's personal record. Never throws.
+   */
+  private recordOutcome(summary: MatchSummary): NewRecordInfo | null {
+    const m = this.match;
+    const cfg = summary.config;
+    try {
+      if (!m || cfg.local) {
+        bumpFunnel('matchFinished', this.d.save);
+        return null;
+      }
+      const sim = m.sim;
+      const facts = matchOutcomeFacts({ events: sim.eventLog, result: summary.result, humanTeam: m.myTeam, characters: sim.state.characters });
+      const now = Date.now();
+      const res = recordMatchOutcome(
+        {
+          ...facts,
+          matchId: `${cfg.seed >>> 0}:${now}`,
+          layoutId: cfg.layoutId,
+          rival: cfg.kind === 'tutorial' ? null : cfg.rival,
+          mode: cfg.kind,
+          teamMode: cfg.mode,
+          difficulty: cfg.difficulty,
+          cup: cfg.kind === 'tournament' ? (cfg.cup ?? null) : null,
+          finishedAt: now,
+          eventKind: sim.state.eventPlan?.loot?.kind ?? null,
+        },
+        this.d.save,
+      );
+      return res.newRecords[0] ?? null;
+    } catch (err) {
+      this.d.log('warn', `[app] match outcome record failed: ${String(err)}`);
+      return null;
+    }
   }
 
   /** Record one series game (finished, or forfeited from the pause menu) and save at once. */
@@ -1652,6 +1695,10 @@ export class App {
     this.hideStage();
     this.d.view.setResultsFraming(0.19);
     this.d.view.setMode('results');
+    // after setMode (it clears the poses): the rival gloats over a win, slumps otherwise; the
+    // player plays the owned victory pose (default wiggle).
+    const rivalWon = summary.outcome === 'lose';
+    this.d.view.setResultsPoses({ rival: rivalWon ? 'taunt' : 'slump', player: this.d.save.data.cosmetics.victoryPose ?? 'wiggle' });
     window.setTimeout(() => {
       if (this.stateValue === 'results') this.d.audio.playMusic('results');
     }, 2600);
@@ -1702,6 +1749,20 @@ export class App {
       }
       props.onMenu = () => this.wipeTo(() => this.toTournament(record.rival), 'star');
     }
+    // honest new-record chip (only a record the save really broke; never in local multiplayer)
+    if (this.lastNewRecord && !cfg.local) props.newRecord = this.lastNewRecord;
+    // funnel: which button the results screen led to
+    const funnel = (key: 'rematchPress' | 'nextPress' | 'menuPress', fn?: () => void): (() => void) | undefined =>
+      fn
+        ? () => {
+            bumpFunnel(key, this.d.save);
+            fn();
+          }
+        : undefined;
+    props.onRematch = funnel('rematchPress', props.onRematch);
+    props.onNext = funnel('nextPress', props.onNext);
+    props.onMenu = funnel('menuPress', props.onMenu)!;
+    bumpFunnel('resultsShown', this.d.save);
     this.show(new ResultsScreen(props), 'results');
   }
 

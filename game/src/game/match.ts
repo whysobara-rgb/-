@@ -999,7 +999,7 @@ export class MatchController {
     // continuous cues from the snapshot (idempotent setters, every tick)
     const mp = snap.matchPoint;
     const side = (team: TeamId): 'ours' | 'theirs' => (team === this.myTeam ? 'ours' : 'theirs');
-    view.setDecisiveLoad(mp ? mp.lootIds : [], mp ? side(mp.team) : null);
+    view.setDecisiveLoad(mp ? [...mp.lootIds, ...(mp.bagCharIds ?? [])] : [], mp ? side(mp.team) : null);
     view.setStealChance(snap.stealChance ? snap.stealChance.doorPos : null, snap.stealChance ? snap.stealChance.value : 0);
     view.setRunHeat(snap.run && snap.run.tier > 0 ? snap.run.team : null, snap.run ? snap.run.tier : 0);
     for (const s of samples) {
@@ -1007,7 +1007,10 @@ export class MatchController {
       const bark = s.intent.bark;
       if (bark && this.barkTicks.get(s.charId) !== bark.tick) {
         this.barkTicks.set(s.charId, bark.tick);
-        if (settings.showOthersTaunts !== false) view.showBark(s.charId, tr5(`taunt.bark.${bark.key}`));
+        if (settings.showOthersTaunts !== false) {
+          view.showBark(s.charId, tr5(`taunt.bark.${bark.key}`));
+          this.director.onBark(s.charId, bark.key, sim);
+        }
       }
     }
     const left = sim.ticksLeft();

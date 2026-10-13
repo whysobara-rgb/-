@@ -34,6 +34,7 @@ import type { Adaptation, BotController, BotIntent, BotOptions, Difficulty, Goal
 import type { BotView, Goal, GoalProvider } from './goals/types';
 import { CoinGoals } from './goals/coins';
 import { PropGoals } from './goals/props';
+import { propHaulValue } from '../sim/props';
 import { ItemGoals } from './goals/items';
 import { holdsHammer, swingBusy } from './itemSense';
 
@@ -359,9 +360,12 @@ export class Bot implements BotController {
     return this.itemIntent;
   }
 
-  /** (C6) Points a loot item pays if recovered now: props = shell + coins inside (estimatedValue). */
+  /**
+   * (C6) Points a loot item pays if recovered now: props = shell + coins inside, an intact piggy
+   * at most its haul cap (the jackpot share only comes out of a smash: propHaulValue).
+   */
   private lootValue(l: Readonly<LootState>): number {
-    return l.kind === 'bank' ? l.estimatedValue : l.variant ? l.baseValue + (l.innerValue ?? 0) : l.baseValue;
+    return l.kind === 'bank' ? l.estimatedValue : l.variant ? propHaulValue(l) : l.baseValue;
   }
 
   // =========================================================================

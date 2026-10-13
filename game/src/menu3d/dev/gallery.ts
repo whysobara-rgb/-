@@ -37,7 +37,7 @@ export const FACTORIES: Record<string, Factory> = {
   title: () => new TitleScene({ hat: 'teamCapA' }),
   preview: (q) => {
     const layout = getLayout((q.get('layout') as LayoutId) ?? 'plaza');
-    return new PreviewScene({ layout, police: q.get('police') !== '0', policeEntries: policeEntriesFor(layout), myTeam: 0 });
+    return new PreviewScene({ layout, police: q.get('police') !== '0', policeEntries: policeEntriesFor(layout), myTeam: 0, content: q.get('content') === 'v2' ? 'v2' : 'classic' });
   },
   tournament: (q) => {
     const st = (q.get('states') ?? 'cleared,inProgress,locked').split(',') as StageState[];

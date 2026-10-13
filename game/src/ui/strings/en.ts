@@ -660,6 +660,12 @@ export const en: Record<StringKey, string> = {
   'hud.moment.climaxBadge': 'Getaway!',
   // --- [WP4] end
   // --- [WP6] begin: results.hook.*, rivalLine.* (WP6 may also reword existing results.* keys in place)
+  'results.hook.record.biggestHaul': 'New best haul: {value} (was {previous})',
+  'results.hook.record.layoutBestScore': 'New best here: {value} (was {previous})',
+  'results.hook.record.layoutBestMargin': 'New best margin: {value} (was {previous})',
+  'results.hook.record.biggestSplash': 'New best coin splash: {value} (was {previous})',
+  'results.hook.record.biggestDeposit': 'New best deposit: {value} (was {previous})',
+  'results.hook.record.fastestFirstRecovery': 'Fastest first haul: {value}s (was {previous}s)',
   // --- [WP6] end
   // --- [WP7] begin: cup.*, onboard.* (cup tabs, first-hour strip, menu "이어서 / 다음 목표" card)
   // --- [WP7] end

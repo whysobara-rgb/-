@@ -327,6 +327,11 @@ export class GrabJoint {
   /** Cart push: the bearing follows the load's translation only (the grip slides along the face). */
   private slide = false;
   /**
+   * Sliding cart grip, 0..1: how much the bearing follows the wall's turning as well (1 once the
+   * holder is CART_SEAT_BLEND m past the end of its slide range: the wall carries the hands along).
+   */
+  private slideK = 0;
+  /**
    * Push / pull mode of the previous tick (hysteresis of the push cone, kept by the game:
    * entering push needs the stick closer to the push line than staying in push).
    */
@@ -452,6 +457,7 @@ export class GrabJoint {
     this.steerLimit = 0;
     this.emassW = 0;
     this.slide = false;
+    this.slideK = 0;
     const lever = Math.max(0.5, Math.hypot(this.alx, this.aly));
     // "cart" push for long levers (a bank's grip is ~4 m from its centre; safes and props are
     // under 1.3 m and keep the plain assist, which already tracks the stick within ~1 degree)
@@ -487,8 +493,14 @@ export class GrabJoint {
           ct = (-beta * (lat - (sc - sa) * (ex * this.tx + ey * this.ty))) / h;
           const cap = GrabJoint.CART_SEAT_SPEED;
           this.targetT = ct > cap ? cap : ct < -cap ? -cap : ct;
+          // past the end of the range the wall carries the hands along (following the translation
+          // only, a bank swinging free off a snag at 20 deg/s ran its wall out from under the pusher,
+          // who slid off the corner into the next shop front and pinned the bank there)
+          const k = Math.abs(sh - sc) / GrabJoint.CART_SEAT_BLEND;
+          this.slideK = k > 1 ? 1 : k;
         }
-        this.emassT = 1 / (c.solverInvMass + b.solverInvMass);
+        const kr = this.slideK * this.rtx;
+        this.emassT = 1 / (c.solverInvMass + b.solverInvMass + b.solverInvI * kr * kr);
         this.limitT = GrabJoint.CART_GRIP_SCALE * lateralLimit;
         if (!this.pushSnag && b.solverInvMass > 0) {
           let w = GrabJoint.CART_STEER_GAIN * err;
@@ -527,6 +539,8 @@ export class GrabJoint {
   static readonly CART_GRIP_SCALE = 3;
   /** Cart push: top speed (m/s) at which a holder off its slide range is eased back onto it. */
   static readonly CART_SEAT_SPEED = 0.6;
+  /** Cart push: how far (m) past the end of its slide range a holder is carried fully with the wall. */
+  static readonly CART_SEAT_BLEND = 0.1;
 
   solve(): void {
     if (this.emass === 0) return;
@@ -584,8 +598,9 @@ export class GrabJoint {
     if (this.emassT === 0) return;
     // bearing (bounded); a sliding cart grip follows the load's translation only
     const sl = this.slide;
-    const wax = sl ? b.vx : b.vx - b.w * this.rcy;
-    const way = sl ? b.vy : b.vy + b.w * this.rcx;
+    const k = sl ? this.slideK : 1;
+    const wax = b.vx - k * b.w * this.rcy;
+    const way = b.vy + k * b.w * this.rcx;
     const vt = (c.vx - wax) * this.tx + (c.vy - way) * this.ty;
     let lt = this.emassT * (this.targetT - vt);
     let nt = this.accT + lt;
@@ -600,7 +615,7 @@ export class GrabJoint {
     if (imb > 0) {
       b.vx -= qx * imb;
       b.vy -= qy * imb;
-      if (!sl) b.w -= b.solverInvI * (this.rcx * qy - this.rcy * qx);
+      if (k > 0) b.w -= k * b.solverInvI * (this.rcx * qy - this.rcy * qx);
     }
   }
 

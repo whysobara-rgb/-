@@ -16,6 +16,10 @@ import { TEAM_STYLES } from '../../shared/teams';
 import { createBank, createSafe, createVan, placeOnSim, type BankRig, type SafeRig, type VanRig } from '../../render/models';
 import { fmtScore, icon, lootIcon, t, teamEmblem } from '../../ui';
 import { MenuScene, damp, easeOutBack } from '../scene';
+import { lootTwinPlacements, mirrorTwinYaw } from '../../render/upright';
+import { createPropRig } from '../../render/models/props';
+import { PROP_SPECS } from '../../sim/config';
+import { getLanguage } from '../../ui/i18n';
 import { POP, PropBuilder, ball, cyl, disposeProp, disposeTablecloth, roundBox, tablecloth } from '../kit';
 
 export interface PreviewSceneOptions {
@@ -26,6 +30,12 @@ export interface PreviewSceneOptions {
   policeEntries?: readonly { park: Vec2; angle: number }[];
   /** The local player's team (labels say "우리 차" for it). */
   myTeam: TeamId;
+  /**
+   * Resolved content rules of the match (sim.rules.content). 'v2' on a layout with `v2`: the
+   * outdoor safes come from `layout.v2.safes` and the uprootable props (ATM, piggy, money tree)
+   * stand on the miniature too, like in the match. Default classic.
+   */
+  content?: 'classic' | 'v2' | null;
 }
 
 const STYLE_COLORS: Record<string, string> = {
@@ -300,11 +310,15 @@ export class PreviewScene extends MenuScene {
       tag.append(lootIcon('bank', 'uh-loot-icon'), spanText(fmtScore(value), 'uh-m3d-tag__num'), spanText(t('preview.tagBankParts'), 'uh-m3d-tag__sub'));
       this.pending.push({ id: `bank${i}`, el: tag, target: bank.root, dy: (BANK_MODEL.roofHeight + 1.2) * BANK_SCALE, prio: 0 });
     });
-    L.safes.forEach((sp, i) => {
+    // East mirror twins turn their door to match the west original, exactly like the match view.
+    const twinSpots = lootTwinPlacements(L);
+    const v2 = o.content === 'v2' && L.v2 ? L.v2 : null;
+    (v2 ? v2.safes : L.safes).forEach((sp, i) => {
       const rig = createSafe(sp.kind);
       rig.setAnchored(false);
       this.batchDecals(rig.root);
-      placeOnSim(rig.root, { x: sp.pos.x - cx, y: sp.pos.y - cz }, sp.angle);
+      const yawFix = mirrorTwinYaw(twinSpots, { x: sp.pos.x, y: sp.pos.y, key: sp.kind }, L.size.x / 2);
+      placeOnSim(rig.root, { x: sp.pos.x - cx, y: sp.pos.y - cz }, sp.angle + yawFix);
       rig.root.scale.setScalar(SAFE_SCALE);
       this.hideCoin(rig.root);
       this.table.add(rig.root);
@@ -314,6 +328,25 @@ export class PreviewScene extends MenuScene {
       tag.className = `uh-m3d-tag uh-m3d-tag--${sp.kind}`;
       tag.append(lootIcon(sp.kind, 'uh-loot-icon'), spanText(fmtScore(sp.kind === 'smallSafe' ? SCORE.smallSafe : SCORE.largeSafe), 'uh-m3d-tag__num'));
       this.pending.push({ id: `safe${i}`, el: tag, target: rig.root, dy: (sp.kind === 'largeSafe' ? 1.6 : 1.1) * SAFE_SCALE, prio: 2 });
+    });
+
+    // Content 2.0 props (ATM / piggy / money tree) with their full value (shell + coins inside).
+    v2?.props.forEach((pp, i) => {
+      const spec = PROP_SPECS[pp.variant];
+      const rig = createPropRig(pp.variant, getLanguage() === 'en' ? 'en' : 'ko');
+      rig.setAnchored(false);
+      this.batchDecals(rig.root);
+      const yawFix = mirrorTwinYaw(twinSpots, { x: pp.pos.x, y: pp.pos.y, key: pp.variant }, L.size.x / 2);
+      placeOnSim(rig.root, { x: pp.pos.x - cx, y: pp.pos.y - cz }, pp.angle + yawFix);
+      rig.root.scale.setScalar(SAFE_SCALE);
+      this.hideCoin(rig.root);
+      this.table.add(rig.root);
+      this.batcher.add(rig.root);
+      this.safes.push(rig);
+      const tag = document.createElement('div');
+      tag.className = `uh-m3d-tag uh-m3d-tag--prop uh-m3d-tag--${pp.variant}`;
+      tag.append(spanText(t(`hud.content.prop.${pp.variant}`), 'uh-m3d-tag__sub'), spanText(fmtScore(spec.shell + spec.inner.c10 * 10 + spec.inner.c50 * 50), 'uh-m3d-tag__num'));
+      this.pending.push({ id: `prop${i}`, el: tag, target: rig.root, dy: (spec.height + 0.3) * SAFE_SCALE, prio: 2 });
     });
 
     // --- police entry points ----------------------------------------------------------------------
