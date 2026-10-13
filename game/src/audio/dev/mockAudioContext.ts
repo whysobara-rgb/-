@@ -59,8 +59,6 @@ export class MockParam {
   }
   cancelScheduledValues(t: number): this {
     this.check(0, t);
-    // like AudioParam: every event at or after t is dropped
-    for (let k = this.events.length - 1; k >= 0; k--) if (this.events[k]!.time >= t) this.events.splice(k, 1);
     return this;
   }
   cancelAndHoldAtTime(t: number): this {

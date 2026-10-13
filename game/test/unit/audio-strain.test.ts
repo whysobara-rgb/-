@@ -324,10 +324,11 @@ describe("bank groan follows the music's chord", () => {
     player.play('none', 30);
     expect(player.barGrid()).toBeNull();
     expect(grid.rootAt!(31)).toBeNull();
-    // the stale 'final' plan is dropped: back to D2, nothing scheduled after
+    // the stale 'final' plan is dropped (cancelled from here) and the groan settles back on D2
+    const n1 = groanOsc(ctx).frequency.events.length;
     v.set(0.6, 31);
-    const tail = groanOsc(ctx).frequency.events.filter((e) => e.time >= 31);
-    expect(tail.map((e) => e.value)).toEqual([GROAN_ROOT_HZ]);
+    v.set(0.5, 31.5);
+    expect(groanOsc(ctx).frequency.events.slice(n1)).toEqual([{ kind: 'target', value: GROAN_ROOT_HZ, time: 31 }]);
     v.stop(32);
   });
 });

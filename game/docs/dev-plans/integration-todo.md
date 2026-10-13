@@ -30,3 +30,7 @@
 - Bank rumble still mostly masked under match music on small-speaker models (400–500 Hz HP): consider a soft 400–900 Hz "heave" layer or a music duck while a bank moves.
 - Captions updated to the soft sound (done).
 - Owner by-ear check of the new drag/bank sound still pending (all judgement from offline renders).
+## From strain / bank review (independent QA of the soft uproot tug, heave knock, chord groan) — 2026-10-13
+- Targets met on re-render: strain centroid -44..-62 %, >3 kHz -49..-90 dB, no clicks / HF spikes, loudness -0.2..-2.1 LU, pitch + level still rise; bank 400 Hz-HP presence +3.5..+3.7 dB vs final5; groan 0 clash bars on match / final grids; seams clean; strain 18 nodes, bank 17.
+- Fixed: strain hum / creak swooped up to 8 semitones on every fresh grab (bank 80 -> 49 Hz) and sagged an octave on release (under the pop) -> snaps on grab, holds pitch on release; groan's chord change glided ~0.13 s (up to 10 semitones off both chords) -> ~35 ms scoop; groan drops the stale chord plan when the music stops.
+- Measurement note: the single-seed bank ramp "level rise >= 50 % of before's" sits on the line (±1.8 dB seed spread); over 8 seeds old / new are equal (+8.0 / +7.7 dB).

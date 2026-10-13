@@ -17,7 +17,13 @@
  *   7. a grab landing during a dash kept the 11 m/s no-drag burst running and yanked the load;
  *   8. a pushed bank (the bug 4 cart) kept running along its face's old normal after the stick
  *      turned: the pusher went 40-50 deg off the stick while the bank turned at ~6 deg/s (now the
- *      bank travels where the stick points, its face swings round and the grip slides along it).
+ *      bank travels where the stick points, its face swings round and the grip slides along it);
+ *   9. the bug 8 bank turned about its centre whatever the grip: an off-centre grip had its face run
+ *      away from the pusher or into it (now each pusher caps the turn rate);
+ *  10. a grip taken in the door gap sits at the door's edge and the rod held the raccoon at its
+ *      distance from that point: a shove from the gap swung it round the edge into the doorway (now
+ *      a pusher in front of its wall keeps its distance from the wall's plane and pushes where it
+ *      stands).
  */
 import { describe, expect, it } from 'vitest';
 import { CHARACTER } from '../../src/sim/config';
@@ -598,5 +604,76 @@ describe('control bug 9: pushing a bank from anywhere on its walls, the pusher k
     expect(r.dv).toBeLessThan(0.3);
     expect(Math.max(...r.char)).toBeLessThan(12);
     expect(Math.max(...r.load)).toBeLessThan(5);
+  });
+});
+
+describe('control bug 10: pushing a bank at its door pushes the bank (no lurch into the doorway)', () => {
+  // before: a grip taken in the door gap sits at the door's edge (up to 1.1 m to the side) and the
+  // rod held the raccoon at its distance from that point: walking up 0.3 m off the door centre and
+  // shoving, the push held for ~0.1 s, then the raccoon swung round the edge into the doorway at
+  // 5.6 m/s (a 4.3 m/s jump in one tick); within 0.2 m of the centre it never pushed at all (4.6 m/s)
+  it('walking up to the door face anywhere across the gap and shoving pushes the bank straight', () => {
+    for (const ly of [3, -3]) {
+      for (let x0 = -1; x0 <= 1.001; x0 += 0.25) {
+        const sim = makeSim(openLayout({ size: { x: 200, y: 200 }, banks: [{ pos: { x: 100, y: 100 }, angle: 0 }] }), [0]);
+        const id = sim.state.loot[0]!.id;
+        sim.debug.setAnchored(id, false);
+        for (const l of sim.state.loot) if (l.kind !== 'bank') sim.debug.teleport(l.id, { x: 10 + l.id * 2, y: 190 });
+        const s = Math.sign(ly);
+        sim.debug.teleport(1, { x: 100 + x0, y: 100 + ly + s * 3 }, (-s * Math.PI) / 2);
+        let grabbed = -1;
+        let pv = { x: 0, y: 0 };
+        let dv = 0;
+        let vmax = 0;
+        let minOut = Infinity;
+        for (let t = 1; t <= 240; t++) {
+          sim.step([cmd(0, -s, true)]);
+          const ch = sim.state.characters[0]!;
+          const b = sim.getLoot(id)!;
+          if (ch.grab && grabbed < 0) grabbed = t;
+          if (grabbed > 0) {
+            expect(ch.grab).not.toBeNull();
+            if (t > grabbed + 1) dv = Math.max(dv, Math.hypot(ch.vel.x - pv.x, ch.vel.y - pv.y));
+            vmax = Math.max(vmax, Math.hypot(ch.vel.x, ch.vel.y));
+            minOut = Math.min(minOut, s * (ch.pos.y - b.pos.y));
+          }
+          pv = { ...ch.vel };
+        }
+        const ch = sim.state.characters[0]!;
+        const b = sim.getLoot(id)!;
+        const tag = `face ${ly} x0 ${x0.toFixed(2)}`;
+        expect(grabbed, tag).toBeGreaterThan(0);
+        expect(minOut, tag).toBeGreaterThan(3.3); // never in the doorway
+        expect(dv, tag).toBeLessThan(1);
+        expect(vmax, tag).toBeLessThan(2.5); // never faster than the run-up
+        expect(-s * (b.pos.y - 100), tag).toBeGreaterThan(2.9);
+        expect(Math.abs(b.pos.x - 100), tag).toBeLessThan(0.1);
+        // the raccoon ends up squarely behind the face it pushes, facing it
+        expect(Math.abs(wrap(ch.facing + (s * Math.PI) / 2)) * D, tag).toBeLessThan(10);
+      }
+    }
+  });
+
+  // before: gripping from 0.5 m inside the door gap and pushing at once, the raccoon jumped 3.5 m/s
+  // in a tick; with the grip settled first, turned 45 degrees: 9.7 / 11 deg off the stick (the
+  // raccoon dragged sideways to the door's edge), a 0.46 m/s jump
+  it('pushing from the door gap follows a turned stick smoothly', () => {
+    for (const [lx, rel] of [
+      [0.6, -45],
+      [0.6, 45],
+      [-0.6, 45],
+    ] as const) {
+      const { sim, id, push } = wallGrip(lx, 3);
+      for (let t = 0; t < 30; t++) sim.step([cmd(0, 0, true)]); // the grip settles at the door's edge
+      const r = gripTrack(sim, id, push, 1, [
+        [0, 1.5],
+        [rel, 3],
+      ]);
+      expect(r.dv).toBeLessThan(0.3);
+      expect(mean(r.char)).toBeLessThan(8);
+      expect(Math.max(...r.char)).toBeLessThan(12);
+      expect(mean(r.load)).toBeLessThan(4);
+      expect(r.vmax).toBeLessThan(1.03 * 1.15);
+    }
   });
 });
