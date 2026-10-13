@@ -184,7 +184,7 @@ test('taunts: Ctrl+1 plays the wiggle; the T wheel follows the mouse and plays t
       const r = document.querySelector(`.uh-ewheel__slot[data-emote="${id}"]`)!.getBoundingClientRect();
       return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
     };
-    return { geo, centerR: Math.min(c.width, c.height) / 2, down: box('squatBounce'), right: box('bleh') };
+    return { geo, centerR: Math.min(c.width, c.height) / 2, down: box('fanCash'), right: box('bleh') };
   });
   // the deadzone shrank with the ring (0.55x the center disc), so the drawn slots lie outside it
   expect(small.geo.dead).toBeGreaterThan(small.centerR * 0.5);
@@ -193,7 +193,7 @@ test('taunts: Ctrl+1 plays the wiggle; the T wheel follows the mouse and plays t
   expect(small.down.y - small.geo.y).toBeLessThan(small.centerR); // inside the full-size disc: the old deadzone would have eaten it
   await page.mouse.move(small.down.x, small.down.y, { steps: 8 });
   await expect.poll(hoverNow, { timeout: 120_000, intervals: [250] }).toBe(2);
-  await expect(page.locator('.uh-ewheel__slot[data-emote="squatBounce"]')).toHaveClass(/is-hover/, { timeout: 120_000 });
+  await expect(page.locator('.uh-ewheel__slot[data-emote="fanCash"]')).toHaveClass(/is-hover/, { timeout: 120_000 });
   await shot(page, 'taunt-02b-popin-drawn-slot');
   await page.mouse.move(small.right.x, small.right.y, { steps: 8 });
   await expect.poll(hoverNow, { timeout: 120_000, intervals: [250] }).toBe(1);

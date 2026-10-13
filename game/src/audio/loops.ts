@@ -325,6 +325,14 @@ export function strainParams(i: number, p = 1): { creakRate: number; creak: numb
 export const GROAN_ROOT_HZ = 73.42;
 /** Bars of chord roots the bank groan schedules ahead. */
 const GROAN_PLAN_BARS = 48;
+/**
+ * The groan's move to a new chord root: a quick legato scoop starting GROAN_GLIDE_LEAD s before the
+ * bar line, on the new root ~35 ms after it (time constant GROAN_GLIDE_TAU s). The old 50 ms
+ * constant from 30 ms early swept up to 10 semitones (C3 -> D2) for ~0.13 s, off both chords
+ * for ~0.1 s past every bar line.
+ */
+export const GROAN_GLIDE_LEAD = 0.01;
+export const GROAN_GLIDE_TAU = 0.015;
 /** Partials [harmonic, amplitude] of the bank groan: root, octaves and fifths only. */
 export const GROAN_PARTIALS: readonly (readonly [number, number])[] = [
   [1, 0.55],
@@ -464,8 +472,8 @@ export function createLoop(ctx: BaseAudioContext, id: LoopId, t: number, rnd: ()
       const heaveLvl = gainNode(ctx);
       chain(heave, heaveLp, heaveLvl, g.out);
       // Groan: a soft hollow tone (root / octave / fifth partials only, so no partial ever sits a
-      // semitone off a chord tone) on the current chord's root, gliding into each new root on the
-      // music's bar grid (D without music), swelling and breathing (./dsp.ts groanSwellBuffer drives
+      // semitone off a chord tone) on the current chord's root, scooping quickly into each new root on
+      // the music's bar grid (D without music), swelling and breathing (./dsp.ts groanSwellBuffer drives
       // its gain), with a slow vibrato.
       const groan = ctx.createOscillator();
       groan.setPeriodicWave(groanWave(ctx));
@@ -494,7 +502,17 @@ export function createLoop(ctx: BaseAudioContext, id: LoopId, t: number, rnd: ()
         const gr = grid;
         if (!gr?.rootAt) return;
         const { origin, bar } = gr;
-        if (!Number.isFinite(origin) || !(bar > 0.5 && bar < 8)) return;
+        if (!Number.isFinite(origin) || !(bar > 0.5 && bar < 8)) {
+          // The music stopped: drop the old track's chord plan and settle back on D.
+          if (plan !== '') {
+            plan = '';
+            planEnd = -Infinity;
+            groan.frequency.cancelScheduledValues(at);
+            hz = GROAN_ROOT_HZ;
+            to(groan.frequency, hz, at, 0.06);
+          }
+          return;
+        }
         const sig = `${origin}/${bar}`;
         if (sig === plan && at < planEnd - 10) return;
         plan = sig;
@@ -513,7 +531,7 @@ export function createLoop(ctx: BaseAudioContext, id: LoopId, t: number, rnd: ()
           if (r === null || r === root) continue;
           root = r;
           hz = groanRootHz(r, hz);
-          to(f, hz, Math.max(at, tb - 0.03), 0.05);
+          to(f, hz, Math.max(at, tb - GROAN_GLIDE_LEAD), GROAN_GLIDE_TAU);
         }
         planEnd = origin + (k1 * bar) / 2;
       };
@@ -577,32 +595,40 @@ export function createLoop(ctx: BaseAudioContext, id: LoopId, t: number, rnd: ()
         o.start(t);
         g.sources.push(o);
       }
-      const apply = (i: number, at: number): void => {
+      const apply = (i: number, at: number, snap: boolean): void => {
         const tau = 0.1;
         const on = i > 0.001;
         const s = strainParams(i, pitch);
-        to(tone.frequency, s.toneHz, at, tau);
-        to(tone2.frequency, s.toneHz, at, tau);
-        to(creak.playbackRate, s.creakRate, at, tau);
+        // Pitch and colour glide with progress while pulling. A fresh grab snaps them to the
+        // progress (fading in from the last pull's or the default settings swooped the hum up to
+        // 8 semitones, e.g. 80 -> 49 Hz on every bank tug); a release only fades (the hum, creak
+        // and toks used to sag an octave while dying away under the uproot pop).
+        if (on) {
+          const pt = snap ? 0.012 : tau;
+          to(tone.frequency, s.toneHz, at, pt);
+          to(tone2.frequency, s.toneHz, at, pt);
+          to(creak.playbackRate, s.creakRate, at, pt);
+          to(hum.frequency, s.humHz, at, pt);
+          to(humLp.frequency, s.humLpHz, at, pt);
+          to(quiver.frequency, s.quiverHz, at, pt);
+          to(quiverDepth.gain, s.quiverCents, at, pt);
+          to(pops.playbackRate, s.popRate, at, pt);
+          to(rumbleLp.frequency, 150 * Math.sqrt(pitch), at, pt);
+          to(tremOsc.frequency, 9 + 4 * s.shake, at, pt);
+        }
         to(creakLvl.gain, on ? s.creak : 0, at, tau);
-        to(hum.frequency, s.humHz, at, tau);
-        to(humLp.frequency, s.humLpHz, at, tau);
-        to(quiver.frequency, s.quiverHz, at, tau);
-        to(quiverDepth.gain, s.quiverCents, at, tau);
         to(humLvl.gain, on ? s.hum : 0, at, tau);
-        to(pops.playbackRate, s.popRate, at, tau);
         to(popLvl.gain, on ? s.pops : 0, at, tau);
-        to(rumbleLp.frequency, 150 * Math.sqrt(pitch), at, tau);
-        to(tremOsc.frequency, 9 + 4 * s.shake, at, tau);
         to(rumbleLvl.gain, on ? 0.9 * s.shake * (1.4 - 0.4 * pitch) : 0, at, tau);
       };
       set = (i, at) => {
+        const snap = last <= 0.001;
         last = i;
-        apply(i, at);
+        apply(i, at, snap);
       };
       setPitch = (p, at) => {
         pitch = p;
-        apply(last, at);
+        apply(last, at, false);
       };
       break;
     }

@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { MockBufferSource, MockFilter, MockOscillator, MockParam, mockContext } from '../../src/audio/dev/mockAudioContext';
 import { STRAIN_PITCH } from '../../src/audio/director';
 import { ROPE_CREAK_HZ, ropeCreakBuffer, rootPopBuffer } from '../../src/audio/dsp';
-import { GROAN_PARTIALS, GROAN_ROOT_HZ, createLoop, groanRootHz, strainParams, type BarGrid } from '../../src/audio/loops';
+import { GROAN_GLIDE_LEAD, GROAN_GLIDE_TAU, GROAN_PARTIALS, GROAN_ROOT_HZ, createLoop, groanRootHz, strainParams, type BarGrid } from '../../src/audio/loops';
 import { makeRng } from '../../src/audio/rng';
 import { MusicPlayer } from '../../src/audio/sequencer';
 import { SONG_CHORDS, SONGS, barSeconds } from '../../src/audio/songs';
@@ -206,6 +206,31 @@ describe('strain voice', () => {
   });
 });
 
+describe('strain voice: grab / release', () => {
+  it('a release only fades (pitch and colour held, no sag); a fresh grab lands on the progress', () => {
+    const ctx = mockContext();
+    const v = createLoop(ctx as unknown as BaseAudioContext, 'strain', 0, makeRng(3));
+    const hum = ctx.nodes.find((n) => n instanceof MockOscillator && n.type === 'custom') as MockOscillator;
+    const filters = ctx.nodes.filter((n) => n instanceof MockFilter) as MockFilter[];
+    // spawn path (audio.ts setLoop): pitch first while silent, then the intensity
+    v.setPitch(STRAIN_PITCH.bank, 0);
+    expect(hum.frequency.events.length).toBe(0);
+    v.set(0.15, 0);
+    expect(hum.frequency.events.at(-1)!.value).toBeCloseTo(strainParams(0.15, STRAIN_PITCH.bank).humHz, 6);
+    v.set(0.9, 0.5);
+    const pulled = hum.frequency.events.length;
+    const cut = filters.map((f) => f.frequency.events.length);
+    v.set(0, 0.6);
+    v.setPitch(STRAIN_PITCH.smallSafe, 0.62);
+    expect(hum.frequency.events.length).toBe(pulled);
+    expect(filters.map((f) => f.frequency.events.length)).toEqual(cut);
+    // re-grab at another progress: straight onto that progress at the new size
+    v.set(0.5, 1);
+    expect(hum.frequency.events.at(-1)).toMatchObject({ time: 1, value: strainParams(0.5, STRAIN_PITCH.smallSafe).humHz });
+    v.stop(2);
+  });
+});
+
 describe("bank groan follows the music's chord", () => {
   const pcOf = (hz: number): number => (((Math.round(69 + 12 * Math.log2(hz / 440)) % 12) + 12) % 12);
   const centsOff = (hz: number): number => {
@@ -263,7 +288,11 @@ describe("bank groan follows the music's chord", () => {
     }
     // The A7 and C7 bars get A and C (no D / F / A over them as before).
     const a7 = chords.indexOf('A7');
-    expect(ev.some((e) => Math.abs(e.time + 0.03 - (origin + a7 * bar)) < 1e-6 && pcOf(e.value) === 9)).toBe(true);
+    expect(ev.some((e) => Math.abs(e.time + GROAN_GLIDE_LEAD - (origin + a7 * bar)) < 1e-6 && pcOf(e.value) === 9)).toBe(true);
+    // ...and lands on it right after the bar line: within 50 cents ~35 ms past it, even for the
+    // widest move in the groan's register (C3 -> D2, 10 semitones)
+    const settle = GROAN_GLIDE_TAU * Math.log((130.81 - 73.42) / (73.42 * (Math.pow(2, 50 / 1200) - 1)));
+    expect(settle - GROAN_GLIDE_LEAD).toBeLessThan(0.04);
     v.stop(3);
   });
 
@@ -295,6 +324,10 @@ describe("bank groan follows the music's chord", () => {
     player.play('none', 30);
     expect(player.barGrid()).toBeNull();
     expect(grid.rootAt!(31)).toBeNull();
+    // the stale 'final' plan is dropped: back to D2, nothing scheduled after
+    v.set(0.6, 31);
+    const tail = groanOsc(ctx).frequency.events.filter((e) => e.time >= 31);
+    expect(tail.map((e) => e.value)).toEqual([GROAN_ROOT_HZ]);
     v.stop(32);
   });
 });

@@ -102,9 +102,10 @@ export interface MatchFrame {
   wheelKeys: Vec2;
   /**
    * Left mouse button pressed this poll, at the cursor where it went down (taunt wheel: click a
-   * slot to play it). Null otherwise, and also while Mouse0 is bound to grab, dash or ping: those
-   * close the wheel, so with such a binding a left click is that action and the wheel picks by
-   * hover + release only (WHEEL_CLICK_BLOCKERS).
+   * slot to play it). Null otherwise, and also while Mouse0 is bound to grab, dash, ping or the
+   * wheel button itself: grab / dash / ping close the wheel and the wheel button opens / confirms
+   * it, so with such a binding a left click is that action and the wheel picks by hover + release
+   * only (WHEEL_CLICK_BLOCKERS).
    */
   wheelClick?: PointerPos | null;
 }

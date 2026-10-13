@@ -354,6 +354,13 @@ export class GrabJoint {
   slideLo = NaN;
   slideHi = NaN;
   /**
+   * Cart push with a sliding grip, the holder in front of the pushed wall (set by the game each
+   * tick): the rod holds the holder's distance from the wall's plane, not from the anchor point. A
+   * grip taken in the door gap sits at the door's edge; held at its distance from that point, a
+   * holder pushing from the gap swung round the edge into the doorway (a 4-5 m/s lurch).
+   */
+  pushPlane = false;
+  /**
    * Cart push: the travel wheel sits this fraction of the way from the load's centre toward the
    * holder (set by the game: a lone pusher whose grip ran out of slide room shares the swing).
    */
@@ -399,8 +406,13 @@ export class GrabJoint {
     this.rby = this.alx * sn + this.aly * cs;
     const dx = b.x + this.rbx - c.x;
     const dy = b.y + this.rby - c.y;
-    const d = Math.hypot(dx, dy);
-    if (d > 1e-6) {
+    let d = Math.hypot(dx, dy);
+    if (this.pushPlane && this.pushHeading !== null && !Number.isNaN(this.slideLo)) {
+      // along the wall's inward normal (holder -> wall), d = the holder's distance from its plane
+      this.nx = -(this.hlx * cs - this.hly * sn);
+      this.ny = -(this.hlx * sn + this.hly * cs);
+      d = dx * this.nx + dy * this.ny;
+    } else if (d > 1e-6) {
       this.nx = dx / d;
       this.ny = dy / d;
     } else {

@@ -25,8 +25,9 @@
  * (WHEEL_MOUSE_TAKEOVER_PX) onto another slot, never by resting on the center disc. A left click
  * plays the slot under it at once (a locked gift box just shakes; a click on the center closes
  * the wheel); with grab / dash / ping rebound to the left button the click is that action
- * instead (input.ts reports no wheel click, `wheelClickFree`). The press that opens the wheel is
- * never a click (the wheel button itself may be rebound to the left button).
+ * instead (input.ts reports no wheel click, `wheelClickFree`). The same goes for the wheel button
+ * itself on the left button: that press opens the wheel and its release confirms, so the click
+ * never doubles as a pick (and, belt and braces, the press that opens the wheel is never a click).
  *
  * Releasing the wheel button confirms; grab / dash / pause / right-click close the wheel without
  * a taunt.
@@ -55,10 +56,14 @@ export const WHEEL_POINTER_PX = 28;
 /** Mouse travel (CSS px) before the mouse takes over the pick (a resting cursor picks nothing). */
 export const WHEEL_MOUSE_WAKE_PX = 4;
 
-/** Match actions that close the wheel; while one sits on the left mouse button, a click is that action (no click-to-play). */
-export const WHEEL_CLICK_BLOCKERS = ['grab', 'dash', 'ping'] as const;
+/**
+ * Match actions that own the left button when bound to it, so a left click is never a wheel pick:
+ * grab / dash / ping close the wheel, and the wheel button itself opens it on the press and
+ * confirms on the release (hover + release only, like a pad).
+ */
+export const WHEEL_CLICK_BLOCKERS = ['grab', 'dash', 'ping', 'emoteWheel'] as const;
 
-/** Left click may play a wheel slot: Mouse0 is not bound to an action that closes the wheel. */
+/** Left click may play a wheel slot: Mouse0 is not bound to grab / dash / ping or the wheel button. */
 export function wheelClickFree(keyboard: { readonly [A in (typeof WHEEL_CLICK_BLOCKERS)[number]]?: readonly string[] }): boolean {
   return !WHEEL_CLICK_BLOCKERS.some((a) => (keyboard[a] ?? []).includes('Mouse0'));
 }

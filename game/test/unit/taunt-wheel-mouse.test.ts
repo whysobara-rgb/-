@@ -275,6 +275,8 @@ describe('wheel button on the left mouse button', () => {
     target.dispatchEvent(mouse('mousemove', right.x, right.y));
     target.dispatchEvent(mouse('mousedown', right.x, right.y));
     const opened = step(right);
+    // the wheel button owns the left button: its press is never reported as a wheel click
+    expect(wheelClickFree(b.keyboard)).toBe(false);
     expect(opened.justOpened).toBe(true);
     expect(opened.open).toBe(true);
     expect(opened.confirmed).toBeNull();
@@ -332,5 +334,23 @@ describe('EmoteWheel.geometry(): the mouse deadzone follows the drawn ring', () 
     expect(geo!.dead).toBeCloseTo(((CW * k) / 2) * Math.min(1, pop), 6);
     // so the drawn slot center (9 rem from the middle, at the drawn scale) is outside it
     expect(SLOT_R * k * pop).toBeGreaterThan(geo!.dead);
+  });
+});
+
+describe('wheel button on the left mouse button: input side', () => {
+  it('its press is the wheel button, never also a wheel click', () => {
+    const b = defaultBindings();
+    b.keyboard.emoteWheel = ['Mouse0'];
+    const target = new EventTarget();
+    const input = new InputManager({ target, doc: null, now: () => 1000, getGamepads: () => [], keyboard: null, chordKeys: true });
+    input.setBindings(b);
+    input.pollMatch();
+    target.dispatchEvent(Object.assign(new Event('mousemove', { cancelable: true }), { clientX: 300, clientY: 200, button: 0 }));
+    target.dispatchEvent(Object.assign(new Event('mousedown', { cancelable: true }), { clientX: 310, clientY: 205, button: 0 }));
+    const f = input.pollMatch();
+    expect(f.emoteWheelDown).toBe(true);
+    expect(f.wheelClick).toBeNull();
+    target.dispatchEvent(Object.assign(new Event('mouseup', { cancelable: true }), { clientX: 310, clientY: 205, button: 0 }));
+    expect(input.pollMatch().emoteWheelDown).toBe(false);
   });
 });

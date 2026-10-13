@@ -75,6 +75,12 @@ const PUSH_SWAY_BANK = 0.1;
 const PUSH_SHARE = PUSH_SWAY_BANK / (PUSH_SWAY_BANK + PUSH_SWAY_OUT);
 const PUSH_SPEED_SWAY = 0.35;
 const PUSH_SLIDE_TIME = 0.5;
+/**
+ * A bank pusher in front of its wall (see GrabJoint.pushPlane): shortest rod (m) to the wall's plane,
+ * and how fast (m/s) a shorter one eases back out to the hold distance.
+ */
+const PUSH_PLANE_MIN_REST = 0.2;
+const PUSH_PLANE_EASE = 0.5;
 /** Characters closer than this (center distance minus 2r) count as touched by a dash. */
 const DASH_HIT_GAP = 0.1;
 
@@ -589,17 +595,23 @@ export function prepareBodies(ctx: SimContext): void {
       j.slideLo = NaN;
       j.slideHi = NaN;
       j.wheelArm = 0;
+      j.pushPlane = false;
       const mx = rt.cmd.move.x;
       const my = rt.cmd.move.y;
       const ml = Math.hypot(mx, my);
       let pushing = false;
+      let restUp = GRAB_SETTLE_SPEED * DT;
       if (ml >= 0.3 && ch.knockdownTicks === 0 && !dashing) {
-        const ax = j.anchorWorldX() - b.x;
-        const ay = j.anchorWorldY() - b.y;
-        const al = Math.hypot(ax, ay);
         const tgt = j.targetBody;
-        const cosErr = al > 1e-6 ? (mx * ax + my * ay) / (ml * al) : -1;
         const cart = Math.hypot(j.alx, j.aly) >= GrabJoint.CART_MIN_LEVER;
+        // pushing = the stick points at the grip; a bank wall grip whose holder stands in front of
+        // the wall: at the wall (a grip taken in the door gap sits at the door's edge, up to 1.1 m
+        // to the side, and the stick straight at the wall pulled instead of pushing)
+        const face = cart && ch.grab?.part === 'bankWall' ? pushFaceNormal(j, b, tgt) : null;
+        const ax = face ? face.x : j.anchorWorldX() - b.x;
+        const ay = face ? face.y : j.anchorWorldY() - b.y;
+        const al = Math.hypot(ax, ay);
+        const cosErr = al > 1e-6 ? (mx * ax + my * ay) / (ml * al) : -1;
         if (cosErr > (j.pushing ? (cart ? PUSH_LEAVE_CART_COS : PUSH_LEAVE_COS) : PUSH_ENTER_COS) && tgt.motion === 'dynamic') {
           pushing = true;
           j.pushHeading = Math.atan2(my, mx);
@@ -618,7 +630,17 @@ export function prepareBodies(ctx: SimContext): void {
             // face toward it while the grip slides along the wall (see GrabJoint)
             b.fx = (mx / ml) * mag;
             b.fy = (my / ml) * mag;
-            if (ch.grab?.part === 'bankWall') slidePushGrip(j, ch.grab.anchorLocal, b, tgt);
+            if (ch.grab?.part === 'bankWall') {
+              slidePushGrip(j, ch.grab.anchorLocal, b, tgt, face !== null);
+              if (face) {
+                // the rod holds the holder's distance from the wall's plane, from where the holder
+                // is (a holder who ran into the door gap is not shoved back out: the rod eases out
+                // to the hold distance at PUSH_PLANE_EASE)
+                j.pushPlane = true;
+                j.rest = Math.min(j.rest, Math.max(PUSH_PLANE_MIN_REST, face.dist));
+                restUp = PUSH_PLANE_EASE * DT;
+              }
+            }
           } else {
             b.fx = px * mag;
             b.fy = py * mag;
@@ -628,7 +650,7 @@ export function prepareBodies(ctx: SimContext): void {
       j.pushing = pushing;
       const step = GRAB_SETTLE_SPEED * DT;
       if (j.rest > CHARACTER.holdDistance) j.rest = Math.max(CHARACTER.holdDistance, j.rest - step);
-      else if (j.rest < CHARACTER.holdDistance) j.rest = Math.min(CHARACTER.holdDistance, j.rest + step);
+      else if (j.rest < CHARACTER.holdDistance) j.rest = Math.min(CHARACTER.holdDistance, j.rest + restUp);
     }
   }
   // Yaw grip of a hauled bank: while held and nobody pushes it, the bank resists turning. With the
@@ -682,11 +704,38 @@ function pushWall(alx: number, aly: number): 'side' | 'front' | null {
   return null;
 }
 
-/** Slide range of a grip along its wall, as [lo, hi] of the sliding local coordinate. */
-function pushSlideRange(wall: 'side' | 'front', alx: number): [number, number] {
+/**
+ * A bank wall grip whose holder stands in front of that wall (within its length, outside its
+ * plane): the wall's inward normal (world, holder -> wall) and the holder's distance from the
+ * wall's plane; null otherwise.
+ */
+function pushFaceNormal(j: GrabJoint, cb: Body, tb: Body): { x: number; y: number; dist: number } | null {
+  const wall = pushWall(j.alx, j.aly);
+  if (!wall) return null;
+  const cs = Math.cos(tb.a);
+  const sn = Math.sin(tb.a);
+  const dx = cb.x - tb.x;
+  const dy = cb.y - tb.y;
+  const lx = dx * cs + dy * sn;
+  const ly = -dx * sn + dy * cs;
+  const side = wall === 'side';
+  const sgn = side ? Math.sign(j.alx) : Math.sign(j.aly);
+  const dist = sgn * (side ? lx : ly) - (side ? BANK_MODEL.half.x : BANK_MODEL.half.y);
+  const along = side ? ly : lx;
+  if (dist <= 0 || Math.abs(along) > (side ? BANK_MODEL.half.y : BANK_MODEL.half.x)) return null;
+  // inward normal: local (-sgn, 0) on a side wall, (0, -sgn) on a front wall
+  return side ? { x: -sgn * cs, y: -sgn * sn, dist } : { x: sgn * sn, y: -sgn * cs, dist };
+}
+
+/**
+ * Slide range of a grip along its wall, as [lo, hi] of the sliding local coordinate (`acrossDoor`:
+ * a front wall's whole length, door gap included).
+ */
+function pushSlideRange(wall: 'side' | 'front', alx: number, acrossDoor = false): [number, number] {
   if (wall === 'side') return [-BANK_MODEL.half.y + PUSH_SLIDE_MARGIN, BANK_MODEL.half.y - PUSH_SLIDE_MARGIN];
   const lo = BANK_MODEL.doorWidth / 2;
   const hi = BANK_MODEL.half.x - PUSH_SLIDE_MARGIN;
+  if (acrossDoor) return [-hi, hi];
   return alx >= 0 ? [lo, hi] : [-hi, -lo];
 }
 
@@ -695,7 +744,7 @@ function pushSlideRange(wall: 'side' | 'front', alx: number): [number, number] {
  * most PUSH_SLIDE_SPEED, within the slide range, or where it was when gripped nearer the wall's
  * end), the handle line becomes the wall's normal, and the joint gets this tick's slide range.
  */
-function slidePushGrip(j: GrabJoint, anchorLocal: Vec2, cb: Body, tb: Body): void {
+function slidePushGrip(j: GrabJoint, anchorLocal: Vec2, cb: Body, tb: Body, inFront: boolean): void {
   const wall = pushWall(j.alx, j.aly);
   if (!wall) return;
   const cs = Math.cos(tb.a);
@@ -703,13 +752,16 @@ function slidePushGrip(j: GrabJoint, anchorLocal: Vec2, cb: Body, tb: Body): voi
   const dx = cb.x - tb.x;
   const dy = cb.y - tb.y;
   const cur = wall === 'side' ? j.aly : j.alx;
-  // never pulled in from a grip nearer the end (a corner grip sidestepped 0.5 m at 2-3 m/s)
-  const [lo0, hi0] = pushSlideRange(wall, j.alx);
+  const want = wall === 'side' ? -dx * sn + dy * cs : dx * cs + dy * sn;
+  // never pulled in from a grip nearer the end (a corner grip sidestepped 0.5 m at 2-3 m/s); a
+  // holder pushing from the door gap pushes on the door frame where it stands (seated at the
+  // door's edge, it was dragged up to 1.1 m sideways, 15-35 degrees off the stick, facing the edge)
+  const gap = inFront && wall === 'front' && Math.abs(want) < BANK_MODEL.doorWidth / 2;
+  const [lo0, hi0] = gap ? pushSlideRange(wall, 0, true) : pushSlideRange(wall, j.alx);
   const lo = Math.min(lo0, cur);
   const hi = Math.max(hi0, cur);
   j.slideLo = lo;
   j.slideHi = hi;
-  const want = wall === 'side' ? -dx * sn + dy * cs : dx * cs + dy * sn;
   const step = PUSH_SLIDE_SPEED * DT;
   const next = Math.max(cur - step, Math.min(cur + step, Math.max(lo, Math.min(hi, want))));
   if (wall === 'side') {
