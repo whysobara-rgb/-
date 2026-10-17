@@ -1,0 +1,709 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>괴이 사업자교육</title>
+<style>
+:root{--bg:#07070a;--fg:#e8e2d4;--dim:#8a8478;--red:#c8323a;--amber:#e0b04a;--panel:rgba(12,10,14,.94);--line:#3a3340}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif;overflow:hidden}
+#wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}
+#stage{position:relative;width:960px;height:600px;transform-origin:center}
+canvas{display:block;width:960px;height:600px;image-rendering:pixelated;background:#000}
+.ov{position:absolute;inset:0;display:none}
+.show{display:flex!important}
+#hud{position:absolute;left:12px;top:10px;font-size:13px;color:var(--dim);pointer-events:none;text-shadow:0 0 4px #000;line-height:1.6}
+#hud b{color:var(--amber)}
+#gauge{position:absolute;right:14px;top:12px;width:200px;display:none;font-size:12px}
+#gauge .bar{height:8px;background:#222;border:1px solid #555;margin-top:3px}
+#gauge .fill{height:100%;background:var(--red);width:0}
+#hint{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);font-size:13px;color:var(--amber);pointer-events:none;text-shadow:0 0 4px #000}
+#dlg{position:absolute;left:24px;right:24px;bottom:18px;background:var(--panel);border:1px solid var(--line);padding:16px 20px 14px;display:none;min-height:120px;box-shadow:0 0 40px #000}
+#dlg .who{color:var(--amber);font-weight:700;font-size:14px;margin-bottom:6px;letter-spacing:.05em}
+#dlg .txt{font-size:16px;line-height:1.7;white-space:pre-wrap}
+#dlg .more{position:absolute;right:16px;bottom:8px;font-size:11px;color:var(--dim)}
+#dlg .opts{margin-top:10px;display:flex;flex-direction:column;gap:6px}
+#dlg .opt{padding:8px 12px;border:1px solid var(--line);cursor:pointer;font-size:15px;background:#120f16}
+#dlg .opt.sel{border-color:var(--amber);background:#2a2014;color:#fff}
+#dlg .opt.lock{opacity:.4}
+.screen{flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(ellipse at center,#16101a 0%,#050407 70%);text-align:center;padding:30px}
+.screen h1{font-size:40px;margin:0 0 6px;letter-spacing:.12em;font-weight:900}
+.screen h1 span{color:var(--red)}
+.screen .sub{color:var(--dim);font-size:14px;margin-bottom:28px;line-height:1.7}
+.menu{display:flex;flex-direction:column;gap:8px;min-width:300px}
+.btn{padding:10px 18px;border:1px solid var(--line);background:#0e0b11;color:var(--fg);font-size:15px;cursor:pointer;font-family:inherit}
+.btn.sel,.btn:hover{border-color:var(--amber);color:#fff;background:#221a12}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;width:820px}
+.grid .btn{text-align:left;font-size:13px;line-height:1.5;padding:9px 12px}
+.grid .btn small{color:var(--dim)}
+.grid .btn .st{float:right;color:var(--amber)}
+#fail{flex-direction:column;align-items:center;justify-content:center;background:#000;text-align:center}
+#fail .case{color:var(--red);font-size:15px;letter-spacing:.2em;margin-bottom:12px}
+#fail .loc{color:var(--dim);font-size:14px;margin-bottom:18px}
+#fail .msg{font-size:24px;line-height:1.6;max-width:760px;margin-bottom:10px;font-weight:700}
+#fail .big{font-size:56px;color:var(--red);font-weight:900;letter-spacing:.3em;margin:18px 0 26px;text-shadow:0 0 18px #800}
+#note{flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,.88)}
+#note .paper{background:#e9e1cc;color:#2a2218;width:560px;padding:30px 34px;font-family:"Noto Serif KR",serif;font-size:16px;line-height:1.9;box-shadow:0 0 50px #000;transform:rotate(-1deg);white-space:pre-wrap}
+#note .paper h3{margin:0 0 10px;font-size:14px;color:#7a2a20;letter-spacing:.1em}
+#post{background:#f3f3f3;color:#222;flex-direction:column;align-items:stretch;justify-content:flex-start;overflow:auto;font-size:14px}
+#post .bar{background:#3b4890;color:#fff;padding:10px 18px;font-weight:700}
+#post .body{padding:18px 28px;line-height:1.8;white-space:pre-wrap}
+#post .meta{color:#666;font-size:12px;border-bottom:1px solid #ccc;padding-bottom:8px;margin-bottom:12px}
+#post h2{margin:0 0 4px;font-size:18px}
+input.name{background:#000;border:1px solid var(--amber);color:#fff;font-size:18px;padding:8px 12px;font-family:inherit;width:260px;text-align:center}
+</style>
+</head>
+<body>
+<div id="wrap"><div id="stage">
+<canvas id="cv" width="960" height="600"></canvas>
+<div id="hud"></div>
+<div id="gauge"><span id="glab">애착</span><div class="bar"><div class="fill" id="gfill"></div></div></div>
+<div id="hint"></div>
+<div id="dlg"><div class="who"></div><div class="txt"></div><div class="opts"></div><div class="more">SPACE / 클릭</div></div>
+<div id="title" class="ov screen"></div>
+<div id="select" class="ov screen"></div>
+<div id="fail" class="ov"></div>
+<div id="note" class="ov"></div>
+<div id="post" class="ov"></div>
+</div></div>
+<script>
+"use strict";
+/* ============================================================
+   괴이 사업자교육 — 원작: 나폴리탄 괴담 갤러리 「사업자교육」 사례집
+   조작: WASD 이동 / SPACE·마우스 선택·상호작용 / M 실습장 선택
+   ============================================================ */
+const cv=document.getElementById('cv'),cx=cv.getContext('2d');
+const $=id=>document.getElementById(id);
+const T=40,W=24,H=15;
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+
+/* ---------- 저장 ---------- */
+const SAVE_KEY='goei_biz_edu_v1';
+let SV={clear:{},seen:{},pages:{},ending:null};
+try{const s=JSON.parse(localStorage.getItem(SAVE_KEY));if(s)SV=Object.assign(SV,s);}catch(e){}
+function save(){try{localStorage.setItem(SAVE_KEY,JSON.stringify(SV));}catch(e){}}
+const clearedCount=()=>Object.keys(SV.clear).filter(k=>k!=='0').length;
+
+/* ---------- 오디오 (절차적) ---------- */
+let AC=null,drone=null;
+function audio(){if(!AC){try{AC=new (window.AudioContext||window.webkitAudioContext)();}catch(e){}}return AC;}
+function beep(f=440,d=.08,type='square',v=.05){const a=audio();if(!a)return;const o=a.createOscillator(),g=a.createGain();o.type=type;o.frequency.value=f;g.gain.value=v;g.gain.exponentialRampToValueAtTime(.0001,a.currentTime+d);o.connect(g).connect(a.destination);o.start();o.stop(a.currentTime+d);}
+function setDrone(on,base=55){const a=audio();if(!a)return;if(drone){try{drone.forEach(n=>n.stop());}catch(e){}drone=null;}if(!on)return;
+  const g=a.createGain();g.gain.value=.025;g.connect(a.destination);drone=[];
+  [base,base*1.5,base*2.02].forEach(f=>{const o=a.createOscillator();o.type='sawtooth';o.frequency.value=f;const lp=a.createBiquadFilter();lp.type='lowpass';lp.frequency.value=320;o.connect(lp).connect(g);o.start();drone.push(o);});}
+function noiseBurst(d=.4,v=.08){const a=audio();if(!a)return;const b=a.createBuffer(1,a.sampleRate*d,a.sampleRate),c=b.getChannelData(0);for(let i=0;i<c.length;i++)c[i]=(Math.random()*2-1)*(1-i/c.length);const s=a.createBufferSource(),g=a.createGain();g.gain.value=v;s.buffer=b;s.connect(g).connect(a.destination);s.start();}
+
+/* ---------- 입력 ---------- */
+const keys={};let spaceHit=false,mouse=null;
+addEventListener('keydown',e=>{audio();const k=e.key.toLowerCase();keys[k]=true;if(k===' '){spaceHit=true;e.preventDefault();}
+  if(k==='m'&&mode==='play'&&!dlgBusy)openSelect();
+  if(k==='escape'&&mode==='play'&&!dlgBusy)openSelect();
+  menuKey(k);});
+addEventListener('keyup',e=>{keys[e.key.toLowerCase()]=false;});
+cv.addEventListener('mousedown',e=>{audio();const r=cv.getBoundingClientRect();const sc=960/r.width;mouse={x:(e.clientX-r.left)*sc,y:(e.clientY-r.top)*sc};});
+function fit(){const s=Math.min(innerWidth/960,innerHeight/600);$('stage').style.transform=`scale(${s})`;}
+addEventListener('resize',fit);fit();
+
+/* ---------- 대화 시스템 ---------- */
+let dlgBusy=false,dlgResolve=null,dlgOpts=null,dlgSel=0;
+const D=$('dlg');
+function say(who,txt){return new Promise(res=>{dlgBusy=true;D.style.display='block';D.querySelector('.who').textContent=who||'';D.querySelector('.txt').textContent=txt;D.querySelector('.opts').innerHTML='';D.querySelector('.more').style.display='block';dlgOpts=null;spaceHit=false;beep(660,.03,'square',.02);
+  dlgResolve=()=>{D.style.display='none';dlgBusy=false;res();};});}
+async function talk(lines){for(const l of lines){await say(l[0],l[1]);}}
+function choose(who,txt,opts){return new Promise(res=>{dlgBusy=true;D.style.display='block';D.querySelector('.who').textContent=who||'';D.querySelector('.txt').textContent=txt;D.querySelector('.more').style.display='none';
+  const box=D.querySelector('.opts');box.innerHTML='';dlgOpts=[];dlgSel=0;spaceHit=false;
+  opts.forEach((o,i)=>{const el=document.createElement('div');el.className='opt'+(o.lock?' lock':'');el.textContent=(o.lock?'🔒 ':'▸ ')+(o.lock?o.lockText||'(단서가 부족하다)':o.t);
+    el.onmouseenter=()=>{dlgSel=i;paintOpts();};el.onclick=()=>pick(i);box.appendChild(el);dlgOpts.push({el,o});});
+  const first=dlgOpts.findIndex(x=>!x.o.lock);dlgSel=first<0?0:first;paintOpts();
+  function pick(i){if(dlgOpts[i].o.lock){beep(120,.1,'square',.04);return;}beep(880,.04,'square',.03);D.style.display='none';dlgBusy=false;dlgOpts=null;res(i);}
+  dlgResolve=pick;});}
+function paintOpts(){if(!dlgOpts)return;dlgOpts.forEach((x,i)=>x.el.classList.toggle('sel',i===dlgSel));}
+D.addEventListener('click',()=>{if(dlgBusy&&!dlgOpts&&dlgResolve)dlgResolve();});
+function menuKey(k){
+  if(dlgBusy&&dlgOpts){if(k==='w'||k==='arrowup'){do{dlgSel=(dlgSel-1+dlgOpts.length)%dlgOpts.length;}while(dlgOpts[dlgSel].o.lock&&dlgOpts.some(x=>!x.o.lock));paintOpts();}
+    if(k==='s'||k==='arrowdown'){do{dlgSel=(dlgSel+1)%dlgOpts.length;}while(dlgOpts[dlgSel].o.lock&&dlgOpts.some(x=>!x.o.lock));paintOpts();}
+    if(k===' '){spaceHit=false;dlgResolve(dlgSel);}return;}
+  if(dlgBusy&&!dlgOpts&&k===' '){spaceHit=false;dlgResolve&&dlgResolve();return;}
+  if(menuNav&&mode==='menu')menuNav(k);
+}
+let menuNav=null;
+function bindMenu(container){const bs=[...container.querySelectorAll('.btn')];let i=0;const paint=()=>bs.forEach((b,j)=>b.classList.toggle('sel',j===i));paint();
+  bs.forEach((b,j)=>b.onmouseenter=()=>{i=j;paint();});
+  const cols=container.querySelector('.grid')?3:1;
+  menuNav=k=>{if(k==='w'||k==='arrowup')i=Math.max(0,i-cols);if(k==='s'||k==='arrowdown')i=Math.min(bs.length-1,i+cols);if(k==='a'||k==='arrowleft')i=Math.max(0,i-1);if(k==='d'||k==='arrowright')i=Math.min(bs.length-1,i+1);paint();if(k===' '){spaceHit=false;bs[i].click();}};}
+
+/* ---------- 게임 상태 ---------- */
+let mode='title';     // title | play | cut | menu
+let map=null,P={x:0,y:0,dir:1,step:0},F={},tm=0,gauge=null;
+const hudEl=$('hud'),hintEl=$('hint');
+
+/* ---------- 그리기 도우미 ---------- */
+function drawPerson(c,x,y,s,col,o={}){ // 인간
+  c.save();c.translate(x,y);c.scale(s,s);
+  c.fillStyle='rgba(0,0,0,.35)';c.beginPath();c.ellipse(0,16,10,4,0,0,7);c.fill();
+  c.fillStyle=col||'#8a7f70';c.fillRect(-7,-4,14,16);
+  c.fillStyle=o.leg||'#2a2a33';c.fillRect(-6,10,5,7);c.fillRect(1,10,5,7);
+  c.fillStyle=o.skin||'#e1c4a4';c.beginPath();c.arc(0,-10,7,0,7);c.fill();
+  c.fillStyle=o.hair||'#2a1f18';c.beginPath();c.arc(0,-12,7,Math.PI,0);c.fill();
+  c.fillStyle='#111';c.fillRect(-3,-11,2,2);c.fillRect(2,-11,2,2);
+  if(o.smile){c.strokeStyle='#622';c.beginPath();c.arc(0,-7,3,0,Math.PI);c.stroke();}
+  c.restore();}
+function drawGhoul(c,x,y,s,o={}){ // 괴이
+  c.save();c.translate(x,y);c.scale(s,s);
+  c.fillStyle='rgba(0,0,0,.25)';c.beginPath();c.ellipse(0,17,11,4,0,0,7);c.fill();
+  c.fillStyle=o.col||'#141018';c.beginPath();c.moveTo(-11,17);c.quadraticCurveTo(-13,-22,0,-22);c.quadraticCurveTo(13,-22,11,17);
+  for(let i=0;i<5;i++)c.lineTo(11-i*5.5,17-(i%2?5:0));c.fill();
+  c.fillStyle=o.eye||'#f4f0e0';c.beginPath();c.arc(-4,-9,2.3,0,7);c.arc(4,-9,2.3,0,7);c.fill();
+  if(o.mouth){c.fillStyle='#600';c.fillRect(-4,-3,8,2+o.mouth);}
+  c.restore();}
+function drawPlayer(c,x,y){ // 수강생 4444 — 그림자가 있다
+  c.save();c.fillStyle='rgba(0,0,0,.55)';c.beginPath();c.ellipse(x+4,y+17,13,5,0,0,7);c.fill();c.restore();
+  const bob=Math.sin(P.step*10)*1.2;
+  drawGhoul(c,x,y+bob,1,{col:'#1d1724',eye:'#ffd86a'});
+  c.fillStyle='#ffd86a';c.font='bold 9px sans-serif';c.textAlign='center';c.fillText('4444',x,y-26+bob);}
+function emoji(c,e,x,y,sz=24){c.font=`${sz}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;c.textAlign='center';c.textBaseline='middle';c.fillText(e,x,y);c.textBaseline='alphabetic';}
+
+/* ---------- 맵 빌더 ---------- */
+function mk(def){
+  const g=[];for(let y=0;y<H;y++){g.push([]);for(let x=0;x<W;x++)g[y].push(x===0||y===0||x===W-1||y===H-1?1:0);}
+  (def.walls||[]).forEach(([x,y,w,h])=>{for(let j=y;j<y+h;j++)for(let i=x;i<x+w;i++)if(g[j]&&g[j][i]!==undefined)g[j][i]=1;});
+  (def.gaps||[]).forEach(([x,y])=>{g[y][x]=0;});
+  def.grid=g;def.objs=def.objs||[];return def;}
+function solidAt(px,py){const tx=Math.floor(px/T),ty=Math.floor(py/T);if(tx<0||ty<0||tx>=W||ty>=H)return true;if(map.grid[ty][tx])return true;
+  for(const o of map.objs){if(o.solid!==false&&!o.hidden&&Math.abs(o.x*T+T/2-px)<T*.45&&Math.abs(o.y*T+T/2-py)<T*.45)return true;}return false;}
+function collide(nx,ny){const r=11;return solidAt(nx-r,ny-r)||solidAt(nx+r,ny-r)||solidAt(nx-r,ny+r)||solidAt(nx+r,ny+r);}
+function nearObj(){let best=null,bd=1e9;for(const o of map.objs){if(o.hidden||!o.act)continue;const d=Math.hypot(o.x*T+T/2-P.x,o.y*T+T/2-P.y);if(d<T*1.45&&d<bd){bd=d;best=o;}}return best;}
+
+/* ---------- 컷신 (실패 영상) ---------- */
+let cut=null;
+function playCut(shots,caseNo){return new Promise(res=>{mode='cut';menuNav=null;cut={shots,i:0,t:0,res,caseNo,skip:false};setDrone(true,41);noiseBurst(.6,.1);});}
+function drawCut(dt){
+  const s=cut.shots[cut.i];cut.t+=dt;
+  cx.save();cx.fillStyle='#000';cx.fillRect(0,0,960,600);
+  const jit=Math.random()<.04?(Math.random()*14-7):0;cx.translate(jit,0);
+  cx.save();cx.beginPath();cx.rect(0,60,960,480);cx.clip();
+  s.draw(cx,Math.min(1,cut.t/s.d),cut.t);
+  cx.restore();
+  // 자막
+  if(s.cap){cx.font='bold 22px "Noto Sans KR",sans-serif';cx.textAlign='center';const k=Math.min(s.cap.length,Math.floor(cut.t*22));
+    cx.fillStyle='rgba(0,0,0,.6)';cx.fillRect(80,486,800,42);cx.fillStyle='#fff';cx.fillText(s.cap.slice(0,k),480,515);}
+  cx.restore();
+  // VHS 오버레이
+  for(let y=60;y<540;y+=3){cx.fillStyle='rgba(0,0,0,.18)';cx.fillRect(0,y,960,1);}
+  for(let i=0;i<220;i++){cx.fillStyle=`rgba(255,255,255,${Math.random()*.08})`;cx.fillRect(Math.random()*960,60+Math.random()*480,2,1);}
+  if(Math.random()<.06){const yy=60+Math.random()*480;cx.fillStyle='rgba(255,255,255,.08)';cx.fillRect(0,yy,960,8+Math.random()*20);}
+  const vg=cx.createRadialGradient(480,300,180,480,300,560);vg.addColorStop(0,'rgba(0,0,0,0)');vg.addColorStop(1,'rgba(0,0,0,.75)');cx.fillStyle=vg;cx.fillRect(0,60,960,480);
+  cx.font='16px monospace';cx.textAlign='left';cx.fillStyle=(Math.floor(tm*2)%2)?'#f33':'#700';cx.fillText('● REC',24,90);
+  cx.fillStyle='#ddd';cx.fillText(`괴이사업자교육 · 사례 ${cut.caseNo} 재연영상`,110,90);
+  cx.textAlign='right';const d=new Date(2024,2,4,3,13,Math.floor(tm)%60);cx.fillText(`PLAY ▶  ${d.toTimeString().slice(0,8)}`,936,90);
+  cx.font='12px monospace';cx.fillStyle='#888';cx.fillText('[SPACE: 건너뛰기]',936,560);
+  if(spaceHit){spaceHit=false;cut.i=cut.shots.length-1;cut.t=cut.shots[cut.i].d;}
+  if(cut.t>=s.d+.6){cut.i++;cut.t=0;noiseBurst(.15,.05);if(cut.i>=cut.shots.length){const r=cut.res;cut=null;setDrone(false);r();}}
+}
+/* 컷신용 배경 */
+const bgs={
+  apt(c,t){c.fillStyle='#0b1220';c.fillRect(0,60,960,480);for(let i=0;i<7;i++){c.fillStyle='#161d2c';c.fillRect(40+i*130,140,100,400);for(let y=0;y<14;y++)for(let x=0;x<4;x++){c.fillStyle=Math.sin(i*7+y*3+x)>.3?'#e8c870':'#1c2335';c.fillRect(52+i*130+x*22,160+y*26,14,14);}}},
+  elev(c){c.fillStyle='#2b2a2e';c.fillRect(0,60,960,480);c.fillStyle='#55545a';c.fillRect(300,100,360,420);c.fillStyle='#8c8b90';c.fillRect(310,110,170,400);c.fillRect(480,110,170,400);c.fillStyle='#111';c.fillRect(479,110,2,400);c.fillStyle='#e33';c.font='bold 30px monospace';c.textAlign='center';c.fillText('B4',480,96);},
+  market(c){c.fillStyle='#1b0d0d';c.fillRect(0,60,960,480);for(let i=0;i<6;i++){c.fillStyle='#3a1414';c.fillRect(i*170,100,150,260);c.fillStyle='#d23';c.fillRect(i*170,100,150,24);c.fillStyle='#e9a';for(let k=0;k<3;k++){c.beginPath();c.ellipse(i*170+40+k*36,190,12,30,0,0,7);c.fill();}}c.fillStyle='#ff4';c.fillRect(0,96,960,2);},
+  park(c,t){c.fillStyle='#08281c';c.fillRect(0,60,960,480);c.fillStyle='#1f5d8a';c.fillRect(0,330,960,210);for(let i=0;i<12;i++){c.fillStyle='#0f4a2c';c.beginPath();c.moveTo(i*90,330);c.lineTo(i*90+45,150+Math.sin(i)*30);c.lineTo(i*90+90,330);c.fill();}c.strokeStyle='#6ab';for(let i=0;i<8;i++){c.beginPath();c.arc((i*140+t*80)%960,420,20,0,Math.PI);c.stroke();}},
+  church(c){c.fillStyle='#090910';c.fillRect(0,60,960,480);c.fillStyle='#1d1d26';c.fillRect(320,140,320,400);c.fillStyle='#e8d9a0';c.fillRect(470,160,20,70);c.fillRect(450,180,60,16);c.fillStyle='#3b3226';c.fillRect(420,360,120,80);c.fillStyle='#ffe9a8';c.fillRect(440,375,80,40);},
+  gosi(c){c.fillStyle='#14120e';c.fillRect(0,60,960,480);for(let i=0;i<9;i++){c.fillStyle='#24201a';c.fillRect(20+i*104,120,90,250);c.fillStyle='#6b6050';c.fillRect(64+i*104,240,6,6);}c.fillStyle='#c0392b';c.fillRect(0,380,960,6);},
+  campus(c){c.fillStyle='#101418';c.fillRect(0,60,960,480);c.fillStyle='#2b3138';c.fillRect(200,120,560,420);for(let y=0;y<6;y++)for(let x=0;x<8;x++){c.fillStyle='#0b0e12';c.fillRect(230+x*66,140+y*60,40,36);}c.fillStyle='#ddd';c.font='bold 24px serif';c.textAlign='center';c.fillText('大 學 院',480,112);},
+  shrine(c,t){c.fillStyle='#1a0606';c.fillRect(0,60,960,480);const cl=['#d33','#3a3','#33d','#dd3','#fff'];for(let i=0;i<30;i++){c.fillStyle=cl[i%5];c.fillRect(i*32,70,26,120+Math.sin(i+t*3)*14);}c.fillStyle='#3a1a0a';c.fillRect(300,380,360,60);},
+  clinic(c){c.fillStyle='#1a1610';c.fillRect(0,60,960,480);c.fillStyle='#3a2c1a';for(let x=0;x<14;x++)for(let y=0;y<5;y++)c.fillRect(20+x*68,90+y*60,60,50);c.fillStyle='#d8c8a0';for(let x=0;x<14;x++)for(let y=0;y<5;y++)c.fillRect(46+x*68,108+y*60,10,10);},
+  studio(c,t){c.fillStyle='#0a0c12';c.fillRect(0,60,960,480);c.fillStyle='#1a2a40';c.fillRect(300,160,360,240);c.fillStyle='#9cf';c.globalAlpha=.6+.3*Math.sin(t*20);c.fillRect(310,170,340,220);c.globalAlpha=1;c.fillStyle='#222';c.fillRect(260,400,440,30);},
+  call(c){c.fillStyle='#0d1012';c.fillRect(0,60,960,480);for(let i=0;i<6;i++)for(let j=0;j<2;j++){c.fillStyle='#22282c';c.fillRect(40+i*150,180+j*180,120,90);c.fillStyle='#3cf';c.fillRect(60+i*150,195+j*180,80,40);}},
+  app(c,t){c.fillStyle='#1a0714';c.fillRect(0,60,960,480);for(let i=0;i<40;i++){c.fillStyle=`hsl(${(i*37)%360},70%,${30+20*Math.sin(t*3+i)}%)`;c.fillRect((i*97)%960,60+(i*53)%480,24,24);}},
+  gall(c){c.fillStyle='#e9e9ef';c.fillRect(0,60,960,480);c.fillStyle='#3b4890';c.fillRect(0,60,960,46);c.fillStyle='#fff';c.font='bold 20px sans-serif';c.textAlign='left';c.fillText('나폴리탄 괴담 마이너 갤러리',30,92);for(let i=0;i<8;i++){c.fillStyle='#ccd';c.fillRect(30,130+i*44,900,1);}},
+};
+function bigText(c,txt,y,col='#fff',sz=40){c.font=`900 ${sz}px "Noto Sans KR",sans-serif`;c.textAlign='center';c.fillStyle='rgba(0,0,0,.6)';c.fillText(txt,483,y+3);c.fillStyle=col;c.fillText(txt,480,y);}
+function bubble(c,x,y,txt,col='#fff'){c.font='bold 18px "Noto Sans KR",sans-serif';const w=c.measureText(txt).width+24;c.fillStyle=col;c.beginPath();c.roundRect?c.roundRect(x-w/2,y-34,w,32,8):c.rect(x-w/2,y-34,w,32);c.fill();c.fillStyle='#111';c.textAlign='center';c.fillText(txt,x,y-12);}
+
+/* ---------- 사례 데이터 (원문) ---------- */
+const CASES={
+ 1:{loc:'신도시의 초품아 아파트',msg:'까다로운 입맛 탓에 아이 또는 아이와 함께 있는 부모, 가족의 경우 입장시키지 않음.\n해당 괴이는 굶어죽음.'},
+ 2:{loc:'마장동',msg:'첫 손님으로 마장동 김씨를 입장시켰다가 맞다이에서 패배.\n해당 괴이는 마장동 김씨네 가게의 정육이 되었음.'},
+ 3:{loc:'아마존 테마파크',msg:'방문한 손님이 직원보다 재밌게 레크레이션, 댄스, 현란한 혀끝으로 농락.\n해당 직원은 잘림. 손님은 생환함.'},
+ 4:{loc:'베이비박스',msg:'인간의 아기에게 반해버림.\n꿈보육원을 운영중.'},
+ 5:{loc:'노량진 고시원',msg:'유인책으로 한끼 3천원짜리 밥차를 차렸다가 공시생, 재수생이 삼시세끼 쳐먹는 탓에\n누적된 적자로 사업장 철수함.'},
+ 6:{loc:'대학원',msg:'아무도 지원안함.'},
+ 7:{loc:'무당',msg:'신내림 받음.'},
+ 8:{loc:'한의원',msg:'불친절로 소문나서 망함.'},
+ 9:{loc:'월,수,금 런칭 웹툰작가',msg:'과로사로 사망.'},
+ 10:{loc:'콜센터',msg:'200시간동안 끊지 않는 인간진상을 만나 혼절함.\n학을 떼고 사업장을 접음.'},
+ 11:{loc:'데이팅 앱',msg:'한 명의 인간을 매칭 시켜주려다 기존 이용자 90%가 앱을 탈퇴하는 사건이 발생.\n해당 괴이는 앞으로 인간은 안 받을거라고 공지하여 민심을 달램.'},
+ 12:{loc:'나폴리탄 갤',msg:'입장 손님이 모르는 규칙이 없음. 괴이수칙기록원보다 수칙을 더 잘 알음. 거기다 훈수까지 둠.\n혹독한 비평과 비추, 비웃음으로 해당 괴이는 쌍욕하며 갤을 떠남.'},
+ 13:{loc:'사업자교육',msg:'수강생 4444, 괴이의 이름으로 수료증에 서명.\n이후 해당 수강생에 대한 기록 없음. 원래 무엇이었는지 아무도 기억하지 못함.'},
+};
+
+/* ---------- 실패 영상 ---------- */
+const VIDS={
+ 1:[{d:3,cap:'신도시 ○○동. 초등학교를 품은 아파트, 1,200세대.',draw:(c,t,s)=>bgs.apt(c,s)},
+    {d:3,cap:'괴이: "아이 냄새는 질색이야. 가족도 사절."',draw:(c,t)=>{bgs.elev(c);drawGhoul(c,480,330,4);}},
+    {d:3.5,cap:'띵— 문이 열린다. 엄마와 아이. 괴이는 닫힘 버튼을 누른다.',draw:(c,t)=>{bgs.elev(c);c.fillStyle='#000';const g=170*(1-t);c.fillRect(480-g,110,g*2,400);drawPerson(c,420,380,3,'#c77',{});drawPerson(c,520,410,2,'#7ac',{smile:1});}},
+    {d:3,cap:'다음 날도. 그다음 날도. 그 다음 달도.',draw:(c,t,s)=>{bgs.elev(c);c.fillStyle='#fff';c.font='bold 60px monospace';c.textAlign='center';c.fillText(`D+${Math.floor(t*90)}`,480,330);}},
+    {d:4,cap:'B4층. 아무도 내리지 않는 층에서, 괴이는 조용히 말라갔다.',draw:(c,t)=>{bgs.elev(c);c.globalAlpha=1-t*.8;drawGhoul(c,480,420,4-t*2.5,{col:'#2a2530'});c.globalAlpha=1;}}],
+ 2:[{d:3,cap:'새벽 5시, 마장동 축산시장.',draw:bgs.market},
+    {d:3.5,cap:'첫 손님. 소 반 마리를 어깨에 멘 사내. 마장동 김씨(58).',draw:(c,t)=>{bgs.market(c);drawPerson(c,480,380,5,'#eee',{leg:'#335',hair:'#555'});c.fillStyle='#c66';c.beginPath();c.ellipse(430,250,60,26,.3,0,7);c.fill();}},
+    {d:3,cap:'괴이: "어서 오세요… 이 가게는 한 번 들어오면—"',draw:(c,t)=>{bgs.market(c);drawGhoul(c,300,380,4);drawPerson(c,640,380,5,'#eee',{leg:'#335',hair:'#555'});bubble(c,300,260,'어서 오세요…');}},
+    {d:3,cap:'김씨: "뭐여 이건. 맞다이 뜰래?"',draw:(c,t)=>{bgs.market(c);const sh=Math.sin(t*80)*6*t;drawGhoul(c,300+sh,380,4);drawPerson(c,560,380,5,'#eee',{leg:'#335',hair:'#555'});bubble(c,560,230,'맞다이 뜰래?','#ffd');bigText(c,'VS',300,'#f33',70);}},
+    {d:2.5,cap:'(3초 컷)',draw:(c,t)=>{c.fillStyle=t<.5&&Math.random()<.5?'#fff':'#300';c.fillRect(0,60,960,480);bigText(c,'퍽',320,'#fff',140);noiseBurst(.05,.05);}},
+    {d:4,cap:'김씨네 정육점 오늘의 특가: 출처불명 특수부위 100g 4,400원.',draw:(c,t)=>{bgs.market(c);c.fillStyle='#fff';c.fillRect(330,200,300,200);c.fillStyle='#c00';c.font='bold 30px sans-serif';c.textAlign='center';c.fillText('오늘의 특가',480,250);c.fillStyle='#222';c.font='bold 22px sans-serif';c.fillText('특수부위 100g',480,300);c.fillText('4,400원',480,340);c.fillStyle='#211a26';c.beginPath();c.ellipse(480,380,40,12,0,0,7);c.fill();}}],
+ 3:[{d:3,cap:'아마존 익스프레스. 괴이는 오늘도 직원 조끼를 입었다.',draw:(c,t,s)=>{bgs.park(c,s);drawGhoul(c,480,330,4,{col:'#2b5'});}},
+    {d:3.5,cap:'손님 A: "아마존~!" 탑승객 전원: "익스프레스~!!"',draw:(c,t,s)=>{bgs.park(c,s);drawPerson(c,600,330,4,'#f6b',{smile:1});bubble(c,600,200,'아마존~!!','#ff8');for(let i=0;i<5;i++)drawPerson(c,200+i*60,440,2,'#'+(i*3+5)+'9c',{smile:1});}},
+    {d:3.5,cap:'손님 A가 마이크를 뺏는다. 레크레이션, 댄스, 삼행시까지.',draw:(c,t,s)=>{bgs.park(c,s);const d=Math.sin(s*12)*30;drawPerson(c,560+d,330,4,'#f6b',{smile:1});drawGhoul(c,300,360,3,{col:'#2b5'});bubble(c,560,190,'괴! 괴상하게 생긴 직원님~','#ff8');}},
+    {d:3,cap:'괴이: "저기요… 그건 제 멘트…"  탑승객: "직원 노잼~"',draw:(c,t,s)=>{bgs.park(c,s);drawGhoul(c,300,360,3,{col:'#2b5',mouth:2});bubble(c,300,260,'저기요…');bubble(c,640,300,'직원 노잼~','#fcc');}},
+    {d:4,cap:'보트는 아마존 깊은 곳 대신, 박수 속에 하차장으로 돌아왔다.',draw:(c,t,s)=>{bgs.park(c,s);bigText(c,'해 고 통 지 서',300,'#f44',54);}}],
+ 4:[{d:3,cap:'새벽 3시 13분. 교회 담벼락의 작은 문.',draw:bgs.church},
+    {d:3,cap:'딸랑. 벨이 울린다. 괴이가 다가간다.',draw:(c,t)=>{bgs.church(c);drawGhoul(c,280+t*120,420,3);}},
+    {d:3.5,cap:'아기가 괴이의 손가락을 꼭 쥐었다. 그리고— 웃었다.',draw:(c,t)=>{c.fillStyle='#ffe9c8';c.fillRect(0,60,960,480);c.fillStyle='#f0c8a0';c.beginPath();c.arc(480,320,110,0,7);c.fill();c.fillStyle='#222';c.beginPath();c.arc(440,300,10,0,7);c.arc(520,300,10,0,7);c.fill();c.strokeStyle='#a44';c.lineWidth=5;c.beginPath();c.arc(480,345,28,0,Math.PI);c.stroke();c.lineWidth=1;}},
+    {d:3,cap:'괴이: "……."',draw:(c,t)=>{c.fillStyle='#000';c.fillRect(0,60,960,480);drawGhoul(c,480,330,6,{eye:'#ff9ab0'});emoji(c,'💗',480+Math.sin(t*20)*4,190,60);}},
+    {d:4,cap:'그로부터 3년. 「꿈보육원」 원아 47명. 원장 선생님은 키가 좀 크다.',draw:(c,t,s)=>{c.fillStyle='#fff3d8';c.fillRect(0,60,960,480);c.fillStyle='#e88';c.fillRect(260,90,440,50);c.fillStyle='#fff';c.font='bold 30px sans-serif';c.textAlign='center';c.fillText('꿈 보 육 원',480,126);drawGhoul(c,480,360,4,{eye:'#ff9ab0'});for(let i=0;i<8;i++)drawPerson(c,160+i*90,450+Math.sin(s*6+i)*6,1.6,`hsl(${i*45},60%,60%)`,{smile:1});}}],
+ 5:[{d:3,cap:'노량진. 괴이가 연 고시원 앞 밥차. 한 끼 3,000원.',draw:(c,t)=>{bgs.gosi(c);c.fillStyle='#e74';c.fillRect(380,300,200,90);c.fillStyle='#fff';c.font='bold 26px sans-serif';c.textAlign='center';c.fillText('한끼 3,000원',480,350);}},
+    {d:3.5,cap:'아침. 점심. 저녁. 야식. 공시생과 재수생이 줄을 선다.',draw:(c,t,s)=>{bgs.gosi(c);for(let i=0;i<14;i++)drawPerson(c,60+i*64,420,2.2,i%2?'#6a6':'#669',{});}},
+    {d:3,cap:'"사장님 밥 더 주세요." "김치도요." "저 내일도 와요."',draw:(c,t)=>{bgs.gosi(c);drawGhoul(c,480,360,3,{mouth:3});bubble(c,250,300,'밥 더요');bubble(c,700,300,'내일도 와요');}},
+    {d:3.5,cap:'그런데 아무도 나가지 않는다. 밖에 나가면 밥값이 비싸니까.',draw:(c,t)=>{c.fillStyle='#fff';c.fillRect(200,100,560,400);c.fillStyle='#000';c.font='bold 22px monospace';c.textAlign='left';const r=['쌀  -1,200,000','반찬 -840,000','가스  -310,000','매출  +540,000'];r.forEach((l,i)=>c.fillText(l,260,170+i*50));c.fillStyle='#d00';c.font='900 40px sans-serif';c.fillText('누적 적자',260,430);}},
+    {d:3.5,cap:'괴이는 인간을 하나도 먹지 못하고, 인간에게 먹혔다.',draw:(c,t)=>{bgs.gosi(c);bigText(c,'임대 문의',320,'#f44',70);}}],
+ 6:[{d:3,cap:'국립 ○○대학교 대학원. 괴이 교수 연구실, 신입 모집 공고.',draw:bgs.campus},
+    {d:3.5,cap:'공고 게시 1일차. 지원자 0명.',draw:(c,t)=>{bgs.campus(c);c.fillStyle='#fff';c.fillRect(330,180,300,240);c.fillStyle='#111';c.font='bold 22px sans-serif';c.textAlign='center';c.fillText('석·박사 모집',480,220);c.font='16px sans-serif';c.fillText('열정페이 · 주7일 · 졸업 교수재량',480,270);c.font='bold 60px sans-serif';c.fillStyle='#d00';c.fillText('0',480,370);}},
+    {d:3,cap:'30일차. 지원자 0명. 박사넷 평점 ★☆☆☆☆',draw:(c,t)=>{bgs.campus(c);bigText(c,'★☆☆☆☆',320,'#ff4',70);}},
+    {d:3,cap:'괴이 교수: "……사람이 안 오네."',draw:(c,t)=>{c.fillStyle='#0b0e12';c.fillRect(0,60,960,480);drawGhoul(c,480,360,4);c.fillStyle='#333';c.fillRect(300,420,360,20);}},
+    {d:3.5,cap:'인간들조차 오지 않는 곳에는, 괴이도 살 수 없다.',draw:(c,t)=>{c.fillStyle='#000';c.fillRect(0,60,960,480);bigText(c,'지원자 없음',320,'#888',60);}}],
+ 7:[{d:3,cap:'괴이가 차린 신당. 손님을 홀리기 위한 가짜 무당집.',draw:(c,t,s)=>{bgs.shrine(c,s);drawGhoul(c,480,380,3);}},
+    {d:3,cap:'괴이는 전 주인이 두고 간 진짜 방울을 흔들었다.',draw:(c,t,s)=>{bgs.shrine(c,s);drawGhoul(c,480,380,3);emoji(c,'🔔',540+Math.sin(s*30)*10,300,50);}},
+    {d:3,cap:'딸랑, 딸랑, 딸랑, 딸—',draw:(c,t,s)=>{c.fillStyle=Math.random()<.3?'#fff':'#1a0606';c.fillRect(0,60,960,480);bgs.shrine(c,s*4);}},
+    {d:3.5,cap:'"…니가 내 자리에 앉았나?"',draw:(c,t,s)=>{c.fillStyle='#000';c.fillRect(0,60,960,480);c.globalAlpha=t;drawPerson(c,480,330,7,'#fafafa',{skin:'#ddd',hair:'#ccc'});c.globalAlpha=1;}},
+    {d:4,cap:'다음 날부터 신당 앞엔 줄이 섰다. 진짜로 용하다고. 괴이는 이제 괴이가 아니다.',draw:(c,t,s)=>{bgs.shrine(c,s);drawGhoul(c,480,380,3,{col:'#f3f3f3',eye:'#000'});bigText(c,'神',260,'#fff',90);}}],
+ 8:[{d:3,cap:'동네 한의원. 원장은 괴이. 침은 아주 길다.',draw:bgs.clinic},
+    {d:3,cap:'괴이: "아 그건 할머니가 늙어서 그래요. 다음."',draw:(c,t)=>{bgs.clinic(c);drawGhoul(c,360,380,3.5);drawPerson(c,600,400,3,'#a87',{hair:'#ccc'});bubble(c,360,270,'늙어서 그래요. 다음.');}},
+    {d:3.5,cap:'그날 저녁, 경로당. 그날 밤, 맘카페. 다음 날 아침, 동네 전체.',draw:(c,t)=>{c.fillStyle='#fffbe8';c.fillRect(0,60,960,480);c.fillStyle='#222';c.font='bold 20px sans-serif';c.textAlign='left';['[맘카페] ○○한의원 원장 진짜 싸가지 없어요','ㄴ 저도요 애 침 맞히다 혼냈어요','ㄴ 경로당에서도 난리남','ㄴ 거기 가지 마세요 ★1'].forEach((l,i)=>{if(t*4>i)c.fillText(l,120,150+i*60);});}},
+    {d:3,cap:'대기실 손님 0명. 침은 아무도 찌르지 못했다.',draw:(c,t)=>{bgs.clinic(c);bigText(c,'★☆☆☆☆  (리뷰 312개)',320,'#ff4',40);}},
+    {d:3.5,cap:'인간이 오지 않는 한의원은 그저 약초 냄새 나는 빈집이다.',draw:(c,t)=>{c.fillStyle='#000';c.fillRect(0,60,960,480);bigText(c,'폐 업',320,'#f44',90);}}],
+ 9:[{d:3,cap:'인기 공포웹툰 「읽으면 따라옴」. 작가는 괴이. 월·수·금 연재.',draw:(c,t,s)=>{bgs.studio(c,s);drawGhoul(c,480,470,3);}},
+    {d:3.5,cap:'월요일 마감. 수요일 마감. 금요일 마감. 다시 월요일.',draw:(c,t)=>{c.fillStyle='#fff';c.fillRect(160,100,640,400);c.fillStyle='#000';c.font='bold 26px sans-serif';const d=['월','화','수','목','금','토','일'];d.forEach((x,i)=>{c.fillStyle=(i%2===0&&i<6)?'#d00':'#333';c.fillText(x,210+i*88,160);c.fillText(i%2===0&&i<6?'마감':'작업',210+i*88,240);});}},
+    {d:3,cap:'댓글: "작가님 이번 화 짧아요" "퀄 떨어짐" "빨리 다음 화"',draw:(c,t,s)=>{bgs.studio(c,s);bubble(c,300,250,'퀄 떨어짐','#fcc');bubble(c,650,300,'빨리 다음화','#fcc');bubble(c,480,200,'이번화 짧음','#fcc');}},
+    {d:3,cap:'괴이도 잠을 잔다. 아니, 잤었다.',draw:(c,t,s)=>{bgs.studio(c,s);drawGhoul(c,480,470-t*20,3,{eye:'#f44'});emoji(c,'⚡',380,400,40);emoji(c,'⚡',580,410,40);}},
+    {d:4,cap:'금요일 23시 59분. 원고 업로드 완료. 작가 응답 없음.',draw:(c,t)=>{c.fillStyle='#000';c.fillRect(0,60,960,480);bigText(c,'[휴재 공지] 작가 사정으로…',320,'#aaa',36);}}],
+ 10:[{d:3,cap:'괴이가 운영하는 콜센터. 전화를 건 사람은 목소리에 홀린다.',draw:bgs.call},
+    {d:3.5,cap:'고객: "아니 그러니까 내 말을 들어보라고. 내가 1998년에—"',draw:(c,t)=>{bgs.call(c);drawGhoul(c,480,380,3.5);emoji(c,'📞',540,340,40);}},
+    {d:3,cap:'괴이의 원칙: 먼저 끊지 않는다. 먼저 끊는 쪽이 지는 것이다.',draw:(c,t)=>{c.fillStyle='#000';c.fillRect(0,60,960,480);c.fillStyle='#3cf';c.font='bold 80px monospace';c.textAlign='center';c.fillText(`${String(Math.floor(t*99)).padStart(3,'0')}:${String(Math.floor(t*59)).padStart(2,'0')}:00`,480,330);}},
+    {d:3.5,cap:'200시간 경과. 고객: "…그래서 내가 아까 처음에 뭐라 그랬지?"',draw:(c,t)=>{bgs.call(c);drawGhoul(c,480,420,3.5,{eye:'#555'});c.save();c.translate(480,420);c.rotate(t*1.4);c.restore();bigText(c,'200:00:00',200,'#f33',60);}},
+    {d:3.5,cap:'괴이 혼절. 콜센터 간판은 다음 날 내려갔다. 학을 떼었다고 한다.',draw:(c,t)=>{c.fillStyle='#000';c.fillRect(0,60,960,480);bigText(c,'영업 종료',320,'#f44',70);}}],
+ 11:[{d:3,cap:'괴이 전용 데이팅앱 「저승사랑」. 회원 1만 2천 괴이.',draw:(c,t,s)=>bgs.app(c,s)},
+    {d:3.5,cap:'신규 회원: 인간 1명. 괴이는 수수료에 눈이 멀어 1위 회원과 매칭시켰다.',draw:(c,t,s)=>{bgs.app(c,s);drawPerson(c,380,360,4,'#89a');drawGhoul(c,580,360,4,{col:'#ddd',eye:'#000'});emoji(c,'💘',480,250,60);}},
+    {d:3,cap:'인간: "와 진짜 귀신이네요? 인스타 찍어도 돼요? 쌩얼이세요?"',draw:(c,t,s)=>{bgs.app(c,s);drawPerson(c,380,360,4,'#89a',{smile:1});emoji(c,'📸',440,270,50);drawGhoul(c,620,380,4,{col:'#ddd',eye:'#000',mouth:2});}},
+    {d:3.5,cap:'[알림] 회원 10,800명이 탈퇴했습니다.',draw:(c,t)=>{c.fillStyle='#000';c.fillRect(0,60,960,480);c.fillStyle='#f55';c.font='bold 26px monospace';c.textAlign='left';for(let i=0;i<10;i++)if(t*12>i)c.fillText(`[탈퇴] 회원#${(9137*i+421)%9999}: 인간 무서워서 못 쓰겠음`,90,120+i*40);}},
+    {d:4,cap:'공지: 앞으로 인간은 받지 않습니다. 죄송합니다. — 운영자 올림',draw:(c,t)=>{c.fillStyle='#fff';c.fillRect(220,160,520,260);c.fillStyle='#000';c.font='bold 24px sans-serif';c.textAlign='center';c.fillText('[공지] 인간 가입 전면 금지',480,240);c.font='18px sans-serif';c.fillText('심려를 끼쳐드려 죄송합니다.',480,300);c.fillText('— 운영자 올림 (꾸벅)',480,340);}}],
+ 12:[{d:3,cap:'나폴리탄 괴담 갤러리. 괴이는 규칙 괴담을 올렸다.',draw:(c,t)=>{bgs.gall(c);c.fillStyle='#111';c.font='bold 20px sans-serif';c.textAlign='left';c.fillText('[규칙] 이 글을 읽었다면 뒤를 돌아보지 마십시오',40,160);}},
+    {d:3.5,cap:'ㅇㅇ(44.44): "3번이랑 7번 규칙 충돌함. 수칙기록원 기준 미달임."',draw:(c,t)=>{bgs.gall(c);c.fillStyle='#333';c.font='17px sans-serif';c.textAlign='left';['ㅇㅇ(44.44): 3번이랑 7번 충돌함','ㅇㅇ(44.44): 이건 2019년 개념글 표절 아님?','ㅇㅇ(44.44): 서술트릭 너무 뻔함 ㅋㅋ','ㅇㅇ(44.44): 수정본 이렇게 쓰셈 (장문)'].forEach((l,i)=>{if(t*5>i)c.fillText(l,40,160+i*44);});}},
+    {d:3,cap:'비추 412. 추천 3.',draw:(c,t)=>{bgs.gall(c);bigText(c,'비추 412',300,'#d33',70);bigText(c,'추천 3',380,'#33d',40);}},
+    {d:3,cap:'괴이: "아 ㅅㅂ 니가 써 그럼!!!!"',draw:(c,t)=>{c.fillStyle='#000';c.fillRect(0,60,960,480);drawGhoul(c,480,360,5,{mouth:6,eye:'#f33'});bigText(c,'#@%&!!',210,'#f33',60);}},
+    {d:4,cap:'[알림] 작성자가 갤러리를 탈퇴했습니다.',draw:(c,t)=>{bgs.gall(c);bigText(c,'탈퇴한 사용자입니다',320,'#666',40);}}],
+ 13:[{d:3,cap:'수료식. 수강생 4444가 수료증에 서명한다.',draw:(c,t)=>{c.fillStyle='#120c10';c.fillRect(0,60,960,480);c.fillStyle='#e9e1cc';c.fillRect(330,140,300,360);c.fillStyle='#222';c.font='bold 24px serif';c.textAlign='center';c.fillText('수 료 증',480,190);}},
+    {d:3.5,cap:'펜 끝에서 이름 하나가 빠져나간다. 엄마가 불러주던, 아주 오래된 이름.',draw:(c,t)=>{c.fillStyle='#120c10';c.fillRect(0,60,960,480);c.fillStyle='#e9e1cc';c.fillRect(330,140,300,360);c.globalAlpha=1-t;c.fillStyle='#222';c.font='bold 30px serif';c.textAlign='center';c.fillText('■ ■ ■',480,330);c.globalAlpha=1;}},
+    {d:3.5,cap:'거울 속의 사람이 손을 흔들고, 사라진다.',draw:(c,t)=>{c.fillStyle='#000';c.fillRect(0,60,960,480);c.fillStyle='#2a3040';c.fillRect(380,120,200,380);c.globalAlpha=1-t;drawPerson(c,480,340,5,'#557');c.globalAlpha=1;}},
+    {d:4,cap:'괴이가 하나 늘었다. 이름은 없다.',draw:(c,t)=>{c.fillStyle='#000';c.fillRect(0,60,960,480);drawGhoul(c,480,340,5,{eye:'#ffd86a'});}}],
+};
+
+/* ---------- 실패 / 성공 처리 ---------- */
+async function fail(n){
+  hintEl.textContent='';gauge=null;$('gauge').style.display='none';
+  await sleep(300);await playCut(VIDS[n],n);
+  SV.seen[n]=1;save();
+  const f=$('fail');f.innerHTML=`<div class="case">[ 사례 ${n} ]</div><div class="loc">사업장 : ${CASES[n].loc}</div><div class="msg">${CASES[n].msg.replace(/\n/g,'<br>')}</div><div class="big">실 패</div>
+  <div class="sub" style="color:#8a8478;font-size:13px;margin-bottom:16px">당신은 사례집의 한 줄이 되었습니다. 반면교사 아카이브에 기록됨 (${Object.keys(SV.seen).length}/13)</div>
+  <div class="menu"><button class="btn" id="fr">다시 실습</button><button class="btn" id="fs">실습장 선택</button><button class="btn" id="fh">교육장으로</button></div>`;
+  f.classList.add('show');mode='menu';bindMenu(f);
+  return new Promise(()=>{ $('fr').onclick=()=>{f.classList.remove('show');enter(n===13?0:n);};$('fs').onclick=()=>{f.classList.remove('show');openSelect();};$('fh').onclick=()=>{f.classList.remove('show');enter(0);}; });
+}
+const PAGES={
+ 1:'잠입 0일차.\n괴이들은 냄새로 사람을 안다. 그래서 나는 내 이름을 잊기로 했다.\n이름이 없으면, 냄새도 없다.',
+ 2:'녀석들은 우리를 "손님"이라 부른다. 사업장, 입장, 매출.\n장사꾼처럼 군다면 장사꾼처럼 무너뜨리면 된다.\n내가 기록할 것은 단 하나 — 괴이가 망하는 법.',
+ 3:'교육 강사는 계단이다. 밤에만 생기는 열세 번째 칸.\n세지 않으면 밟지 않는다. 세는 순간 그것이 있다.\n절대 강사 앞에서 숫자를 세지 말 것.',
+ 4:'이상하다. 나는 괴이의 눈으로 실습을 하는데,\n내가 "성공"할 때마다 사람이 살아서 나간다.\n아이들은 웃으며 엘리베이터에서 내렸고, 김씨는 장사를 계속한다.',
+ 5:'기록 규칙 제1조.\n괴이의 실패는 곧 인간의 생존 수칙이 된다.\n그러니 실패를 하나도 빠짐없이 외워둘 것.',
+ 6:'아직 기억나는 것 하나.\n노량진 컵밥 냄새. 3,500원. 새벽 독서실의 형광등.\n나도 저기 있었던 것 같다. 시험에 붙었던가?',
+ 7:'거울은 보지 말 것. 거울은 거짓말을 못 한다.\n내가 누군지 거울이 먼저 알면, 강사도 곧 안다.',
+ 8:'수강생 번호 4444.\n죽을 사(死)가 네 번. 괴이들은 이 숫자를 좋아한다.\n그래서 이 번호를 골랐다. 녀석들이 의심하지 않도록.',
+ 9:'탈출 방법.\n수료증에 서명할 것. 단, 괴이의 이름이 아니라 — 나의 이름으로.\n괴이의 이름으로 서명하면, 나는 영영 그쪽 사람이 된다.',
+ 10:'만약 이 수첩을 읽는 내가 아무것도 기억하지 못한다면\n괜찮다. 그게 계획이었다.\n마지막 장까지 모으면, 이름은 저절로 돌아온다.',
+ 11:'이 교육 자료를 밖으로 가져가면 사람들은 웃을 것이다.\n괴이가 굶어 죽고, 정육이 되고, 과로사하는 이야기.\n웃음은 괴이에게 가장 독한 소금이다.',
+ 12:'내 이름은 ________ .\n\n아니. 이 빈칸은 지금 이걸 읽고 있는 당신의 것이다.\n당신은 처음부터 사례집을 읽고 왔다.\n그래서 한 번도 같은 실수를 하지 않았던 것이다.\n\n— 괴이수칙기록원',
+};
+async function success(n,lines){
+  await talk(lines);
+  SV.clear[n]=1;save();
+  await showNote(`괴이수칙기록원 수첩 · ${n}쪽`,PAGES[n]);
+  await say('계단 선배',`실습 ${n} 통과. 도장 꽝. (${clearedCount()}/12)\n…그런데 수강생, 어디서 자꾸 사람 냄새가 나는 것 같은데. 기분 탓이겠지.`);
+  enter(0);
+}
+function showNote(h,txt){return new Promise(res=>{const n=$('note');n.innerHTML=`<div class="paper"><h3>${h}</h3>${txt}</div><div style="margin-top:18px;color:#8a8478;font-size:13px">주머니에서 찢어진 수첩 한 장이 나왔다. 언제 넣었는지 기억나지 않는다. — SPACE / 클릭</div>`;n.classList.add('show');mode='menu';beep(220,.3,'sine',.05);
+  const done=()=>{n.classList.remove('show');menuNav=null;mode='play';n.onclick=null;res();};n.onclick=done;menuNav=k=>{if(k===' ')done();};});}
+
+/* ---------- 공통 헬퍼 ---------- */
+const has=k=>!!F[k];
+function clue(k,who,txt){return async()=>{await say(who,txt);if(!F[k]){F[k]=1;beep(990,.06,'triangle',.04);hintEl.textContent=`단서 획득 (${countClues()}/${map.clues.length})`;}};}
+function countClues(){return map.clues.filter(k=>F[k]).length;}
+async function readyCheck(){if(countClues()>=map.clues.length)return true;
+  const r=await choose('사내 방송',`[안내] 아직 사업장 파악이 끝나지 않았습니다. (단서 ${countClues()}/${map.clues.length})\n그래도 지금 결정하시겠습니까?`,[{t:'좀 더 둘러본다'},{t:'지금 결정한다'}]);return r===1;}
+const o=(x,y,e,name,act,extra={})=>Object.assign({x,y,e,name,act},extra);
+
+/* ============================================================
+   맵 정의
+   ============================================================ */
+const MAPS={};
+
+/* ---- 0. 교육장 (허브) ---- */
+MAPS[0]=()=>{const names=['초품아 아파트','마장동','아마존 테마파크','베이비박스','노량진 고시원','대학원','무당','한의원','웹툰작가','콜센터','데이팅 앱','나폴리탄 갤'];
+  const objs=[];
+  for(let i=0;i<12;i++){const top=i<6,x=top?2+i*3+ (i>2?2:0):2+(i-6)*3+((i-6)>2?2:0),y=top?1:13;
+    objs.push(o(x,y,SV.clear[i+1]?'✅':'🚪',`실습장 ${i+1} · ${names[i]}`,async()=>{const r=await choose('실습장 '+(i+1),`「${names[i]}」 실습장으로 들어가시겠습니까?${SV.clear[i+1]?'\n(이미 수료 도장을 받은 실습장입니다)':''}`,[{t:'들어간다'},{t:'그만둔다'}]);if(r===0)enter(i+1);},{door:1}));}
+  objs.push(o(11,6,'🪜','계단 선배 (교육 강사)',async()=>{
+    const c=clearedCount();
+    if(c>=12&&!SV.ending){await finale();return;}
+    if(!F.met){F.met=1;await talk([
+      ['계단 선배','어, 왔네. 4444번. 자리에 앉아. 아니 앉을 데가 없지. 내가 계단이라.'],
+      ['계단 선배','나는 밤마다 생기는 열세 번째 계단이야. 사업 30년 차. 오늘 네 교육 강사.'],
+      ['계단 선배','신생 괴이는 이야기가 없으면 사라져. 이야기는 사업장에서 생기고. 그러니까 장사를 해야 돼. 인간 상대로.'],
+      ['계단 선배','근데 요즘 인간들이 보통이 아니야. 신앙, 토템, 친절, 말빨, 피지컬… 그리고 제일 무서운 게 괴이수칙기록원. 우리 실수를 적어서 퍼뜨리는 놈들.'],
+      ['계단 선배','그래서 올해는 망한 선배들 사례만 모았다. 문 열두 개 보이지? 하나하나가 망한 사업장 재현이야. 들어가서 똑같이 망하지 말고 살아 나와.'],
+      ['계단 선배','열두 개 다 통과하면 수료증 준다. 아, 그리고 저기 거울. 천 걷지 마. 신입들이 자기 얼굴 보고 놀라서 그래.'],
+      ['계단 선배','(킁킁) …근데 너 어디 출신이라 그랬지? 아니다. 됐다. 들어가.'],
+    ]);return;}
+    await say('계단 선배',`수료 도장 ${c}/12. ${c<4?'아직 멀었다. 문 아무거나 골라.':c<8?'오, 생각보다 잘하네. 마치… 사례집을 미리 읽고 온 것처럼.':'…너 정말 괴이 맞지? 아니, 묻지 않으마. 계속해.'}\n(M키: 실습장 바로 선택)`);},{npc:1}));
+  objs.push(o(19,7,'🪞','천으로 덮인 거울',async()=>{
+    const r=await choose('','하얀 천이 덮인 전신 거울. 천 아래로 무언가 숨 쉬는 것처럼 미세하게 흔들린다.',[{t:'천을 걷는다'},{t:'그냥 둔다'}]);
+    if(r===0){noiseBurst(.3,.08);await talk([['','거울 속에는 괴이가 없다.'],['','형광등 아래, 피곤한 얼굴의 사람이 하나 서 있다. 핸드폰을 들고, 무언가를 읽고 있다.'],['','당신이 손을 들자 거울 속 사람도 손을 든다.'],['','…천을 다시 덮었다. 손이 떨린다.']]);F.mirror=1;}}));
+  objs.push(o(4,7,'📋','출석부',clue('roll','출석부','괴이 소상공인 진흥원 · 2024년 사업자교육 출석부\n\n0001 처녀귀신(합격)  0013 13번째 계단(강사)  …\n4444 ████  ← 이름 칸이 수정액으로 하얗게 지워져 있다.\n긁어보면 한글 세 글자 정도의 자국이 남아 있다.')));
+  objs.push(o(7,7,'📌','게시판',clue('board','게시판','[공지] 사업자교육 수칙\n1. 교육장 안에서 인간을 찾지 마십시오. 이곳에 인간은 없습니다.\n2. 만약 인간이 보인다면, 그것은 수강생입니다.\n3. 강사 앞에서 계단 수를 세지 마십시오.\n4. 교육 자료는 외부 반출을 금합니다. 특히 디시인사이드.')));
+  objs.push(o(15,7,'☕','믹스커피 자판기',async()=>{await say('','종이컵 커피가 나왔다. 괴이는 원래 커피를 마시지 않는다고 들었다.\n그런데 이상하게 이 맛을 안다. 시험 전날 새벽의 맛.');}));
+  return mk({name:'괴이 소상공인 진흥원 · 제4강의실',theme:{floor:'#1a1620',floor2:'#1e1a25',wall:'#2e2734',dark:.3},start:[11,9],walls:[[1,3,22,1],[1,11,22,1]],gaps:[[2,3],[5,3],[8,3],[13,3],[16,3],[19,3],[2,11],[5,11],[8,11],[13,11],[16,11],[19,11],[3,3],[6,3],[9,3],[14,3],[17,3],[20,3],[3,11],[6,11],[9,11],[14,11],[17,11],[20,11],[4,3],[7,3],[10,3],[15,3],[18,3],[21,3],[4,11],[7,11],[10,11],[15,11],[18,11],[21,11]],objs,clues:[],
+    intro:async()=>{if(!F.woke){F.woke=1;await talk([['','…눈을 떴다. 형광등이 깜빡인다.'],['','가슴에 명찰이 붙어 있다. 「수강생 4444」. 이름 칸은 비어 있다.'],['','나는 괴이다. …아마도. 무슨 괴이였는지는 기억나지 않는다.'],['','앞쪽에서 무언가 삐걱거리는 소리가 난다. 계단처럼 생긴 무언가가 손짓한다.']]);}}});};
+
+/* ---- 1. 초품아 아파트 ---- */
+MAPS[1]=()=>mk({name:'실습장 1 · 신도시 초품아 아파트',theme:{floor:'#1b2030',floor2:'#1f2536',wall:'#3a4256',dark:.6},start:[3,7],
+  walls:[[8,1,1,9],[15,5,1,9]],gaps:[[8,7],[15,8]],clues:['k','g','m','d'],gaugeName:'허기',
+  objs:[
+   o(4,3,'🧾','나의 식성표',clue('d','식성표','[수강생 4444 · 배정 괴이: 엘리베이터 4호기의 그것]\n식성: 단백질 풍부한 독신 성인.\n금기: 아이 냄새, 가족 냄새 (질색). ← 누가 볼펜으로 "왜?" 라고 적어놨다.')),
+   o(5,11,'💂','경비원 아저씨',clue('g','경비원','이 단지가 1,200세대인데 애 없는 집이 열 집도 안 돼. 학교가 단지 안에 있잖아.\n혼자 사는 총각? 작년에 한 명 있었는데 결혼했어. 지금은 쌍둥이 아빠.')),
+   o(11,3,'🧒','놀이터 아이들',clue('k','아이들','너 4호기 타봤어? 4호기는 B4층 간대! 거기 가면 괴물이 있대!\n…무서워! 근데 또 타보고 싶어! 꺄아아악~ (아이들이 비명을 지르며 웃는다)\n공포가 공기 중에 짙게 번진다. 이상하게 배가 조금 덜 고프다.')),
+   o(12,11,'📱','맘카페 게시판',clue('m','맘카페','[○○신도시 맘카페]\n"4호기 엘베 괴담 때문에 애가 계단으로만 다녀요ㅠㅠ"\nㄴ "우리 애는 일부러 4호기만 타요ㅋㅋ 무서운 게 재밌대요"\nㄴ "애들은 원래 무서운 이야기로 크는 거죠~"')),
+   o(19,4,'🪞','엘리베이터 거울',async()=>{await say('','엘리베이터 거울에 비친 것은… 핸드폰을 든 사람의 실루엣. 눈을 깜빡이자 다시 괴이의 모습이다.');}),
+   o(20,8,'🛗','4호기 (결정)',async()=>{if(!await readyCheck())return;
+     const r=await choose('4호기','띵. 문이 열린다. 엄마 손을 잡은 아이가 서 있다. 아이가 침을 꼴깍 삼키며 당신을 올려다본다.\n허기가 극에 달했다. 어떻게 하겠는가?',[
+      {t:'식성대로 간다. 아이와 가족은 입장 거부, 혼자 타는 어른을 기다린다.'},
+      {t:'배는 고프지만 원칙이 중요하다. 문을 닫고 버틴다.'},
+      {t:'식성을 바꾼다. 살이 아니라 아이들의 "오싹함"을 먹는다. 문을 3초만 늦게 닫는다.',lock:!(has('k')&&has('d')),lockText:'(내 식성과 아이들의 반응을 더 알아봐야 한다)'}]);
+     if(r<2)return fail(1);
+     return success(1,[['','문이 3초 늦게 닫힌다. 층수 표시가 잠깐 B4로 깜빡인다. 아이가 "꺄아악!" 비명을 지른다.'],['','띵. 1층. 아이는 울다가, 웃는다. "엄마 또 탈래!"'],['','진하고 달콤한 공포가 4호기를 가득 채운다. 아무도 다치지 않았는데, 배가 부르다.'],['계단 선배','오호. 식성 파악. 인간 살만 밥이라고 생각하는 애들이 제일 먼저 굶어 죽어.']]);},{big:1}),
+  ],
+  intro:async()=>{gauge={v:20,rate:.9,name:'허기',onFull:()=>fail(1)};await talk([['계단 선배','첫 실습. 신도시 초품아 아파트. 초등학교를 품은 아파트란 뜻이야.'],['계단 선배','너는 엘리베이터 4호기의 괴이. 근데 너, 입맛이 까다롭다며? 오른쪽 위 허기 게이지 보이지? 꽉 차면 끝이다.'],['계단 선배','단지를 둘러보고 4호기에서 결정해. 사례 1번 선배는… 굶어 죽었다.']]);}});
+
+/* ---- 2. 마장동 ---- */
+MAPS[2]=()=>mk({name:'실습장 2 · 마장동 축산시장',theme:{floor:'#241414',floor2:'#2a1717',wall:'#4a2222',dark:.65},start:[2,7],
+  walls:[[5,1,1,5],[5,9,1,5],[12,4,6,1],[12,10,6,1]],clues:['h','k','r'],
+  objs:[
+   o(8,3,'👵','순대국집 할매',clue('h','순대국집 할매','새로 왔어? 이 골목에선 김씨한테 먼저 인사부터 혀.\n김씨가 새벽 다섯 시에 소 반 마리를 한쪽 어깨에 메고 지나가. 40년째.\n작년에 뭔 시커먼 게 김씨한테 덤볐다가… 아이고, 말을 말자.')),
+   o(15,2,'🥩','김씨네 정육점',clue('k','김씨네 정육점','[김씨네 정육 · since 1984]\n칼 22자루가 걸려 있다. 진열장 구석에 "출처불명 특수부위 — 품절" 이라고 쓴 종이.\n가게 안에서 쩌렁쩌렁한 목소리: "누가 내 가게 앞에서 기웃거려!"')),
+   o(8,11,'🍡','떡집',async()=>{if(F.rice){await say('떡집','떡은 이미 샀잖어. 개업하는 집은 떡 돌리는 거여.');return;}await say('떡집 사장','개업 떡? 시루떡 한 판 줄게. 이 동네는 떡 돌리는 놈은 안 건드려.');F.rice=1;F.r=1;beep(990,.06,'triangle',.04);hintEl.textContent=`단서 획득 (${countClues()}/3) · 시루떡 획득`;}),
+   o(15,12,'🍺','술 취한 회사원',async()=>{await say('회사원','(꺼억) 여기가 어디야… 집에 갈래…\n(혼자 비틀거리며 택시를 잡아 떠난다)');}),
+   o(21,7,'🏪','내 가게 (결정)',async()=>{if(!await readyCheck())return;
+     const r=await choose('내 가게','새벽 4시 58분. 셔터를 올리자, 골목 끝에서 거대한 그림자가 다가온다.\n소 반 마리를 어깨에 멘 사내 — 마장동 김씨. 오늘의 첫 손님이 될 수 있다.',[
+      {t:'근육량 보소. 첫 손님으로 김씨를 들인다.'},
+      {t:'기선제압이 중요하다. 가게 앞에서 김씨에게 맞다이를 신청한다.'},
+      {t:'시루떡을 들고 먼저 나가 고개 숙여 인사한다. 첫 손님은 김씨가 지나간 뒤에 받는다.',lock:!has('rice'),lockText:'(빈손이다. 시장 사람들 말을 더 들어보자)'}]);
+     if(r<2)return fail(2);
+     return success(2,[['김씨','…뭐여. 새로 왔어? 떡을 다 돌리고. 요즘 것 치곤 싹싹하네.'],['김씨','이 골목에선 장사만 하면 아무도 안 건드려. 근데 장난치면— (칼을 툭 친다) 알지?'],['','김씨가 떡 한 조각을 우물거리며 지나간다. 등 뒤의 소 반 마리가 당신을 노려보는 것 같다.'],['계단 선배','피지컬 만렙 인간은 이기는 게 아니라 피하는 거다. 상권엔 상도가 있는 법이고.']]);},{big:1}),
+  ],
+  intro:async()=>{await talk([['계단 선배','마장동 축산시장. 고기 냄새로 피 냄새가 가려지니까 괴이들이 탐내는 사업지지.'],['계단 선배','오늘 가게 오픈 날이다. 중요한 건 첫 손님. 사례 2번 선배는 첫 손님 잘못 받았다가… 지금 김씨네 진열장에 있다.']]);}});
+
+/* ---- 3. 아마존 테마파크 ---- */
+MAPS[3]=()=>mk({name:'실습장 3 · 아마존 테마파크',theme:{floor:'#0f2a1e',floor2:'#123222',wall:'#1f4a33',dark:.55},start:[2,2],
+  walls:[[1,9,14,1],[17,1,1,8]],gaps:[[6,9]],clues:['t1','t2','t3'],
+  objs:[
+   o(5,4,'👻','전설의 선배 직원 (유령)',clue('t1','전설의 선배 직원','나 여기서 18년 일했어. 죽고 나서도 일하고. 첫째 수칙 —\n손님이 구호를 먼저 외치면, 더 큰 구호로 받아쳐서 "콜 앤 리스폰스"로 만들어. 주도권은 늘 직원이 쥐는 거야.')),
+   o(12,4,'📻','무전기',clue('t2','무전기','(치직) …여기 3번 보트. 손님이 춤 배틀 걸어옴. 수칙대로 해. 절대 같이 추지 마. 손님 "전원에게" 시키는 거야. 무대는 우리 거다. (치직)')),
+   o(14,7,'📜','멘트 대본',clue('t3','멘트 대본','[아마존 직원 멘트 대본 · 극비]\n- 손님이 놀리면? 화내지 말 것. 화내면 그 순간 손님이 MC다.\n- 최종병기: 물바가지. "아마존의 축복을 받으세요~!!" 웃음이 터지는 쪽이 이긴다.')),
+   o(3,12,'🧢','텐션 폭발 대학생들',async()=>{await say('대학생들','야 저 직원 분장 개쩐다 ㅋㅋㅋ 우리 과대가 이런 거 환장함. 과대야 오늘 직원 이겨버려~!');}),
+   o(20,11,'🚣','3번 보트 (결정)',async()=>{if(!await readyCheck())return;
+     let lose=0;
+     let r=await choose('보트 출발','보트가 정글 속으로 들어간다. 과대가 벌떡 일어난다. "자 다들 따라해! 아마존~!!"',[{t:'흥에 맞춰 같이 따라 외친다.'},{t:'마이크를 넘겨준다. 손님이 즐거우면 됐지.'},{t:'"자 다들 따라해! 아마존~!!" 하고 더 크게 받아쳐 콜 앤 리스폰스로 만든다.',lock:!has('t1')}]);
+     if(r===1)return fail(3);if(r===0)lose++;
+     r=await choose('보트','과대: "직원님 춤 배틀 ㄱ? 못 하면 직원 노잼 인정~"',[{t:'괴이의 자존심. 춤 배틀을 받는다.'},{t:'"좋아요! 대신 탑승객 전원 같이! 박수 없으면 보트 안 나갑니다~"',lock:!has('t2')}]);
+     if(r===0)lose++;if(lose>=2)return fail(3);
+     r=await choose('보트','과대: "근데 직원님 진짜 얼굴이에요? 분장 너무 대충한 거 아님? ㅋㅋㅋ 생긴 게 무슨 젖은 김 같애"',[{t:'"…지금 뭐라고?" 정색한다.'},{t:'물바가지를 퍼서 "아마존의 축복을 받으세요~!!"',lock:!has('t3')}]);
+     if(r===0)lose++;if(lose>=1&&r===0)return fail(3);if(lose>=2)return fail(3);
+     return success(3,[['','쏴아아—! 과대가 물에 흠뻑 젖고 보트 전체가 뒤집어진다. 웃음으로.'],['과대','와 이 직원 미쳤다 ㅋㅋㅋ 인정. 인정합니다!!'],['','보트는 하차장 대신 정글 안쪽 동굴로 들어간다. 아무도 눈치채지 못한다. 너무 즐거워서.'],['계단 선배','말빨 센 인간한테 무대를 내주면 끝이야. 무대는 사업장이고, 사업장은 우리 거다.']]);},{big:1}),
+  ],
+  intro:async()=>{await talk([['계단 선배','테마파크 정글 보트. 인간들이 스스로 줄 서서 정글로 들어가는 꿈의 사업장.'],['계단 선배','너는 보트 직원이다. 문제는 요즘 손님 중에 직원보다 웃긴 인간들이 있다는 거지. 사례 3번 선배는 잘렸다. 손님한테 털려서.']]);}});
+
+/* ---- 4. 베이비박스 ---- */
+MAPS[4]=()=>mk({name:'실습장 4 · 베이비박스',theme:{floor:'#12121a',floor2:'#15151f',wall:'#2a2a38',dark:.78},start:[2,12],
+  walls:[[6,1,1,9],[6,12,1,2],[13,5,1,9],[17,1,1,6]],gaps:[[6,11]],clues:['l','n','c'],gaugeName:'애착',
+  objs:[
+   o(11,2,'📦','베이비박스',async()=>{gauge.v+=25;await talk([['','작은 문 너머로 담요에 싸인 아기가 보인다. 아기가 당신을 본다. 눈을 깜빡인다.'],['','작은 손이 꼼지락거린다. 가슴 어딘가가 이상하게 따뜻해진다. (애착 +25)']]);
+     const r=await choose('','아기가 당신을 향해 손을 뻗는다.',[{t:'안아 올린다.'},{t:'눈을 피하고 물러난다.'}]);if(r===0)return fail(4);},{baby:1}),
+   o(3,3,'✉️','꿈보육원에서 온 편지',clue('l','편지','선배님, 저 사례 4번이에요. 이제 괴이 아니고 원장 선생님이에요.\n처음엔 그냥 한 번 들여다본 거였어요. 근데 손가락을 쥐더라고요.\n선배님, 그 아기 눈 3초 이상 보지 마세요. 저처럼 돼요. (행복해요. 진짜로.)')),
+   o(9,12,'🔦','수녀님의 손전등',clue('n','순찰 일지','[베이비박스 순찰 일지]\n벨이 울리면 3분 안에 수녀가 온다. 하루도 빠짐없이.\n아기는 반드시 사람의 손으로 안긴다.')),
+   o(20,3,'📄','사업장 철수 신청서',clue('c','철수 신청서','[사업장 철수 신청서]\n사유: □ 경쟁 과다  □ 매출 부진  ■ 사업지 부적합\n※ 사업지 선정도 실력입니다. 안 되는 곳은 들어가지 않는 것이 상책.')),
+   o(21,11,'🚪','뒷문 (결정)',async()=>{if(!await readyCheck())return;
+     const r=await choose('뒷문','딸랑. 벨이 울린다. 아기가 운다. 멀리서 수녀의 발소리가 다가온다.',[{t:'수녀보다 먼저 가서 아기를 안는다.'},{t:'마지막으로 한 번만 얼굴을 본다.'},{t:'철수 신청서에 서명하고, 수녀가 아기를 안는 소리를 등지고 떠난다.',lock:!(has('c')&&has('n'))}]);
+     if(r<2)return fail(4);
+     return success(4,[['','등 뒤에서 수녀의 목소리. "괜찮아, 괜찮아. 이제 괜찮아."'],['','울음이 그친다. 당신은 돌아보지 않는다. …돌아보지 않은 것이 이상하게 자랑스럽다.'],['계단 선배','베이비박스는 매년 신입 하나씩 잡아먹어. 괴이를 육아로 전직시키는 무서운 곳이지. 잘 피했다.']]);},{big:1}),
+  ],
+  intro:async()=>{gauge={v:0,rate:0,name:'애착',onFull:()=>fail(4),baby:true};await talk([['계단 선배','베이비박스. 새벽에, 아무도 모르게, 작은 생명이 오는 곳. 괴이들한텐 전설의 사업지였지.'],['계단 선배','그런데 사례 4번이 거기서 나왔다. 상단 애착 게이지. 아기 근처에 오래 있으면 올라가. 꽉 차면… 너도 원장 선생님이다.']]);}});
+
+/* ---- 5. 노량진 고시원 ---- */
+MAPS[5]=()=>mk({name:'실습장 5 · 노량진 고시원',theme:{floor:'#1c1a14',floor2:'#201d16',wall:'#3c3627',dark:.6},start:[2,7],
+  walls:[[1,4,8,1],[1,10,8,1],[11,1,1,5],[11,9,1,5]],gaps:[],clues:['a','b','c','q'],
+  objs:[
+   o(3,2,'📚','공시생 (7수)',clue('a','공시생','3천원이요? 진짜요? 그럼 저 삼시세끼 여기서 먹을게요. 아니 네끼. 야식도 해주시죠?\n…저 여기서 안 나가요. 합격할 때까지. 아니 합격해도.')),
+   o(3,12,'🎒','재수생',clue('b','재수생','솔직히 밥은 상관없고요, 조용한 자리가 없어요. 독서실 다 꽉 찼어요.\n완전 무음인 곳 있으면 영혼이라도 팔아요. …아 이건 농담이에요.')),
+   o(15,3,'🍚','컵밥집 사장',clue('c','컵밥집 사장','노량진 애들은 싸면 끝까지 와. 진짜 끝까지. 3천원? 너 그거 원가도 안 나와.\n여기서 밥으로 장사하려다 망한 놈이 한둘이 아냐. 사람이든 아니든.')),
+   o(15,11,'🤫','빈 독서실',clue('q','빈 독서실','괴이가 머무는 방은 늘 조용하다. 시계 초침도 멈춘다.\n…고요. 이건 괴이에게 원가 0원짜리 상품이다.')),
+   o(20,7,'🚚','밥차 (결정)',async()=>{if(!await readyCheck())return;
+     const r=await choose('유인책 결정','고시원 앞. 공시생들이 지나간다. 어떤 유인책을 걸겠는가?',[{t:'한 끼 3,000원 밥차. 싸고 푸짐하게. 배부르면 경계도 풀린다.'},{t:'한 끼 2,000원 밥차. 더 싸게, 더 많이.'},{t:'"새벽 4시 무음 독서실 — 무료". 밥은 안 판다.',lock:!(has('b')&&has('q')),lockText:'(인간들이 정말 원하는 게 뭔지 더 알아보자)'}]);
+     if(r<2)return fail(5);
+     return success(5,[['','새벽 4시. 무음 독서실에 하나둘 들어온다. 초침이 멈춘 방. 누구도 떠들지 않는다.'],['재수생','…여기 미쳤다. 집중 진짜 잘 돼. 근데 왜 이렇게 시간이 안 가지?'],['','그들은 모른다. 이 방에서 흐르지 않은 시간은 어디로 가는지.'],['계단 선배','인간 위장 채우려다 네 통장이 비는 거야. 원가 0원짜리를 팔아. 고요, 어둠, 기다림 같은 거.']]);},{big:1}),
+  ],
+  intro:async()=>{await talk([['계단 선배','노량진. 꿈과 컵밥의 도시. 인간들이 몇 년씩 한 방에서 안 나오는 곳이지. 괴이 입장에선 최고의 사업지 같지?'],['계단 선배','사례 5번 선배는 밥차 차렸다가 적자로 망했다. 인간을 먹으려다 인간한테 먹힌 셈이야.']]);}});
+
+/* ---- 6. 대학원 ---- */
+MAPS[6]=()=>mk({name:'실습장 6 · ○○대학교 대학원',theme:{floor:'#161a1e',floor2:'#1a1f24',wall:'#33404a',dark:.6},start:[2,7],
+  walls:[[7,1,1,12],[15,3,1,11]],gaps:[[7,7],[15,7]],clues:['u','n','e'],
+  objs:[
+   o(4,3,'🎓','학부 4학년',clue('u','학부생','대학원요? 저 그 랩 컨택했다가 도망쳤어요. 인건비 월 30에 주7일이래요.\n졸업은 "교수님 재량". 선배 하나는 9년째 수료생이에요. 요즘 애들 그런 데 절대 안 가요.')),
+   o(4,11,'💻','박사넷 리뷰',clue('n','박사넷','[연구실 평가] ○○대 괴이 교수 연구실 ★☆☆☆☆\n"인건비 미지급" "새벽 3시 카톡" "졸업 기준이 매년 바뀜"\n추천 문장: "인간답게 살고 싶으면 여기 가지 마세요"')),
+   o(11,3,'🕸️','전임 괴이 교수의 빈 연구실',clue('e','빈 연구실','거미줄 쳐진 책상. 모집 공고 47장이 쌓여 있다. 지원서는 0장.\n벽에 손톱으로 새긴 글씨: "인간이 안 오면 우리도 굶는다"')),
+   o(20,7,'📝','모집 공고 작성 (결정)',async()=>{if(!await readyCheck())return;let bad=0;
+     let r=await choose('모집 공고 ①','인건비 항목',[{t:'"경험이 곧 재산" (무급)'},{t:'월 30만 원 (학생연구원 기준)'},{t:'월 250만 원 정액 지급, 연구비 투명 공개',lock:!has('u')}]);if(r<2)bad++;
+     r=await choose('모집 공고 ②','근무 시간 항목',[{t:'"자유로운 분위기" (주 7일)'},{t:'주 5일, 9시–6시, 새벽 연락 없음',lock:!has('n')}]);if(r<1)bad++;
+     r=await choose('모집 공고 ③','졸업 기준 항목',[{t:'졸업은 지도교수 재량'},{t:'논문 1편 게재 시 졸업 보장 (문서화)',lock:!has('e')}]);if(r<1)bad++;
+     if(bad)return fail(6);
+     return success(6,[['','공고 게시 1시간. 지원서 31장. 박사넷 실시간 1위: "이 랩 천국임"'],['','신입생들이 기쁜 얼굴로 연구실 문을 연다. 문이 닫힌다. 9시부터 6시까지, 그 방에서 무슨 일이 일어나는지는 아무도 모른다.'],['','하지만 다들 6시엔 퇴근한다. 정말로.'],['계단 선배','웃기지? 괴이가 인간보다 좋은 고용주가 되어야 사람이 온다. 요즘 인간 세상이 그래.']]);},{big:1}),
+  ],
+  intro:async()=>{await talk([['계단 선배','대학원. 인간들이 제 발로 들어와서 수년간 나가지 못하는 곳. 괴이 업계에선 원조 맛집이었지.'],['계단 선배','근데 사례 6번. "아무도 지원 안 함". 요즘 인간들은 정보가 빨라. 모집 공고 잘 써라.']]);}});
+
+/* ---- 7. 무당 ---- */
+MAPS[7]=()=>mk({name:'실습장 7 · 신당',theme:{floor:'#1e0c0c',floor2:'#230e0e',wall:'#4a1818',dark:.7},start:[2,7],
+  walls:[[8,1,1,5],[8,9,1,5],[16,4,1,7]],clues:['p','f','x'],
+  objs:[
+   o(12,2,'🖼️','전 주인 할머니 무당 사진',clue('p','사진','흑백 사진 속 할머니 무당. 눈이 당신을 따라온다.\n뒷면: "내 방울, 내 부채, 내 옷. 손대는 놈한테 내가 간다."')),
+   o(4,2,'🔔','반짝이는 낡은 방울',async()=>{await say('','오래된 놋쇠 방울. 손을 대지 않았는데도 미세하게 떨린다. 진짜다. 전 주인의 것.');F.realBell=1;}),
+   o(4,12,'🛍️','다이소 봉투',clue('f','다이소 봉투','다이소 영수증: 방울(소품용) 3,000원 / 부채 2,000원 / 한복 대여권.\n메모: "진짜 신물은 절대 쓰지 말 것. 연기는 소품으로." — 사례 7번 이전 사업주')),
+   o(12,12,'👘','걸려 있는 오방색 무복',async()=>{await say('','색이 바래도 위엄이 서린 무복. 소매 끝에 누군가의 온기가 아직 남아 있다.');}),
+   o(14,7,'🍑','제사상',clue('x','제사상','상 위에 과일과 떡. 배가 고프다. 하지만 상 다리에 쪽지가 붙어 있다.\n"이 상은 아직 누군가의 상이다."')),
+   o(20,7,'🙇','첫 손님 (결정)',async()=>{if(!await readyCheck())return;let real=0;
+     await say('손님','저기… 용하다고 해서 왔어요. 요즘 꿈자리가 사나워서요.');
+     let r=await choose('굿 준비 ①','어떤 방울을 흔들겠는가?',[{t:'반짝이는 낡은 방울 (진짜 신물)'},{t:'다이소 방울',lock:!has('f')}]);if(r===0)real++;
+     r=await choose('굿 준비 ②','무엇을 입겠는가?',[{t:'걸려 있던 오방색 무복'},{t:'대여한 새 한복',lock:!has('f')}]);if(r===0)real++;
+     r=await choose('굿 준비 ③','배가 고프다. 제사상은?',[{t:'굿 끝나고 먹자. 일단 한 입.'},{t:'손대지 않는다.',lock:!has('x')}]);if(r===0)real++;
+     if(real)return fail(7);
+     return success(7,[['','딸랑딸랑. 플라스틱 방울 소리가 신당을 울린다. 아무 신도 오지 않는다. 다행히.'],['손님','…와. 뭔가 몸이 가벼워졌어요. 진짜 용하시네요.'],['','손님은 모른다. 가벼워진 건 꿈자리가 아니라 그림자 한 조각이라는 걸.'],['계단 선배','신앙 쪽은 진짜를 건드리면 끝이야. 우리보다 윗급이 와서 자리를 뺏는다. 연기는 소품으로.']]);},{big:1}),
+  ],
+  intro:async()=>{await talk([['계단 선배','신당. 겁먹은 인간들이 스스로 찾아와서 돈까지 내는 곳. 괴이에겐 꿀이지.'],['계단 선배','단, 여긴 전 주인이 있던 곳이다. 사례 7번 선배는… 신내림 받았다. 괴이가. 신내림을. 지금은 진짜 용한 무당이야.']]);}});
+
+/* ---- 8. 한의원 ---- */
+const PATIENTS=[
+ {n:'김복순 할머니(81)',q:'선상님, 내가 무릎이… 아이고, 내가 아까 말했나? 무릎이 시큰거리는디, 우리 영감이 살아있을 적에…',o:[['"아까 말씀하셨어요. 다음."',0],['"천천히 말씀하세요. 영감님 얘기도 들려주세요."',1,'g']]},
+ {n:'유튜브 맹신 아저씨',q:'유튜브에서 봤는데 이거 디스크 아니고 담이래요. 원장님은 모르시죠? 내가 더 잘 알아.',o:[['"그럼 유튜브에서 침 맞으세요."',0],['"네, 공부 많이 하셨네요. 같이 한 번 볼게요."',1,'g']]},
+ {n:'침 무서워하는 아이',q:'(울먹) 침 안 맞을래… 원장님 무섭게 생겼어…',o:[['"조용히 해. 무섭게 생긴 건 맞아."',0],['"원장님도 침 무서워. 우리 셋 세고 같이 참자. 다 맞으면 사탕."',1,'c']]},
+ {n:'리뷰 앱 켠 맘카페 회원',q:'(핸드폰을 들고) 여기 처음인데요, 친절하시면 리뷰 써드릴게요.',o:[['"리뷰는 됐고 접수부터 하세요."',0],['"감사합니다. 불편하신 데부터 천천히 봐드릴게요."',1,'r']]},
+];
+MAPS[8]=()=>mk({name:'실습장 8 · 동네 한의원',theme:{floor:'#1e1a12',floor2:'#221d14',wall:'#43382a',dark:.55},start:[2,7],
+  walls:[[9,1,1,5],[9,9,1,5]],clues:['g','c','r'],
+  objs:[
+   o(5,3,'👩‍⚕️','간호사',clue('g','간호사','원장님, 이 동네는 경로당이 언론이에요. 할머니 한 분이 오늘 저녁에 말하면, 내일 아침 동네가 다 알아요.\n제발… 끝까지 들어주세요. 했던 얘기 또 하셔도요.')),
+   o(5,11,'🍭','사탕 통',clue('c','사탕 통','데스크 아래 사탕 통. "소아 환자용. 울면 하나, 참으면 두 개." 간호사 글씨다.')),
+   o(13,2,'⭐','리뷰 앱 화면',clue('r','리뷰 앱','[동네 한의원 리뷰]\n"원장 무서움 ★1" "침보다 말이 더 아픔 ★1"\n…전 원장 괴이의 마지막 리뷰. 지금 이 한의원이 다시 오픈했다는 소문이 맘카페에 돌고 있다.')),
+   o(15,8,'🪞','약장 유리',async()=>{await say('','약장 유리에 비친 원장의 얼굴. …흰 가운을 입은 피곤한 인간이다. 다시 보면 괴이다.');}),
+   o(20,7,'🩺','진료실 (결정)',async()=>{if(!await readyCheck())return;let rude=0;
+     for(const p of PATIENTS){const r=await choose(p.n,p.q,p.o.map(x=>({t:x[0],lock:x[2]&&!has(x[2])})));if(p.o[r][1]===0)rude++;if(rude>=2)return fail(8);}
+     if(rude)return fail(8);
+     return success(8,[['','저녁. 경로당에서 할머니가 말한다. "그 한의원 선상님이 내 얘기를 다 들어주더라."'],['','다음 날 아침, 대기실이 꽉 찼다. 원장은 침을 하나씩, 아주 깊이 놓는다. 아프지 않게.'],['','환자들은 개운하다며 돌아간다. 매번 조금씩 무언가를 두고 간다는 것도 모른 채.'],['계단 선배','친절은 인간 쪽 무기인 줄 알았지? 우리도 쓸 줄 알아야 해. 입소문이 사업장을 죽이고 살린다.']]);},{big:1}),
+  ],
+  intro:async()=>{await talk([['계단 선배','한의원. 인간들이 스스로 몸에 바늘을 꽂게 해주는 곳. 이보다 좋은 사업장이 있나.'],['계단 선배','사례 8번. 불친절로 소문나서 망함. 괴이 본능대로 응대하면 끝장난다. 손님 넷 받는다. 실수 하나까지만 봐준다… 라고 하고 싶지만, 하나도 안 봐준다.']]);}});
+
+/* ---- 9. 웹툰작가 ---- */
+MAPS[9]=()=>mk({name:'실습장 9 · 웹툰 작업실',theme:{floor:'#10131c',floor2:'#131722',wall:'#283048',dark:.65},start:[2,7],
+  walls:[[8,1,1,12],[16,3,1,11]],gaps:[[8,7],[16,7]],clues:['s','c','e'],
+  objs:[
+   o(4,3,'👻','선배 작가 (유령)',clue('s','선배 작가','나도 월수금 했어. 지금은 이렇게 됐지. (반투명한 손을 흔든다)\n월수금은 인간도 죽는다. 괴이라고 다를 거 없어. 협상해. 무조건 주 1회. 세이브 원고 10화는 들고 시작해.')),
+   o(4,11,'📅','작업실 달력',clue('c','달력','월 마감 / 수 마감 / 금 마감. 화·목은 "콘티". 토·일은 "수정".\n빈칸이 없다. 잠이라는 글자가 어디에도 없다.')),
+   o(12,3,'🥫','에너지 드링크 탑',clue('e','에너지 드링크','빈 캔 412개로 쌓은 탑. 맨 위 캔에 매직으로: "이걸로 3년 버팀. 그리고—"\n뒤는 쓰여 있지 않다.')),
+   o(12,11,'💬','독자 댓글창',async()=>{await say('','"이 웹툰 읽고 나서 자꾸 뒤에 누가 있는 것 같아요 ㅠㅠ" (좋아요 3.2만)\n좋은 사업장이다. 독자가 곧 손님이다. 문제는 연재 주기.');}),
+   o(20,7,'📞','PD 미팅 (결정)',async()=>{if(!await readyCheck())return;
+     const r=await choose('담당 PD','작가님 반응 대박이에요! 플랫폼에서 월·수·금 주 3회 연재로 런칭하자고 하네요. 메인 배너도 드려요!',[{t:'메인 배너! 월수금 수락한다.'},{t:'주 2회로 타협한다.'},{t:'"주 1회 + 세이브 원고 10화 확보 후 런칭 + 시즌제 휴재"를 계약서에 넣는다.',lock:!(has('s')&&has('c'))}]);
+     if(r<2){await talk([['','계약서에 서명했다.'],['','월요일. 마감. 화요일. 콘티. 수요일. 마감. 목요일. 손이 떨린다. 금요일—']]);return fail(9);}
+     return success(9,[['PD','…주 1회요? 음, 세이브 10화면 퀄리티는 확실하겠네요. 오케이!'],['','한 주에 한 번. 독자들은 일주일 내내 다음 화를 기다리며 뒤를 돌아본다.'],['','기다림은 공포를 숙성시킨다. 작가는 푹 잔다.'],['계단 선배','오래가는 사업장이 이기는 거다. 과로사한 괴이는 괴담도 못 남긴다.']]);},{big:1}),
+  ],
+  intro:async()=>{await talk([['계단 선배','웹툰. 읽는 순간 따라오는 이야기. 독자 수백만이 스스로 사업장에 들어오는 최신 업종이지.'],['계단 선배','사례 9번은 월수금 연재하다 과로사. 괴이가. 과로사. 인간 업계가 이렇게 무섭다.']]);}});
+
+/* ---- 10. 콜센터 ---- */
+MAPS[10]=()=>mk({name:'실습장 10 · 콜센터',theme:{floor:'#0f1214',floor2:'#121619',wall:'#2a3238',dark:.6},start:[2,7],
+  walls:[[6,3,10,1],[6,11,10,1]],clues:['m','s','l'],
+  objs:[
+   o(4,2,'📘','상담 매뉴얼',clue('m','매뉴얼','[고객 응대 매뉴얼 제7조]\n폭언·욕설 시 1차, 2차, 3차 안내 후 통화를 종료할 수 있다.\n※ 상담원 보호는 회사의 의무입니다.')),
+   o(10,7,'🎧','선배 상담원',clue('s','선배 상담원','괴이 원칙? "먼저 끊는 쪽이 진다"? 그거 때문에 사례 10번 선배 쓰러졌어.\n먼저 끊는 건 자존심 문제가 아니라 생존이야. 매뉴얼대로 세 번 안내하고 끊어.')),
+   o(10,12,'🗂️','통화 기록',clue('l','통화 기록','[블랙리스트] VIP-0000\n누적 통화 1,847시간. 최장 기록 200시간.\n특이사항: 상대가 끊지 않으면 절대 먼저 끊지 않음. 상담원 7명 퇴사, 괴이 1명 혼절.')),
+   o(20,7,'☎️','내 자리 (결정)',async()=>{if(!await readyCheck())return;
+     await say('','따르르릉. 발신번호: VIP-0000.');
+     const steps=[['고객','여보세요? 아니 그러니까 내가 1998년에 그쪽 회사 제품을 샀는데—','1차 안내: "고객님, 폭언이 계속되면 통화가 종료될 수 있습니다."'],
+                  ['고객','지금 나 가르치는 거야? 니 이름 뭐야? 너 몇 살이야? 내가 이 시간에 뭘 해야 했는지 알아?','2차 안내: "고객님, 두 번째 안내 드립니다."'],
+                  ['고객','(3시간째) …그래서 내가 처음에 뭐라 그랬지? 다시 처음부터 말해줄게.','3차 안내 후 "통화를 종료하겠습니다." 딸깍.']];
+     for(let i=0;i<3;i++){const r=await choose(steps[i][0],steps[i][1],[{t:'(괴이의 원칙) 먼저 끊지 않는다. 끝까지 듣는다.'},{t:steps[i][2],lock:!has('m')||(i===2&&!has('s'))}]);if(r===0)return fail(10);}
+     return success(10,[['','딸깍.'],['','고요. 헤드셋 너머로 아무 소리도 들리지 않는다. 손이 아직 떨린다.'],['','다음 전화가 온다. 길을 잃은 할아버지. 당신의 목소리를 듣자 조용해진다. 아주 조용히.'],['계단 선배','진상은 손님이 아니라 재해다. 재해엔 매뉴얼로 대응한다. 괴이의 원칙보다 매뉴얼이 위다.']]);},{big:1}),
+  ],
+  intro:async()=>{await talk([['계단 선배','콜센터. 목소리만으로 인간을 홀리는 고급 사업장. 수화기 너머로 끌어당기는 거지.'],['계단 선배','사례 10번 선배는 200시간 동안 전화를 못 끊었다. 인간이 괴이보다 집요할 때가 있어.']]);}});
+
+/* ---- 11. 데이팅 앱 ---- */
+MAPS[11]=()=>mk({name:'실습장 11 · 괴이 전용 데이팅앱 「저승사랑」 운영실',theme:{floor:'#1c0b18',floor2:'#210d1c',wall:'#45183a',dark:.6},start:[2,7],
+  walls:[[7,1,1,5],[7,9,1,5],[14,4,1,7]],clues:['v','p','t'],
+  objs:[
+   o(4,3,'💬','이용자 후기',clue('v','이용자 후기','★★★★★ "괴이끼리 편하게 만나요. 인간 없어서 너무 좋음" — 처녀귀신 연화\n★★★★★ "인간 들어오면 저 바로 탈퇴합니다. 걔네 너무 무서워요" — 달걀귀신\n★★★★☆ "인간이 요즘 우리를 찍어서 인스타에 올린대요;;" — 빨간마스크')),
+   o(11,3,'🧑','신규 가입 심사: 4444?',clue('p','가입 신청서','닉네임: 사사사사\n종족: 괴이 (라고 주장함. 증빙 없음)\n취미: 규칙 수집, 괴담 정독, 사례집 읽기\n가입 일시: 오늘 03:13 — 당신이 교육장에서 눈을 뜬 시각과 같다.\n프로필 사진: 형광등 아래, 핸드폰을 든 피곤한 얼굴.\n…어디서 본 얼굴이다. 거울 속에서.')),
+   o(11,11,'💰','수수료 장부',clue('t','수수료 장부','인간 1명 매칭 수수료: 괴이 100명분.\n메모: "돈에 눈멀면 사례 11번 됨" — 전임 운영자')),
+   o(20,7,'🖥️','매칭 콘솔 (결정)',async()=>{if(!await readyCheck())return;
+     const r=await choose('매칭 콘솔','인간 신규 가입자 1명. 인기 1위 처녀귀신 연화와 매칭 적합도 99%. 수수료는 괴이 100명분.',[{t:'수수료 대박. 1위 회원과 매칭시킨다.'},{t:'가입만 승인하고 지켜본다.'},{t:'가입을 거절하고, 먼저 공지한다: "본 앱은 괴이 전용입니다."',lock:!(has('v')&&has('t'))}]);
+     if(r<2)return fail(11);
+     return success(11,[['','[공지] 「저승사랑」은 괴이 전용 서비스입니다. 회원님들의 안전한 사랑을 지킵니다.'],['','회원 수 +2,300. "운영자 개념 있네" "평생 쓴다"'],['','가입이 거절된 프로필 사진이 화면에서 사라지기 직전, 그 얼굴이 당신을 똑바로 쳐다본 것 같다.'],['계단 선배','고객층을 지켜야지. 한 명 잡으려다 1만 명을 잃는다. …그런데 그 가입자, 너랑 가입 시각이 같더라?']]);},{big:1}),
+  ],
+  intro:async()=>{await talk([['계단 선배','데이팅 앱. 외로운 괴이들끼리 이어주는 착한 사업이지.'],['계단 선배','사례 11번. 인간 한 명 받았다가 회원 90%가 탈퇴. 괴이들은 인간을 무서워해. 너는 안 무서워? …흠.']]);}});
+
+/* ---- 12. 나폴리탄 갤 ---- */
+MAPS[12]=()=>mk({name:'실습장 12 · 나폴리탄 괴담 갤러리',theme:{floor:'#1a1d30',floor2:'#1d2036',wall:'#3b4890',dark:.5},start:[2,7],
+  walls:[[6,1,1,12],[13,3,1,11]],gaps:[[6,7],[13,7]],clues:['n','g','w'],
+  objs:[
+   o(3,3,'📢','갤 공지',clue('n','갤 공지','[공지] 비평은 환영, 욕설은 차단.\n작성자가 피드백을 수용하면 개념글 확률이 올라갑니다. (경험적 통계)')),
+   o(10,3,'🏅','개념글: 기록원 대처법',clue('g','개념글','"규칙을 다 아는 인간을 만나면? 이겨먹으려 하지 마라. 걔는 이미 규칙 밖에 있다.\n인정하고, 물어봐라. 걔가 누군지. 대부분 대답하지 않는다. 대답하면— 그건 너다."')),
+   o(10,11,'⌨️','ㅇㅇ(44.44)의 지난 댓글',clue('w','지난 댓글','ㅇㅇ(44.44): 이 사례집 원본 봤음. 1번부터 12번까지 다 외움 ㅋㅋ\nㅇㅇ(44.44): 마장동 김씨는 떡 돌리면 됨\nㅇㅇ(44.44): 4호기는 공포 먹으면 됨\n…당신이 지금까지 한 선택이 전부 적혀 있다. 당신보다 먼저.')),
+   o(20,7,'🖊️','내 글의 댓글창 (결정)',async()=>{if(!await readyCheck())return;
+     await say('','당신이 올린 규칙 괴담에 댓글이 달린다. ㅇㅇ(44.44): "3번이랑 7번 규칙 충돌함. 그리고 이거 서술트릭 너무 뻔함. 수정본 이렇게 쓰셈 (장문)"');
+     let r=await choose('댓글','어떻게 대응하겠는가?',[{t:'"니가 뭘 안다고 ㅋㅋ" 반박한다.'},{t:'부계정으로 비추를 누르고 차단한다.'},{t:'"ㄹㅇ 맞말. 수정했습니다." 수정본을 반영한다.',lock:!has('n')}]);
+     if(r<2)return fail(12);
+     await say('ㅇㅇ(44.44)','오 수용 빠르네. 개념글 감. 근데 님 진짜 괴이임? 문장이 너무 사람 같은데.');
+     r=await choose('댓글','',[{t:'"괴이 맞거든요?!" 화를 낸다.'},{t:'"…당신은 누구세요?"',lock:!has('g')}]);
+     if(r===0)return fail(12);
+     return success(12,[['ㅇㅇ(44.44)','나? 사례집 읽고 온 사람.'],['ㅇㅇ(44.44)','근데 그건 너도 마찬가지잖아. 아니야?'],['','IP 44.44. 수강생 번호 4444. 화면 너머의 그 사람은 지금도, 이 문장을 읽고 있다.'],['계단 선배','…흐음. 이 실습장은 나도 정답을 모른다. 매년 결말이 달라지거든.']]);},{big:1}),
+  ],
+  intro:async()=>{await talk([['계단 선배','마지막 실습장. 나폴리탄 괴담 갤러리. 괴담을 쓰는 곳이자, 괴이가 이야기를 얻는 시장이야.'],['계단 선배','사례 12번 선배는 손님한테 훈수 받다가 쌍욕하고 탈갤했다. 그 손님은… 괴이수칙기록원보다 규칙을 더 잘 알았다지.']]);}});
+
+/* ---------- 엔딩 ---------- */
+async function finale(){
+  await talk([['계단 선배','열두 개. 전부 통과. 30년 강사 생활에 처음이다.'],['계단 선배','이상하지. 너는 한 번도 선배들 실수를 따라 하지 않았어. 마치… 처음부터 답을 알고 들어온 것처럼.'],['계단 선배','자, 수료증이다. 이름 칸에 서명해라. 괴이의 이름이든 뭐든, 네가 쓰는 게 앞으로 네 이름이 된다.']]);
+  const pages=Object.keys(SV.clear).filter(k=>k!=='0').length;
+  const r=await choose('수료증','펜을 쥔다. 손이 떨린다. 주머니 속 수첩이 무겁다.',[{t:'괴이의 이름으로 서명한다. "무명(無名)". 나는 괴이다.'},{t:'수첩 마지막 장을 떠올리며, 나의 이름을 쓴다.',lock:pages<12}]);
+  if(r===0){SV.ending='ghoul';save();return fail(13);}
+  mode='menu';const n=$('note');
+  n.innerHTML=`<div class="paper" style="text-align:center"><h3>수 료 증</h3>위 사람은 괴이 사업자교육 전 과정을 수료하였음을 증명함.\n\n성명 : <input class="name" id="nm" maxlength="12" placeholder="당신의 이름"></div><div style="margin-top:16px"><button class="btn" id="nmok">서명한다</button></div>`;
+  n.classList.add('show');menuNav=null;const inp=$('nm');setTimeout(()=>inp.focus(),50);
+  await new Promise(res=>{const go=()=>{if(inp.value.trim()){res();}};$('nmok').onclick=go;inp.onkeydown=e=>{e.stopPropagation();if(e.key==='Enter')go();};});
+  const name=inp.value.trim().replace(/[<>&"]/g,'');n.classList.remove('show');mode='play';
+  noiseBurst(1,.12);
+  await talk([['','펜 끝에서 이름이 흘러나온다. 세 글자가, 수정액 아래에서 떠오르듯.'],['','「'+name+'」'],['계단 선배','…역시. 처음부터 맛이 이상하더라니. 사람 냄새가.'],['계단 선배','괴이수칙기록원이로군. 이름을 지우고 들어와서, 우리 교육을 처음부터 끝까지 받아 갔어.'],['계단 선배','잡아먹으면 그만이지만… 이름을 되찾은 인간은 못 먹는다. 그게 규칙이다. 우리가 만든.'],['계단 선배','가라. 그리고 가서 적어라. 우리가 어떻게 망하는지. 어차피 다들 웃고 말 테니까.'],['','교육장의 형광등이 하나씩 꺼진다. 계단이 하나 줄어드는 소리가 난다. 열셋에서, 열둘로.'],['','눈을 뜬다. 손에는 핸드폰. 화면에는 글 하나.']]);
+  SV.ending='human';save();showPost(name);}
+function showPost(name){mode='menu';const p=$('post');
+  p.innerHTML=`<div class="bar">나폴리탄 괴담 마이너 갤러리</div><div class="body"><h2>사업자교육</h2><div class="meta">${name} · 조회 23876 · 추천 444</div>│사업자교육이란?
+
+올해는 괴이가 해선 안되는 실수를 모았습니다.
+사업지 선정부터 다양한 인간상에 대하여 사업장을 가진 괴이라면 이 교육을 반드시 받아야 합니다.
+
+${Object.keys(CASES).filter(k=>k<13).map(k=>`[사례 ${k}]\n사업장 : ${CASES[k].loc}\n${CASES[k].msg}`).join('\n\n')}
+
+<b>[사례 13]
+사업장 : 사업자교육
+수강생 중 괴이수칙기록원 1명 잠입. 교육 자료 전량 유출.
+현재 나폴리탄 괴담 갤러리에 박제되어 있음.
+해당 강사는 열세 번째 계단에서 열두 번째 계단으로 강등됨.</b>
+
+이상으로 안전교육을 마치겠습니다.
+감사합니다.
+
+<span style="color:#888">ㅇㅇ(44.44): 13번 사례 실화임?
+ㄴ ${name}: ㅇㅇ. 지금 읽은 당신도 수강생임.</span>
+
+<button class="btn" id="pb" style="color:#fff">— TRUE END · 기록원 귀환 — 타이틀로</button></div>`;
+  p.classList.add('show');$('pb').onclick=()=>{p.classList.remove('show');showTitle();};bindMenu(p);}
+
+/* ---------- 화면 전환 ---------- */
+let curId=0;
+async function enter(id){
+  mode='play';menuNav=null;curId=id;map=MAPS[id]();F=id===0?hubF:{};if(id===0&&Object.keys(SV.clear).length)F.met=1;
+  P.x=map.start[0]*T+T/2;P.y=map.start[1]*T+T/2;gauge=null;$('gauge').style.display='none';hintEl.textContent='';
+  setDrone(true,id===0?49:38+id*2);
+  if(map.intro)await map.intro();
+  if(gauge){$('gauge').style.display='block';$('glab').textContent=gauge.name;}
+}
+let hubF={};
+function showTitle(){mode='menu';setDrone(false);const t=$('title');const c=clearedCount();
+  t.innerHTML=`<h1>괴이 <span>사업자</span>교육</h1><div class="sub">괴이 소상공인 진흥원 · 2024년도 정기 안전교육<br>— 해당 괴이들의 사례를 반면교사 삼아, 성공한 사업장 주가 되시길 바랍니다 —</div>
+  <div class="menu"><button class="btn" id="t1">${c?'교육 계속하기':'교육 시작'}</button><button class="btn" id="t2">실습장 선택</button><button class="btn" id="t3">반면교사 아카이브 (실패 영상 ${Object.keys(SV.seen).length}/13)</button><button class="btn" id="t4">기록원 수첩 다시 읽기 (${c}/12)</button><button class="btn" id="t5">기록 초기화</button></div>
+  <div class="sub" style="margin-top:22px;font-size:12px">WASD 이동 · SPACE / 마우스 클릭 : 상호작용 · 선택 · W/S 선택지 이동 · M : 실습장 선택${SV.ending==='human'?'<br><b style="color:#e0b04a">TRUE END 달성</b>':''}</div>
+  <div class="sub" style="font-size:11px">원작 : 디시인사이드 나폴리탄 괴담 갤러리 「사업자교육」 사례집</div>`;
+  t.classList.add('show');bindMenu(t);
+  $('t1').onclick=()=>{t.classList.remove('show');enter(0);};
+  $('t2').onclick=()=>{t.classList.remove('show');openSelect();};
+  $('t3').onclick=()=>{t.classList.remove('show');openArchive();};
+  $('t4').onclick=async()=>{t.classList.remove('show');for(let i=1;i<=12;i++)if(SV.clear[i])await showNote(`괴이수칙기록원 수첩 · ${i}쪽`,PAGES[i]);showTitle();};
+  $('t5').onclick=()=>{if(confirm('모든 수료 기록과 아카이브를 지울까요?')){SV={clear:{},seen:{},pages:{},ending:null};save();showTitle();}};}
+function openSelect(){mode='menu';const s=$('select');
+  s.innerHTML=`<h1 style="font-size:28px">실습장 선택</h1><div class="sub">각 문은 망한 선배 괴이의 사업장을 그대로 재현한 곳입니다.</div><div class="grid">`+
+   [0,...Object.keys(CASES).filter(k=>k<13).map(Number)].map(k=>`<button class="btn" data-k="${k}">${k===0?'🏫 교육장 (허브)':`<b>실습장 ${k}</b>`}${k?`<span class="st">${SV.clear[k]?'수료 ✓':''}${SV.seen[k]?' ☠':''}</span><br><small>${CASES[k].loc}</small>`:'<br><small>계단 선배 · 거울 · 출석부</small>'}</button>`).join('')+
+   `</div><div class="menu" style="margin-top:14px"><button class="btn" id="sb">타이틀로</button></div>`;
+  s.classList.add('show');bindMenu(s);
+  s.querySelectorAll('[data-k]').forEach(b=>b.onclick=()=>{s.classList.remove('show');enter(+b.dataset.k);});
+  $('sb').onclick=()=>{s.classList.remove('show');showTitle();};}
+function openArchive(){mode='menu';const s=$('select');
+  s.innerHTML=`<h1 style="font-size:28px">반면교사 아카이브</h1><div class="sub">직접 겪은 실패만 다시 볼 수 있습니다.</div><div class="grid">`+
+   Object.keys(CASES).map(k=>`<button class="btn" data-k="${k}">${SV.seen[k]?`<b>사례 ${k}</b> · ${CASES[k].loc}<br><small>${CASES[k].msg.split('\n').pop()}</small>`:`<b>사례 ${k}</b><br><small>??? (미열람)</small>`}</button>`).join('')+
+   `</div><div class="menu" style="margin-top:14px"><button class="btn" id="sb">타이틀로</button></div>`;
+  s.classList.add('show');bindMenu(s);
+  s.querySelectorAll('[data-k]').forEach(b=>b.onclick=async()=>{const k=+b.dataset.k;if(!SV.seen[k])return;s.classList.remove('show');await playCut(VIDS[k],k);openArchive();});
+  $('sb').onclick=()=>{s.classList.remove('show');showTitle();};}
+
+/* ---------- 메인 루프 ---------- */
+let last=performance.now();
+function loop(now){const dt=Math.min(.05,(now-last)/1000);last=now;tm+=dt;
+  try{
+  hudEl.style.display=mode==='cut'?'none':'block';
+  if(mode==='cut'&&cut){drawCut(dt);}
+  else if(map&&(mode==='play'||mode==='menu')){
+    if(mode==='play'&&!dlgBusy){
+      let vx=(keys.d?1:0)-(keys.a?1:0),vy=(keys.s?1:0)-(keys.w?1:0);
+      if(vx||vy){const l=Math.hypot(vx,vy),sp=150*dt;const nx=P.x+vx/l*sp,ny=P.y+vy/l*sp;if(!collide(nx,P.y))P.x=nx;if(!collide(P.x,ny))P.y=ny;P.step+=dt;if(Math.floor(P.step*4)!==Math.floor((P.step-dt)*4))beep(90,.03,'triangle',.015);}
+      const n=nearObj();hintEl.textContent=n?`[SPACE] ${n.name}`:(hintEl.textContent.startsWith('[SPACE]')?'':hintEl.textContent);
+      if(spaceHit){spaceHit=false;if(n)n.act();}
+      if(mouse){const m=mouse;mouse=null;for(const ob of map.objs){if(ob.hidden||!ob.act)continue;if(Math.abs(ob.x*T+T/2-m.x)<T*.6&&Math.abs(ob.y*T+T/2-m.y)<T*.6){if(Math.hypot(ob.x*T+T/2-P.x,ob.y*T+T/2-P.y)<T*2.2)ob.act();else hintEl.textContent='너무 멀다. 가까이 가자.';break;}}}
+      if(gauge){
+        if(gauge.baby){const b=map.objs.find(x=>x.baby);const d=Math.hypot(b.x*T+T/2-P.x,b.y*T+T/2-P.y)/T;gauge.v+=d<4?(4-d)*7*dt:-4*dt;}
+        else gauge.v+=gauge.rate*dt;
+        gauge.v=Math.max(0,gauge.v);$('gfill').style.width=Math.min(100,gauge.v)+'%';
+        if(gauge.v>=100){const g=gauge;gauge=null;g.onFull();}
+      }
+    } else {spaceHit=dlgBusy?spaceHit:false;mouse=null;}
+    render();
+  } else {cx.fillStyle='#000';cx.fillRect(0,0,960,600);}
+  }catch(e){console.error(e);}
+  requestAnimationFrame(loop);}
+function render(){const th=map.theme;
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){if(map.grid[y][x]){cx.fillStyle=th.wall;cx.fillRect(x*T,y*T,T,T);cx.fillStyle='rgba(0,0,0,.35)';cx.fillRect(x*T,y*T+T-6,T,6);cx.fillStyle='rgba(255,255,255,.04)';cx.fillRect(x*T,y*T,T,3);}
+    else{cx.fillStyle=(x+y)%2?th.floor:th.floor2;cx.fillRect(x*T,y*T,T,T);}}
+  for(const ob of map.objs){if(ob.hidden)continue;const px=ob.x*T+T/2,py=ob.y*T+T/2;
+    if(ob.big){cx.fillStyle=`rgba(224,176,74,${.15+.1*Math.sin(tm*3)})`;cx.beginPath();cx.arc(px,py,24,0,7);cx.fill();}
+    if(ob.npc){drawGhoul(cx,px,py,1.1,{col:'#3a2a1c',eye:'#f44'});}
+    else{cx.fillStyle='rgba(0,0,0,.4)';cx.beginPath();cx.ellipse(px,py+14,13,4,0,0,7);cx.fill();emoji(cx,ob.e,px,py,26);}
+    if(F[ob.k]){} }
+  drawPlayer(cx,P.x,P.y);
+  // 손전등 어둠
+  const r=170+Math.sin(tm*7)*3;const g=cx.createRadialGradient(P.x,P.y,40,P.x,P.y,r+220);g.addColorStop(0,'rgba(0,0,0,0)');g.addColorStop(.35,`rgba(0,0,0,${th.dark*.4})`);g.addColorStop(1,`rgba(0,0,0,${th.dark+.3})`);cx.fillStyle=g;cx.fillRect(0,0,960,600);
+  if(Math.random()<.004){cx.fillStyle='rgba(0,0,0,.6)';cx.fillRect(0,0,960,600);}
+  for(let i=0;i<60;i++){cx.fillStyle=`rgba(255,255,255,${Math.random()*.035})`;cx.fillRect(Math.random()*960,Math.random()*600,2,2);}
+  // 이름표
+  for(const ob of map.objs){if(ob.hidden)continue;const d=Math.hypot(ob.x*T+T/2-P.x,ob.y*T+T/2-P.y);if(d<T*3){cx.font='11px "Noto Sans KR",sans-serif';cx.textAlign='center';cx.fillStyle=`rgba(232,226,212,${1-d/(T*3)})`;cx.fillText(ob.name,ob.x*T+T/2,ob.y*T-4);}}
+  hudEl.innerHTML=`<b>${map.name}</b><br>${map.clues.length?`단서 ${countClues()}/${map.clues.length}`:`수료 도장 ${clearedCount()}/12`} · M: 실습장 선택`;
+}
+showTitle();requestAnimationFrame(loop);
+</script>
+</body>
+</html>
