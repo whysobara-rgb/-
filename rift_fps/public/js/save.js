@@ -10,7 +10,7 @@ export function newProfile() {
     armors: ['a0'], armor: 'a0',
     clears: 0, deaths: 0, kills: 0, bestKills: 0,
     gachaSeed: 1, shopDay: '', shopBought: [],
-    settings: { sens: 1.0, vol: 0.6, fov: 85 },
+    settings: { sens: 1.0, vol: 0.6, fov: 85, music: 0.5 },
   };
 }
 

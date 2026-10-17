@@ -33,8 +33,10 @@ export class Game {
   constructor(canvas, hooks) {
     this.hooks = hooks;
     this.canvas = canvas;
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+    this.mobile = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: !this.mobile, powerPreference: 'high-performance' });
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, this.mobile ? 1 : 1.5));
+    this.touchMove = { x: 0, y: 0 };
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.1;
     this.scene = new THREE.Scene();
@@ -44,7 +46,7 @@ export class Game {
     this.scene.add(this.camera);
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(512, 512), 0.7, 0.5, 0.7);
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(this.mobile ? 256 : 512, this.mobile ? 256 : 512), 0.7, 0.5, 0.7);
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
     this.buildWorld();
@@ -330,6 +332,9 @@ export class Game {
     }));
     pts.frustumCulled = false; this.scene.add(pts);
     this.tracers = []; this.flashes = []; this.lines = []; this.rings = [];
+    const chunkGeo = new THREE.TetrahedronGeometry(1, 0);
+    this.chunks = [...Array(this.mobile ? 50 : 120)].map(() => { const m = new THREE.Mesh(chunkGeo); m.visible = false; this.scene.add(m); return { m, v: new V(), t: 0, s: 1, spin: 0 }; });
+    this.chunkI = 0;
     this.tracerGeo = new THREE.CylinderGeometry(1, 1, 1, 5, 1, true).rotateX(Math.PI / 2).translate(0, 0, -0.5);
     this.flashGeo = new THREE.IcosahedronGeometry(1, 2);
     this.ringGeo = new THREE.RingGeometry(0.85, 1, 48).rotateX(-Math.PI / 2);
@@ -368,9 +373,10 @@ export class Game {
     addEventListener('keyup', (e) => { this.keys[e.code] = false; });
     this.canvas.addEventListener('mousedown', (e) => {
       if (!this.running) return;
+      if (this.mobile) return;
       if (document.pointerLockElement !== this.canvas) { this.canvas.requestPointerLock(); return; }
       if (e.button === 0) { this.mouseDown = true; this.triggerPulled = true; }
-      if (e.button === 2) this.aiming = true;
+      if (e.button === 2) { if (this.slots[this.cur].def.skill) this.weaponSkill(); else this.aiming = true; }
     });
     addEventListener('mouseup', (e) => { if (e.button === 0) this.mouseDown = false; if (e.button === 2) this.aiming = false; });
     addEventListener('contextmenu', (e) => { if (this.running) e.preventDefault(); });
@@ -389,7 +395,14 @@ export class Game {
   }
 
   pause() { this.paused = true; this.mouseDown = false; this.hooks.onPause(); }
-  resume() { this.paused = false; this.canvas.requestPointerLock(); this.clock.getDelta(); }
+  resume() { this.paused = false; if (!this.mobile) this.canvas.requestPointerLock(); this.clock.getDelta(); }
+  // 터치 시점 조작 (모바일)
+  look(dx, dy) {
+    if (!this.running || this.paused) return;
+    const s = 0.0042 * this.sens * (this.aiming ? 0.6 : 1);
+    this.yaw -= dx * s; this.pitch = Math.max(-1.5, Math.min(1.5, this.pitch - dy * s));
+    this.swayX += dx * 0.0004; this.swayY += dy * 0.0004;
+  }
 
   // ───────────────────────── 런 시작 ─────────────────────────
   start({ weapons, armor, clears, settings }) {
@@ -403,7 +416,7 @@ export class Game {
     // 균열 붕괴 시간: 300마리 ≈ 1분 40초, 5000마리 ≈ 4분. 시간이 다 되면 남은 개체는 소멸하고 보스가 즉시 강림
     this.stageTime = 90 + this.total * 0.03; this.collapsed = false;
     this.spawnRate = Math.min(45, Math.max(6, this.total / (this.stageTime * 0.75)));
-    this.maxAlive = Math.min(240, 90 + this.total / 25);
+    this.maxAlive = Math.min(240, 90 + this.total / 25) * (this.mobile ? 0.6 : 1);
     this.spawnAcc = 0; this.time = 0; this.combo = 0; this.comboT = 0;
     this.player = { pos: new V(0, 0, 0), vel: new V(), onGround: true, hp: 100, maxHp: 100, armor: armor.armor, maxArmor: armor.armor, dr: armor.dr, hurtT: 9, dashT: 0, dashDir: new V(), overT: 0 };
     this.yaw = 0; this.pitch = 0; this.swayX = 0; this.swayY = 0; this.shake = 0; this.recoil = 0; this.kick = 0;
@@ -420,7 +433,7 @@ export class Game {
     this.hooks.onStart(this.total);
     this.toast(`차원의 틈 개방 — 적 개체 ${this.total.toLocaleString()} 감지`, '#ff3dbb');
     this.clock.getDelta();
-    this.canvas.requestPointerLock();
+    if (!this.mobile) this.canvas.requestPointerLock();
     this.updateHud(true);
   }
 
@@ -436,6 +449,7 @@ export class Game {
     for (const r of this.rings) this.scene.remove(r.m);
     this.tracers = []; this.flashes = []; this.lines = []; this.rings = [];
     this.pLife.fill(0);
+    for (const c of this.chunks) { c.t = 0; c.m.visible = false; }
     if (this.view) this.camera.remove(this.view);
   }
 
@@ -888,6 +902,20 @@ export class Game {
     }
   }
 
+  // 처치 파편: 미리 만들어 둔 조각 메쉬를 재사용
+  gibs(pos, def, n) {
+    if (!this.chunks) return;
+    this.gibMats = this.gibMats || {};
+    const mat = this.gibMats[def.color] || (this.gibMats[def.color] = new THREE.MeshStandardMaterial({ color: new THREE.Color(def.color).multiplyScalar(1.4), roughness: 0.35, metalness: 0.4, flatShading: true, emissive: def.eye, emissiveIntensity: 0.25 }));
+    for (let i = 0; i < n; i++) {
+      const c = this.chunks[this.chunkI]; this.chunkI = (this.chunkI + 1) % this.chunks.length;
+      c.m.material = mat; c.m.visible = true; c.m.position.copy(pos);
+      c.s = def.size * rand(0.25, 0.45) * (def.boss ? 1.6 : 1);
+      c.v.set(rand(-1, 1), rand(0.6, 1.6), rand(-1, 1)).multiplyScalar(rand(5, 10));
+      c.spin = rand(-14, 14); c.t = rand(0.7, 1.1);
+    }
+  }
+
   // ───────────────────────── 이펙트 ─────────────────────────
   particle(pos, vel, col, size, life, grav) {
     const i = this.pI; this.pI = (this.pI + 1) % this.pN;
@@ -984,6 +1012,14 @@ export class Game {
       if (r.grow) { r.m.scale.setScalar(0.5 + r.r * k); r.m.material.opacity = 1 - k; }
       else r.m.material.opacity = 0.15 + 0.35 * Math.abs(Math.sin(k * 18));
       if (r.t <= 0) { this.scene.remove(r.m); r.m.material.dispose(); if (r.tele) r.m.geometry.dispose(); this.rings.splice(i, 1); }
+    }
+    for (const c of this.chunks) {
+      if (c.t <= 0) continue;
+      c.t -= dt; c.v.y -= 22 * dt; c.m.position.addScaledVector(c.v, dt);
+      if (c.m.position.y < c.s * 0.5) { c.m.position.y = c.s * 0.5; c.v.y *= -0.35; c.v.x *= 0.6; c.v.z *= 0.6; c.spin *= 0.6; }
+      c.m.rotation.x += c.spin * dt; c.m.rotation.z += c.spin * 0.7 * dt;
+      c.m.scale.setScalar(c.s * Math.min(1, c.t * 2.5));
+      if (c.t <= 0) c.m.visible = false;
     }
     for (let i = (this.dying || []).length - 1; i >= 0; i--) {
       const d = this.dying[i]; d.t -= dt; d.e.inner.scale.multiplyScalar(1 + dt * 5);
@@ -1099,6 +1135,8 @@ export class Game {
     const pos = e.mesh.position.clone(); pos.y += e.cy;
     this.burst(pos, e.def.boss ? 160 : 22, e.def.color, e.def.boss ? 14 : 7, e.def.boss ? 0.9 : 0.45, 0.9);
     this.burst(pos, e.def.boss ? 60 : 8, e.def.eye, e.def.boss ? 18 : 6, 0.3, 0.5);
+    this.gibs(pos, e.def, e.def.boss ? 18 : this.mobile ? 3 : 5);
+    this.shockRing(pos.clone(), e.def.size * 2.2, e.def.eye, 0.22);
     // 죽음 연출: 하얗게 번쩍이며 부풀었다가 터짐
     e.bodyMat.emissive.set(e.def.eye); e.bodyMat.emissiveIntensity = 1.1;
     this.dying.push({ e, t: 0.09 });
@@ -1145,7 +1183,7 @@ export class Game {
       p.mesh.rotation.y += dt * 2; p.mesh.children[0].position.y = Math.sin(p.t * 3) * 0.15;
       tmp.copy(P).setY(0.8).sub(p.mesh.position);
       const d = tmp.length();
-      if (d < 7 || p.t > 25) p.mesh.position.addScaledVector(tmp.normalize(), Math.min(d, dt * (14 + p.t)));
+      if (d < 14 || p.t > 12) p.mesh.position.addScaledVector(tmp.normalize(), Math.min(d, dt * (22 + p.t * 2)));
       if (d < 1.3) {
         this.scene.remove(p.mesh);
         this.pickups.splice(i, 1);
@@ -1463,9 +1501,9 @@ export class Game {
   // 더블 점프: 지상 점프 1회 + 공중 점프 1회
   jump() {
     const P = this.player;
-    if (P.onGround) { P.vel.y = 8.5; P.onGround = false; P.jumps = 1; return; }
+    if (P.onGround) { P.vel.y = 8.5; P.onGround = false; P.jumps = 1; sfx('jump'); return; }
     if (P.jumps < 2) {
-      P.jumps = 2; P.vel.y = 9;
+      P.jumps = 2; P.vel.y = 9; sfx('jump2');
       this.burst(tmp.copy(P.pos).setY(P.pos.y + 0.2), 20, '#7dd3fc', 5, 0.3, 0.35, 4);
       sfx('dash');
     }
@@ -1476,7 +1514,23 @@ export class Game {
     const f = new V(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)), r = new V(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
     const wish = new V();
     if (k.KeyW) wish.add(f); if (k.KeyS) wish.sub(f); if (k.KeyD) wish.add(r); if (k.KeyA) wish.sub(r);
-    if (wish.lengthSq()) wish.normalize();
+    if (this.touchMove.x || this.touchMove.y) wish.addScaledVector(f, this.touchMove.y).addScaledVector(r, this.touchMove.x);
+    if (wish.lengthSq() > 1) wish.normalize();
+    // 모바일 조준 보정: 사격 중 조준선 근처(약 7°) 적에게 시점이 살짝 끌려감
+    if (this.mobile && this.mouseDown) {
+      const fw = this.aimDir(0); let best = null, bd = 0.992;
+      for (const e of this.enemies) {
+        if (e.dead) continue;
+        tmp.copy(e.mesh.position).setY(e.mesh.position.y + e.cy).sub(this.camera.position);
+        const dd = tmp.length(); if (dd > 60) continue;
+        const dot = tmp.normalize().dot(fw); if (dot > bd) { bd = dot; best = tmp.clone(); }
+      }
+      if (best) {
+        const ty = Math.atan2(-best.x, -best.z), tp = Math.asin(best.y);
+        let dyaw = ty - this.yaw; dyaw = Math.atan2(Math.sin(dyaw), Math.cos(dyaw));
+        this.yaw += dyaw * Math.min(1, dt * 5); this.pitch += (tp - this.pitch) * Math.min(1, dt * 5);
+      }
+    }
     const sprint = k.ShiftLeft && !this.mouseDown && !this.aiming;
     const swinging = this.swingT > 0 && this.gun && this.gun.userData.melee;
     const speed = (sprint ? 13.5 : 9.5) * (this.aiming ? 0.7 : 1) * (swinging ? 0.65 : 1); // 휘두르는 동안 감속
@@ -1577,7 +1631,7 @@ export class Game {
   hitmark(crit, kill) { this.hooks.onHitmark(crit, kill); sfx('hit', { crit }); }
   dmgNum(p, dmg, crit) {
     const d = this.dmgPool[this.dmgIdx]; this.dmgIdx = (this.dmgIdx + 1) % this.dmgPool.length;
-    d.p.copy(p); d.t = 0.7; d.el.textContent = dmg; d.el.className = 'dmgnum' + (crit ? ' crit' : '');
+    d.p.copy(p); d.t = 0.75; d.crit = crit; d.el.textContent = crit ? dmg + '!' : dmg; d.el.className = 'dmgnum' + (crit ? ' crit' : '');
     d.ox = rand(-20, 20);
   }
   updateDmgNums(dt) {
@@ -1588,7 +1642,8 @@ export class Game {
       tmp.copy(d.p).project(this.camera);
       if (tmp.z > 1) { d.el.style.opacity = '0'; continue; }
       d.el.style.opacity = Math.min(1, d.t * 3);
-      d.el.style.transform = `translate(${tmp.x * w + w + d.ox}px,${-tmp.y * h + h}px) scale(${0.7 + d.t * 0.6})`;
+      const age = 0.75 - d.t, sc = (age < 0.07 ? 0.5 + age / 0.07 * 1.1 : Math.max(0.8, 1.6 - (age - 0.07) * 2.2)) * (d.crit ? 1.25 : 1);
+      d.el.style.transform = `translate(${tmp.x * w + w + d.ox}px,${-tmp.y * h + h - age * 30}px) scale(${sc})`;
     }
   }
   drawMinimap() {

@@ -235,7 +235,7 @@ kbd { background: linear-gradient(180deg, rgba(255, 255, 255, .14), rgba(255, 25
 #flash { position: fixed; inset: 0; pointer-events: none; z-index: 4; opacity: 0; transition: opacity .25s; }
 #dmglayer { position: fixed; inset: 0; pointer-events: none; z-index: 6; overflow: hidden; }
 .dmgnum { position: absolute; left: 0; top: 0; font-family: var(--mono); font-weight: 900; font-size: 15px; color: #fff; text-shadow: 0 0 4px #000, 0 2px 0 #000; opacity: 0; will-change: transform; }
-.dmgnum.crit { color: #ffd400; font-size: 21px; text-shadow: 0 0 10px rgba(255, 180, 0, .8), 0 2px 0 #000; }
+.dmgnum.crit { color: #ffd400; font-size: 22px; font-style: italic; text-shadow: 0 0 10px rgba(255, 180, 0, .8), 0 2px 0 #000; }
 
 /* 보스 바 */
 #bossbar { position: absolute; top: 18px; left: 50%; transform: translateX(-50%); width: min(760px, 66vw); text-align: center; display: none; }
@@ -367,3 +367,88 @@ kbd { background: linear-gradient(180deg, rgba(255, 255, 255, .14), rgba(255, 25
 .settings input[type=range] { accent-color: var(--pink); }
 @media (max-height: 760px) { .logo { font-size: clamp(36px, 7vw, 76px); } .login-wrap { gap: 16px; } .logo-ring { width: 380px; height: 380px; margin: -190px; } .login-panel { padding: 16px; } }
 @media (max-width: 700px) { .facts, .loadout-preview, .slotbar { grid-template-columns: repeat(2, 1fr); } .keys { grid-template-columns: repeat(2, 1fr); } }
+
+/* ───── 무기고 편의 버튼 / 판매 확인 ───── */
+.head-actions { display: flex; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+.head-actions .btn { padding: 9px 16px; font-size: 13px; }
+.btn.confirm { background: var(--red) !important; color: #fff !important; border-color: var(--red) !important; animation: pulse .5s infinite; }
+.wcard { cursor: pointer; }
+
+/* ───── 모바일 ───── */
+#touchUI, #rotate { display: none; }
+body.touch #touchUI { display: block; position: absolute; inset: 0; pointer-events: none; touch-action: none; }
+#touchUI > *, #touchUI .tb { pointer-events: auto; touch-action: none; -webkit-tap-highlight-color: transparent; }
+.tz-move { position: absolute; left: 0; bottom: 0; width: 42%; height: 62%; }
+.tz-look { position: absolute; right: 0; top: 18%; width: 58%; height: 82%; }
+.tz-hint { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); font-size: 11px; color: rgba(255, 255, 255, .25); letter-spacing: .2em; pointer-events: none; }
+.joy { position: absolute; left: 110px; top: calc(100% - 110px); width: 124px; height: 124px; margin: -62px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, .22); background: radial-gradient(circle, rgba(168, 85, 247, .18), rgba(10, 5, 22, .25)); opacity: .55; transition: opacity .15s; pointer-events: none; }
+.joy.on { opacity: 1; }
+.joy i { position: absolute; left: 50%; top: 50%; width: 54px; height: 54px; margin: -27px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #fff, #e9d5ff 40%, #a855f7); box-shadow: 0 0 18px rgba(168, 85, 247, .7); }
+.tb { position: absolute; border: 2px solid rgba(255, 255, 255, .28); background: rgba(14, 8, 28, .55); color: #fff; border-radius: 50%; font-size: 22px; font-weight: 900; display: grid; place-items: center; backdrop-filter: blur(4px); user-select: none; }
+.tb.on { background: rgba(255, 61, 187, .55); border-color: var(--pink); transform: scale(.92); }
+.tb.fire { right: max(28px, env(safe-area-inset-right)); bottom: 46px; width: 96px; height: 96px; font-size: 17px; background: radial-gradient(circle, rgba(255, 61, 187, .55), rgba(155, 48, 255, .45)); border-color: rgba(255, 140, 220, .7); box-shadow: 0 0 24px rgba(255, 61, 187, .45); }
+.tb.wskill { right: 140px; bottom: 120px; width: 60px; height: 60px; color: var(--gold); border-color: rgba(251, 191, 36, .7); }
+.tb.jump { right: 40px; bottom: 156px; width: 60px; height: 60px; }
+.tb.treload { right: 136px; bottom: 42px; width: 54px; height: 54px; }
+.tb.swap { right: 204px; bottom: 60px; width: 48px; height: 48px; font-size: 18px; }
+.tb.aim { right: 112px; bottom: 192px; width: 48px; height: 48px; font-size: 18px; }
+.tskills { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; gap: 8px; pointer-events: auto; }
+.tskills .tb { position: static; width: 46px; height: 46px; font-size: 18px; }
+.tb.pause { top: 12px; left: 50%; margin-left: -20px; width: 40px; height: 40px; font-size: 13px; border-radius: 10px; }
+body.touch #skills, body.touch #crosshair b { display: none; }
+body.touch #riftbar { width: 220px; padding: 6px 10px; top: 10px; left: max(10px, env(safe-area-inset-left)); }
+body.touch .rb-top, body.touch .rb-bot { font-size: 11px; }
+body.touch #vitals { top: 82px; bottom: auto; left: max(10px, env(safe-area-inset-left)); width: 220px; padding: 6px 10px; }
+body.touch .vrow { grid-template-columns: 40px 1fr 34px; font-size: 8px; margin: 2px 0; }
+body.touch .vrow b { font-size: 13px; }
+body.touch .bar { height: 9px; }
+body.touch #mapwrap { transform: scale(.66); transform-origin: top right; top: 8px; right: max(8px, env(safe-area-inset-right)); }
+body.touch #weaponHud { top: 8px; bottom: auto; right: calc(max(8px, env(safe-area-inset-right)) + 124px); min-width: 0; padding: 5px 8px; display: flex; align-items: center; gap: 10px; }
+body.touch #weaponHud .wname, body.touch #weaponHud .reload { display: none; }
+body.touch #weaponHud #wSlots { margin: 0; }
+body.touch #weaponHud #wSkill { margin: 0; }
+body.touch #wSlots div { width: 54px; height: 28px; pointer-events: auto; }
+body.touch .wname { font-size: 12px; }
+body.touch .ammo { margin: 0; } body.touch .ammo b { font-size: 26px; }
+body.touch .ammo small { font-size: 12px; }
+body.touch #ammoPips, body.touch #wSkill kbd { display: none; }
+body.touch #wSkill { font-size: 11px; padding: 4px 8px; }
+body.touch #coinHud { bottom: auto; top: 58px; font-size: 14px; }
+body.touch #combo { top: auto; bottom: 230px; right: 30px; font-size: 26px; }
+body.touch #bossbar { top: 56px; width: 50vw; }
+body.touch #bossbar .bname { font-size: 13px; }
+body.touch #toasts { top: 104px; }
+body.touch .toast { font-size: 13px; padding: 5px 16px; }
+body.touch #lootfeed { top: auto; bottom: 200px; left: 10px; }
+body.touch .lootitem { font-size: 11px; }
+body.touch .dmgnum { font-size: 12px; }
+body.touch .dmgnum.crit { font-size: 16px; }
+body.touch #scanlines { display: none; }
+body.touch .controls { display: none; }
+#rotate { position: fixed; inset: 0; z-index: 60; background: #06030d; flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center; }
+#rotate div { font-size: 54px; animation: float 2s ease-in-out infinite; }
+#rotate small { color: var(--dim); }
+@media (orientation: portrait) { body.touch.playing #rotate { display: flex; } }
+
+/* 작은 화면(휴대폰) 로비 */
+@media (max-width: 900px), (max-height: 520px) {
+  .topbar { padding: 8px 12px; gap: 10px; flex-wrap: nowrap; }
+  .brand { font-size: 15px; } .brand small { display: none; }
+  nav { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; } nav::-webkit-scrollbar { display: none; }
+  nav button { padding: 8px 10px; white-space: nowrap; font-size: 13px; }
+  .wallet { font-size: 14px; padding: 5px 12px; } .who small, .who .avatar { display: none; }
+  .tab { padding: 14px; }
+  .rift-info h1 { font-size: 34px; margin: 8px 0; } .rift-info p { font-size: 13px; }
+  .facts { grid-template-columns: repeat(4, 1fr); margin: 10px 0; } .facts li { padding: 8px; } .facts b { font-size: 16px; }
+  .loadout-preview { grid-template-columns: repeat(2, 1fr); margin-bottom: 14px; }
+  .btn.huge { padding: 12px 34px; font-size: 20px; }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+  .wcard { padding: 10px; } .wcard svg { height: 56px; }
+  .section-head h2 { font-size: 22px; }
+  .slotbar { grid-template-columns: repeat(4, 1fr); } .slot { min-height: 50px; padding: 8px; } .slot .sn { font-size: 11px; }
+  .gacha-wrap { grid-template-columns: 1fr; } .gacha-stage { min-height: 300px; }
+  .result h1 { font-size: 34px; } .res-stats { grid-template-columns: repeat(2, 1fr); }
+  .center { min-width: 0; width: min(420px, 92vw); }
+}
+body.touch #touchUI { z-index: 1; }
+body.touch #weaponHud { z-index: 3; }

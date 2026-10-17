@@ -1,7 +1,8 @@
 // 로비 UI · 상점 · 뽑기 · 무기고 · HUD 연결
 import { WEAPONS, WEAPON_BY_ID, RARITIES, ARMORS, ARMOR_BY_ID, TYPES, dailyShop, gachaBanner, gachaRoll } from './data.js';
 import { SaveStore } from './save.js';
-import { initAudio, sfx, setVolume } from './audio.js';
+import { initAudio, sfx, setVolume, setMusicVolume, startMusic } from './audio.js';
+import { setupTouch } from './touch.js';
 import { Game } from './game.js';
 
 const $ = (id) => document.getElementById(id);
@@ -88,7 +89,7 @@ function weaponCard(def, foot = '', extraClass = '') {
     ${def.mode === 'melee' ? statRow('흡혈', def.leech, 10, '+' + def.leech + ' HP') : statRow('장전', 3.2 - def.reload, 3, def.reload + 's')}
     ${def.mode === 'melee' ? statRow('사거리', def.range, 9, def.range + 'm') : statRow('탄창', def.mag, 260, def.mag)}
     <div class="tags">${tags(def)}</div>
-    ${def.skill ? `<div class="wskill-tag"><b>${def.skill.icon} ${def.skill.name}<em>X · ${def.skill.cd}s</em></b><span>${def.skill.desc}</span></div>` : ''}
+    ${def.skill ? `<div class="wskill-tag"><b>${def.skill.icon} ${def.skill.name}<em>우클릭 · ${def.skill.cd}s</em></b><span>${def.skill.desc}</span></div>` : ''}
     ${foot}</div>`;
 }
 
@@ -128,6 +129,7 @@ $('loginBtn').onclick = async () => {
   if (r.error) { $('loginErr').textContent = r.error; sfx('empty'); return; }
   try { localStorage.setItem('riftbreaker::last', JSON.stringify({ name, server: selServer })); } catch { /* 무시 */ }
   P = r.data; fixLoadout();
+  setMusicVolume(P.settings.music); startMusic('lobby');
   setVolume(P.settings.vol);
   $('whoName').textContent = name;
   $('whoServer').textContent = `SERVER ${selServer.toUpperCase()} · ${store.mode === 'server' ? 'ONLINE' : 'LOCAL'}`;
@@ -173,6 +175,20 @@ function renderArsenal() {
   $('invFilters').innerHTML = `<button data-f="-1" class="${invFilter === -1 ? 'on' : ''}">전체</button>` + RARITIES.map((r) => `<button data-f="${r.id}" class="${invFilter === r.id ? 'on' : ''}" style="color:${r.color}">${r.name}</button>`).join('');
   $('invFilters').onclick = (e) => { const b = e.target.closest('button'); if (b) { invFilter = +b.dataset.f; renderArsenal(); } };
   $('invCount').textContent = `보유 ${P.weapons.length}정 · 도감 ${new Set(P.weapons.map((w) => w.id)).size}/${WEAPONS.length}`;
+  $('autoEquip').onclick = () => {
+    const best = P.weapons.map((w) => ({ w, d: WEAPON_BY_ID[w.id] })).sort((a, b) => b.d.dps - a.d.dps).slice(0, 4);
+    P.loadout = [0, 1, 2, 3].map((i) => (best[i] ? best[i].w.uid : null));
+    sfx('buy'); notice('DPS가 가장 높은 무기 4개를 장착했습니다'); save(); renderArsenal();
+  };
+  $('sellJunk').onclick = (ev) => {
+    const junk = P.weapons.filter((w) => WEAPON_BY_ID[w.id].rarity <= 1 && !P.loadout.includes(w.uid));
+    if (!junk.length) return notice('판매할 일반·고급 무기가 없습니다');
+    const b = ev.currentTarget, total = junk.reduce((a, w) => a + Math.round(WEAPON_BY_ID[w.id].price * 0.75 / 10) * 10, 0);
+    if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = `${junk.length}정 판매 (+${fmt(total)}) 확인`; setTimeout(() => { if (b.isConnected) { b.dataset.confirm = ''; b.textContent = '🧹 일반·고급 일괄 판매'; } }, 3000); return; }
+    const ids = new Set(junk.map((w) => w.uid));
+    P.weapons = P.weapons.filter((w) => !ids.has(w.uid)); P.coins += total; b.dataset.confirm = '';
+    fixLoadout(); refreshCoins(); sfx('coin'); notice(`${junk.length}정 판매 완료 +${fmt(total)}`); save(); renderArsenal();
+  };
   const list = P.weapons.map((w) => ({ w, d: WEAPON_BY_ID[w.id] })).filter((x) => invFilter < 0 || x.d.rarity === invFilter)
     .sort((a, b) => b.d.rarity - a.d.rarity || b.d.dps - a.d.dps);
   $('inventory').innerHTML = list.map(({ w, d }) => {
@@ -181,7 +197,9 @@ function renderArsenal() {
     return weaponCard(d, `<div class="foot"><button class="btn" data-eq="${w.uid}">${on ? '해제' : `슬롯 ${selSlot + 1}에 장착`}</button><button class="btn danger" data-sell="${w.uid}">판매 ${fmt(sell)}</button></div>${on ? '<div class="eqbadge">장착중</div>' : ''}`, on ? 'equipped' : '');
   }).join('');
   $('inventory').onclick = (e) => {
-    const b = e.target.closest('button'); if (!b) return;
+    let b = e.target.closest('button');
+    // 카드 아무 곳이나 눌러도 장착/해제
+    if (!b) { const card = e.target.closest('.wcard'); if (!card) return; b = card.querySelector('[data-eq]'); }
     if (b.dataset.eq) {
       const uid = +b.dataset.eq; const idx = P.loadout.indexOf(uid);
       if (idx >= 0) {
@@ -193,6 +211,12 @@ function renderArsenal() {
       const uid = +b.dataset.sell;
       if (P.weapons.length <= 1) return notice('마지막 무기는 판매할 수 없습니다');
       const w = P.weapons.find((x) => x.uid === uid); const d = WEAPON_BY_ID[w.id];
+      // 희귀 이상·장착 중인 무기는 한 번 더 눌러야 판매 (실수 방지)
+      if ((d.rarity >= 2 || P.loadout.includes(uid)) && b.dataset.confirm !== '1') {
+        b.dataset.confirm = '1'; b.textContent = '한 번 더 눌러 판매'; b.classList.add('confirm');
+        setTimeout(() => { if (b.isConnected) { b.dataset.confirm = ''; b.classList.remove('confirm'); b.textContent = `판매 ${fmt(Math.round(d.price * 0.75 / 10) * 10)}`; } }, 2500);
+        return;
+      }
       P.weapons = P.weapons.filter((x) => x.uid !== uid); P.coins += Math.round(d.price * 0.75 / 10) * 10;
       fixLoadout(); sfx('coin'); refreshCoins();
     }
@@ -278,8 +302,8 @@ $('pull10').onclick = () => pull(10);
 
 function renderSettings() {
   const s = P.settings;
-  const bind = (id, key, f) => { const el = $(id); el.value = s[key]; $(id + 'V').textContent = f(s[key]); el.oninput = () => { s[key] = +el.value; $(id + 'V').textContent = f(s[key]); if (key === 'vol') setVolume(s.vol); save(); }; };
-  bind('sens', 'sens', (v) => v.toFixed(2)); bind('fov', 'fov', (v) => v + '°'); bind('vol', 'vol', (v) => Math.round(v * 100) + '%');
+  const bind = (id, key, f) => { const el = $(id); el.value = s[key]; $(id + 'V').textContent = f(s[key]); el.oninput = () => { s[key] = +el.value; $(id + 'V').textContent = f(s[key]); if (key === 'vol') setVolume(s.vol); if (key === 'music') setMusicVolume(s.music); save(); }; };
+  bind('sens', 'sens', (v) => v.toFixed(2)); bind('fov', 'fov', (v) => v + '°'); bind('vol', 'vol', (v) => Math.round(v * 100) + '%'); bind('mvol', 'music', (v) => Math.round(v * 100) + '%');
 }
 
 // ───────── 전투 ─────────
@@ -329,7 +353,7 @@ const game = window.__game = new Game($('c'), {
     if (h.wskill) {
       const k = h.wskill.left / h.wskill.cd;
       ws.style.display = ''; ws.classList.toggle('ready', h.wskill.left <= 0);
-      ws.innerHTML = `<kbd>X</kbd><span class="ic">${h.wskill.icon}</span><span class="nm">${h.wskill.name}</span><em>${h.wskill.left > 0 ? Math.ceil(h.wskill.left) + 's' : 'READY'}</em><i style="width:${(1 - k) * 100}%"></i>`;
+      ws.innerHTML = `<kbd>${game.mobile ? '★' : 'RMB'}</kbd><span class="ic">${h.wskill.icon}</span><span class="nm">${h.wskill.name}</span><em>${h.wskill.left > 0 ? Math.ceil(h.wskill.left) + 's' : 'READY'}</em><i style="width:${(1 - k) * 100}%"></i>`;
     } else ws.style.display = 'none';
     // 탄약 눈금: 탄창 크기만큼 칸을 그리고 남은 탄만 밝게
     const pipKey = h.melee || h.over ? 'x' : h.mag + ':' + h.ammo;
@@ -346,7 +370,7 @@ const game = window.__game = new Game($('c'), {
     const key = h.slots.map((s) => s.id).join() + h.cur;
     if (key !== lastSlotsKey) {
       lastSlotsKey = key;
-      $('wSlots').innerHTML = h.slots.map((d, i) => `<div class="${i === h.cur ? 'on' : ''}" style="--rc:${RARITIES[d.rarity].color}"><kbd>${i + 1}</kbd>${gunSvg(d)}</div>`).join('');
+      $('wSlots').innerHTML = h.slots.map((d, i) => `<div data-i="${i}" class="${i === h.cur ? 'on' : ''}" style="--rc:${RARITIES[d.rarity].color}"><kbd>${i + 1}</kbd>${gunSvg(d)}</div>`).join('');
     }
     $('killsTxt').textContent = `처치 ${fmt(h.kills)} · 남은 개체 ${fmt(Math.max(0, h.remaining))}`;
     hud.rbar.style.width = (h.kills / (h.total + 1)) * 100 + '%';
@@ -378,11 +402,14 @@ $('deployBtn').onclick = () => {
   const weapons = P.loadout.filter((u) => u != null).map((u) => WEAPON_BY_ID[P.weapons.find((w) => w.uid === u).id]);
   $('lobby').classList.remove('show'); $('hud').classList.add('show');
   game.start({ weapons, armor: ARMOR_BY_ID[P.armor], clears: P.clears, settings: P.settings });
+  startMusic('battle'); document.body.classList.add('playing');
+  if (game.mobile && document.documentElement.requestFullscreen && !document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
 };
 $('resumeBtn').onclick = () => { $('pause').classList.remove('show'); game.resume(); };
 $('abandonBtn').onclick = () => { $('pause').classList.remove('show'); game.paused = false; game.end('dead'); };
 
 function finishRun(r) {
+  startMusic('lobby'); document.body.classList.remove('playing');
   $('hud').classList.remove('show');
   P.kills += r.kills; P.bestKills = Math.max(P.bestKills, r.kills);
   const lost = [];
@@ -437,4 +464,6 @@ addEventListener('pointermove', (e) => {
   c.style.setProperty('--mx', px * 100 + '%'); c.style.setProperty('--my', py * 100 + '%');
   c.style.transform = `rotateY(${(px - 0.5) * 12}deg) rotateX(${(0.5 - py) * 10}deg) translateY(-4px)`;
 });
+setupTouch(game);
+$('wSlots').addEventListener('pointerdown', (e) => { const d = e.target.closest('[data-i]'); if (d) game.switchWeapon(+d.dataset.i); });
 buildLogin();

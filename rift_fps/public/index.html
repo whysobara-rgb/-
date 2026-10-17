@@ -2,7 +2,10 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#06030d">
 <title>RIFT BREAKER</title>
 <link rel="stylesheet" href="style.css">
 <script type="importmap">
@@ -76,7 +79,7 @@
           <div class="panel-head"><b>조작</b><span>CONTROLS</span></div>
           <div class="keys">
             <span><kbd>WASD</kbd>이동</span><span><kbd>Shift</kbd>질주</span><span><kbd>Space</kbd>점프 (더블)</span>
-            <span><kbd>LMB</kbd>사격</span><span><kbd>RMB</kbd>조준</span><span><kbd>R</kbd>장전</span>
+            <span><kbd>LMB</kbd>사격</span><span><kbd>RMB</kbd>조준 / 무기 스킬(전설+)</span><span><kbd>R</kbd>장전</span>
             <span><kbd>1-4</kbd>무기교체</span><span><kbd>Q</kbd>대시(무적)</span><span><kbd>E</kbd>충격파</span>
             <span><kbd>F</kbd>오버드라이브</span><span><kbd>G</kbd>수류탄</span><span><kbd>V</kbd>근접 베기</span><span><kbd>X</kbd>무기 스킬(전설+)</span>
           </div>
@@ -90,7 +93,8 @@
   </div>
 
   <div class="tab" id="tab-arsenal">
-    <div class="section-head"><h2>무기고</h2><p>카드를 클릭해 슬롯에 장착하세요 (최대 4개). <span id="invCount"></span></p></div>
+    <div class="section-head"><h2>무기고</h2><p>카드를 누르면 선택한 슬롯에 장착/해제됩니다. <span id="invCount"></span></p>
+      <div class="head-actions"><button id="autoEquip" class="btn primary">⚡ 최강 무기 자동 장착</button><button id="sellJunk" class="btn">🧹 일반·고급 일괄 판매</button></div></div>
     <div id="slotBar" class="slotbar"></div>
     <div class="filters" id="invFilters"></div>
     <div id="inventory" class="grid"></div>
@@ -127,6 +131,7 @@
       <label>마우스 감도 <b id="sensV"></b><input type="range" id="sens" min="0.2" max="3" step="0.05"></label>
       <label>시야각(FOV) <b id="fovV"></b><input type="range" id="fov" min="70" max="110" step="1"></label>
       <label>효과음 볼륨 <b id="volV"></b><input type="range" id="vol" min="0" max="1" step="0.05"></label>
+      <label>배경음악 볼륨 <b id="mvolV"></b><input type="range" id="mvol" min="0" max="1" step="0.05"></label>
       <button id="logoutBtn" class="btn">로그아웃</button>
     </div>
   </div>
@@ -160,7 +165,22 @@
     <div class="reload" id="reloadBar"><i></i></div>
   </div>
   <div id="coinHud"><span class="coin"></span><b id="runCoins">0</b></div>
+  <div id="touchUI">
+    <div class="tz-move"><div class="joy"><i></i></div><span class="tz-hint">이동</span></div>
+    <div class="tz-look"><span class="tz-hint">드래그로 시점</span></div>
+    <button class="tb fire" data-act="fire">사격</button>
+    <button class="tb wskill" data-act="wskill">★</button>
+    <button class="tb jump" data-act="jump">⤒</button>
+    <button class="tb treload" data-act="reload">⟳</button>
+    <button class="tb swap" data-act="swap">⇄</button>
+    <button class="tb aim" data-act="aim">◎</button>
+    <div class="tskills">
+      <button class="tb sm" data-act="dash">💨</button><button class="tb sm" data-act="shock">💥</button><button class="tb sm" data-act="over">⚡</button><button class="tb sm" data-act="nade">💣</button><button class="tb sm" data-act="slash">🗡</button>
+    </div>
+    <button class="tb pause" data-act="pause">❚❚</button>
+  </div>
 </section>
+<div id="rotate"><div>📱↻</div><b>가로 모드로 돌려주세요</b><small>전투는 가로 화면에서 플레이할 수 있습니다</small></div>
 
 <section id="pause" class="screen modal">
   <div class="panel center chamfer">
