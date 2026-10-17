@@ -10,6 +10,17 @@ import { sfx } from './audio.js';
 
 const ARENA = 68;
 const SHOT_PITCH = { pistol: 1.25, smg: 1.35, rifle: 1, burst: 1.05, drifle: 0.95, shotgun: 0.62, dshotgun: 0.55, sniper: 0.7, exrifle: 0.85, flak: 0.6, minigun: 1.45, cryo: 1.15 };
+const ATK_DUR = 0.46, STRIKE = 0.17, FUSE = 0.5, CAST_DUR = 0.45;
+// 갑각 가장자리에 발광색 림라이트 (모든 개체가 같은 셰이더 프로그램 공유)
+function rimLight(m, color) {
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.rimColor = { value: new THREE.Color(color).multiplyScalar(0.35) };
+    sh.fragmentShader = sh.fragmentShader
+      .replace('uniform vec3 emissive;', 'uniform vec3 emissive;\nuniform vec3 rimColor;')
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n\ttotalEmissiveRadiance += rimColor * pow(1.0 - abs(dot(normal, normalize(vViewPosition))), 3.2);');
+  };
+  m.customProgramCacheKey = () => 'enemy-rim';
+}
 const SHELL_BRASS = new THREE.Color(0xffb347), SHELL_RED = new THREE.Color(0xff3a2a);
 const V = THREE.Vector3;
 const tmp = new V(), tmp2 = new V(), tmp3 = new V();
@@ -143,6 +154,15 @@ export class Game {
       m4.compose(dd.p, q.setFromEuler(dd.r), new V(dd.s, dd.s, dd.s)); this.debris.setMatrixAt(i, m4);
     }
     s.add(this.debris);
+
+    // 환경 반사맵: 금속 총기·갑각에 보랏빛/네온 반사를 입힌다
+    const pm = new THREE.PMREMGenerator(this.renderer), es = new THREE.Scene();
+    es.add(new THREE.Mesh(new THREE.SphereGeometry(10, 24, 12), new THREE.MeshBasicMaterial({ color: 0x170b2b, side: THREE.BackSide })));
+    for (const [c, x, y, z, w, h] of [[0xff3dbb, 6, 4, -5, 3, 1.5], [0x5ee7ff, -7, 2, 3, 3, 2], [0xffffff, 0, 9, 0, 6, 6], [0x8b5cf6, 3, -2, 7, 4, 1.5]]) {
+      const p = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(c).multiplyScalar(c === 0xffffff ? 0.9 : 1.1), side: THREE.DoubleSide }));
+      p.position.set(x, y, z); p.lookAt(0, 0, 0); es.add(p);
+    }
+    s.environment = pm.fromScene(es, 0.02).texture; s.environmentIntensity = 0.9;
 
     // 재사용 포인트 라이트 (개수 고정 → 셰이더 재컴파일 없음)
     this.lights = [...Array(4)].map(() => { const l = new THREE.PointLight(0xff8833, 0, 18, 1.6); s.add(l); return { l, t: 0, max: 0 }; });
@@ -381,6 +401,9 @@ export class Game {
     this.muzzleSprite.visible = def.mode !== 'beam'; this.muzzleSprite.rotation.z = Math.random() * 6;
     this.muzzleSprite.scale.setScalar(def.pellets > 1 || def.mode === 'proj' ? 1.6 : 1);
     this.muzzleT = 0.045;
+    this.boltT = 1;
+    if (this.gun.userData.pump) this.pumpT = 0.6;
+    if (this.gun.userData.drum) this.drumTarget = (this.drumTarget || 0) + Math.PI / 3;
     this.muzzleLight.intensity = def.mode === 'beam' ? 1 : 6; this.muzzleLight.color.set(def.mode === 'beam' ? col : 0xffbb66);
     if (def.mode === 'beam') sfx('laser');
     else if (def.mode === 'chain') sfx('tesla');
@@ -707,10 +730,14 @@ export class Game {
     const def = ENEMIES[key];
     const geo = enemyGeometry(key, def);
     const mesh = new THREE.Group();
-    const bodyMat = new THREE.MeshStandardMaterial({ color: def.color, roughness: 0.45, metalness: 0.25, flatShading: true, emissive: def.color, emissiveIntensity: 0.15 });
+    const bodyMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(def.color).multiplyScalar(1.35), roughness: 0.32, metalness: 0.45, flatShading: true, vertexColors: true, emissive: def.color, emissiveIntensity: 0.15 });
+    rimLight(bodyMat, def.eye);
     const body = new THREE.Mesh(geo.body, bodyMat);
     const eyes = new THREE.Mesh(geo.eyes, this.eyeMat(def.eye));
-    const inner = new THREE.Group(); inner.add(body, eyes); mesh.add(inner);
+    const jaw = new THREE.Mesh(geo.jaw, bodyMat); jaw.position.fromArray(geo.jawPos);
+    const inner = new THREE.Group(); inner.add(body, eyes, jaw); mesh.add(inner);
+    const legsA = geo.legsA && new THREE.Mesh(geo.legsA, bodyMat), legsB = geo.legsB && new THREE.Mesh(geo.legsB, bodyMat);
+    if (legsA) inner.add(legsA, legsB);
     inner.position.y = def.size * 0.9;
     if (!pos) {
       const portal = this.portals[Math.floor(Math.random() * this.portals.length)];
@@ -725,6 +752,7 @@ export class Game {
       speed: def.speed * rand(0.85, 1.15), slowT: 0, flash: 0, atkCd: 0, phase: Math.random() * 6,
       skillCd: 3, state: 'chase', stateT: 0, kb: new V(), enraged: false, spitCd: rand(1, 3),
       fly: !!def.fly, alt: def.fly ? rand(def.alt[0], def.alt[1]) : 0, climbT: 0,
+      jaw, eyes, legsA, legsB, atkT: 0, castT: 0, atkHit: false,
     };
     this.enemies.push(e);
     if (def.boss) {
@@ -867,15 +895,25 @@ export class Game {
         if (e.def.shooter) {
           if (dist < 22) {
             spd = dist < 14 ? -2.5 : 0; e.spitCd -= dt;
-            if (e.spitCd <= 0) { e.spitCd = rand(1.5, 2.3); this.enemyShot(pos.clone().setY(pos.y + e.cy), 20, e.def.dmg, 0xffd60a); }
+            if (e.spitCd <= 0) { e.spitCd = rand(1.5, 2.3); e.castT = CAST_DUR; }
           }
         } else if (dist < 11 && e.climbT <= 0) { ty = P.pos.y + 0.9; climb = 4; spd *= 1.5; e.diving = true; }
         else e.diving = false;
         pos.y += (ty - pos.y) * Math.min(1, dt * climb);
       } else if (e.def.ranged && dist < 17) {
         spd = 0; e.spitCd -= dt;
-        if (e.spitCd <= 0) { e.spitCd = rand(1.8, 2.8); this.enemyShot(pos.clone().setY(pos.y + e.cy * 1.6), 18, e.def.dmg, 0x9dff3d); }
+        if (e.spitCd <= 0) { e.spitCd = rand(1.8, 2.8); e.castT = CAST_DUR; }
       } else if (e.key === 'stalker') { mvx += Math.sin(e.phase * 0.4) * 0.5 * nz; mvz -= Math.sin(e.phase * 0.4) * 0.5 * nx; }
+      if (e.castT > 0) {
+        e.castT -= dt;
+        if (e.castT <= 0) {
+          const head = pos.clone(); head.y += e.cy * (e.fly ? 1 : 1.4); head.x += nx * e.r; head.z += nz * e.r;
+          this.enemyShot(head, e.fly ? 20 : 18, e.def.dmg, e.fly ? 0xffd60a : 0x9dff3d);
+          this.burst(head, 10, e.fly ? '#ffd60a' : '#9dff3d', 4, 0.35, 0.3, 0);
+        }
+      }
+      // 공격 중 이동: 예비동작에선 멈칫, 타격 순간엔 앞으로 덮침
+      if (e.atkT > 0 && !e.def.boss) spd *= e.atkT > STRIKE ? 0.15 : 1.9;
       // 분리
       const gx = Math.floor(pos.x / 3), gz = Math.floor(pos.z / 3);
       let sx = 0, sz = 0;
@@ -891,6 +929,11 @@ export class Game {
       pos.x += (mvx * spd + e.kb.x) * dt + sx * Math.min(1, dt * 8);
       pos.z += (mvz * spd + e.kb.z) * dt + sz * Math.min(1, dt * 8);
       e.kb.multiplyScalar(Math.max(0, 1 - dt * 5));
+      // 플레이어 몸을 파고들지 않도록 최소 거리 유지 (카메라 관통 방지)
+      if (!e.fly || pos.y < P.pos.y + 2.5) {
+        const px = pos.x - P.pos.x, pz = pos.z - P.pos.z, minD = e.r * (e.def.boss ? 1.05 : 1.25) + 0.5, d2 = px * px + pz * pz;
+        if (d2 < minD * minD && d2 > 1e-6) { const d = Math.sqrt(d2); pos.x = P.pos.x + px / d * minD; pos.z = P.pos.z + pz / d * minD; }
+      }
       for (const pl of this.pillars) {
         const ddx = pos.x - pl.x, ddz = pos.z - pl.z, rr = pl.r + e.r * 0.7, d2 = ddx * ddx + ddz * ddz;
         if (d2 < rr * rr && !(e.fly && pos.y > pl.h)) {
@@ -909,16 +952,73 @@ export class Game {
       e.pop = Math.max(0, (e.pop || 0) - dt * 2.5);
       const pp = 1 + e.pop;
       e.inner.scale.set((1 + Math.sin(e.phase * 2) * 0.04) * pp, (1 - Math.sin(e.phase * 2) * 0.04) / pp, pp);
-      if (e.key === 'wraith') { e.inner.scale.x *= 1 + Math.sin(e.phase * 2.2) * 0.3; e.inner.rotation.x = e.diving ? 0.6 : 0; }
+      if (e.key === 'wraith') e.inner.scale.x *= e.atkT > 0 ? 0.65 : 1 + Math.sin(e.phase * 2.2) * 0.3;
       if (e.flash > 0) { e.flash -= dt; e.bodyMat.emissiveIntensity = e.flash > 0 ? 2.5 : (e.enraged ? 0.8 : 0.15); e.bodyMat.emissive.set(e.flash > 0 ? 0xffffff : (e.enraged ? 0xff0022 : e.def.color)); }
       // 근접 공격
       const vy = pos.y + e.cy - (P.pos.y + 1);
-      const close = e.fly ? Math.hypot(dist, vy) < e.r + 0.9 : dist < e.r + 0.7 && P.pos.y < e.def.size * 2;
-      if (close && e.atkCd <= 0) {
-        e.atkCd = 0.9;
-        if (e.fly) e.climbT = 1.6; // 공격 후 다시 상승
-        this.hurt(e.def.dmg * this.diff.dmg);
-        if (e.def.explode) { e.hp = 0; this.kill(e); }
+      const d3 = e.fly ? Math.hypot(dist, vy) : dist, reach = e.r + (e.fly ? 0.9 : 0.75);
+      const grounded = e.fly || P.pos.y < e.def.size * 2;
+      if (e.atkT <= 0 && e.atkCd <= 0 && d3 < reach + 1.0 && grounded && !e.dead) {
+        e.atkT = e.def.explode ? FUSE : ATK_DUR; e.atkHit = false; e.atkCd = e.def.boss ? 1.1 : 0.95;
+      }
+      if (e.atkT > 0) {
+        e.atkT -= dt;
+        if (!e.atkHit && e.atkT <= (e.def.explode ? 0 : STRIKE * 0.45)) { // 덮친 직후 판정
+          e.atkHit = true;
+          if (e.def.explode) { if (d3 < reach + 2.4) this.hurt(e.def.dmg * this.diff.dmg); e.hp = 0; this.kill(e); }
+          else if (d3 < reach + 0.8 && grounded) {
+            this.hurt(e.def.dmg * this.diff.dmg);
+            this.burst(tmp.copy(P.pos).setY(P.pos.y + 1.1).addScaledVector(tmp2.set(-nx, 0, -nz), 0.6), 8, '#ff2a55', 4, 0.3, 0.25);
+            if (e.fly) e.climbT = 1.6; // 공격 후 다시 상승
+          }
+        }
+        if (e.atkT < 0) e.atkT = 0;
+      }
+      this.animateEnemy(e, spd);
+    }
+  }
+
+  // 부위 애니메이션: 교차 보행, 턱 벌림, 공격 예비동작/타격, 원거리 시전, 보스 스킬 자세
+  animateEnemy(e, spd) {
+    const s = e.def.size, moving = Math.min(1, Math.abs(spd) / 3);
+    let rx = 0, jaw = 0.12 + Math.max(0, Math.sin(e.phase * 0.35)) * 0.12, lunge = 0, eyeK = 1;
+    if (e.atkT > 0) {
+      if (e.def.explode) {
+        const k = 1 - e.atkT / FUSE;
+        e.inner.scale.multiplyScalar(1 + k * 0.5);
+        e.bodyMat.emissive.set(Math.sin(k * 45) > 0 ? 0xffffff : 0xff4400); e.bodyMat.emissiveIntensity = 0.6 + k * 2;
+        jaw = 1.2;
+      } else if (e.atkT > STRIKE) {
+        const w = 1 - (e.atkT - STRIKE) / (ATK_DUR - STRIKE);
+        rx = -0.55 * w; jaw = 0.2 + 1.1 * w; lunge = -0.2 * s * w;
+      } else {
+        const k = 1 - e.atkT / STRIKE, p = Math.min(1, k * 3);
+        rx = (-0.55 + 1.05 * p) * (1 - k * 0.7); jaw = (1 - p) * 1.3; lunge = 0.32 * s * p * (1 - k * 0.6);
+      }
+    }
+    if (e.castT > 0) {
+      const k = 1 - e.castT / CAST_DUR;
+      rx = -0.4 * k; jaw = 0.3 + 1.2 * k; eyeK = 1 + k * 0.5;
+    }
+    if (e.fly && e.diving && e.atkT <= 0) rx += 0.6;
+    if (e.def.boss) {
+      const t = Math.max(0, e.stateT);
+      if (e.state === 'slam') { rx = -0.7 * (1 - t / 1.1); jaw = 1.2; e.inner.position.y += 0.7 * s * (1 - t / 1.1); }
+      else if (e.state === 'charge') { rx = 0.35; jaw = 1.3; }
+      else if (e.state === 'barrage') { rx = -0.25 + Math.sin(e.phase * 3) * 0.05; jaw = 1.4; }
+      else if (e.state === 'summon') { rx = -0.6; jaw = 1.0 + Math.sin(e.phase * 2) * 0.3; e.inner.position.y += 0.4; }
+    }
+    e.inner.rotation.x = rx;
+    e.inner.position.z = lunge;
+    if (e.key === 'gazer') { e.jaw.rotation.x = -0.5 - jaw * 0.6; e.eyes.scale.setScalar(eyeK); }
+    else { e.jaw.rotation.x = jaw * 0.45; e.jaw.scale.x = 1 + jaw * 0.55; }
+    if (e.legsA) {
+      if (e.fly) { e.legsA.rotation.y = Math.sin(e.phase * 0.3) * 0.3; e.legsB.rotation.y = -e.legsA.rotation.y; }
+      else {
+        const sw = Math.sin(e.phase) * 0.38 * moving;
+        e.legsA.rotation.y = sw; e.legsB.rotation.y = -sw;
+        e.legsA.position.y = Math.max(0, Math.sin(e.phase)) * 0.12 * s * moving;
+        e.legsB.position.y = Math.max(0, -Math.sin(e.phase)) * 0.12 * s * moving;
       }
     }
   }
@@ -941,7 +1041,7 @@ export class Game {
       return null;
     }
     if (e.state === 'slam') {
-      e.inner.position.y += 0.5;
+      e.inner.position.y += 0.5 * (1 - Math.max(0, e.stateT) / 1.1);
       if (e.stateT <= 0) {
         const R = big ? 13 : 9;
         this.shockRing(e.mesh.position, R, 0xff2244, 0.5); this.burst(e.mesh.position.clone().setY(0.5), 80, '#ff3355', 16, 0.6, 0.7);
@@ -1137,6 +1237,32 @@ export class Game {
     this.view.rotation.y = 0;
     this.view.rotation.z += ((sprint && hspd > 10 ? 0.35 : 0) + reloadK * 0.5 - this.view.rotation.z) * Math.min(1, dt * 10);
     this.view.rotation.z += this.roll;
+    // 움직이는 총기 부품: 노리쇠/슬라이드, 펌프 액션, 탄창 교체, 실린더 회전, 로켓 탄두
+    const ud = this.gun.userData;
+    if (ud.bolt) {
+      this.boltT = Math.max(0, (this.boltT || 0) - dt * 16);
+      const locked = s.ammo === 0 && def.type === 'pistol';
+      ud.bolt.position.z = (locked ? 1 : this.boltT) * (def.type === 'pistol' ? 0.055 : 0.04);
+    }
+    if (ud.pump) {
+      ud.pumpZ ??= ud.pump.position.z;
+      this.pumpT = Math.max(0, (this.pumpT || 0) - dt);
+      const k = this.pumpT > 0 && this.pumpT < 0.42 ? Math.sin((0.42 - this.pumpT) / 0.42 * Math.PI) : 0;
+      ud.pump.position.z = ud.pumpZ + k * 0.09;
+    }
+    if (ud.mag) {
+      ud.magY ??= ud.mag.position.y;
+      const rk = s.reloadT > 0 ? 1 - s.reloadT / def.reload : 0;
+      const off = rk <= 0 ? 0 : rk < 0.45 ? rk / 0.45 : rk < 0.6 ? 1 : (1 - rk) / 0.4;
+      ud.mag.position.y = ud.magY - off * 0.32;
+      ud.mag.visible = off < 0.95;
+    }
+    if (ud.drum) {
+      if (s.reloadT > 0) this.drumTarget = (this.drumTarget || 0) + dt * 14;
+      ud.drum.rotation.z += ((this.drumTarget || 0) - ud.drum.rotation.z) * Math.min(1, dt * 18);
+    }
+    if (ud.warhead) ud.warhead.visible = s.ammo > 0 && !(s.reloadT > 0 && s.reloadT > def.reload * 0.35);
+    if (ud.ring2) ud.ring2.rotation.y += dt * 4;
     if (this.gun.userData.melee && this.swingT > 0) {
       this.swingT = Math.max(0, this.swingT - dt * Math.max(5, def.rate * 2.5));
       const k = 1 - this.swingT, e = Math.sin(k * Math.PI);
