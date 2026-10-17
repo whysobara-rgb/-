@@ -43,19 +43,30 @@ export function sfx(name, p = {}) {
   if (!ctx) return;
   switch (name) {
     case 'shot': {
-      const heavy = p.heavy || 0;
-      noise(0.08 + heavy * 0.15, 1800 - heavy * 900, 0.8, 0.5 + heavy * 0.3);
-      tone(160 - heavy * 60, 50, 0.1 + heavy * 0.1, 0.4 + heavy * 0.3, 'triangle');
+      // 레이어: 날카로운 크랙 + 몸통 노이즈 + 저역 펀치 + 기계음 + 짧은 잔향
+      const heavy = p.heavy || 0, pt = (p.pitch || 1) * (0.94 + Math.random() * 0.12);
+      noise(0.025, 5200 * pt, 0.7, 0.45, 'highpass');
+      noise(0.07 + heavy * 0.16, (2000 - heavy * 1000) * pt, 0.8, 0.55 + heavy * 0.3);
+      tone(140 * pt, 38, 0.09 + heavy * 0.14, 0.75 + heavy * 0.3, 'sine');
+      tone(320 * pt, 90, 0.04, 0.25, 'square');
+      noise(0.03, 3500, 6, 0.12, 'bandpass', 0.045);
+      noise(0.35 + heavy * 0.3, 700 * pt, 0.5, 0.08 + heavy * 0.06, 'lowpass', 0.03);
       break;
     }
+    case 'swing': { const pt = (p.pitch || 1) * (0.9 + Math.random() * 0.2);
+      noise(0.16 + (p.heavy || 0) * 0.12, 2400 * pt, 1.2, 0.35, 'bandpass'); tone(500 * pt, 180, 0.12, 0.06, 'sine'); break; }
+    case 'meleeHit': { const h = p.heavy || 0;
+      noise(0.12 + h * 0.15, 900 - h * 300, 0.7, 0.8); tone(110 - h * 30, 35, 0.18 + h * 0.15, 0.9, 'sine');
+      noise(0.05, 4000, 3, 0.3, 'bandpass'); break; }
     case 'laser': if (throttle('laser', 60)) return; tone(900, 500, 0.06, 0.08, 'sawtooth'); break;
     case 'tesla': noise(0.12, 4000, 4, 0.3, 'bandpass'); tone(1200, 200, 0.12, 0.12, 'square'); break;
     case 'rail': tone(2400, 80, 0.35, 0.3, 'sawtooth'); noise(0.3, 3000, 1, 0.4); break;
     case 'launch': noise(0.35, 600, 0.6, 0.5); tone(220, 60, 0.3, 0.3, 'sawtooth'); break;
     case 'boom': if (throttle('boom', 40)) return;
       noise(0.9 * (p.s || 1), 380, 0.5, 0.9); tone(90, 25, 0.7, 0.7, 'sine'); break;
-    case 'hit': if (throttle('hit', 30)) return; tone(1400, 900, 0.04, 0.12, 'square'); break;
-    case 'kill': if (throttle('kill', 35)) return; tone(700, 1500, 0.07, 0.1, 'triangle'); break;
+    case 'hit': if (throttle('hit', 30)) return; tone(p.crit ? 2200 : 1500, p.crit ? 1700 : 1000, 0.035, p.crit ? 0.16 : 0.1, 'square'); noise(0.04, 1200, 1, 0.12); break;
+    case 'kill': { if (throttle('kill', 35)) return; const c = Math.min(p.combo || 0, 24) / 24; const f = 900 * (1 + c);
+      tone(f, f * 1.5, 0.09, 0.13, 'triangle'); tone(f * 2, f * 2, 0.12, 0.05, 'sine', 0.03); noise(0.12, 600, 0.6, 0.25); break; }
     case 'reload': noise(0.05, 3000, 2, 0.3, 'bandpass'); noise(0.05, 2500, 2, 0.3, 'bandpass', 0.18); break;
     case 'empty': tone(1800, 1700, 0.03, 0.1, 'square'); break;
     case 'hurt': if (throttle('hurt', 120)) return; tone(200, 80, 0.2, 0.35, 'sawtooth'); break;

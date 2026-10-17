@@ -9,6 +9,8 @@ import { buildGun, enemyGeometry } from './models.js';
 import { sfx } from './audio.js';
 
 const ARENA = 68;
+const SHOT_PITCH = { pistol: 1.25, smg: 1.35, rifle: 1, burst: 1.05, drifle: 0.95, shotgun: 0.62, dshotgun: 0.55, sniper: 0.7, exrifle: 0.85, flak: 0.6, minigun: 1.45, cryo: 1.15 };
+const SHELL_BRASS = new THREE.Color(0xffb347), SHELL_RED = new THREE.Color(0xff3a2a);
 const V = THREE.Vector3;
 const tmp = new V(), tmp2 = new V(), tmp3 = new V();
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -249,11 +251,12 @@ export class Game {
     this.spawnAcc = 0; this.time = 0; this.combo = 0; this.comboT = 0;
     this.player = { pos: new V(0, 0, 0), vel: new V(), onGround: true, hp: 100, maxHp: 100, armor: armor.armor, maxArmor: armor.armor, dr: armor.dr, hurtT: 9, dashT: 0, dashDir: new V(), overT: 0 };
     this.yaw = 0; this.pitch = 0; this.swayX = 0; this.swayY = 0; this.shake = 0; this.recoil = 0; this.kick = 0;
+    this.recoilV = 0; this.kickV = 0; this.roll = 0; this.fovPunch = 0; this.chKick = 0; this.stopT = 0; this.lastStop = 0; this.swingT = 0; this.swingDir = 1;
     this.cds = { dash: 0, shock: 0, over: 0, nade: 0, slash: 0 };
     this.cdMax = { dash: 2.2, shock: 9, over: 32, nade: 5, slash: 0.7 };
     this.slots = weapons.map((def) => ({ def, ammo: def.mag, reloadT: 0, cd: 0, burst: 0, spinT: 0 }));
     this.cur = 0;
-    this.enemies = []; this.projs = []; this.eprojs = []; this.pickups = [];
+    this.enemies = []; this.projs = []; this.eprojs = []; this.pickups = []; this.dying = [];
     this.boss = null;
     this.equipView();
     this.running = true; this.paused = false;
@@ -269,6 +272,7 @@ export class Game {
     for (const p of this.projs || []) this.scene.remove(p.mesh);
     for (const p of this.eprojs || []) this.scene.remove(p.mesh);
     for (const p of this.pickups || []) this.scene.remove(p.mesh);
+    for (const d of this.dying || []) { this.scene.remove(d.e.mesh); d.e.bodyMat.dispose(); }
     for (const t of this.tracers) this.scene.remove(t.m);
     for (const f of this.flashes) this.scene.remove(f.m);
     for (const l of this.lines) this.scene.remove(l.m);
@@ -339,6 +343,7 @@ export class Game {
     if (def.gatling) s.spinT = Math.max(0, Math.min(1, s.spinT + (this.mouseDown ? dt * 2.5 : -dt * 1.5)));
     const wantFire = s.burst > 0 || (def.auto ? this.mouseDown : this.triggerPulled);
     this.triggerPulled = false;
+    if (def.mode === 'melee') { if (wantFire && s.cd <= 0) { this.melee(s); s.cd = 1 / def.rate; } return; }
     if (!wantFire || s.cd > 0) return;
     if (def.gatling && s.spinT < 0.35) return;
     if (s.ammo <= 0) { sfx('empty'); this.startReload(); return; }
@@ -369,9 +374,18 @@ export class Game {
         for (let p = 0; p < def.pellets; p++) this.fireHitscan(origin, this.aimDir(spread), muzzle, def, mul, col);
       }
     }
-    // 반동/연출
+    // 반동/연출: 스프링 반동(되튐) + 조준점 상승 + 좌우 흔들림 + FOV 펀치 + 탄피 배출
     const kick = Math.min(0.09, 0.012 + def.dmg * def.pellets * 0.00025 + (def.mode === 'proj' ? 0.05 : 0));
-    this.kick += kick; this.recoil += kick * (this.aiming ? 0.25 : 0.4);
+    const aimK = this.aiming ? 0.55 : 1;
+    this.kickV += kick * 22;
+    this.recoilV += kick * 12 * aimK;
+    this.pitch = Math.min(1.5, this.pitch + kick * 0.12 * aimK);
+    this.yaw += rand(-1, 1) * kick * 0.09 * aimK;
+    this.roll = rand(-1, 1) * kick * 2.2;
+    this.fovPunch = Math.min(6, this.fovPunch + heavy * 2.5 + kick * 10);
+    this.chKick = Math.min(0.06, this.chKick + kick * 0.25);
+    if (heavy >= 1) this.shake = Math.max(this.shake, 0.12);
+    if (def.mode === 'hitscan' && !def.rail) this.ejectShell(def.pellets > 1);
     this.muzzleSprite.position.copy(this.gun.userData.muzzles[0].position);
     this.muzzleSprite.visible = def.mode !== 'beam'; this.muzzleSprite.rotation.z = Math.random() * 6;
     this.muzzleSprite.scale.setScalar(def.pellets > 1 || def.mode === 'proj' ? 1.6 : 1);
@@ -381,7 +395,83 @@ export class Game {
     else if (def.mode === 'chain') sfx('tesla');
     else if (def.rail) sfx('rail');
     else if (def.mode === 'proj') sfx('launch');
-    else sfx('shot', { heavy });
+    else sfx('shot', { heavy, pitch: SHOT_PITCH[def.type] || 1 });
+  }
+
+  ejectShell(shotgun) {
+    const q = this.camera.quaternion;
+    const r = tmp.set(1, 0, 0).applyQuaternion(q), u = tmp2.set(0, 1, 0).applyQuaternion(q), f = new V(0, 0, -1).applyQuaternion(q);
+    const pos = this.camera.position.clone().addScaledVector(r, 0.2).addScaledVector(u, -0.12).addScaledVector(f, 0.45);
+    const vel = r.clone().multiplyScalar(rand(2.5, 4)).addScaledVector(u, rand(2, 3.2)).addScaledVector(f, rand(-0.5, 0.5));
+    this.particle(pos, vel, shotgun ? SHELL_RED : SHELL_BRASS, shotgun ? 0.09 : 0.06, 0.9, 14);
+  }
+
+  hitStop(t) {
+    // 짧은 시간 정지: 타격감을 위한 프레임 경직 (자주 걸리지 않도록 간격 제한)
+    const now = performance.now();
+    if (t < 0.1 && now - this.lastStop < 220) return;
+    this.lastStop = now; this.stopT = Math.max(this.stopT, t);
+  }
+
+  melee(s) {
+    const def = s.def, P = this.player, mul = P.overT > 0 ? 1.5 : 1;
+    const col = RARITIES[def.rarity].color, c = new THREE.Color(col);
+    const f = this.aimDir(0), o = this.camera.position;
+    const fh = new V(f.x, 0, f.z).normalize(), right = new V(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
+    this.swingDir = -this.swingDir; this.swingT = 1;
+    const hits = [];
+    for (const e of this.enemies) {
+      if (e.dead) continue;
+      tmp.copy(e.mesh.position).setY(e.mesh.position.y + e.cy).sub(o);
+      const d = tmp.length();
+      if (d > def.range + e.r) continue;
+      if (d > e.r + 0.6 && tmp.normalize().dot(f) < def.arc) continue;
+      hits.push({ e, d });
+    }
+    hits.sort((a, b) => a.d - b.d);
+    // 베기 궤적
+    const thrust = def.mshape === 'spear' || def.mshape === 'fist';
+    const half = Math.min(1.5, Math.acos(Math.max(-1, Math.min(1, def.arc))));
+    for (let i = 0; i <= 20; i++) {
+      const k = i / 20;
+      if (thrust) {
+        const p = o.clone().addScaledVector(f, 0.8 + k * def.range).add(tmp.set(rand(-0.1, 0.1), rand(-0.1, 0.1) - 0.2, 0));
+        this.particle(p, tmp2.copy(f).multiplyScalar(6), c, 0.3, 0.18, 0);
+      } else {
+        const a = (k * 2 - 1) * half * this.swingDir;
+        const dir = fh.clone().multiplyScalar(Math.cos(a)).addScaledVector(right, Math.sin(a));
+        const p = o.clone().addScaledVector(dir, def.range * 0.7); p.y += -0.35 + k * 0.5;
+        this.particle(p, dir.multiplyScalar(2), c, 0.45, 0.2, 0);
+      }
+    }
+    let leech = 0;
+    for (const h of hits) {
+      const p = h.e.mesh.position.clone(); p.y += h.e.cy;
+      tmp3.copy(h.e.mesh.position).sub(P.pos).setY(0).normalize();
+      h.e.kb.addScaledVector(tmp3, h.e.def.boss ? def.kb * 0.12 : def.kb);
+      this.burst(p, 14, col, 8, 0.35, 0.3);
+      this.damage(h.e, def.dmg * mul, p, 0);
+      if (def.mshape === 'fist') { this.explode(p, def.aoe, def.dmg * mul * 0.5, col, false); this.burst(p, 30, '#ffb347', 10, 0.35, 0.4); }
+      leech += def.leech;
+    }
+    if (def.mshape === 'hammer') {
+      const gp = o.clone().addScaledVector(fh, 3); gp.y = 0.2;
+      this.explode(gp, def.aoe, def.dmg * mul * 0.6, col, false); this.shockRing(gp, def.aoe, col, 0.35);
+      this.burst(gp, 40, col, 9, 0.4, 0.5); this.burst(gp, 16, '#8a7a99', 3, 0.8, 0.8, -1);
+      this.shake = Math.max(this.shake, 0.35); sfx('boom', { s: 0.8 });
+    }
+    if (def.wave) this.spawnProj(o.clone().addScaledVector(f, 1).add(tmp.set(0, -0.2, 0)), f.clone(), { type: 'plasma', dmg: def.dmg * 0.6, aoe: 1.6, pierce: 8, speed: 42, grav: 0 }, mul, col);
+    if (leech) P.hp = Math.min(P.maxHp, P.hp + leech);
+    if (P.onGround && hits.length === 0 && def.range > 4) { P.vel.x += fh.x * 6; P.vel.z += fh.z * 6; } // 전진 베기
+    const heavy = def.rate < 1.5 ? 1 : 0;
+    this.kickV -= 0.4; this.roll = this.swingDir * 0.05;
+    if (hits.length) {
+      this.hitStop(Math.min(0.11, 0.035 + hits.length * 0.008 + (heavy ? 0.03 : 0)));
+      this.shake = Math.max(this.shake, 0.12 + heavy * 0.2);
+      this.fovPunch = Math.min(6, this.fovPunch + 1.5 + heavy * 2.5);
+      sfx('meleeHit', { heavy });
+    }
+    sfx('swing', { heavy, pitch: def.mshape === 'chain' ? 1.6 : 1 });
   }
 
   rayEnemies(o, d, maxD) {
@@ -561,7 +651,9 @@ export class Game {
   explode(pos, radius, dmg, col, big) {
     const m = new THREE.Mesh(this.flashGeo, new THREE.MeshBasicMaterial({ color: big ? 0xffb347 : col, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
     m.position.copy(pos); m.scale.setScalar(0.1); this.scene.add(m);
-    this.flashes.push({ m, t: big ? 0.35 : 0.22, max: big ? 0.35 : 0.22, r: radius });
+    // 카메라가 폭발 구 안에 들어가 화면 전체가 하얗게 덮이지 않도록 크기를 거리로 제한
+    const camD = pos.distanceTo(this.camera.position);
+    this.flashes.push({ m, t: big ? 0.35 : 0.22, max: big ? 0.35 : 0.22, r: Math.min(radius, Math.max(0.4, camD * 0.6)) });
     this.burst(pos, big ? 60 : 14, big ? '#ff8a2a' : col, radius * 3, big ? 0.6 : 0.35, 0.6);
     if (big) { this.burst(pos, 25, '#ffee88', radius * 4.5, 0.35, 0.4); this.burst(pos, 20, '#553344', 3, 1.2, 1.2, -1); }
     this.flashLight(pos, big ? 0xff8833 : col, big ? 40 : 12, big ? 0.35 : 0.15);
@@ -604,6 +696,10 @@ export class Game {
       else r.m.material.opacity = 0.15 + 0.35 * Math.abs(Math.sin(k * 18));
       if (r.t <= 0) { this.scene.remove(r.m); r.m.material.dispose(); if (r.tele) r.m.geometry.dispose(); this.rings.splice(i, 1); }
     }
+    for (let i = (this.dying || []).length - 1; i >= 0; i--) {
+      const d = this.dying[i]; d.t -= dt; d.e.inner.scale.multiplyScalar(1 + dt * 5);
+      if (d.t <= 0) { this.scene.remove(d.e.mesh); d.e.bodyMat.dispose(); this.dying.splice(i, 1); }
+    }
     for (const L of this.lights) { if (L.t > 0) { L.t -= dt; L.l.intensity = Math.max(0, L.max * L.t / L.dur); } }
     if (this.muzzleT > 0) { this.muzzleT -= dt; if (this.muzzleT <= 0) { this.muzzleSprite.visible = false; this.muzzleLight.intensity = 0; } }
     if (this.beamT > 0) {
@@ -627,7 +723,7 @@ export class Game {
     inner.position.y = def.size * 0.9;
     if (!pos) {
       const portal = this.portals[Math.floor(Math.random() * this.portals.length)];
-      pos = new V(Math.cos(portal.a) * (ARENA - 4) + rand(-3, 3), 0, Math.sin(portal.a) * (ARENA - 4) + rand(-3, 3));
+      pos = new V(Math.cos(portal.a) * (ARENA - 4) + rand(-3, 3), def.fly ? 4 : 0, Math.sin(portal.a) * (ARENA - 4) + rand(-3, 3));
       this.burst(tmp3.copy(pos).setY(2), 6, '#ff3dbb', 6, 0.5, 0.4, 0);
     }
     mesh.position.copy(pos);
@@ -637,6 +733,7 @@ export class Game {
       key, def, mesh, inner, bodyMat, hp: def.hp * hpMul, maxHp: def.hp * hpMul, r: def.size * 1.15, cy: def.size * 0.9,
       speed: def.speed * rand(0.85, 1.15), slowT: 0, flash: 0, atkCd: 0, phase: Math.random() * 6,
       skillCd: 3, state: 'chase', stateT: 0, kb: new V(), enraged: false, spitCd: rand(1, 3),
+      fly: !!def.fly, alt: def.fly ? rand(def.alt[0], def.alt[1]) : 0, climbT: 0,
     };
     this.enemies.push(e);
     if (def.boss) {
@@ -661,9 +758,11 @@ export class Game {
         const r = Math.random(), prog = this.spawned / this.total;
         let key = 'crawler';
         if (r < 0.08 + prog * 0.05) key = 'brute';
-        else if (r < 0.2) key = 'spitter';
-        else if (r < 0.3) key = 'exploder';
-        else if (r < 0.55) key = 'stalker';
+        else if (r < 0.18) key = 'spitter';
+        else if (r < 0.26) key = 'exploder';
+        else if (r < 0.37) key = 'wraith';
+        else if (r < 0.43) key = 'gazer';
+        else if (r < 0.6) key = 'stalker';
         this.spawnEnemy(key);
       }
       if (this.spawnAcc > 3) this.spawnAcc = 3;
@@ -680,21 +779,26 @@ export class Game {
     const crit = pt && pt.y > e.mesh.position.y + e.cy + e.r * 0.35;
     if (crit) dmg = Math.round(dmg * 1.6);
     e.hp -= dmg; e.flash = 0.08;
+    e.pop = Math.min(0.35, (e.pop || 0) + 0.08 + dmg / e.maxHp * 0.6);
+    if (!e.def.boss && pt) { tmp3.copy(e.mesh.position).sub(this.player.pos).setY(0).normalize(); e.kb.addScaledVector(tmp3, Math.min(6, dmg / e.maxHp * 10)); }
     if (slow) e.slowT = 2;
     if (pt) { this.burst(pt, e.def.boss ? 6 : 4, e.def.eye, 5, 0.3, 0.3); this.dmgNum(pt, dmg, crit); }
     else if (!silent || Math.random() < 0.3) { const p = e.mesh.position.clone(); p.y += e.cy * 2; this.dmgNum(p, dmg, false); }
-    this.hitmark(crit);
-    if (e.hp <= 0) this.kill(e);
+    if (e.hp <= 0) { this.hitmark(crit, true); this.kill(e, crit); } else this.hitmark(crit, false);
   }
 
-  kill(e) {
+  kill(e, crit) {
     e.dead = true;
     this.kills++; this.combo++; this.comboT = 2.5;
     const pos = e.mesh.position.clone(); pos.y += e.cy;
     this.burst(pos, e.def.boss ? 160 : 22, e.def.color, e.def.boss ? 14 : 7, e.def.boss ? 0.9 : 0.45, 0.9);
     this.burst(pos, e.def.boss ? 60 : 8, e.def.eye, e.def.boss ? 18 : 6, 0.3, 0.5);
-    this.scene.remove(e.mesh); e.bodyMat.dispose();
-    sfx('kill');
+    // 죽음 연출: 하얗게 번쩍이며 부풀었다가 터짐
+    e.bodyMat.emissive.set(e.def.eye); e.bodyMat.emissiveIntensity = 1.1;
+    this.dying.push({ e, t: 0.09 });
+    sfx('kill', { combo: this.combo });
+    if (e.def.boss) this.hitStop(e.def.boss === 2 ? 0.45 : 0.25);
+    else if (crit) this.hitStop(0.03);
     const [c0, c1] = e.def.coin;
     const coins = Math.round(rand(c0, c1 + 1) * 6 * this.diff.coin * (1 + Math.min(this.combo, 100) * 0.005));
     this.coinsEarned += coins; this.hooks.onCoins(coins);
@@ -765,9 +869,21 @@ export class Game {
       let spd = e.speed * (e.slowT > 0 ? 0.5 : 1) * (e.enraged ? 1.4 : 1);
       let mvx = nx, mvz = nz;
       if (e.def.boss) { const r = this.bossAI(e, dt, dist, nx, nz); if (r) { mvx = r.x; mvz = r.z; spd = r.s; } }
-      else if (e.def.ranged && dist < 17) {
+      else if (e.fly) {
+        // 비행: 고도를 유지하며 접근 → 박쥐는 근처에서 급강하, 감시자는 거리를 두고 공중 사격
+        e.climbT -= dt;
+        let ty = e.alt + Math.sin(e.phase * 0.3) * 0.8, climb = 1.5;
+        if (e.def.shooter) {
+          if (dist < 22) {
+            spd = dist < 14 ? -2.5 : 0; e.spitCd -= dt;
+            if (e.spitCd <= 0) { e.spitCd = rand(1.5, 2.3); this.enemyShot(pos.clone().setY(pos.y + e.cy), 20, e.def.dmg, 0xffd60a); }
+          }
+        } else if (dist < 11 && e.climbT <= 0) { ty = P.pos.y + 0.9; climb = 4; spd *= 1.5; e.diving = true; }
+        else e.diving = false;
+        pos.y += (ty - pos.y) * Math.min(1, dt * climb);
+      } else if (e.def.ranged && dist < 17) {
         spd = 0; e.spitCd -= dt;
-        if (e.spitCd <= 0) { e.spitCd = rand(1.8, 2.8); this.enemyShot(pos.clone().setY(e.cy * 1.6), 18, e.def.dmg, 0x9dff3d); }
+        if (e.spitCd <= 0) { e.spitCd = rand(1.8, 2.8); this.enemyShot(pos.clone().setY(pos.y + e.cy * 1.6), 18, e.def.dmg, 0x9dff3d); }
       } else if (e.key === 'stalker') { mvx += Math.sin(e.phase * 0.4) * 0.5 * nz; mvz -= Math.sin(e.phase * 0.4) * 0.5 * nx; }
       // 분리
       const gx = Math.floor(pos.x / 3), gz = Math.floor(pos.z / 3);
@@ -775,7 +891,7 @@ export class Game {
       for (let ox = -1; ox <= 1; ox++) for (let oz = -1; oz <= 1; oz++) {
         const a = grid.get((gx + ox) * 1000 + gz + oz); if (!a) continue;
         for (const o of a) {
-          if (o === e) continue;
+          if (o === e || o.fly !== e.fly) continue;
           const ddx = pos.x - o.mesh.position.x, ddz = pos.z - o.mesh.position.z;
           const rr = e.r + o.r, d2 = ddx * ddx + ddz * ddz;
           if (d2 < rr * rr && d2 > 1e-4) { const d = Math.sqrt(d2); sx += ddx / d * (rr - d); sz += ddz / d * (rr - d); }
@@ -786,7 +902,7 @@ export class Game {
       e.kb.multiplyScalar(Math.max(0, 1 - dt * 5));
       for (const pl of this.pillars) {
         const ddx = pos.x - pl.x, ddz = pos.z - pl.z, rr = pl.r + e.r * 0.7, d2 = ddx * ddx + ddz * ddz;
-        if (d2 < rr * rr) {
+        if (d2 < rr * rr && !(e.fly && pos.y > pl.h)) {
           const d = Math.sqrt(d2) || 0.01; pos.x = pl.x + ddx / d * rr; pos.z = pl.z + ddz / d * rr;
           // 기둥을 돌아가도록 접선 방향으로 미끄러짐
           const side = (nx * ddz - nz * ddx) > 0 ? 1 : -1;
@@ -796,15 +912,20 @@ export class Game {
       const R = Math.hypot(pos.x, pos.z); if (R > ARENA + 2) { pos.x *= (ARENA + 2) / R; pos.z *= (ARENA + 2) / R; }
       // 연출
       e.mesh.rotation.y = Math.atan2(dx, dz);
-      const bob = Math.abs(Math.sin(e.phase)) * e.def.size * (e.key === 'stalker' ? 0.5 : 0.18);
+      const bob = e.fly ? Math.sin(e.phase * 0.5) * 0.3 : Math.abs(Math.sin(e.phase)) * e.def.size * (e.key === 'stalker' ? 0.5 : 0.18);
       e.inner.position.y = e.cy + bob;
       e.inner.rotation.z = Math.sin(e.phase) * 0.12;
-      e.inner.scale.set(1 + Math.sin(e.phase * 2) * 0.04, 1 - Math.sin(e.phase * 2) * 0.04, 1);
+      e.pop = Math.max(0, (e.pop || 0) - dt * 2.5);
+      const pp = 1 + e.pop;
+      e.inner.scale.set((1 + Math.sin(e.phase * 2) * 0.04) * pp, (1 - Math.sin(e.phase * 2) * 0.04) / pp, pp);
+      if (e.key === 'wraith') { e.inner.scale.x *= 1 + Math.sin(e.phase * 2.2) * 0.3; e.inner.rotation.x = e.diving ? 0.6 : 0; }
       if (e.flash > 0) { e.flash -= dt; e.bodyMat.emissiveIntensity = e.flash > 0 ? 2.5 : (e.enraged ? 0.8 : 0.15); e.bodyMat.emissive.set(e.flash > 0 ? 0xffffff : (e.enraged ? 0xff0022 : e.def.color)); }
       // 근접 공격
-      const yd = P.pos.y;
-      if (dist < e.r + 0.7 && yd < e.def.size * 2 && e.atkCd <= 0) {
+      const vy = pos.y + e.cy - (P.pos.y + 1);
+      const close = e.fly ? Math.hypot(dist, vy) < e.r + 0.9 : dist < e.r + 0.7 && P.pos.y < e.def.size * 2;
+      if (close && e.atkCd <= 0) {
         e.atkCd = 0.9;
+        if (e.fly) e.climbT = 1.6; // 공격 후 다시 상승
         this.hurt(e.def.dmg * this.diff.dmg);
         if (e.def.explode) { e.hp = 0; this.kill(e); }
       }
@@ -862,7 +983,9 @@ export class Game {
         for (let i = 0; i < n; i++) {
           const a = (i / n) * Math.PI * 2;
           const p = e.mesh.position.clone().add(new V(Math.cos(a) * (e.r + 2), 0, Math.sin(a) * (e.r + 2)));
-          this.spawnEnemy(Math.random() < 0.5 ? 'crawler' : 'stalker', p);
+          const sk = ['crawler', 'stalker', 'wraith'][i % 3];
+          if (sk === 'wraith') p.y = 3;
+          this.spawnEnemy(sk, p);
         }
         this.burst(e.mesh.position.clone().setY(2), 60, '#b026ff', 10, 0.6, 0.6);
         e.state = 'chase';
@@ -995,30 +1118,46 @@ export class Game {
     for (const key in this.cds) this.cds[key] = Math.max(0, this.cds[key] - dt);
 
     // 카메라
-    this.recoil *= Math.max(0, 1 - dt * 9);
+    this.recoilV += (-this.recoil * 260 - this.recoilV * 24) * dt; this.recoil += this.recoilV * dt;
+    this.kickV += (-this.kick * 420 - this.kickV * 26) * dt; this.kick += this.kickV * dt;
+    this.roll *= Math.max(0, 1 - dt * 10); this.fovPunch *= Math.max(0, 1 - dt * 12); this.chKick *= Math.max(0, 1 - dt * 8);
     this.shake *= Math.max(0, 1 - dt * 6);
     const hspd = Math.hypot(P.vel.x, P.vel.z);
     this.bobT = (this.bobT || 0) + dt * hspd * (P.onGround ? 1.1 : 0);
     const sh = this.shake * 0.25;
     this.camera.position.set(P.pos.x + rand(-sh, sh), P.pos.y + 1.7 + Math.sin(this.bobT) * 0.05 * Math.min(1, hspd / 9) + rand(-sh, sh), P.pos.z);
-    this.camera.rotation.set(this.pitch + this.recoil, this.yaw, 0);
+    this.camera.rotation.set(this.pitch + this.recoil, this.yaw, this.roll * 0.3);
     const def = this.slots[this.cur].def;
     const zoom = this.aiming ? (def.scope || def.rail ? 0.4 : 0.75) : 1;
     const targetFov = this.baseFov * zoom * (sprint && hspd > 10 ? 1.08 : 1) * (P.dashT > 0 ? 1.12 : 1);
     this.camera.fov += (targetFov - this.camera.fov) * Math.min(1, dt * 12);
+    this.camera.fov += this.fovPunch * 0.12;
     this.camera.updateProjectionMatrix();
     // 뷰모델
     const s = this.slots[this.cur];
-    this.kick *= Math.max(0, 1 - dt * 14);
     this.swayX *= Math.max(0, 1 - dt * 8); this.swayY *= Math.max(0, 1 - dt * 8);
     const reloadK = s.reloadT > 0 ? Math.sin(Math.PI * (1 - s.reloadT / def.reload)) : 0;
     const sw = this.switchT > 0 ? this.switchT / 0.25 : 0;
     const ax = this.aiming ? 0 : 0.24, ay = this.aiming ? -0.15 : -0.22;
     this.view.position.x += (ax - this.swayX - this.view.position.x) * Math.min(1, dt * 14);
     this.view.position.y += (ay + this.swayY + Math.sin(this.bobT * 0.5) * 0.012 * Math.min(1, hspd / 9) - reloadK * 0.12 - sw * 0.3 - this.view.position.y) * Math.min(1, dt * 14);
-    this.view.position.z = -0.38 + this.kick;
-    this.view.rotation.x = this.kick * 2.5 - reloadK * 0.6;
+    this.view.position.z = -0.38 + this.kick * 1.4;
+    this.view.rotation.x = this.kick * 3.2 - reloadK * 0.6;
+    this.view.rotation.y = 0;
     this.view.rotation.z += ((sprint && hspd > 10 ? 0.35 : 0) + reloadK * 0.5 - this.view.rotation.z) * Math.min(1, dt * 10);
+    this.view.rotation.z += this.roll;
+    if (this.gun.userData.melee && this.swingT > 0) {
+      this.swingT = Math.max(0, this.swingT - dt * Math.max(5, def.rate * 2.5));
+      const k = 1 - this.swingT, e = Math.sin(k * Math.PI);
+      if (def.mshape === 'spear' || def.mshape === 'fist') this.view.position.z -= e * (def.mshape === 'spear' ? 0.5 : 0.32);
+      else {
+        this.view.rotation.z = this.swingDir * (1 - k * 2) * 1.1;
+        this.view.rotation.y = this.swingDir * (0.5 - k) * 1.2;
+        this.view.rotation.x = -0.6 * e;
+        this.view.position.x += -this.swingDir * (0.5 - k) * 0.3;
+      }
+    }
+    if (this.gun.userData.teeth) this.gun.userData.teeth.position.y = Math.sin(performance.now() * 0.08) * 0.004;
     if (this.gun.userData.spin) this.gun.userData.spin.rotation.z += dt * s.spinT * 40;
     if (this.gun.userData.ring) this.gun.userData.ring.rotation.z += dt * 3;
     if (this.gun.userData.core) this.gun.userData.core.rotation.y += dt * 5;
@@ -1026,7 +1165,7 @@ export class Game {
 
   // ───────────────────────── HUD ─────────────────────────
   toast(text, color) { this.hooks.onToast(text, color); }
-  hitmark(crit) { this.hooks.onHitmark(crit); sfx('hit'); }
+  hitmark(crit, kill) { this.hooks.onHitmark(crit, kill); sfx('hit', { crit }); }
   dmgNum(p, dmg, crit) {
     const d = this.dmgPool[this.dmgIdx]; this.dmgIdx = (this.dmgIdx + 1) % this.dmgPool.length;
     d.p.copy(p); d.t = 0.7; d.el.textContent = dmg; d.el.className = 'dmgnum' + (crit ? ' crit' : '');
@@ -1056,7 +1195,7 @@ export class Game {
     for (const e of this.enemies) {
       const [x, y] = tr(e.mesh.position.x, e.mesh.position.z);
       if (e.def.boss) { g.fillStyle = '#ff2244'; g.beginPath(); g.arc(x, y, 6, 0, 7); g.fill(); }
-      else { g.fillStyle = e.def.ranged ? '#9dff3d' : e.def.explode ? '#ff8a2a' : '#ff4d6d'; g.fillRect(x - 1.5, y - 1.5, 3, 3); }
+      else { g.fillStyle = e.fly ? '#5ee7ff' : e.def.ranged ? '#9dff3d' : e.def.explode ? '#ff8a2a' : '#ff4d6d'; g.fillRect(x - 1.5, y - 1.5, 3, 3); }
     }
     for (const p of this.pickups) { const [x, y] = tr(p.mesh.position.x, p.mesh.position.z); g.fillStyle = p.col; g.beginPath(); g.arc(x, y, 3.5, 0, 7); g.fill(); }
     g.restore();
@@ -1072,12 +1211,13 @@ export class Game {
       kills: this.kills, total: this.total, remaining: this.total - this.spawned + this.enemies.length + (this.bossSpawned ? 0 : 1),
       cds: this.cds, cdMax: this.cdMax, combo: this.comboT > 0 ? this.combo : 0,
       boss: this.boss ? { name: this.boss.def.name, hp: this.boss.hp, max: this.boss.maxHp, enraged: this.boss.enraged } : null,
-      spread: s.def.spread, time: this.time, force,
+      spread: s.def.spread + this.chKick, melee: s.def.mode === 'melee', time: this.time, force,
     });
   }
 
   frame() {
-    const dt = Math.min(0.05, this.clock.getDelta());
+    let dt = Math.min(0.05, this.clock.getDelta());
+    if (this.stopT > 0 && this.running && !this.paused) { this.stopT -= dt; dt *= 0.06; }
     const t = performance.now() / 1000;
     this.sky.material.uniforms.t.value = t; this.portalMat.uniforms.t.value = t;
     for (const p of this.pillars) p.crystal.rotation.y = t * 0.5;

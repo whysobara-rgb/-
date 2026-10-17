@@ -19,6 +19,7 @@ export function gunSvg(def) {
   const x0 = 200 - L - 20;
   let s = '';
   const r = (x, y, w, h, f, rx = 2) => (s += `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}" fill="${f}"/>`);
+  if (def.mode === 'melee') return meleeSvg(def, c, body);
   if (def.tube) {
     r(x0, 22, L, def.type === 'rpg' ? 22 : 18, body, 8);
     r(x0 + 6, 20, 6, 26, c); r(x0 + L - 14, 20, 6, 26, c);
@@ -41,6 +42,24 @@ export function gunSvg(def) {
   return `<svg viewBox="0 0 200 64" preserveAspectRatio="xMidYMid meet">${s}</svg>`;
 }
 
+// 근접 무기 실루엣 (가로 방향, 손잡이 오른쪽)
+function meleeSvg(def, c, body) {
+  const steel = def.rarity >= 3 ? c : '#cfd5df';
+  const shapes = {
+    knife: `<rect x="120" y="28" width="40" height="9" rx="3" fill="#1d1f26"/><rect x="114" y="24" width="6" height="17" fill="${body}"/><path d="M60 30 L114 26 L114 38 L66 36 Z" fill="${steel}"/><path d="M62 35 L114 36 L114 38 L66 36Z" fill="${c}"/>`,
+    katana: `<rect x="150" y="29" width="40" height="7" rx="3" fill="#1d1f26"/><ellipse cx="147" cy="32" rx="3" ry="9" fill="${body}"/><path d="M14 36 Q80 22 144 29 L144 34 Q80 28 18 40 Z" fill="${steel}"/><path d="M18 39 Q80 27 144 33 L144 34 Q80 29 18 40Z" fill="${c}"/>`,
+    great: `<rect x="160" y="28" width="32" height="9" rx="3" fill="#1d1f26"/><rect x="152" y="16" width="8" height="33" fill="${body}"/><path d="M8 32 L22 22 L152 22 L152 42 L22 42 Z" fill="${steel}"/><rect x="24" y="30" width="126" height="3" fill="${c}"/>`,
+    hammer: `<rect x="50" y="30" width="140" height="6" rx="3" fill="#1d1f26"/><rect x="18" y="12" width="40" height="42" rx="4" fill="${body}"/><rect x="18" y="28" width="40" height="8" fill="${c}"/>`,
+    chain: `<rect x="150" y="27" width="40" height="10" rx="3" fill="#1d1f26"/><rect x="132" y="20" width="20" height="24" rx="3" fill="${body}"/><rect x="18" y="24" width="114" height="16" rx="6" fill="#2a2d36"/><rect x="18" y="22" width="114" height="4" fill="${c}" stroke-dasharray="4 3"/><rect x="18" y="38" width="114" height="4" fill="${c}"/>`,
+    scythe: `<rect x="40" y="30" width="150" height="6" rx="3" fill="#1d1f26"/><path d="M44 30 Q30 2 100 6 Q60 10 50 32 Z" fill="${steel}"/><path d="M48 30 Q36 6 100 6 Q62 12 52 31Z" fill="${c}" opacity=".8"/>`,
+    plasma: `<rect x="150" y="28" width="40" height="9" rx="3" fill="#1d1f26"/><rect x="144" y="22" width="6" height="21" fill="${body}"/><rect x="16" y="27" width="128" height="11" rx="5" fill="${c}" opacity=".45"/><rect x="16" y="30" width="128" height="5" rx="2" fill="#fff"/>`,
+    fist: `<rect x="70" y="14" width="70" height="38" rx="10" fill="${body}"/><rect x="58" y="16" width="14" height="34" rx="5" fill="#2a2d36"/>${[0, 1, 2, 3].map((i) => `<rect x="56" y="${17 + i * 8.5}" width="6" height="6" rx="2" fill="${c}"/>`).join('')}<rect x="140" y="22" width="30" height="22" rx="4" fill="#1d1f26"/>`,
+    spear: `<rect x="40" y="30" width="155" height="5" rx="2" fill="#1d1f26"/><path d="M4 32 L40 22 L40 43 Z" fill="${c}"/><rect x="40" y="26" width="6" height="13" fill="${body}"/>`,
+  };
+  const glowDot = def.rarity >= 4 ? `<circle cx="165" cy="32" r="4" fill="#fff"/><circle cx="165" cy="32" r="8" fill="${c}" opacity=".35"/>` : '';
+  return `<svg viewBox="0 0 200 64" preserveAspectRatio="xMidYMid meet">${shapes[def.mshape] || shapes.knife}${glowDot}</svg>`;
+}
+
 function statRow(label, v, max, txt) {
   return `<div class="st">${label}<i><u style="width:${Math.min(100, (v / max) * 100)}%"></u></i><em>${txt}</em></div>`;
 }
@@ -53,6 +72,9 @@ function tags(def) {
   if (def.burst) t.push(`${def.burst}점사`);
   if (def.chain) t.push(`연쇄 ${def.chain}`);
   if (def.slow) t.push('둔화');
+  if (def.leech) t.push(`흡혈 ${def.leech}`);
+  if (def.wave) t.push('검기 발사');
+  if (def.mode === 'melee' && def.arc < 0) t.push('360° 베기');
   return t.map((x) => `<span>${x}</span>`).join('');
 }
 function weaponCard(def, foot = '', extraClass = '') {
@@ -63,8 +85,8 @@ function weaponCard(def, foot = '', extraClass = '') {
     ${gunSvg(def)}
     ${statRow('피해', def.dmg * def.pellets * def.barrels, 600, def.pellets * def.barrels > 1 ? `${def.dmg}×${def.pellets * def.barrels}` : def.dmg)}
     ${statRow('연사', def.rate, 35, def.rate + '/s')}
-    ${statRow('장전', 3.2 - def.reload, 3, def.reload + 's')}
-    ${statRow('탄창', def.mag, 260, def.mag)}
+    ${def.mode === 'melee' ? statRow('흡혈', def.leech, 10, '+' + def.leech + ' HP') : statRow('장전', 3.2 - def.reload, 3, def.reload + 's')}
+    ${def.mode === 'melee' ? statRow('사거리', def.range, 9, def.range + 'm') : statRow('탄창', def.mag, 260, def.mag)}
     <div class="tags">${tags(def)}</div>
     ${foot}</div>`;
 }
@@ -284,9 +306,9 @@ const game = window.__game = new Game($('c'), {
     $('toasts').appendChild(el); setTimeout(() => el.remove(), 2900);
     while ($('toasts').children.length > 4) $('toasts').firstChild.remove();
   },
-  onHitmark(crit) {
-    const h = $('hitmarker'); h.className = crit ? 'crit' : ''; h.style.transition = 'none'; h.style.opacity = 1;
-    requestAnimationFrame(() => { h.style.transition = 'opacity .2s'; h.style.opacity = 0; });
+  onHitmark(crit, kill) {
+    const h = $('hitmarker'); h.className = (crit ? 'crit' : '') + (kill ? ' kill' : ''); h.style.transition = 'none'; h.style.opacity = 1; h.style.transform = `scale(${kill ? 1.6 : 1.3})`;
+    requestAnimationFrame(() => { h.style.transition = 'opacity .25s, transform .12s'; h.style.opacity = 0; h.style.transform = 'scale(1)'; });
   },
   onHurt(k) {
     const v = $('vignette'); v.style.boxShadow = `inset 0 0 ${120 + k * 120}px rgba(255,0,40,${0.4 + k * 0.5})`;
@@ -300,8 +322,8 @@ const game = window.__game = new Game($('c'), {
     hud.hpI.style.width = (h.hp / h.maxHp) * 100 + '%'; hud.hpBar.classList.toggle('low', h.hp < 35);
     hud.armI.style.width = h.maxArmor ? (h.armor / h.maxArmor) * 100 + '%' : '0%';
     $('hpTxt').textContent = Math.ceil(h.hp); $('armorTxt').textContent = Math.ceil(h.armor);
-    const a = $('ammoTxt'); a.textContent = h.over ? '∞' : h.ammo; a.className = h.over ? 'inf' : h.ammo <= h.mag * 0.25 ? 'low' : '';
-    $('magTxt').textContent = '/ ' + h.mag;
+    const a = $('ammoTxt'); a.textContent = h.over || h.melee ? '∞' : h.ammo; a.className = h.over ? 'inf' : !h.melee && h.ammo <= h.mag * 0.25 ? 'low' : '';
+    $('magTxt').textContent = h.melee ? '근접' : '/ ' + h.mag;
     const R = RARITIES[h.weapon.rarity];
     $('wName').innerHTML = `<small style="color:${R.color}">${R.en} · ${h.weapon.cls}</small>${h.weapon.name}`;
     $('reloadBar').classList.toggle('show', h.reload >= 0); $('reloadBar').firstElementChild.style.width = Math.max(0, h.reload) * 100 + '%';

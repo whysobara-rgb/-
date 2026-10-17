@@ -57,6 +57,16 @@ export const TYPES = [
   { key: 'tesla', name: '테슬라 체인건', cls: '연쇄', mode: 'chain', dmg: 34, chain: 5, rate: 6, mag: 30, reload: 1.6, spread: 0.01, auto: true, len: 0.7 },
   { key: 'flak', name: '플랙 캐논', cls: '폭발 샷건', mode: 'hitscan', dmg: 22, pellets: 6, aoe: 1.8, rate: 1.3, mag: 6, reload: 1.9, spread: 0.07, auto: false, len: 0.85 },
   { key: 'cryo', name: '크라이오 라이플', cls: '빙결', mode: 'hitscan', dmg: 24, slow: 0.5, pierce: 1, rate: 8, mag: 36, reload: 1.5, spread: 0.012, auto: true, len: 0.72 },
+  // 근접 무기: 탄약 없음, 적중 시 체력 흡수(leech), range=사거리(m), arc=판정 각도(cos)
+  { key: 'knife', name: '컴뱃 나이프', cls: '근접', mode: 'melee', dmg: 55, rate: 4, range: 3.2, arc: 0.55, kb: 4, leech: 1, auto: true, len: 0.3, mshape: 'knife' },
+  { key: 'katana', name: '카타나', cls: '근접 · 베기', mode: 'melee', dmg: 105, rate: 2.4, range: 4.2, arc: 0.3, kb: 6, leech: 2, auto: true, len: 0.9, mshape: 'katana' },
+  { key: 'greatsword', name: '대검', cls: '근접 · 광역', mode: 'melee', dmg: 250, rate: 1.0, range: 5.2, arc: 0.0, kb: 16, leech: 4, auto: true, len: 1.1, mshape: 'great' },
+  { key: 'hammer', name: '전쟁 망치', cls: '근접 · 충격', mode: 'melee', dmg: 300, rate: 0.85, range: 4.4, arc: 0.35, kb: 22, leech: 5, aoe: 4.5, auto: true, len: 0.95, mshape: 'hammer' },
+  { key: 'chainsword', name: '체인소드', cls: '근접 · 연속', mode: 'melee', dmg: 24, rate: 12, range: 3.6, arc: 0.45, kb: 1.5, leech: 1, auto: true, len: 0.85, mshape: 'chain' },
+  { key: 'scythe', name: '차원 낫', cls: '근접 · 회전', mode: 'melee', dmg: 150, rate: 1.4, range: 6, arc: -0.35, kb: 10, leech: 3, auto: true, len: 1.1, mshape: 'scythe' },
+  { key: 'plasmablade', name: '플라즈마 블레이드', cls: '근접 · 검기', mode: 'melee', dmg: 130, rate: 2.2, range: 4.4, arc: 0.3, kb: 6, leech: 2, wave: true, auto: true, len: 0.95, mshape: 'plasma' },
+  { key: 'gauntlet', name: '파워 건틀릿', cls: '근접 · 폭발', mode: 'melee', dmg: 190, rate: 1.7, range: 3.2, arc: 0.5, kb: 18, leech: 3, aoe: 3, auto: true, len: 0.35, mshape: 'fist' },
+  { key: 'spear', name: '에너지 창', cls: '근접 · 관통', mode: 'melee', dmg: 135, rate: 1.8, range: 7.5, arc: 0.88, kb: 8, leech: 2, auto: true, len: 1.3, mshape: 'spear' },
 ];
 
 const PREFIX = [
@@ -85,19 +95,21 @@ TYPES.forEach((t, ti) => {
       dmg: Math.round(t.dmg * r.dmg * v()),
       rate: +(t.rate * (1 + lvl * 0.09) * v()).toFixed(2),
       mag: Math.max(1, Math.round(t.mag * (1 + lvl * 0.14))),
-      reload: +(t.reload * (1 - lvl * 0.085) * (0.95 + R() * 0.1)).toFixed(2),
+      reload: +((t.reload || 0.5) * (1 - lvl * 0.085) * (0.95 + R() * 0.1)).toFixed(2),
       spread: t.spread * (1 - lvl * 0.1),
       pellets: t.pellets || 1, pierce: (t.pierce || 0) + (t.pierce ? Math.floor(lvl / 2) : 0),
       aoe: t.aoe ? +(t.aoe * (1 + lvl * 0.08)).toFixed(1) : 0,
       auto: t.auto, burst: t.burst || 0, barrels: t.barrels || 1,
       speed: t.speed || 0, grav: t.grav || 0, bounce: !!t.bounce,
       slow: t.slow || 0, chain: t.chain ? t.chain + lvl : 0,
+      range: t.range ? +(t.range * (1 + lvl * 0.05)).toFixed(1) : 0, arc: t.arc ?? 0, kb: t.kb || 0,
+      leech: t.leech ? t.leech + lvl : 0, wave: !!t.wave, mshape: t.mshape || '',
       len: t.len, scope: !!t.scope, rail: !!t.rail, tube: !!t.tube, gatling: !!t.gatling,
       hue: (ti * 37 + ri * 61) % 360,
       accent: Math.floor(R() * 3),
     };
     w.price = Math.round(r.price * (0.8 + R() * 0.7) * (1 + ti * 0.02) / 10) * 10;
-    w.dps = Math.round(w.dmg * w.pellets * w.barrels * w.rate * (w.burst ? 0.8 : 1) * (w.aoe ? 1.6 : 1) * (w.pierce ? 1.3 : 1));
+    w.dps = Math.round(w.dmg * w.pellets * w.barrels * w.rate * (w.burst ? 0.8 : 1) * (w.aoe ? 1.6 : 1) * (w.pierce ? 1.3 : 1) * (w.mode === 'melee' ? 1.4 : 1));
     WEAPONS.push(w);
   });
 });
@@ -119,6 +131,9 @@ export const ENEMIES = {
   stalker: { name: '스토커', hp: 45, speed: 9.5, dmg: 8, size: 0.7, color: 0x0ea5e9, eye: 0xff2d55, coin: [3, 6] },
   brute: { name: '브루트', hp: 170, speed: 4.6, dmg: 18, size: 1.25, color: 0x9f1239, eye: 0xffd60a, coin: [8, 14] },
   spitter: { name: '스피터', hp: 45, speed: 5, dmg: 8, size: 0.75, color: 0x15803d, eye: 0xf0abfc, coin: [4, 8], ranged: true },
+  // 비행 개체: alt=비행 고도 범위(m)
+  wraith: { name: '공허 박쥐', hp: 32, speed: 9, dmg: 9, size: 0.65, color: 0x1e1b4b, eye: 0x22d3ee, coin: [4, 7], fly: true, alt: [4, 7] },
+  gazer: { name: '부유 감시자', hp: 70, speed: 4.5, dmg: 10, size: 0.9, color: 0x581c87, eye: 0xffd60a, coin: [6, 10], fly: true, alt: [6, 10], shooter: true },
   exploder: { name: '자폭충', hp: 22, speed: 10, dmg: 22, size: 0.6, color: 0xea580c, eye: 0xffffff, coin: [3, 6], explode: true },
   ravager: { name: '중간보스 · 라바저', hp: 3200, speed: 5.5, dmg: 25, size: 2.3, color: 0x4c1d95, eye: 0xff0040, coin: [350, 500], boss: 1 },
   tyrant: { name: '보스 · 균열의 폭군', hp: 14000, speed: 4, dmg: 35, size: 3.6, color: 0x111827, eye: 0xff2a2a, coin: [1800, 2600], boss: 2 },

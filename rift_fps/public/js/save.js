@@ -4,9 +4,9 @@ import { hashStr } from './data.js';
 
 export function newProfile() {
   return {
-    v: 1, coins: 3000, nextUid: 3,
-    weapons: [{ uid: 1, id: 'pistol_0' }, { uid: 2, id: 'rifle_0' }],
-    loadout: [1, 2, null, null],
+    v: 1, coins: 3000, nextUid: 4,
+    weapons: [{ uid: 1, id: 'pistol_0' }, { uid: 2, id: 'rifle_0' }, { uid: 3, id: 'knife_0' }],
+    loadout: [1, 2, 3, null],
     armors: ['a0'], armor: 'a0',
     clears: 0, deaths: 0, kills: 0, bestKills: 0,
     gachaSeed: 1, shopDay: '', shopBought: [],
