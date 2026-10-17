@@ -147,7 +147,7 @@ h2{font-size:15px;color:var(--gold);margin:18px 0 10px;text-shadow:2px 2px 0 #00
   <div class="hud">
     <div class="row">
       <div class="stat money">💰 <b id="money">100,000</b>원</div>
-      <div class="stat clock">☀ DAY <b id="day">1</b> · 남은시간 <b id="clock">5:00</b></div>
+      <div class="stat clock">☀ DAY <b id="day">1</b> · 남은시간 <b id="clock">3:00</b></div>
       <div class="daybar"><i id="daybar" style="width:0%"></i></div>
       <div class="stat">🃏 <b id="cnt">0</b>장</div>
       <div class="stat">🏆 순자산 <b id="worth">0</b>원</div>
@@ -170,7 +170,7 @@ h2{font-size:15px;color:var(--gold);margin:18px 0 10px;text-shadow:2px 2px 0 #00
   <p>요즘 몬스터 카드에 푹 빠진 햄붕이 13호. 수원에 거대한 카드 거리가 생겼다!<br>
   지갑엔 <b style="color:#7dffb0">100,000원</b>뿐이지만, 목표는 <b style="color:var(--gold)">집과 차를 잔뜩 사는 부자</b>.<br><br>
   ▸ 카드 거리의 <b>오리파 가게 10곳</b>: 동네 문방구부터 초고가 왕실 금고까지<br>
-  ▸ 하루는 <b>5분</b>. 날이 바뀌면 모든 가게 재고가 다시 채워진다<br>
+  ▸ 하루는 <b>3분</b>. 날이 바뀌면 모든 가게 재고가 다시 채워진다<br>
   ▸ 뽑은 카드는 가치만큼 되팔 수 있다. 골드·프리즘·블랙다이아 판은 몸값이 몇 배!<br>
   ▸ 증권 거래소의 주가는 매일 바뀐다. <b>매도할 때마다 10% 수수료</b><br>
   ▸ 부동산·모터스에서 집과 차를 사서 컬렉션을 늘리자<br>
@@ -988,7 +988,7 @@ function closeModals(){if($('pullM').classList.contains('on')){$('pullM').classL
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModals()});
 ['pullM','endM'].forEach(id=>$(id).addEventListener('click',e=>{if(e.target.id===id)closeModals()}));
 // ================= DAY CYCLE =================
-const DAY_LEN=300;
+const DAY_LEN=180;
 let started=false,lastT=0,saveAcc=0;
 function loop(ts){
   if(started&&!S.over){const dt=Math.min(1,(ts-lastT)/1000);S.elapsed+=dt;saveAcc+=dt;
