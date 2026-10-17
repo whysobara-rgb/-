@@ -1,0 +1,494 @@
+<meta charset="utf-8">
+<title>와이프 퀘스트</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Do+Hyeon&family=Gowun+Dodum&display=swap">
+<style>
+/* Layout: one centered column like a handheld console - HUD, pixel room, dialog box, touch pad */
+:root {
+  --bg: #1b1626;        /* late-night apartment */
+  --panel: #2a2238;
+  --line: #4a3d60;
+  --fg: #f3ead8;
+  --muted: #a99bbd;
+  --mood-good: #ff7aa8;
+  --mood-bad: #e2533b;
+  --accent: #ffd36b;
+  --display: "Do Hyeon", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --body: "Gowun Dodum", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 12px;
+  box-sizing: border-box;
+}
+.wrap { max-width: 680px; margin: 0 auto; display: flex; flex-direction: column; gap: 10px; }
+header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+h1 { font-family: var(--display); font-weight: 400; font-size: 1.9rem; margin: 0; letter-spacing: .02em; color: var(--accent); text-wrap: balance; }
+.sub { color: var(--muted); font-size: .85rem; }
+.hud { display: grid; grid-template-columns: 1fr auto; gap: 6px 14px; background: var(--panel); border: 2px solid var(--line); padding: 10px 12px; }
+.hud .lab { font-family: var(--display); font-size: .95rem; color: var(--muted); letter-spacing: .04em; }
+.meter { height: 14px; background: #120e1a; border: 2px solid var(--line); position: relative; }
+.meter > i { position: absolute; inset: 0 auto 0 0; background: var(--mood-good); transition: width .3s steps(8); }
+.meter.bad > i { background: var(--mood-bad); }
+.pat > i { background: var(--accent); transition: none; }
+.quest { grid-column: 1 / -1; font-family: var(--display); font-size: 1.1rem; min-width: 0; }
+.quest b { color: var(--accent); font-weight: 400; }
+.num { font-variant-numeric: tabular-nums; font-family: var(--display); }
+.stage { position: relative; border: 2px solid var(--line); background: #000; }
+canvas { display: block; width: 100%; max-width: 100%; image-rendering: pixelated; image-rendering: crisp-edges; aspect-ratio: 160 / 104; }
+.dialog { background: var(--panel); border: 2px solid var(--line); padding: 12px 14px; min-height: 5.2em; display: flex; flex-direction: column; gap: 8px; }
+.who { font-family: var(--display); color: var(--mood-good); font-size: 1rem; }
+.who.me { color: #8fc7ff; }
+.who.sys { color: var(--muted); }
+.text { font-size: 1.05rem; line-height: 1.55; }
+.choices { display: flex; flex-direction: column; gap: 6px; }
+button { font: inherit; color: var(--fg); background: #3a2f4f; border: 2px solid var(--line); padding: 8px 12px; cursor: pointer; text-align: left; }
+button:hover, button:focus-visible { border-color: var(--accent); outline: none; background: #463a5e; }
+.pad { display: grid; grid-template-columns: repeat(3, 52px) 1fr 76px; grid-template-rows: repeat(2, 44px); gap: 6px; user-select: none; -webkit-user-select: none; touch-action: none; }
+.pad button { text-align: center; font-family: var(--display); font-size: 1.2rem; padding: 0; }
+.pad .a { grid-column: 5; grid-row: 1 / 3; background: #5a2f48; border-color: var(--mood-good); }
+.help { color: var(--muted); font-size: .85rem; }
+.overlay { position: absolute; inset: 0; background: rgba(15, 10, 22, .86); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; padding: 16px; }
+.overlay h2 { font-family: var(--display); font-weight: 400; font-size: 1.8rem; margin: 0; color: var(--accent); }
+.overlay p { margin: 0; max-width: 34ch; line-height: 1.5; }
+.overlay button { text-align: center; font-family: var(--display); font-size: 1.15rem; padding: 8px 22px; }
+@media (min-width: 720px) { .pad { display: none; } }
+@media (prefers-reduced-motion: reduce) { .meter > i { transition: none; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>와이프 퀘스트</h1>
+    <span class="sub">결혼 5년차 남편의 생존기</span>
+  </header>
+
+  <div class="hud">
+    <div>
+      <div class="lab">와이프 기분 <span class="num" id="moodNum">40</span>/100</div>
+      <div class="meter" id="moodBar"><i id="moodFill" style="width:40%"></i></div>
+    </div>
+    <div style="min-width:120px">
+      <div class="lab">인내심</div>
+      <div class="meter pat"><i id="patFill" style="width:100%"></i></div>
+    </div>
+    <div class="quest">퀘스트 <span class="num" id="qNum">0/10</span> · <b id="qText">-</b> <span class="sub" id="hold"></span></div>
+  </div>
+
+  <div class="stage">
+    <canvas id="c" width="160" height="104"></canvas>
+    <div class="overlay" id="overlay">
+      <h2>와이프 퀘스트</h2>
+      <p>요즘 아내가 부쩍 예민하다. 결혼생활을 지키려면 오늘 밤 그녀의 요구를 전부 들어줘야 한다.</p>
+      <p class="sub">이동: 방향키 / WASD · 행동: Space / E · 선택: 1 2 3</p>
+      <button id="startBtn">시작하기</button>
+    </div>
+  </div>
+
+  <div class="dialog" id="dialog">
+    <div class="who sys" id="who">안내</div>
+    <div class="text" id="text">소파에 앉은 아내에게 다가가 Space를 눌러보자.</div>
+    <div class="choices" id="choices"></div>
+  </div>
+
+  <div class="pad" id="pad">
+    <span></span><button data-k="up">▲</button><span></span><span></span><button class="a" data-k="act">A</button>
+    <button data-k="left">◀</button><button data-k="down">▼</button><button data-k="right">▶</button><span></span>
+  </div>
+  <div class="help">물건 앞에서 행동 버튼을 누르면 집거나 사용한다. 손에는 하나만 들 수 있다. 엉뚱한 걸 가져가면 혼난다.</div>
+</div>
+
+<script>
+(() => {
+const T = 8, W = 20, H = 13;
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const $ = id => document.getElementById(id);
+
+// ---------- world ----------
+// objects: x,y,w,h in tiles. item = what you pick up there.
+const OBJ = [
+  { id: 'fridge', x: 1, y: 1, w: 2, h: 2, name: '냉장고', item: '아이스크림' },
+  { id: 'sink', x: 4, y: 1, w: 2, h: 1, name: '싱크대', item: '물 한 잔' },
+  { id: 'stove', x: 6, y: 1, w: 2, h: 1, name: '가스레인지' },
+  { id: 'tv', x: 3, y: 5, w: 3, h: 1, name: 'TV' },
+  { id: 'sofa', x: 2, y: 9, w: 4, h: 2, name: '소파' },
+  { id: 'plant', x: 8, y: 10, w: 1, h: 1, name: '화분' },
+  { id: 'bed', x: 12, y: 1, w: 3, h: 3, name: '침대', item: '리모컨' },
+  { id: 'washer', x: 17, y: 1, w: 2, h: 1, name: '세탁기' },
+  { id: 'closet', x: 18, y: 6, w: 1, h: 3, name: '옷장', item: '담요' },
+  { id: 'shelf', x: 12, y: 10, w: 2, h: 1, name: '약상자', item: '두통약' },
+  { id: 'door', x: 4, y: 12, w: 2, h: 1, name: '현관', item: '택배 상자' },
+];
+const WIFE = { x: 4, y: 9 };
+
+const solid = [];
+for (let y = 0; y < H; y++) { solid[y] = []; for (let x = 0; x < W; x++) {
+  const border = x === 0 || y === 0 || x === W - 1 || y === H - 1;
+  const part = x === 10 && !(y === 4 || y === 5);
+  solid[y][x] = border || part;
+} }
+OBJ.forEach(o => { for (let y = o.y; y < o.y + o.h; y++) for (let x = o.x; x < o.x + o.w; x++) solid[y][x] = true; });
+const objAt = (x, y) => OBJ.find(o => x >= o.x && x < o.x + o.w && y >= o.y && y < o.y + o.h);
+
+// ---------- quests ----------
+const Q = [
+  { type: 'fetch', item: '물 한 잔', pat: 25, title: '물 한 잔 갖다주기',
+    ask: '자기야… 목말라. 물 한 잔만 갖다줘.', done: '…응, 고마워.' },
+  { type: 'fetch', item: '리모컨', pat: 25, title: '리모컨 찾아오기',
+    ask: '리모컨 어디 갔어?! 아까 자기가 침대에서 보고 있었잖아!', done: '거기 있었네. 다음부턴 제자리에 둬.' },
+  { type: 'talk', pat: 18, title: '회사 얘기 들어주기',
+    ask: '아 진짜 짜증나! 오늘 팀장이 또 나한테만 뭐라 그랬어!!',
+    q: '오늘 팀장이 회의에서 내 보고서만 콕 집어서 다시 하래. 다른 사람 건 대충 넘어가면서!',
+    opts: [
+      { t: '그 팀장 진짜 너무하네. 많이 속상했겠다.', d: 15, r: '그치?! 내 말이! …자기밖에 없다.' },
+      { t: '혹시 보고서에 실수가 있었던 거 아니야?', d: -20, r: '지금 누구 편이야?!' },
+      { t: '(폰 보면서) 응응, 그랬구나~', d: -15, r: '…폰 내려놔.' },
+    ] },
+  { type: 'fetch', item: '아이스크림', pat: 22, title: '아이스크림 대령',
+    ask: '단 거 땡겨. 냉동실에 아이스크림 있지? 그거.', done: '역시 이 맛이야. 기분 조금 나아졌어.' },
+  { type: 'mash', target: 'washer', n: 16, pat: 28, title: '빨래 개기',
+    ask: '세탁기 다 돌아간 지가 언젠데 빨래가 아직 그대로야?', done: '각 잡혔네. 웬일이야?' },
+  { type: 'talk', pat: 14, title: '위험한 질문에 답하기',
+    ask: '자기야, 잠깐 이리 와 봐.',
+    q: '솔직하게 말해. 나 요즘 살찐 것 같지 않아?',
+    opts: [
+      { t: '무슨 소리야. 지금이 제일 예뻐.', d: 15, r: '…거짓말인 거 알아도 기분은 좋네.' },
+      { t: '음… 아주 조금?', d: -30, r: '……. 오늘 소파에서 자.' },
+      { t: '그럼 우리 같이 저녁에 산책할까?', d: 3, r: '그러니까 쪘다는 거네? …뭐, 산책은 좋아.' },
+    ] },
+  { type: 'fetch', item: '두통약', pat: 22, title: '두통약 가져오기',
+    ask: '아… 머리 지끈거려. 약상자에 두통약 있을 거야.', done: '고마워. 좀 누워있을게… 아니 그냥 앉아있을래.' },
+  { type: 'mash', target: 'wife', n: 22, pat: 20, title: '어깨 주물러주기',
+    ask: '하루 종일 모니터만 봤더니 어깨가 돌덩이야. 주물러줘.', done: '아~ 시원하다. 손맛 살아있네.' },
+  { type: 'fetch', item: '택배 상자', pat: 22, title: '택배 가지러 가기',
+    ask: '띵동? 택배 왔나 봐. 현관에 있는 거 좀 가져와 줘.', done: '이거 내가 주문한 거 맞아. 열어볼까?' },
+  { type: 'talk', pat: 14, title: '오늘이 무슨 날인지 맞히기',
+    ask: '…자기야. 오늘 무슨 날인지 알지?',
+    q: '오늘 무슨 날이게?',
+    opts: [
+      { t: '결혼 5주년. 사실 아까 택배, 내가 당신 선물로 주문한 거야.', d: 30, r: '…뭐야, 진짜? 자기 바보…! (울컥)' },
+      { t: '음… 금요일?', d: -35, r: '……그래. 금요일이지. 아주 좋은 금요일.' },
+      { t: '당신 생일은 아니고… 어머님 생신?', d: -30, r: '우리 엄마 생신은 3월이거든?' },
+    ] },
+];
+
+// ---------- state ----------
+let S;
+function reset() {
+  S = { mood: 40, qi: -1, active: false, pat: 0, patMax: 1, hold: null, mash: 0,
+        mode: 'title', between: 0, t: 0, angerTick: 0,
+        p: { x: 7, y: 7, px: 56, py: 56, dir: 'down', moving: false, step: 0 } };
+  hud();
+}
+
+// ---------- audio ----------
+let ac;
+function beep(f, d = 0.07, type = 'square', v = 0.05) {
+  try {
+    ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.value = f; g.gain.value = v;
+    o.connect(g); g.connect(ac.destination);
+    o.start(); g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + d); o.stop(ac.currentTime + d);
+  } catch (e) {}
+}
+const sfx = {
+  pick: () => { beep(660); setTimeout(() => beep(880), 60); },
+  good: () => { beep(523); setTimeout(() => beep(659), 80); setTimeout(() => beep(784, .15), 160); },
+  bad: () => { beep(220, .15, 'sawtooth'); setTimeout(() => beep(160, .2, 'sawtooth'), 120); },
+  tap: () => beep(440 + Math.random() * 120, .04),
+};
+
+// ---------- dialog / hud ----------
+function say(text, who = 'wife') {
+  const w = $('who');
+  w.textContent = who === 'wife' ? '아내' : who === 'me' ? '나' : '안내';
+  w.className = 'who' + (who === 'me' ? ' me' : who === 'sys' ? ' sys' : '');
+  $('text').textContent = text;
+  $('choices').innerHTML = '';
+}
+function hud() {
+  const m = Math.max(0, Math.min(100, S.mood));
+  $('moodNum').textContent = Math.round(m);
+  $('moodFill').style.width = m + '%';
+  $('moodBar').classList.toggle('bad', m < 35);
+  $('patFill').style.width = (S.active ? Math.max(0, S.pat / S.patMax) * 100 : 0) + '%';
+  const q = Q[S.qi];
+  $('qNum').textContent = (S.qi < 0 ? 0 : S.qi + 1) + '/' + Q.length;
+  $('qText').textContent = S.active && q ? q.title + (q.type === 'mash' ? ` (${S.mash}/${q.n})` : '') : '대기 중';
+  $('hold').textContent = S.hold ? '· 손에 든 것: ' + S.hold : '';
+}
+function addMood(d) { S.mood = Math.max(0, Math.min(100, S.mood + d)); hud(); if (S.mood <= 0) end(false); }
+
+function nextQuest() {
+  S.qi++;
+  if (S.qi >= Q.length) { end(true); return; }
+  const q = Q[S.qi];
+  S.active = true; S.pat = S.patMax = q.pat; S.mash = 0;
+  say(q.ask); beep(330, .1, 'triangle'); hud();
+}
+function complete(text, d = 12) {
+  S.active = false; sfx.good(); addMood(d);
+  if (S.mode === 'end') return;
+  say(text); S.between = 2.2; hud();
+}
+
+// ---------- interaction ----------
+const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+function adjacentTo(rect) {
+  const { x, y } = S.p;
+  for (let ty = rect.y; ty < rect.y + rect.h; ty++) for (let tx = rect.x; tx < rect.x + rect.w; tx++)
+    if (Math.abs(tx - x) + Math.abs(ty - y) === 1) return true;
+  return false;
+}
+function nearWife() { return adjacentTo({ x: WIFE.x - 1, y: WIFE.y, w: 3, h: 1 }); }
+
+function act() {
+  if (S.mode !== 'play' || S.p.moving) return;
+  const q = S.active ? Q[S.qi] : null;
+  const [dx, dy] = DIRS[S.p.dir];
+  const faced = objAt(S.p.x + dx, S.p.y + dy);
+  const target = faced || OBJ.find(o => adjacentTo(o));
+
+  // wife
+  if ((target && target.id === 'sofa') || (!target && nearWife())) return talkWife(q);
+
+  if (!target) { say('아무것도 없다. 빨리 움직이자.', 'sys'); return; }
+
+  if (q && q.type === 'mash' && q.target === target.id) return mashStep(q);
+
+  if (target.id === 'washer') { say('세탁기. 지금은 돌아가는 빨래가 없다.', 'sys'); return; }
+  if (target.id === 'door' && !(q && q.item === '택배 상자')) { say('현관. 밖엔 아무도 없다.', 'sys'); return; }
+  if (target.item) {
+    if (S.hold === target.item) { say(`이미 ${target.item}을(를) 들고 있다.`, 'sys'); return; }
+    S.hold = target.item; sfx.pick();
+    say(`${target.name}에서 ${target.item}을(를) 챙겼다.`, 'sys'); hud(); return;
+  }
+  const flavor = { stove: '가스레인지. 라면 끓일 때가 아니다.', tv: 'TV. 지금 켰다간 큰일 난다.', plant: '화분. 물은 아내가 이미 줬다.' };
+  say(flavor[target.id] || target.name + '.', 'sys');
+}
+
+function talkWife(q) {
+  if (!S.active || !q) {
+    const idle = S.mood > 70 ? '응? 왜~ 자기야.' : S.mood > 35 ? '왜. 할 말 있어?' : '말 시키지 마.';
+    say(idle); return;
+  }
+  if (q.type === 'fetch') {
+    if (!S.hold) { say('빈손으로 왜 왔어? ' + q.ask); return; }
+    if (S.hold === q.item) { S.hold = null; complete(q.done); return; }
+    say(`${S.hold}? 이거 말고! 내가 뭐 달라고 했는지 기억 안 나?`); S.hold = null; sfx.bad(); addMood(-6); return;
+  }
+  if (q.type === 'mash') {
+    if (q.target === 'wife') return mashStep(q);
+    say('여기서 뭐 해? 빨래 개라니까!'); return;
+  }
+  if (q.type === 'talk') {
+    S.mode = 'talk'; say(q.q);
+    const box = $('choices');
+    q.opts.forEach((o, i) => {
+      const b = document.createElement('button');
+      b.textContent = `${i + 1}. ${o.t}`;
+      b.onclick = () => choose(q, o);
+      box.appendChild(b);
+    });
+    box.firstChild.focus({ preventScroll: true });
+  }
+}
+function choose(q, o) {
+  S.mode = 'play';
+  if (o.d > 0) complete('"' + o.t + '"\n\n' + o.r, o.d);
+  else { S.active = false; sfx.bad(); addMood(o.d); if (S.mode !== 'end') { say('"' + o.t + '"\n\n' + o.r); S.between = 2.6; } hud(); }
+}
+function mashStep(q) {
+  S.mash++; sfx.tap(); hud();
+  const what = q.target === 'wife' ? '조물조물…' : '착착 개는 중…';
+  say(`${what} (${S.mash}/${q.n}) 행동 버튼을 연타하자!`, 'sys');
+  if (S.mash >= q.n) complete(q.done);
+}
+
+function end(win) {
+  S.mode = 'end'; S.active = false;
+  const ov = $('overlay'); ov.hidden = false;
+  let title, msg;
+  if (!win) { title = '친정 간대요…'; msg = '아내의 기분이 바닥났다. 캐리어 끄는 소리가 들린다. 다시 해보자.'; sfx.bad(); }
+  else if (S.mood >= 85) { title = '최고의 남편'; msg = `기분 ${S.mood}점. "나 자기랑 결혼하길 잘한 것 같아." 오늘 밤은 평화롭다.`; sfx.good(); }
+  else if (S.mood >= 55) { title = '무난한 남편'; msg = `기분 ${S.mood}점. 큰 사고 없이 하루를 넘겼다. 내일도 힘내자.`; sfx.good(); }
+  else { title = '간신히 생존'; msg = `기분 ${S.mood}점. 모든 요구는 들어줬지만… 분위기가 싸하다.`; }
+  ov.innerHTML = `<h2>${title}</h2><p>${msg}</p><button id="again">다시 하기</button>`;
+  $('again').onclick = start;
+}
+
+function start() {
+  reset(); S.mode = 'play'; $('overlay').hidden = true;
+  say('소파 쪽에서 한숨 소리가 들린다…', 'sys'); S.between = 1.5;
+  cv.focus?.();
+}
+
+// ---------- input ----------
+const held = new Set();
+const KEYMAP = { ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right' };
+addEventListener('keydown', e => {
+  if (S.mode === 'title' && (e.code === 'Space' || e.code === 'Enter')) { e.preventDefault(); start(); return; }
+  if (S.mode === 'talk' && /^Digit[1-3]$/.test(e.code)) { const b = $('choices').children[+e.code.slice(5) - 1]; b && b.click(); return; }
+  if (S.mode === 'talk') return;
+  if (KEYMAP[e.code]) { held.add(KEYMAP[e.code]); e.preventDefault(); }
+  if ((e.code === 'Space' || e.code === 'KeyE' || e.code === 'Enter') && !e.repeat) { e.preventDefault(); act(); }
+});
+addEventListener('keyup', e => { if (KEYMAP[e.code]) held.delete(KEYMAP[e.code]); });
+addEventListener('blur', () => held.clear());
+$('pad').querySelectorAll('button').forEach(b => {
+  const k = b.dataset.k;
+  b.addEventListener('pointerdown', e => { e.preventDefault(); if (k === 'act') act(); else held.add(k); });
+  ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => b.addEventListener(ev, () => held.delete(k)));
+});
+$('startBtn').onclick = start;
+
+// ---------- update ----------
+function update(dt) {
+  S.t += dt;
+  if (S.mode !== 'play') return;
+  const p = S.p;
+  if (p.moving) {
+    const tx = p.x * T, ty = p.y * T, sp = 64 * dt;
+    p.px += Math.sign(tx - p.px) * Math.min(sp, Math.abs(tx - p.px));
+    p.py += Math.sign(ty - p.py) * Math.min(sp, Math.abs(ty - p.py));
+    if (p.px === tx && p.py === ty) p.moving = false;
+  }
+  if (!p.moving) {
+    const d = ['up', 'down', 'left', 'right'].find(k => held.has(k));
+    if (d) {
+      p.dir = d;
+      const [dx, dy] = DIRS[d], nx = p.x + dx, ny = p.y + dy;
+      if (!solid[ny][nx]) { p.x = nx; p.y = ny; p.moving = true; p.step++; }
+    }
+  }
+  if (S.between > 0) { S.between -= dt; if (S.between <= 0) nextQuest(); }
+  else if (S.active) {
+    S.pat -= dt;
+    if (S.pat <= 0) {
+      sfx.bad(); addMood(-12);
+      if (S.mode === 'end') return;
+      say(['아직이야?! 내가 몇 번을 말해!', '하… 진짜 느려 터졌어.', '됐어, 내가 할게! …아니, 자기가 해.'][Math.floor(Math.random() * 3)]);
+      S.pat = S.patMax = Q[S.qi].pat * 0.6;
+    }
+    S.angerTick += dt;
+    $('patFill').style.width = Math.max(0, S.pat / S.patMax) * 100 + '%';
+  }
+}
+
+// ---------- drawing ----------
+const R = (x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(x, y, w, h); };
+function sprite(rows, pal, x, y, flip) {
+  rows.forEach((row, j) => [...row].forEach((ch, i) => {
+    if (ch === '.') return;
+    R(x + (flip ? row.length - 1 - i : i), y + j, 1, 1, pal[ch]);
+  }));
+}
+const HUSB = {
+  down: ['..hhhh..', '.hhhhhh.', '.hsssshh', '.sessess', '..ssss..', '.bbbbbb.', 'sbbbbbbs', '.bbbbbb.', '.pp..pp.', '.kk..kk.'],
+  up: ['..hhhh..', '.hhhhhh.', '.hhhhhhh', '.hhhhhhs', '..ssss..', '.bbbbbb.', 'sbbbbbbs', '.bbbbbb.', '.pp..pp.', '.kk..kk.'],
+  side: ['..hhhh..', '.hhhhhh.', '.hhssss.', '.hhsses.', '..ssss..', '..bbbb..', '..bbbbs.', '..bbbb..', '..pppp..', '..kk.kk.'],
+};
+const HPAL = { h: '#2b1d14', s: '#f1c59b', e: '#1a1010', b: '#3d6fd1', p: '#2c3346', k: '#16121c' };
+const WROWS = ['..rrrr..', '.rrrrrr.', 'rrssssrr', 'rsessesr', 'rrsmmsrr', 'r.dddd.r', '.ddddddd', 'sddddds.', '.dddddd.'];
+const WPAL = { r: '#7a2f2a', s: '#f6cfab', e: '#1a1010', m: '#c75a5a', d: '#e57fa4' };
+
+function drawFloor() {
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const X = x * T, Y = y * T;
+    if (x < 10) { // wood
+      R(X, Y, T, T, (y % 2) ? '#a8723f' : '#b27c47');
+      R(X + ((y * 3) % 8), Y, 1, T, '#93622f');
+      R(X, Y + 7, T, 1, '#8c5c2c');
+    } else { // bedroom carpet
+      R(X, Y, T, T, '#5d6c99');
+      if ((x + y) % 2) R(X + 3, Y + 3, 1, 1, '#6b7aa8');
+      if ((x * 7 + y * 3) % 5 === 0) R(X + 6, Y + 1, 1, 1, '#53618c');
+    }
+  }
+  // rug in living room
+  R(2 * T + 2, 7 * T + 2, 4 * T - 4, 2 * T - 2, '#c9584c'); R(2 * T + 4, 7 * T + 4, 4 * T - 8, 2 * T - 6, '#e0c48f');
+  R(2 * T + 6, 7 * T + 6, 4 * T - 12, 2 * T - 10, '#c9584c');
+}
+function drawWalls() {
+  for (let x = 0; x < W; x++) {
+    R(x * T, 0, T, T, x < 10 ? '#e7d7b8' : '#c6d2e6');
+    R(x * T + 2, 2, 1, 4, x < 10 ? '#d8c39c' : '#b0bfd8');
+    R(x * T, 6, T, 2, '#7d6247');
+  }
+  for (let y = 1; y < H; y++) { R(0, y * T, T, T, '#4e3e57'); R((W - 1) * T, y * T, T, T, '#4e3e57'); }
+  for (let x = 0; x < W; x++) R(x * T, (H - 1) * T, T, T, '#4e3e57');
+  for (let y = 1; y < H - 1; y++) if (!(y === 4 || y === 5)) { R(10 * T, y * T, T, T, '#6a5577'); R(10 * T, y * T, T, 2, '#8a74a0'); }
+  // window on bedroom wall + clock in living
+  R(16 * T, 1, 10, 5, '#26305a'); R(16 * T + 1, 2, 3, 3, '#3b4b86'); R(16 * T + 7, 2, 1, 1, '#fff6c9');
+  R(8 * T + 1, 1, 6, 6, '#fff'); R(8 * T + 4, 2, 1, 2, '#222'); R(8 * T + 4, 4, 2, 1, '#222');
+}
+function drawObj(o) {
+  const X = o.x * T, Y = o.y * T, w = o.w * T, h = o.h * T;
+  switch (o.id) {
+    case 'fridge': R(X + 1, Y - 6, w - 2, h + 6, '#dfe6ee'); R(X + 1, Y + 4, w - 2, 1, '#9aa7b6'); R(X + w - 4, Y - 3, 1, 4, '#8794a5'); R(X + w - 4, Y + 7, 1, 5, '#8794a5'); R(X + 1, Y + h - 1, w - 2, 1, '#9aa7b6'); break;
+    case 'sink': R(X, Y - 2, w, h + 2, '#cfd4da'); R(X + 3, Y, w - 6, 4, '#8fb3c9'); R(X + w / 2, Y - 4, 1, 3, '#7c8794'); R(X, Y + h - 1, w, 1, '#8a8f96'); break;
+    case 'stove': R(X, Y - 2, w, h + 2, '#cfd4da'); R(X + 2, Y, 4, 3, '#333'); R(X + 9, Y, 4, 3, '#333'); R(X, Y + h - 1, w, 1, '#8a8f96'); break;
+    case 'tv': R(X + 1, Y + 4, w - 2, 4, '#5a3d2a'); R(X + 3, Y - 5, w - 6, 9, '#15151c');
+      R(X + 4, Y - 4, w - 8, 7, S.mode === 'play' ? '#2a3a55' : '#222'); break;
+    case 'sofa': R(X, Y, w, h - 2, '#5b8a72'); R(X, Y + 6, w, 8, '#6fa287'); R(X, Y, 3, h - 1, '#4c7660'); R(X + w - 3, Y, 3, h - 1, '#4c7660'); R(X + 8, Y + 7, 1, 6, '#5b8a72'); R(X + 20, Y + 7, 1, 6, '#5b8a72'); break;
+    case 'plant': R(X + 2, Y + 4, 4, 4, '#a5583a'); R(X + 1, Y - 2, 6, 6, '#3f8a4a'); R(X + 3, Y - 4, 2, 3, '#54a95f'); break;
+    case 'bed': R(X, Y - 2, w, h + 2, '#7a5236'); R(X + 1, Y, w - 2, h - 2, '#f2eee6'); R(X + 2, Y + 1, 8, 4, '#fff'); R(X + 13, Y + 1, 8, 4, '#fff');
+      R(X + 1, Y + 8, w - 2, h - 10, '#e8a0b4'); R(X + 1, Y + 8, w - 2, 1, '#d6869d');
+      if (S.qi === 1 && S.active && S.hold !== '리모컨') R(X + 15, Y + 13, 3, 2, '#222'); break;
+    case 'washer': R(X + 1, Y - 4, w - 2, h + 4, '#e9eef3'); R(X + 4, Y - 2, 8, 7, '#7d8a9a'); R(X + 5, Y - 1, 6, 5, '#a9d0ea');
+      if (S.active && Q[S.qi].target === 'washer') { R(X + 1, Y - 7, w - 2, 3, '#f4d3e0'); R(X + 3, Y - 8, 4, 2, '#cfe3ff'); } break;
+    case 'closet': R(X - 1, Y - 6, w + 1, h + 6, '#8b5e3c'); R(X - 1, Y + 6, w + 1, 1, '#6d482c'); R(X + 1, Y + 2, 1, 2, '#e8c56b'); break;
+    case 'shelf': R(X, Y - 4, w, h + 4, '#9c6b45'); R(X + 3, Y - 2, 5, 4, '#fff'); R(X + 5, Y - 1, 1, 3, '#d33'); R(X + 4, Y, 3, 1, '#d33'); R(X + 10, Y - 2, 4, 5, '#6fa0d8'); break;
+    case 'door': R(X + 1, Y, w - 2, h, '#6b4a2f'); R(X + 3, Y + 1, w - 6, h - 1, '#8b6440'); R(X + w - 5, Y + 4, 1, 1, '#e8c56b');
+      if (S.active && Q[S.qi].item === '택배 상자' && S.hold !== '택배 상자') { R(X + 4, Y - 6, 8, 6, '#c8935a'); R(X + 4, Y - 4, 8, 1, '#e6c48b'); } break;
+  }
+}
+function drawWife() {
+  const x = WIFE.x * T, y = WIFE.y * T - 3;
+  const bob = Math.floor(S.t * 2) % 2;
+  sprite(WROWS, WPAL, x, y + bob);
+  const angry = S.mood < 35 || (S.active && S.pat < S.patMax * 0.35);
+  if (angry) { R(x + 2, y + bob + 2, 2, 1, '#1a1010'); R(x + 4, y + bob + 2, 2, 1, '#1a1010');
+    // anger mark
+    const c = '#ff3b3b'; R(x + 8, y - 4, 1, 3, c); R(x + 10, y - 4, 1, 3, c); R(x + 7, y - 3, 5, 1, c);
+    if (Math.floor(S.t * 3) % 2) { R(x - 2, y - 2 - (S.t * 8 % 4), 2, 2, '#ddd'); R(x + 8, y - 6 - (S.t * 8 % 4), 2, 2, '#ddd'); }
+  } else if (S.mood >= 70) { R(x + 1, y + bob + 4, 1, 1, '#ff8fb0'); R(x + 6, y + bob + 4, 1, 1, '#ff8fb0');
+    if (Math.floor(S.t * 2) % 2) { R(x + 9, y - 4, 1, 1, '#ff5d8f'); R(x + 11, y - 4, 1, 1, '#ff5d8f'); R(x + 9, y - 3, 3, 1, '#ff5d8f'); R(x + 10, y - 2, 1, 1, '#ff5d8f'); }
+  }
+  // quest marker
+  const q = S.active ? Q[S.qi] : null;
+  const want = q && (q.type === 'talk' || (q.type === 'fetch' && S.hold === q.item) || q.target === 'wife');
+  if (want && Math.floor(S.t * 4) % 2) { R(x + 3, y - 10, 2, 5, '#ffd36b'); R(x + 3, y - 4, 2, 1, '#ffd36b'); }
+}
+function drawHusband() {
+  const p = S.p;
+  const rows = p.dir === 'up' ? HUSB.up : p.dir === 'down' ? HUSB.down : HUSB.side;
+  let r = rows;
+  if (p.moving && p.step % 2) r = rows.slice(0, 8).concat(['..pp.pp.', '..kk.kk.']);
+  sprite(r, HPAL, Math.round(p.px), Math.round(p.py) - 3, p.dir === 'left');
+  if (S.hold) { R(Math.round(p.px) + 2, Math.round(p.py) - 8, 4, 4, '#fff'); R(Math.round(p.px) + 3, Math.round(p.py) - 7, 2, 2, '#ffd36b'); }
+}
+function draw() {
+  drawFloor(); drawWalls();
+  // draw in y order so the husband passes behind/in front correctly
+  const list = OBJ.map(o => ({ y: o.y + o.h - 1, f: () => drawObj(o) }));
+  list.push({ y: WIFE.y + 0.5, f: drawWife });
+  list.push({ y: S.p.py / T + 0.6, f: drawHusband });
+  list.sort((a, b) => a.y - b.y).forEach(o => o.f());
+  // night tint as mood drops
+  if (S.mood < 35) R(0, 0, 160, 104, 'rgba(120,0,20,' + (0.18 - S.mood / 300) + ')');
+}
+
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  update(dt); draw();
+  requestAnimationFrame(loop);
+}
+reset(); requestAnimationFrame(loop);
+})();
+</script>
