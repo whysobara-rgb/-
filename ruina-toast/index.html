@@ -1,0 +1,121 @@
+<title>도서관 토스트 메뉴</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nanum+Myeongjo:wght@700;800&family=Gowun+Dodum&display=swap">
+<style>
+/* Layout: a library ledger — each toast is a catalogued "book" entry: illustration plate left, recipe card right */
+:root{
+  --bg:#14100c; --panel:#1f1914; --ink:#efe4cf; --muted:#a8977c; --gold:#d6a84a; --line:rgba(214,168,74,.28); --red:#b8342c;
+  --f-d:"Nanum Myeongjo",serif; --f-b:"Gowun Dodum","Apple SD Gothic Neo",sans-serif;
+  color-scheme:dark;
+}
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-b);line-height:1.6;
+  background-image:radial-gradient(circle at 50% -10%,rgba(214,168,74,.18),transparent 55%)}
+.wrap{max-width:980px;margin:0 auto;padding-block:40px 60px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+header{text-align:center;margin-bottom:34px}
+.eyebrow{font-size:12px;letter-spacing:.3em;color:var(--gold)}
+h1{font-family:var(--f-d);font-weight:800;font-size:clamp(30px,6vw,46px);margin:6px 0 8px;text-wrap:balance}
+.lead{color:var(--muted);max-width:56ch;margin:0 auto;font-size:15px}
+.rules{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-top:16px}
+.rules span{border:1px solid var(--line);border-radius:99px;padding:3px 12px;font-size:13px;color:var(--muted)}
+.item{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:26px;align-items:center;padding:28px 0;border-top:1px solid var(--line)}
+.plate{background:radial-gradient(circle at 50% 55%,#2c241c,#18130f 70%);border:1px solid var(--line);border-radius:6px;aspect-ratio:5/4;max-width:100%;display:flex;align-items:center;justify-content:center;position:relative}
+.plate svg{width:92%;height:auto}
+.plate .no{position:absolute;left:12px;top:8px;font-family:var(--f-d);color:var(--gold);font-size:13px;letter-spacing:.15em}
+.txt{min-width:0}
+.who{font-size:12px;letter-spacing:.2em;color:var(--gold)}
+h2{font-family:var(--f-d);font-weight:800;font-size:clamp(22px,4vw,28px);margin:2px 0 6px;text-wrap:balance}
+.concept{color:var(--muted);font-size:14.5px;margin:0 0 12px}
+.meta{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.meta span{background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:2px 9px;font-size:12.5px;font-variant-numeric:tabular-nums}
+h3{font-size:13px;letter-spacing:.15em;color:var(--gold);margin:12px 0 4px;font-weight:400}
+.ing{margin:0;font-size:14.5px}
+ol{margin:0;padding-left:20px;font-size:14.5px}
+ol li{margin:2px 0}
+.tip{margin-top:10px;font-size:13px;color:var(--muted);border-left:2px solid var(--red);padding-left:10px}
+footer{border-top:1px solid var(--line);padding-top:20px;color:var(--muted);font-size:13px;text-align:center}
+@media (max-width:720px){.item{grid-template-columns:1fr;gap:16px}}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">LIBRARY OF RUINA · TOAST MENU</div>
+    <h1>도서관의 토스트 접수대</h1>
+    <p class="lead">롤랑, 엔젤라, 아르갈리아, 검은 침묵, 그리고 초대장. 작중 핵심 요소 다섯 가지를 토스트로 옮겼어요. 재료는 동네 마트와 편의점에서 구할 수 있는 것만 썼어요.</p>
+    <div class="rules"><span>식빵 기본</span><span>오븐 없이 팬·토스터</span><span>장당 10분 안팎</span><span>특수 색소 없음</span></div>
+  </header>
+  <div id="menu"></div>
+  <footer>모든 그림은 플레이팅 참고용 일러스트예요. 식빵은 두께 2cm 내외의 우유식빵 기준이에요.</footer>
+</div>
+
+<script>
+// 토스트 일러스트: 두께감 있는 식빵 + 토핑 레이어
+function toast(top, base='#f3d79a', crust='#b9772f'){
+  const shape='M40 62 Q40 22 82 24 Q100 10 118 24 Q160 22 160 62 L160 138 Q160 146 152 146 L48 146 Q40 146 40 138Z';
+  return `<svg viewBox="0 0 200 165" aria-hidden="true">
+  <ellipse cx="100" cy="156" rx="78" ry="7" fill="rgba(0,0,0,.45)"/>
+  <path d="${shape}" transform="translate(0 8)" fill="#7a4a1c"/>
+  <path d="${shape}" fill="${crust}"/>
+  <path d="${shape}" transform="translate(100 84) scale(.88) translate(-100 -84)" fill="${base}"/>
+  ${top}</svg>`;
+}
+const pepper=()=>Array.from({length:40},(_,i)=>`<circle cx="${55+((i*53)%92)}" cy="${42+((i*37)%96)}" r="1.1" fill="#2a2018"/>`).join('');
+const sugar=(n,c='#fff')=>Array.from({length:n},(_,i)=>`<circle cx="${52+((i*61)%96)}" cy="${36+((i*43)%104)}" r="${.8+(i%3)*.4}" fill="${c}" opacity=".85"/>`).join('');
+const sticks=Array.from({length:9},(_,i)=>{const x=56+i*10.5,y=44+(i%3)*6; return `<g transform="rotate(${-28+i*7} ${x} ${y+40})"><rect x="${x-2.2}" y="${y}" width="4.4" height="78" rx="2" fill="#3a2414"/><rect x="${x-2.2}" y="${y+50}" width="4.4" height="28" rx="2" fill="#d9b27a"/></g>`}).join('');
+
+const MENU=[
+ {no:'No. 01', who:'ROLAND · 9급 해결사', name:'해결사의 아침 에그 토스트',
+  concept:'도서관에 끌려오기 전, 그냥 평범한 해결사였던 롤랑. 꾸밈없는 짭짤한 에그 치즈 토스트에 검은 넥타이 한 줄로 그의 정장 차림을 표현했어요.',
+  meta:['짭짤','10분','난이도 ★☆☆'],
+  ing:'식빵 1장, 달걀 2개, 슬라이스 치즈 1장, 슬라이스 햄 1장, 버터, 후추, 조미 안 된 김 1/4장',
+  steps:['버터 두른 팬에 식빵 양면을 노릇하게 굽는다.','달걀은 소금 한 꼬집 넣어 부드럽게 스크램블한다.','식빵 위에 햄, 치즈, 스크램블 순으로 올리고 후추를 넉넉히 뿌린다.','김을 가위로 좁은 넥타이 모양으로 잘라 가운데에 올린다.'],
+  tip:'넥타이 김은 마지막에 올려야 눅눅해지지 않아요.',
+  svg:toast(`<path d="M56 50 Q100 30 144 50 L146 132 Q100 140 54 132Z" fill="#ffd34a"/>
+   <path d="M60 58 Q80 48 98 60 Q118 50 140 62 L140 126 Q100 134 60 126Z" fill="#fff0a8" opacity=".7"/>${pepper()}
+   <path d="M95 48 L105 48 L103 60 L109 120 L100 132 L91 120 L97 60Z" fill="#141414"/><path d="M95 48 L105 48 L103 60 L97 60Z" fill="#2a2a2a"/>`)},
+ {no:'No. 02', who:'BLACK SILENCE · 검은 침묵', name:'푸리오소 흑임자 토스트',
+  concept:'전설의 해결사 검은 침묵. 새까만 흑임자 크림 위에 초코 프레첼 9개를 부채꼴로 꽂아, 아홉 무기를 차례로 휘두르는 푸리오소를 표현했어요.',
+  meta:['고소·달콤','10분','난이도 ★☆☆'],
+  ing:'식빵 1장, 크림치즈 2큰술, 흑임자 가루 1큰술, 꿀 1작은술, 초코 코팅 프레첼 스틱 9개, 오레오 1개',
+  steps:['크림치즈에 흑임자 가루와 꿀을 섞어 회색빛 크림을 만든다.','식빵을 토스터에 굽고 크림을 두껍게 바른다.','오레오를 지퍼백에 넣고 부숴 위에 뿌려 까맣게 덮는다.','프레첼 스틱 9개를 위쪽으로 펼쳐지게 비스듬히 꽂는다.'],
+  tip:'프레첼은 초코 부분이 위로 가게 꽂으면 검은 무기처럼 보여요. 오레오 크림은 긁어내고 쿠키만 쓰면 더 까매요.',
+  svg:toast(`<path d="M50 44 Q100 26 150 44 L150 138 L50 138Z" fill="#2b2622"/>${sugar(60,'#4a423b')}${sugar(18,'#151210')}${sticks}`,'#2b2622','#1c1814')},
+ {no:'No. 03', who:'ANGELA · 관장', name:'엔젤라의 빛 허니버터 북 토스트',
+  concept:'도서관의 관장 엔젤라와 그녀가 모으려 한 "빛". 펼친 책 모양으로 가운데 칼집을 내고, 허니버터와 바나나로 금빛 페이지를 만들었어요.',
+  meta:['달콤','12분','난이도 ★★☆'],
+  ing:'식빵 1장, 버터 1큰술, 꿀 1큰술, 바나나 1/2개, 슈가파우더(또는 설탕), 시나몬 가루 약간',
+  steps:['식빵 가운데에 세로로 칼집을 내고(끝까지 자르지 않기) 양쪽을 살짝 눌러 펼친 책 모양을 만든다.','녹인 버터와 꿀을 섞어 바르고 팬이나 토스터에 노릇하게 굽는다.','얇게 썬 바나나를 양쪽 페이지에 줄지어 올린다.','슈가파우더를 체로 뿌리고 가운데 접힌 줄에만 시나몬을 살짝 뿌린다.'],
+  tip:'칼집은 깊이의 2/3까지만. 굽고 나면 책등이 자연스럽게 살아나요.',
+  svg:toast(`<path d="M52 46 Q76 38 98 48 L98 136 Q76 128 52 134Z" fill="#fff4cf"/><path d="M148 46 Q124 38 102 48 L102 136 Q124 128 148 134Z" fill="#fff4cf"/>
+   <path d="M100 46 L100 138" stroke="#9a6a2a" stroke-width="3"/>
+   ${[0,1,2].map(i=>`<ellipse cx="74" cy="${66+i*24}" rx="13" ry="9" fill="#f7e27a" stroke="#d9b84a"/><ellipse cx="126" cy="${66+i*24}" rx="13" ry="9" fill="#f7e27a" stroke="#d9b84a"/>`).join('')}
+   ${sugar(55)}<circle cx="100" cy="30" r="10" fill="#fff6c8" opacity=".9"/><circle cx="100" cy="30" r="20" fill="#fff6c8" opacity=".18"/>`)},
+ {no:'No. 04', who:'ARGALIA · 푸른 잔향', name:'푸른 잔향 블루베리 마블 토스트',
+  concept:'첼로 소리처럼 퍼지는 아르갈리아의 푸른 잔향. 크림치즈 위에 블루베리잼을 떨어뜨리고 이쑤시개로 물결무늬를 그려 소리의 파동을 표현했어요.',
+  meta:['새콤달콤','8분','난이도 ★★☆'],
+  ing:'식빵 1장, 크림치즈 2큰술, 플레인 요거트 1큰술, 블루베리잼 1큰술, 냉동 블루베리 한 줌, 초코펜(또는 녹인 초콜릿)',
+  steps:['크림치즈와 요거트를 섞어 부드럽게 만든 뒤 구운 식빵에 바른다.','블루베리잼을 가로로 세 줄 점점이 떨어뜨린다.','이쑤시개로 세로 방향 S자를 그어 물결 마블을 만든다.','블루베리를 한쪽 모서리에 모으고 초코펜으로 음표 두 개를 그린다.'],
+  tip:'잼이 너무 되직하면 전자레인지에 5초 데우면 마블이 잘 퍼져요.',
+  svg:toast(`<path d="M50 44 Q100 26 150 44 L150 138 L50 138Z" fill="#f4f1fb"/>
+   ${[62,86,110].map(y=>`<path d="M54 ${y} Q66 ${y-10} 78 ${y} T102 ${y} T126 ${y} T150 ${y}" stroke="#4b4fb8" stroke-width="5" fill="none" opacity=".85"/><path d="M54 ${y+6} Q66 ${y-4} 78 ${y+6} T102 ${y+6} T126 ${y+6} T150 ${y+6}" stroke="#8a8fe0" stroke-width="2" fill="none"/>`).join('')}
+   ${[[132,124],[140,118],[124,130],[142,130],[134,134]].map(([x,y])=>`<circle cx="${x}" cy="${y}" r="5" fill="#2d2f7a"/><circle cx="${x-1.5}" cy="${y-1.5}" r="1.3" fill="#9aa0ff"/>`).join('')}
+   <g fill="#2a1a10"><ellipse cx="66" cy="128" rx="5" ry="3.6"/><rect x="69.5" y="108" width="2" height="20"/><ellipse cx="82" cy="124" rx="5" ry="3.6"/><rect x="85.5" y="104" width="2" height="20"/><rect x="69.5" y="104" width="18" height="3"/></g>`)},
+ {no:'No. 05', who:'INVITATION · 도서관의 초대장', name:'초대장 프렌치토스트',
+  concept:'모든 이야기는 도서관의 초대장에서 시작돼요. 프렌치토스트 위에 슈가파우더로 봉투 선을 남기고, 딸기잼으로 붉은 밀랍 봉인을 찍었어요.',
+  meta:['달콤','12분','난이도 ★★☆'],
+  ing:'식빵 1장, 달걀 1개, 우유 50ml, 설탕 1작은술, 버터, 슈가파우더, 딸기잼 1작은술',
+  steps:['달걀, 우유, 설탕을 섞어 식빵을 앞뒤로 충분히 적신다.','버터 두른 약불 팬에서 양면을 천천히 굽는다.','식빵 위에 종이를 대각선으로 대고 슈가파우더를 뿌려 봉투의 V선을 만든다.','가운데에 딸기잼을 동그랗게 올리고 숟가락 뒷면으로 꾹 눌러 봉인 모양을 낸다.'],
+  tip:'종이 마스킹 대신 젓가락 두 개를 V자로 올려두고 뿌리면 더 간단해요.',
+  svg:toast(`<path d="M50 44 Q100 26 150 44 L150 138 L50 138Z" fill="#e9b25a"/>${sugar(70,'#fff6e0')}
+   <path d="M50 46 L100 96 L150 46" stroke="#fff8ea" stroke-width="5" fill="none" stroke-linejoin="round"/>
+   <path d="M50 138 L88 104 M150 138 L112 104" stroke="#fff8ea" stroke-width="3" opacity=".8"/>
+   <circle cx="100" cy="98" r="15" fill="#a8231d"/><circle cx="100" cy="98" r="11" fill="#c8352c"/><circle cx="100" cy="98" r="7" fill="none" stroke="#7a130f" stroke-width="2"/><circle cx="96" cy="94" r="2.5" fill="#ff8a7a" opacity=".7"/>`,'#e6a54a','#9a5a1c')},
+];
+document.getElementById('menu').innerHTML=MENU.map(m=>`<article class="item">
+ <div class="plate"><span class="no">${m.no}</span>${m.svg}</div>
+ <div class="txt"><div class="who">${m.who}</div><h2>${m.name}</h2><p class="concept">${m.concept}</p>
+ <div class="meta">${m.meta.map(x=>`<span>${x}</span>`).join('')}</div>
+ <h3>재료</h3><p class="ing">${m.ing}</p>
+ <h3>만드는 법</h3><ol>${m.steps.map(s=>`<li>${s}</li>`).join('')}</ol>
+ <p class="tip">${m.tip}</p></div></article>`).join('');
+</script>
