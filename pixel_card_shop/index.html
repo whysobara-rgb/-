@@ -1,0 +1,548 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>햄붕이 카드샵</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/galmuri@2.39.3/dist/galmuri.css">
+<style>
+:root{
+  --bg:#0d0818;--panel:#1b1030;--panel2:#26173f;--line:#3d2766;--gold:#ffcf4f;--gold2:#c98a1a;
+  --text:#f4ecff;--sub:#b9a6d9;--red:#ff4f6d;--green:#4fd27a;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font-family:'Galmuri11','Galmuri9',monospace;}
+body{min-height:100vh;background:
+  radial-gradient(ellipse at top,#2a1650 0%,transparent 60%),
+  repeating-linear-gradient(45deg,#120a22 0 8px,#0f081d 8px 16px);}
+canvas{image-rendering:pixelated;image-rendering:crisp-edges}
+button{font-family:inherit;cursor:pointer}
+.wrap{max-width:1100px;margin:0 auto;padding:12px 16px 60px}
+#scene{width:100%;aspect-ratio:320/100;display:block;border:4px solid var(--gold2);outline:4px solid #3a2208;box-shadow:0 0 30px #ffcf4f33}
+.sign{text-align:center;margin:-6px 0 10px;position:relative}
+.sign h1{display:inline-block;margin:0;padding:8px 18px;font-size:20px;color:var(--gold);background:#1a0d06;border:4px solid var(--gold2);
+  text-shadow:2px 2px 0 #6a3a00;letter-spacing:2px;box-shadow:4px 4px 0 #000}
+.sign small{display:block;color:var(--sub);font-size:11px;margin-top:6px}
+.hud{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:#120a22ee;border:4px solid var(--line);padding:8px 10px;margin-bottom:14px;box-shadow:4px 4px 0 #000}
+.stat{background:var(--panel2);border:2px solid var(--line);padding:6px 10px;font-size:13px}
+.stat b{color:var(--gold);font-size:15px}
+.stat.money b{color:#7dffb0}
+.spacer{flex:1}
+.pbtn{background:linear-gradient(#ffdf7a,#e0a020);color:#2a1400;border:none;padding:8px 12px;font-size:12px;box-shadow:inset -3px -3px 0 #a86a00,inset 3px 3px 0 #fff3c0,3px 3px 0 #000;}
+.pbtn:active{transform:translate(2px,2px);box-shadow:inset -3px -3px 0 #a86a00,1px 1px 0 #000}
+.pbtn.alt{background:linear-gradient(#8a6ad8,#5a3aa8);color:#fff;box-shadow:inset -3px -3px 0 #2e1a6a,inset 3px 3px 0 #b8a0ff,3px 3px 0 #000}
+.pbtn.red{background:linear-gradient(#ff7a8a,#c8304a);color:#fff;box-shadow:inset -3px -3px 0 #7a1020,inset 3px 3px 0 #ffc0c8,3px 3px 0 #000}
+.pbtn:disabled{filter:grayscale(1) brightness(.6);cursor:not-allowed}
+h2{font-size:15px;color:var(--gold);margin:18px 0 10px;text-shadow:2px 2px 0 #000}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px}
+.ori{background:linear-gradient(var(--panel2),var(--panel));border:4px solid var(--line);padding:10px;position:relative;box-shadow:4px 4px 0 #000;transition:transform .1s}
+.ori:hover{transform:translateY(-3px)}
+.ori.tier3{border-color:#b07a2a}.ori.tier4{border-color:var(--gold);box-shadow:4px 4px 0 #000,0 0 16px #ffcf4f55}
+.ori .top{display:flex;gap:10px;align-items:center}
+.ori canvas{width:64px;height:64px;flex:none}
+.ori .nm{font-size:13px;color:#fff}
+.ori .pr{font-size:15px;color:var(--gold);margin-top:4px}
+.ori .ds{font-size:10px;color:var(--sub);margin:6px 0;min-height:26px;line-height:1.4}
+.bar{height:10px;background:#0b0614;border:2px solid #000;position:relative}
+.bar i{display:block;height:100%;background:repeating-linear-gradient(90deg,#4fd27a 0 4px,#3ab060 4px 8px)}
+.rates{display:flex;gap:3px;margin:6px 0;font-size:10px;flex-wrap:wrap}
+.rates span{padding:1px 4px;border:1px solid #000}
+.stk{font-size:11px;color:var(--sub);display:flex;justify-content:space-between;margin:6px 0 4px}
+.buys{display:flex;gap:6px}
+.buys button{flex:1;padding:7px 2px;font-size:11px}
+.soldout{position:absolute;inset:0;background:#000a;display:flex;align-items:center;justify-content:center;font-size:22px;color:var(--red);text-shadow:3px 3px 0 #000;transform:rotate(-8deg)}
+.binder{background:var(--panel);border:4px solid var(--line);padding:10px;box-shadow:4px 4px 0 #000}
+.btools{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center;font-size:12px}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:10px}
+.cw{text-align:center;font-size:10px;position:relative}
+.card{position:relative;width:100%;aspect-ratio:60/84;overflow:hidden}
+.card canvas{width:100%;height:100%;display:block}
+.card.g3::after,.card.g4::after{content:"";position:absolute;inset:0;pointer-events:none;mix-blend-mode:screen;
+  background:linear-gradient(115deg,transparent 30%,#ff7af855 40%,#7affff55 48%,#fff38a66 55%,transparent 65%);background-size:250% 100%;animation:holo 2.4s linear infinite}
+.card.g4::after{background:linear-gradient(115deg,transparent 25%,#ff5a5a66 33%,#ffd84f77 41%,#5aff8a66 49%,#5ac8ff66 57%,#c85aff66 65%,transparent 73%);background-size:250% 100%}
+@keyframes holo{from{background-position:200% 0}to{background-position:-50% 0}}
+.cw .cn{margin-top:4px;color:#fff;font-size:11px}
+.cw .cv{color:var(--gold)}
+.cw .cnt{position:absolute;top:4px;right:4px;background:#000c;border:2px solid var(--gold);color:var(--gold);padding:1px 4px;font-size:10px;z-index:2}
+.cw button{margin-top:4px;width:100%;font-size:10px;padding:4px}
+.empty{color:var(--sub);font-size:12px;padding:20px;text-align:center}
+.modal{position:fixed;inset:0;background:#05020bdd;z-index:20;display:none;align-items:center;justify-content:center;padding:16px}
+.modal.on{display:flex}
+.mbox{background:var(--panel);border:4px solid var(--gold2);box-shadow:0 0 0 4px #000,0 0 40px #ffcf4f44;padding:16px;max-width:820px;width:100%;max-height:92vh;overflow:auto;text-align:center}
+.mbox h3{margin:0 0 12px;color:var(--gold);font-size:18px;text-shadow:2px 2px 0 #000}
+.reveal{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:12px;margin:12px 0}
+.flip{perspective:600px}
+.flip .in{position:relative;transition:transform .45s;transform-style:preserve-3d;aspect-ratio:60/84}
+.flip.open .in{transform:rotateY(180deg)}
+.flip .face{position:absolute;inset:0;backface-visibility:hidden}
+.flip .face.front{transform:rotateY(180deg)}
+.flip .face canvas{width:100%;height:100%}
+.flip.open.g3 .in{animation:glowE 1s ease-out .3s}
+.flip.open.g4 .in{animation:glowL 1.4s ease-out .3s}
+@keyframes glowE{0%{filter:drop-shadow(0 0 0 #c46bff)}40%{filter:drop-shadow(0 0 24px #c46bff)}100%{filter:drop-shadow(0 0 6px #c46bff)}}
+@keyframes glowL{0%{filter:drop-shadow(0 0 0 #ffcf4f)}40%{filter:drop-shadow(0 0 36px #ffcf4f) brightness(1.5)}100%{filter:drop-shadow(0 0 8px #ffcf4f)}}
+.flip .lbl{font-size:11px;margin-top:6px;min-height:30px;opacity:0;transition:opacity .3s .3s}
+.flip.open .lbl{opacity:1}
+.bigmsg{font-size:28px;margin:10px 0;text-shadow:3px 3px 0 #000}
+.mbox p{color:var(--sub);font-size:13px;line-height:1.6}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#000e;border:3px solid var(--gold);padding:10px 16px;font-size:13px;z-index:30;display:none}
+.lastone{color:#ff9af0;font-size:13px;margin:4px 0}
+#flash{position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:25;transition:opacity .5s}
+@media (max-width:520px){.sign h1{font-size:15px}.grid{grid-template-columns:1fr 1fr}.ori .top{flex-direction:column;align-items:flex-start}.cards{grid-template-columns:repeat(3,1fr)}.reveal{grid-template-columns:repeat(3,1fr)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <canvas id="scene" width="320" height="100"></canvas>
+  <div class="sign"><h1>★ 수원 메가 카드 갤러리 ★</h1><small>MONSTER TCG GRAND SHOP · 몬스터 카드 120종 · 오리파 10종</small></div>
+  <div class="hud">
+    <div class="stat money">💰 <b id="money">100,000</b>원</div>
+    <div class="stat">🃏 보유 <b id="cnt">0</b>장</div>
+    <div class="stat">📖 도감 <b id="dex">0</b>/<span id="dexT">120</span></div>
+    <div class="stat">💎 가치 <b id="val">0</b>원</div>
+    <div class="spacer"></div>
+    <button class="pbtn alt" id="bgmBtn">♪ BGM ON</button>
+    <button class="pbtn" id="leaveBtn">🚪 가게 나가기</button>
+  </div>
+
+  <h2>▶ 오리파 진열대</h2>
+  <div class="grid" id="oris"></div>
+
+  <h2>▶ 햄붕이 13호의 바인더</h2>
+  <div class="binder">
+    <div class="btools">
+      <span>정렬:</span>
+      <button class="pbtn alt" data-sort="grade">등급순</button>
+      <button class="pbtn alt" data-sort="value">가치순</button>
+      <button class="pbtn alt" data-sort="dex">도감순</button>
+      <div class="spacer"></div>
+      <button class="pbtn red" id="sellDup">중복 카드 전부 판매</button>
+    </div>
+    <div class="cards" id="cards"></div>
+  </div>
+</div>
+
+<div class="modal on" id="startM"><div class="mbox">
+  <canvas id="hamC" width="40" height="40" style="width:120px;height:120px"></canvas>
+  <h3>햄햄팡팡 직원 · 햄붕이 13호</h3>
+  <p>요즘 몬스터 카드에 푹 빠진 햄붕이 13호.<br>수원에 거대한 카드샵이 새로 생겼다!<br>
+  하지만 이번 달 맛있는 걸 너무 많이 먹어서… 지갑엔 <b style="color:#7dffb0">100,000원</b>뿐.<br><br>
+  ▸ 10종의 오리파를 뽑아 <b style="color:var(--gold)">최대한 많은 카드</b>를 모으자<br>
+  ▸ 오리파는 재고가 한정! 뽑은 만큼 남은 수량이 줄어든다<br>
+  ▸ 카드는 가치만큼 매장에 되팔 수 있다<br>
+  ▸ <b style="color:var(--red)">돈을 전부 써버리면 실패</b>… 처음부터 다시!</p>
+  <button class="pbtn" id="startBtn" style="font-size:16px;padding:12px 24px">▶ 가게 들어가기</button>
+</div></div>
+
+<div class="modal" id="pullM"><div class="mbox">
+  <h3 id="pullT">개봉!</h3>
+  <div class="lastone" id="lastone"></div>
+  <div class="reveal" id="reveal"></div>
+  <button class="pbtn alt" id="openAll">모두 열기</button>
+  <button class="pbtn" id="pullOk">확인</button>
+</div></div>
+
+<div class="modal" id="endM"><div class="mbox" id="endBox"></div></div>
+<div class="toast" id="toast"></div>
+<div id="flash"></div>
+
+<script>
+'use strict';
+// ---------- RNG ----------
+function mulberry(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const R=Math.random;
+const pick=(a,r=R)=>a[Math.floor(r()*a.length)];
+const fmt=n=>n.toLocaleString('ko-KR');
+
+// ---------- DATA ----------
+const GRADES=[
+  {k:'C',name:'커먼',color:'#9aa4b2',dark:'#4a5260',min:200,max:600,stars:1},
+  {k:'U',name:'언커먼',color:'#4fd27a',dark:'#1f6a3a',min:800,max:2000,stars:2},
+  {k:'R',name:'레어',color:'#4f9aff',dark:'#1a3a8a',min:3000,max:7000,stars:3},
+  {k:'E',name:'에픽',color:'#c46bff',dark:'#5a1a8a',min:12000,max:30000,stars:4},
+  {k:'L',name:'레전드',color:'#ffcf4f',dark:'#8a5a00',min:50000,max:150000,stars:5},
+];
+const ELEM=[
+  {n:'화염',icon:'🔥',p:['#5a1010','#c8361e','#ff7a2a','#ffd06a'],pre:['불꽃','화염','용암','잉걸','홍련','작열']},
+  {n:'물결',icon:'💧',p:['#0e2a6a','#2a6ad8','#5ab0ff','#c8f0ff'],pre:['물방울','파도','심해','아쿠아','해류','이슬']},
+  {n:'숲',icon:'🌿',p:['#123a1a','#2f8a3a','#7ad05a','#e0ff9a'],pre:['새싹','덩굴','이끼','꽃잎','숲속','도토리']},
+  {n:'번개',icon:'⚡',p:['#5a4008','#d8a018','#ffe04a','#fffbd0'],pre:['찌릿','번개','볼트','스파크','천둥','전류']},
+  {n:'빙결',icon:'❄',p:['#1a4a6a','#5ab8d8','#a8eeff','#ffffff'],pre:['눈꽃','빙하','서리','얼음','오로라','설산']},
+  {n:'어둠',icon:'🌑',p:['#120a24','#3a2468','#7a4ac8','#ff4f8a'],pre:['그림자','밤안개','망령','칠흑','암흑','달그늘']},
+  {n:'성광',icon:'✦',p:['#6a5420','#e0c070','#fff0b8','#ffffff'],pre:['광휘','천사','성채','은하수','새벽','후광']},
+  {n:'대지',icon:'⛰',p:['#2e1e10','#7a5634','#b88a5a','#e8d0a8'],pre:['바위','모래','협곡','화강','흙더미','지진']},
+  {n:'질풍',icon:'🌀',p:['#1a4a40','#3aa888','#8ae8c8','#f0fff8'],pre:['산들','회오리','질풍','깃털','구름','폭풍']},
+  {n:'우주',icon:'✶',p:['#0a0628','#2a1c80','#6a5aff','#ff8af0'],pre:['별똥','성운','블랙홀','혜성','은하','퀘이사']},
+];
+const SUF=['냥','몽','토리','구리','롱','비','뿡','라곤','시스','타로','쿠','핀','몬','도르','미','룽','가스','토스'];
+const GRADE_TITLE=['','','','대','황제'];
+const CARDS=[];
+(function genCards(){
+  const r=mulberry(1313);
+  const dist=[0,0,0,0,0,1,1,1,2,2,3,4]; // 12 per elem: 5C 3U 2R 1E 1L
+  ELEM.forEach((e,ei)=>{
+    const used=new Set();
+    dist.forEach((g,i)=>{
+      let nm;do{nm=pick(e.pre,r)+pick(SUF,r)}while(used.has(nm));used.add(nm);
+      if(GRADE_TITLE[g])nm=GRADE_TITLE[g]+' '+nm;
+      const G=GRADES[g];
+      const value=Math.round((G.min+(G.max-G.min)*Math.pow(r(),1.6))/100)*100;
+      CARDS.push({id:CARDS.length,no:ei*12+i+1,name:nm,elem:ei,grade:g,value,seed:Math.floor(r()*1e9)});
+    });
+  });
+})();
+const byGrade=[0,1,2,3,4].map(g=>CARDS.filter(c=>c.grade===g));
+
+// pool: counts per grade [C,U,R,E,L]; per: cards per ticket (extra cards are commons)
+const ORI_DEF=[
+  {name:'동전 오리파',price:1000,pool:[34,5,1,0,0],per:1,col:['#6a6a7a','#a8a8b8','#e0e0f0'],tier:0,ds:'가볍게 한 장! 커먼 위주의 입문용.'},
+  {name:'새싹 스타터',price:2000,pool:[20,7,2,1,0],per:1,col:['#1f6a3a','#3fae5a','#9be38b'],tier:0,ds:'의외로 에픽 1장 숨어있음.'},
+  {name:'트리플 번들',price:3000,pool:[12,5,2,1,0],per:3,col:['#7a3a10','#d87a2a','#ffc07a'],tier:1,ds:'1회에 카드 3장! 머릿수 늘리기 최고.'},
+  {name:'원소 셀렉트',price:4000,pool:[8,9,5,2,0],per:1,col:['#0e4a6a','#2a9ad8','#8ad8ff'],tier:1,ds:'언커먼 이상 확률 UP.'},
+  {name:'블루 크리스탈',price:5000,pool:[0,14,8,2,1],per:1,col:['#1a2a8a','#3a5ae8','#9ab0ff'],tier:1,ds:'커먼 없음! 레전드 1장 봉인.'},
+  {name:'메가 박스',price:8000,pool:[0,6,6,3,1],per:2,col:['#5a1a6a','#a83ad8','#e0a0ff'],tier:2,ds:'1회 2장. 언커먼 이상 확정.'},
+  {name:'실버 프리미엄',price:12000,pool:[0,6,8,4,2],per:1,col:['#4a5a6a','#a0b8c8','#f0f8ff'],tier:2,ds:'레어 이상 고확률.'},
+  {name:'골드 프리미엄',price:20000,pool:[0,0,8,4,2],per:1,col:['#7a4a00','#e0a020','#fff08a'],tier:3,ds:'레어 이상 확정 · 레전드 2장.'},
+  {name:'블랙 다이아',price:30000,pool:[0,0,4,4,2],per:1,col:['#100818','#3a2a50','#ff4f8a'],tier:3,ds:'에픽 40%! 상위 컬렉터 전용.'},
+  {name:'레전드 금고',price:50000,pool:[0,0,0,4,2],per:1,col:['#5a3a00','#ffcf4f','#ffffff'],tier:4,ds:'에픽 이상 확정. 인생 한 방.'},
+];
+let S; // state
+function newState(){
+  return{money:100000,owned:{},history:0,
+    oris:ORI_DEF.map(d=>{const t=[];d.pool.forEach((n,g)=>{for(let i=0;i<n;i++)t.push(g)});
+      for(let i=t.length-1;i>0;i--){const j=Math.floor(R()*(i+1));[t[i],t[j]]=[t[j],t[i]]}
+      return{...d,tickets:t,total:t.length}})};
+}
+
+// ---------- PIXEL ART ----------
+function makeSprite(card){
+  const r=mulberry(card.seed),W=20,H=20,g=card.grade;
+  const m=Array.from({length:H},()=>Array(W).fill(0));
+  const cx=9.5;
+  const bodyCy=11+Math.floor(r()*3),bodyRx=3.5+r()*3+g*0.35,bodyRy=3.5+r()*2.5+g*0.3;
+  const headCy=bodyCy-bodyRy-1+r()*2,headRx=3+r()*2.2,headRy=2.6+r()*1.6;
+  const ell=(x,y,ex,ey,rx,ry)=>((x-ex)/rx)**2+((y-ey)/ry)**2<=1;
+  for(let y=0;y<H;y++)for(let x=0;x<10;x++){
+    const px=x+0.5,py=y+0.5;
+    let v=ell(px,py,cx,bodyCy,bodyRx,bodyRy)?1:0;
+    if(ell(px,py,cx,headCy,headRx,headRy))v=2;
+    m[y][x]=v;
+  }
+  // ears / horns
+  const earType=Math.floor(r()*4),ex=Math.round(cx-headRx+1+r()*1.5),ey=Math.round(headCy-headRy);
+  const earH=2+Math.floor(r()*2)+(g>=3?1:0);
+  for(let i=0;i<earH;i++){const yy=ey-i;if(yy<0)break;
+    if(earType===0){m[yy][ex]=3;if(i<earH-1)m[yy][ex+1]=3}
+    else if(earType===1){m[yy][ex-Math.floor(i/2)]=3}
+    else if(earType===2&&i<2){m[yy][ex]=2;m[yy][ex+1]=2}
+  }
+  // feet
+  const fy=Math.min(H-2,Math.round(bodyCy+bodyRy));const fx=Math.round(cx-bodyRx/2);
+  m[fy][fx]=1;m[fy][fx-1]=1;
+  // arms / wings
+  const wing=r()<0.35||g>=3;
+  if(wing){const wy=Math.round(bodyCy-1),wx=Math.round(cx-bodyRx);for(let i=0;i<3+g/2;i++){const xx=wx-i,yy=wy-i;if(xx>=0&&yy>=0){m[yy][xx]=4;if(yy+1<H)m[yy+1][xx]=4;if(i>0&&yy+2<H)m[yy+2][xx]=4}}}
+  else{const ay=Math.round(bodyCy),ax=Math.round(cx-bodyRx);if(ax>0)m[ay][ax-0]=1}
+  // tail-ish noise
+  for(let y=1;y<H-1;y++)for(let x=1;x<10;x++){if(!m[y][x]&&(m[y][x+1]||m[y+1][x])&&r()<0.08)m[y][x]=1}
+  // mirror
+  for(let y=0;y<H;y++)for(let x=0;x<10;x++)m[y][W-1-x]=m[y][x];
+  // eyes
+  const eyY=Math.round(headCy),eyX=Math.round(cx-headRx/2-0.3);
+  const eyes=[[eyX,eyY],[W-1-eyX,eyY]];
+  const pal=ELEM[card.elem].p;
+  const out=[];
+  const filled=(x,y)=>x>=0&&y>=0&&x<W&&y<H&&m[y][x]>0;
+  for(let y=0;y<H;y++){out.push([]);for(let x=0;x<W;x++){
+    let c=null;
+    if(m[y][x]){
+      const t=m[y][x];
+      c=pal[1];
+      if(!filled(x,y-1)||!filled(x-1,y)&&x<10)c=pal[2];
+      if(!filled(x,y+1)||(!filled(x+1,y)&&x>=10))c=pal[0];
+      if(t===3)c=g>=4?'#ffe06a':pal[3];
+      if(t===4)c=(x+y)%2?pal[2]:pal[3];
+      if(t===1&&ell(x+.5,y+.5,cx,bodyCy+1,bodyRx*0.5,bodyRy*0.55))c=pal[3];
+    }else if(filled(x+1,y)||filled(x-1,y)||filled(x,y+1)||filled(x,y-1))c='#140a1c';
+    out[y].push(c);
+  }}
+  eyes.forEach(([x,y])=>{if(y>=0&&y<H){out[y][x]='#140a1c';if(y+1<H)out[y+1][x]='#140a1c';if(y-1>=0&&m[y-1][x])out[y-1][x]='#ffffff'}});
+  // cheeks
+  const chY=eyY+1,chX=eyX-1;if(chY<H&&m[chY][chX]){out[chY][chX]='#ff8aa8';out[chY][W-1-chX]='#ff8aa8'}
+  return out;
+}
+const spriteCache={};
+function getSprite(c){return spriteCache[c.id]||(spriteCache[c.id]=makeSprite(c))}
+
+function px(ctx,x,y,w,h,c){ctx.fillStyle=c;ctx.fillRect(x,y,w,h)}
+function star(ctx,x,y,c){px(ctx,x+1,y,1,3,c);px(ctx,x,y+1,3,1,c)}
+const cardCache={};
+function drawCard(card){
+  if(cardCache[card.id])return cardCache[card.id];
+  const cv=document.createElement('canvas');cv.width=60;cv.height=84;
+  const ctx=cv.getContext('2d'),G=GRADES[card.grade],E=ELEM[card.elem],p=E.p;
+  // frame
+  px(ctx,0,0,60,84,'#0a0610');
+  px(ctx,1,1,58,82,G.dark);px(ctx,2,2,56,80,G.color);
+  if(card.grade===4){for(let i=0;i<84;i+=2){px(ctx,2,i,1,1,'#fff6c8');px(ctx,57,i+1,1,1,'#fff6c8')}}
+  px(ctx,4,4,52,76,'#1a1024');
+  // header
+  px(ctx,5,5,50,7,p[0]);px(ctx,5,5,50,1,p[1]);
+  for(let i=0;i<G.stars;i++)star(ctx,7+i*4,7,card.grade===4?'#fff6a0':'#ffffff');
+  px(ctx,47,6,7,5,p[2]);px(ctx,49,7,3,3,p[3]);
+  // art window bg
+  const ax=6,ay=13,aw=48,ah=42;
+  for(let y=0;y<ah;y++)for(let x=0;x<aw;x++){
+    const t=y/ah;let c=t<0.55?p[0]:p[1];
+    if(Math.abs(t-0.55)<0.12&&(x+y)%2)c=t<0.55?p[1]:p[0];
+    if(t<0.55&&(x*7+y*13)%37===0)c=p[3];
+    ctx.fillStyle=c;ctx.fillRect(ax+x,ay+y,1,1);
+  }
+  if(card.grade>=3){ctx.globalAlpha=.35;for(let a=0;a<12;a++){ctx.fillStyle=a%2?G.color:'#ffffff';ctx.beginPath();ctx.moveTo(30,34);ctx.arc(30,34,40,a*Math.PI/6,a*Math.PI/6+Math.PI/12);ctx.fill()}ctx.globalAlpha=1}
+  px(ctx,ax,ay+ah-6,aw,6,'#00000055');
+  ctx.strokeStyle='#0a0610';ctx.lineWidth=1;ctx.strokeRect(ax-0.5,ay-0.5,aw+1,ah+1);
+  // sprite x2
+  const sp=getSprite(card);
+  for(let y=0;y<20;y++)for(let x=0;x<20;x++){if(sp[y][x]){ctx.fillStyle=sp[y][x];ctx.fillRect(10+x*2,14+y*2,2,2)}}
+  // info box
+  px(ctx,6,57,48,20,'#2a1a3a');px(ctx,6,57,48,1,G.color);
+  // fake text lines
+  for(let l=0;l<3;l++){const w=20+((card.seed>>l*3)%22);px(ctx,9,61+l*5,w,2,'#7a6a90')}
+  // number
+  const n=String(card.no).padStart(3,'0');
+  px(ctx,40,72,13,3,'#0a0610');
+  ctx.fillStyle=G.color;for(let i=0;i<3;i++){const d=+n[i];for(let b=0;b<3;b++)if((d>>b)&1)ctx.fillRect(41+i*4+b,73,1,1)}
+  cardCache[card.id]=cv;return cv;
+}
+function cardBack(){
+  const cv=document.createElement('canvas');cv.width=60;cv.height=84;const c=cv.getContext('2d');
+  px(c,0,0,60,84,'#0a0610');px(c,1,1,58,82,'#3a1a6a');px(c,3,3,54,78,'#2a1050');
+  for(let y=3;y<81;y++)for(let x=3;x<57;x++)if((x+y)%6===0)px(c,x,y,1,1,'#4a2a8a');
+  px(c,3,3,54,1,'#ffcf4f');px(c,3,80,54,1,'#ffcf4f');px(c,3,3,1,78,'#ffcf4f');px(c,56,3,1,78,'#ffcf4f');
+  // emblem ball
+  const cx=30,cy=42;for(let y=-12;y<=12;y++)for(let x=-12;x<=12;x++){const d=x*x+y*y;if(d<=144){let col=y<0?'#ffcf4f':'#f4ecff';if(d>110)col='#0a0610';if(Math.abs(y)<=1&&d<=110)col='#0a0610';if(x*x+y*y<=12)col=d<=5?'#ffffff':'#0a0610';px(c,cx+x,cy+y,1,1,col)}}
+  px(c,cx-7,cy-8,2,2,'#fff6c8');
+  return cv;
+}
+function drawBox(cv,o,sold){
+  const c=cv.getContext('2d');c.clearRect(0,0,32,32);const [d,b,l]=o.col;
+  if(o.tier>=3){c.globalAlpha=.35;px(c,1,1,30,30,l);c.globalAlpha=1}
+  px(c,4,12,24,17,'#0a0610');px(c,5,13,22,15,b);px(c,5,13,22,2,l);px(c,5,25,22,3,d);
+  px(c,3,8,26,6,'#0a0610');px(c,4,9,24,4,l);px(c,4,12,24,1,d);
+  // ribbon
+  const rb=o.tier>=2?'#ffcf4f':'#ff4f6d';px(c,14,8,4,21,'#0a0610');px(c,15,9,2,19,rb);
+  px(c,10,4,5,5,'#0a0610');px(c,17,4,5,5,'#0a0610');px(c,11,5,3,3,rb);px(c,18,5,3,3,rb);px(c,14,6,4,3,rb);
+  // gem
+  if(o.tier>=1){const gc=['','#5ab0ff','#e0a0ff','#ff4f8a','#ffffff'][o.tier];px(c,8,17,5,5,'#0a0610');px(c,9,18,3,3,gc);px(c,9,18,1,1,'#fff')}
+  // ? mark
+  c.fillStyle='#fff';[[20,17],[21,17],[22,18],[21,19],[20,20],[20,22]].forEach(([x,y])=>c.fillRect(x,y,1,1));
+  if(o.tier>=4){[[2,2],[28,4],[27,27],[3,24]].forEach(([x,y])=>star(c,x,y,'#fff6a0'))}
+  if(sold){const im=c.getImageData(0,0,32,32);for(let i=0;i<im.data.length;i+=4){const v=(im.data[i]+im.data[i+1]+im.data[i+2])/3*.5;im.data[i]=im.data[i+1]=im.data[i+2]=v}c.putImageData(im,0,0)}
+}
+// hamster
+function drawHam(cv){const c=cv.getContext('2d');const P={k:'#1a0e0a',o:'#e8a050',l:'#ffe0b0',w:'#ffffff',p:'#ff8aa8',r:'#c83a3a',y:'#ffcf4f'};
+  const art=[
+'........kk......kk......',
+'.......kppk....kppk.....',
+'.......kook....kook.....',
+'......kooookkkkooook....',
+'.....koooooooooooooook..',
+'....kooooooooooooooooook',
+'....kookwkooooookwkoook.',
+'....kookkkoollookkkoook.',
+'....koopplllkllllppoook.',
+'....koolllllklllllloook.',
+'.....kollllkwklllllok...',
+'......kkllllllllllkk....',
+'.....krrrrrryyrrrrrrk...',
+'....krrrrrrryyrrrrrrrk..',
+'....kolrrrrrrrrrrrrlok..',
+'....kollrrrrrrrrrrllok..',
+'.....kkllllllllllllkk...',
+'......kook......kook....',
+'......kkkk......kkkk....'];
+  art.forEach((row,y)=>[...row].forEach((ch,x)=>{if(P[ch]){c.fillStyle=P[ch];c.fillRect(x*1.6+1,y*1.6+4,1.6,1.6)}}));}
+
+// ---------- SHOP SCENE ----------
+const scene=document.getElementById('scene'),sc=scene.getContext('2d');
+const sparks=Array.from({length:26},()=>({x:R()*320,y:R()*100,s:R()*Math.PI*2}));
+let sceneBase;
+function buildScene(){
+  const cv=document.createElement('canvas');cv.width=320;cv.height=100;const c=cv.getContext('2d');
+  for(let y=0;y<100;y++){const t=y/100;c.fillStyle=y<70?(y%8<4?'#24123f':'#21103a'):'#140a22';c.fillRect(0,y,320,1)}
+  for(let y=24;y<66;y+=6)for(let x=(y/6%2)*6;x<320;x+=12){px(c,x,y,1,1,'#4a2a7a');px(c,x+1,y+1,1,1,'#3a2068')}
+  px(c,0,20,320,2,'#c98a1a');px(c,0,22,320,1,'#ffcf4f');px(c,0,66,320,1,'#ffcf4f');px(c,0,67,320,2,'#8a5a00');
+  // shelves with packs
+  for(let s=0;s<3;s++){const sx=36+s*96;px(c,sx,28,64,34,'#120818');px(c,sx+1,29,62,32,'#2a1a3a');
+    for(let row=0;row<2;row++){px(c,sx+1,44+row*16,62,2,'#8a5a00');
+      for(let i=0;i<9;i++){const e=ELEM[(i+s*3+row*5)%10].p;px(c,sx+3+i*7,31+row*16,5,12,'#0a0610');px(c,sx+4+i*7,32+row*16,3,10,e[1]);px(c,sx+4+i*7,32+row*16,3,2,e[2]);px(c,sx+5+i*7,36+row*16,1,2,'#fff')}}}
+  // curtains
+  for(const side of[0,1]){for(let x=0;x<26;x++){const xx=side?319-x:x;const fold=(x%6<3)?'#8a1028':'#a8203a';const h=100-Math.max(0,(x-14))*3;px(c,xx,0,1,h,fold)}
+    for(let x=0;x<30;x++)px(c,side?319-x:x,0,1,6,'#ffcf4f');}
+  // counter
+  px(c,30,72,260,28,'#0a0610');px(c,31,73,258,4,'#ffcf4f');px(c,31,77,258,22,'#3a1a10');
+  for(let i=0;i<10;i++){px(c,40+i*25,79,18,14,'#7ad8ff44');px(c,40+i*25,79,18,1,'#c8f4ff');const e=ELEM[i].p;px(c,44+i*25,81,10,10,e[1]);px(c,45+i*25,82,8,4,e[2])}
+  px(c,0,99,320,1,'#000');
+  sceneBase=cv;
+}
+let tick=0;
+function animScene(){
+  tick++;sc.drawImage(sceneBase,0,0);
+  // chandeliers
+  [92,160,228].forEach((x,i)=>{px(sc,x,0,1,8,'#c98a1a');px(sc,x-10,8,21,3,'#ffcf4f');px(sc,x-6,11,13,2,'#c98a1a');px(sc,x-2,13,5,3,'#ffcf4f');
+    for(let k=-1;k<=1;k++){const fx=x+k*9;px(sc,fx,5,1,3,'#fff');const f=(tick/6+i+k)%3<1.5;px(sc,fx,3,1,2,f?'#ffd84f':'#ff9a2a');
+      sc.globalAlpha=.12;sc.fillStyle='#ffd84f';sc.beginPath();sc.arc(fx+.5,6,f?9:7,0,7);sc.fill();sc.globalAlpha=1}});
+  sparks.forEach(s=>{s.s+=0.08;s.y-=0.15;if(s.y<0){s.y=100;s.x=R()*320}const a=(Math.sin(s.s)+1)/2;if(a>.6){sc.globalAlpha=a;star(sc,Math.round(s.x),Math.round(s.y),'#fff6c8');sc.globalAlpha=1}});
+  requestAnimationFrame(animScene);
+}
+
+// ---------- AUDIO ----------
+let AC,master,bgmOn=true,bgmTimer,step=0,nextT=0;
+function initAudio(){if(AC)return;AC=new (window.AudioContext||window.webkitAudioContext)();master=AC.createGain();master.gain.value=0.16;master.connect(AC.destination);
+  const nb=AC.createBuffer(1,AC.sampleRate*0.3,AC.sampleRate),d=nb.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=R()*2-1;AC.noise=nb}
+const mf=n=>440*Math.pow(2,(n-69)/12);
+function tone(t,n,dur,type='square',vol=.25,slide=0,dest){const o=AC.createOscillator(),g=AC.createGain();o.type=type;o.frequency.setValueAtTime(mf(n),t);if(slide)o.frequency.linearRampToValueAtTime(mf(n+slide),t+dur);
+  g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(0.001,t+dur);o.connect(g);g.connect(dest||master);o.start(t);o.stop(t+dur+.02)}
+function noise(t,dur,vol,hp){const s=AC.createBufferSource();s.buffer=AC.noise;const f=AC.createBiquadFilter();f.type='highpass';f.frequency.value=hp;const g=AC.createGain();g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(0.001,t+dur);s.connect(f);f.connect(g);g.connect(master);s.start(t);s.stop(t+dur)}
+const _=null;
+const MEL=[69,_,72,_,76,_,74,72,_,69,_,72,74,_,72,_, 72,_,_,69,65,_,69,72,77,_,76,_,74,_,72,_, 76,_,_,74,72,_,74,76,79,_,76,_,72,_,74,_, 74,_,71,_,67,_,71,74,79,_,77,_,79,_,_,_,
+           81,_,79,_,76,_,79,_,81,_,84,_,83,_,81,_, 77,_,76,_,72,_,76,_,77,_,81,_,79,_,77,_, 76,_,79,_,84,_,83,_,79,_,76,_,72,_,76,_, 74,_,79,_,83,_,81,_,79,_,_,_,71,_,74,_];
+const ROOT=[45,41,48,43];const CH=[[57,60,64],[53,57,60],[55,60,64],[55,59,62]];
+function sched(){
+  const spb=60/148/4;
+  while(nextT<AC.currentTime+0.12){
+    const s=step%128,bar=Math.floor(s/16)%4,b=s%16,t=nextT;
+    if(MEL[s]!==null)tone(t,MEL[s],spb*1.8,'square',.11);
+    if(MEL[s]!==null&&s>=64)tone(t+spb*0.5,MEL[s]+12,spb*0.8,'square',.03);
+    if(b%2===0)tone(t,ROOT[bar]+(b%4===2?12:0),spb*1.6,'triangle',.35);
+    tone(t,CH[bar][b%3]+12,spb*0.7,'square',.035);
+    if(b===0||b===8||b===10)tone(t,40,0.12,'sine',.6,-18);
+    if(b===4||b===12)noise(t,0.12,.25,1200);
+    if(b%2===1)noise(t,0.03,.08,7000);
+    nextT+=spb;step++;
+  }
+}
+function startBGM(){if(!AC)return;nextT=AC.currentTime+0.05;clearInterval(bgmTimer);bgmTimer=setInterval(sched,25)}
+function stopBGM(){clearInterval(bgmTimer)}
+function sfx(kind){if(!AC)return;const t=AC.currentTime;
+  if(kind==='coin'){tone(t,88,.08,'square',.2);tone(t+.07,93,.25,'square',.2)}
+  else if(kind==='flip'){noise(t,.06,.2,3000);tone(t,72,.05,'square',.08,12)}
+  else if(kind==='sell'){[84,88,91,96].forEach((n,i)=>tone(t+i*.05,n,.12,'square',.12))}
+  else if(kind==='rare'){[72,76,79,84].forEach((n,i)=>tone(t+i*.07,n,.2,'square',.18))}
+  else if(kind==='epic'){[72,76,79,83,86,91].forEach((n,i)=>tone(t+i*.07,n,.3,'square',.18));noise(t,.4,.1,5000)}
+  else if(kind==='legend'){[60,64,67,72,76,79,84].forEach((n,i)=>{tone(t+i*.08,n,.5,'square',.18);tone(t+i*.08,n+7,.5,'triangle',.15)});tone(t+.6,96,.9,'square',.12);noise(t+.55,.8,.15,6000)}
+  else if(kind==='fail'){[67,63,60,55].forEach((n,i)=>tone(t+i*.22,n,.35,'square',.18,-1))}
+  else if(kind==='win'){[72,76,79,84,79,84,88].forEach((n,i)=>tone(t+i*.12,n,.25,'square',.16))}
+}
+
+// ---------- UI ----------
+const $=id=>document.getElementById(id);
+let sortMode='grade';
+function totalCards(){return Object.values(S.owned).reduce((a,b)=>a+b,0)}
+function totalValue(){return Object.entries(S.owned).reduce((a,[id,n])=>a+CARDS[id].value*n,0)}
+function toast(msg){const t=$('toast');t.textContent=msg;t.style.display='block';clearTimeout(t._h);t._h=setTimeout(()=>t.style.display='none',1800)}
+function renderHUD(){$('money').textContent=fmt(S.money);$('cnt').textContent=totalCards();$('dex').textContent=Object.keys(S.owned).length;$('dexT').textContent=CARDS.length;$('val').textContent=fmt(totalValue())}
+function renderOris(){
+  const root=$('oris');root.innerHTML='';
+  S.oris.forEach((o,i)=>{
+    const left=o.tickets.length,el=document.createElement('div');el.className='ori tier'+o.tier;
+    const rateHtml=o.pool.map((n,g)=>n?`<span style="background:${GRADES[g].dark};color:${GRADES[g].color}">${GRADES[g].k}${n}</span>`:'').join('');
+    el.innerHTML=`<div class="top"><canvas width="32" height="32"></canvas><div><div class="nm">${o.name}</div><div class="pr">${fmt(o.price)}원</div><div style="font-size:10px;color:var(--sub)">1회 ${o.per}장</div></div></div>
+      <div class="ds">${o.ds}</div><div class="rates">${rateHtml}</div>
+      <div class="stk"><span>남은 수량</span><span><b style="color:#fff">${left}</b> / ${o.total}</span></div>
+      <div class="bar"><i style="width:${left/o.total*100}%"></i></div>
+      <div class="buys" style="margin-top:8px"></div>${left?'':'<div class="soldout">SOLD OUT</div>'}`;
+    drawBox(el.querySelector('canvas'),o,!left);
+    const bx=el.querySelector('.buys');
+    [1,5,10].forEach(n=>{const b=document.createElement('button');b.className='pbtn';b.textContent=n+'회';
+      b.disabled=left<n||S.money<o.price*n;b.onclick=()=>buy(i,n);bx.appendChild(b)});
+    root.appendChild(el);
+  });
+}
+function renderBinder(){
+  const root=$('cards');root.innerHTML='';
+  let ids=Object.keys(S.owned).map(Number);
+  if(!ids.length){root.innerHTML='<div class="empty">아직 카드가 없다… 오리파를 뽑아보자!</div>';return}
+  const sorters={grade:(a,b)=>CARDS[b].grade-CARDS[a].grade||CARDS[b].value-CARDS[a].value,value:(a,b)=>CARDS[b].value-CARDS[a].value,dex:(a,b)=>CARDS[a].no-CARDS[b].no};
+  ids.sort(sorters[sortMode]);
+  ids.forEach(id=>{const c=CARDS[id],n=S.owned[id],w=document.createElement('div');w.className='cw';
+    const card=document.createElement('div');card.className='card g'+c.grade;const cv=document.createElement('canvas');cv.width=60;cv.height=84;cv.getContext('2d').drawImage(drawCard(c),0,0);card.appendChild(cv);
+    w.appendChild(card);if(n>1){const k=document.createElement('div');k.className='cnt';k.textContent='×'+n;w.appendChild(k)}
+    w.insertAdjacentHTML('beforeend',`<div class="cn">No.${String(c.no).padStart(3,'0')} ${c.name}</div><div style="color:${GRADES[c.grade].color}">${ELEM[c.elem].icon} ${GRADES[c.grade].name}</div><div class="cv">${fmt(c.value)}원</div>`);
+    const b=document.createElement('button');b.className='pbtn red';b.textContent='1장 판매';b.onclick=()=>sell(id,1);w.appendChild(b);
+    root.appendChild(w)});
+}
+function renderAll(){renderHUD();renderOris();renderBinder()}
+
+function drawFrom(o){
+  const g=o.tickets.pop();const res=[pick(byGrade[g])];
+  for(let i=1;i<o.per;i++)res.push(pick(byGrade[R()<0.15?1:0]));
+  return res;
+}
+function buy(i,n){
+  const o=S.oris[i];if(o.tickets.length<n||S.money<o.price*n)return;
+  S.money-=o.price*n;sfx('coin');
+  const got=[];for(let k=0;k<n;k++)got.push(...drawFrom(o));
+  let last=null;
+  if(!o.tickets.length){last=pick(byGrade[o.tier>=3?4:3]);got.push(last)}
+  got.forEach(c=>S.owned[c.id]=(S.owned[c.id]||0)+1);
+  renderAll();showPull(o,got,last);
+}
+function sell(id,n){if(!S.owned[id])return;n=Math.min(n,S.owned[id]);S.money+=CARDS[id].value*n;S.owned[id]-=n;if(!S.owned[id])delete S.owned[id];sfx('sell');toast(`${CARDS[id].name} 판매! +${fmt(CARDS[id].value*n)}원`);renderAll()}
+$('sellDup').onclick=()=>{let sum=0,cnt=0;for(const id in S.owned){const n=S.owned[id]-1;if(n>0){sum+=CARDS[id].value*n;cnt+=n;S.owned[id]=1}}
+  if(!cnt){toast('중복 카드가 없어요');return}S.money+=sum;sfx('sell');toast(`중복 ${cnt}장 판매! +${fmt(sum)}원`);renderAll()};
+document.querySelectorAll('[data-sort]').forEach(b=>b.onclick=()=>{sortMode=b.dataset.sort;renderBinder()});
+
+// pull reveal
+let pending=[];
+const BACK=cardBack();
+function showPull(o,got,last){
+  $('pullT').textContent=`${o.name} 개봉! (${got.length}장)`;
+  $('lastone').textContent=last?`★ 라스트원상! 마지막 1개를 뽑아 ${GRADES[last.grade].name} 「${last.name}」 보너스 획득! ★`:'';
+  const root=$('reveal');root.innerHTML='';pending=[];
+  got.sort((a,b)=>a.grade-b.grade);
+  got.forEach(c=>{const f=document.createElement('div');f.className='flip g'+c.grade;
+    const bc=document.createElement('canvas');bc.width=60;bc.height=84;bc.getContext('2d').drawImage(BACK,0,0);
+    const fc=document.createElement('canvas');fc.width=60;fc.height=84;fc.getContext('2d').drawImage(drawCard(c),0,0);
+    f.innerHTML='<div class="in"><div class="face back"></div><div class="face front card g'+c.grade+'"></div></div>';
+    f.querySelector('.back').appendChild(bc);f.querySelector('.front').appendChild(fc);
+    f.insertAdjacentHTML('beforeend',`<div class="lbl"><span style="color:${GRADES[c.grade].color}">[${GRADES[c.grade].name}]</span><br>${c.name}<br><span style="color:var(--gold)">${fmt(c.value)}원</span></div>`);
+    f.onclick=()=>openOne(f,c);root.appendChild(f);pending.push([f,c])});
+  $('pullM').classList.add('on');
+  let k=0;const step=()=>{const p=pending.find(([f])=>!f.classList.contains('open'));if(!p||!$('pullM').classList.contains('on'))return;openOne(...p);setTimeout(step,p[1].grade>=3?900:got.length>10?110:240)};setTimeout(step,350);
+}
+function openOne(f,c){if(f.classList.contains('open'))return;f.classList.add('open');
+  if(c.grade===4){sfx('legend');const fl=$('flash');fl.style.transition='none';fl.style.opacity=.85;requestAnimationFrame(()=>{fl.style.transition='opacity .8s';fl.style.opacity=0})}
+  else if(c.grade===3)sfx('epic');else if(c.grade===2)sfx('rare');else sfx('flip')}
+$('openAll').onclick=()=>pending.forEach(([f,c])=>{if(!f.classList.contains('open')){f.classList.add('open')}});
+$('pullOk').onclick=()=>{$('pullM').classList.remove('on');checkEnd()};
+
+function minPrice(){const a=S.oris.filter(o=>o.tickets.length).map(o=>o.price);return a.length?Math.min(...a):Infinity}
+function checkEnd(){
+  if(S.money<=0){sfx('fail');return gameOver(`지갑이 텅 비었다… <b style="color:var(--red)">0원</b>`)}
+  if(S.money<minPrice()&&!totalCards())return(sfx('fail'),gameOver('남은 돈으로는 아무것도 살 수 없다…'));
+  if(minPrice()===Infinity)return finish('모든 오리파가 매진되었다!');
+}
+function gameOver(reason){
+  $('endBox').innerHTML=`<div class="bigmsg" style="color:var(--red)">💸 실패 💸</div><p>${reason}<br>햄붕이 13호는 돈을 전부 탕진하고 말았다.<br>이번 달은 해바라기씨만 먹어야 한다…</p>
+  <button class="pbtn" onclick="restart()">↺ 처음부터 다시</button>`;$('endM').classList.add('on');
+}
+function rankOf(n){return n>=120?['전설의 컬렉터','#ffcf4f']:n>=90?['카드샵 VIP','#c46bff']:n>=60?['베테랑 콜렉터','#4f9aff']:n>=30?['열정 수집가','#4fd27a']:['초보 트레이너','#9aa4b2']}
+function finish(reason){
+  const n=totalCards(),[rk,col]=rankOf(n);sfx('win');
+  $('endBox').innerHTML=`<canvas id="hamE" width="40" height="40" style="width:100px;height:100px"></canvas><div class="bigmsg" style="color:var(--gold)">🎉 쇼핑 완료! 🎉</div>
+  <p>${reason||'햄붕이 13호는 만족스럽게 가게를 나섰다.'}</p>
+  <p style="font-size:16px;color:#fff">획득 카드 <b style="color:var(--gold);font-size:24px">${n}</b>장<br>도감 ${Object.keys(S.owned).length}/${CARDS.length} · 남은 돈 ${fmt(S.money)}원 · 카드 가치 ${fmt(totalValue())}원</p>
+  <p style="font-size:18px">칭호: <b style="color:${col}">「${rk}」</b></p>
+  <button class="pbtn alt" onclick="$('endM').classList.remove('on')">계속 구경하기</button> <button class="pbtn" onclick="restart()">↺ 새 게임</button>`;
+  $('endM').classList.add('on');drawHam($('hamE'));
+}
+$('leaveBtn').onclick=()=>finish();
+function restart(){S=newState();$('endM').classList.remove('on');renderAll()}
+$('bgmBtn').onclick=()=>{bgmOn=!bgmOn;$('bgmBtn').textContent=bgmOn?'♪ BGM ON':'♪ BGM OFF';bgmOn?startBGM():stopBGM()};
+$('startBtn').onclick=()=>{initAudio();AC.resume();$('startM').classList.remove('on');if(bgmOn)startBGM()};
+
+S=newState();buildScene();animScene();drawHam($('hamC'));renderAll();
+</script>
+</body>
+</html>
