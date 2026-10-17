@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>괴이 사업자교육</title>
 <style>
-:root{--bg:#07070a;--fg:#e8e2d4;--dim:#8a8478;--red:#c8323a;--amber:#e0b04a;--panel:rgba(12,10,14,.94);--line:#3a3340}
+:root{color-scheme:dark;--bg:#07070a;--fg:#e8e2d4;--dim:#8a8478;--red:#c8323a;--amber:#e0b04a;--panel:rgba(12,10,14,.94);--line:#3a3340}
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif;overflow:hidden}
 #wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}
@@ -646,7 +646,7 @@ function showTitle(){mode='menu';setDrone(false);const t=$('title');const c=clea
   $('t2').onclick=()=>{t.classList.remove('show');openSelect();};
   $('t3').onclick=()=>{t.classList.remove('show');openArchive();};
   $('t4').onclick=async()=>{t.classList.remove('show');for(let i=1;i<=12;i++)if(SV.clear[i])await showNote(`괴이수칙기록원 수첩 · ${i}쪽`,PAGES[i]);showTitle();};
-  $('t5').onclick=()=>{if(confirm('모든 수료 기록과 아카이브를 지울까요?')){SV={clear:{},seen:{},pages:{},ending:null};save();showTitle();}};}
+  $('t5').onclick=()=>{const b=$('t5');if(b.dataset.arm){SV={clear:{},seen:{},pages:{},ending:null};hubF={};save();showTitle();}else{b.dataset.arm=1;b.textContent='정말 지울까요? 한 번 더 누르면 초기화';}};}
 function openSelect(){mode='menu';const s=$('select');
   s.innerHTML=`<h1 style="font-size:28px">실습장 선택</h1><div class="sub">각 문은 망한 선배 괴이의 사업장을 그대로 재현한 곳입니다.</div><div class="grid">`+
    [0,...Object.keys(CASES).filter(k=>k<13).map(Number)].map(k=>`<button class="btn" data-k="${k}">${k===0?'🏫 교육장 (허브)':`<b>실습장 ${k}</b>`}${k?`<span class="st">${SV.clear[k]?'수료 ✓':''}${SV.seen[k]?' ☠':''}</span><br><small>${CASES[k].loc}</small>`:'<br><small>계단 선배 · 거울 · 출석부</small>'}</button>`).join('')+
