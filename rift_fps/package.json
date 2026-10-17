@@ -1,0 +1,8 @@
+{
+  "name": "rift-breaker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "RIFT BREAKER - 차원의 틈 웹 FPS",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=18" }
+}
