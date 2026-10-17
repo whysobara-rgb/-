@@ -141,6 +141,11 @@ h2{font-size:15px;color:var(--gold);margin:18px 0 10px;text-shadow:2px 2px 0 #00
 .arena .vs{font-size:28px;color:var(--red);text-shadow:3px 3px 0 #000}
 .hp{width:120px;height:10px;background:#0b0614;border:2px solid #000}.hp i{display:block;height:100%;width:100%;background:linear-gradient(90deg,#ff4f6d,#ffcf4f,#4fd27a);transition:width .3s}
 .bizin{background:#0b0614;color:#fff;border:2px solid var(--line);font:inherit;padding:4px 6px}
+.relicgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin:10px 0}
+.relic{background:linear-gradient(#2a1a08,#120a04);border:3px solid #c98a1a;border-radius:10px;padding:6px;box-shadow:0 0 14px #ffcf4f33;text-align:left;font-family:Georgia,serif}
+.relic .rart{border-radius:6px;overflow:hidden}.relic canvas{image-rendering:auto}
+.relic.locked .rart{filter:brightness(0) drop-shadow(0 0 2px #ffcf4f66)}
+.relic .rname{color:#ffcf4f;font-size:15px;margin-top:6px;font-weight:bold}.relic .rsub{color:#c8b090;font-size:11px}.relic .rrank{color:#ff9a3a;font-size:11px;letter-spacing:1px}
 .daylist{text-align:left;font-size:12px;line-height:1.8;background:#0b0614;border:2px solid var(--line);padding:8px 12px;margin:10px 0;font-variant-numeric:tabular-nums}
 @media (max-width:640px){
   .sign h1{font-size:15px}
@@ -170,6 +175,7 @@ h2{font-size:15px;color:var(--gold);margin:18px 0 10px;text-shadow:2px 2px 0 #00
       <button data-go="estate">🏠 부동산</button>
       <button data-go="motors">🚗 모터스</button>
       <button data-go="arena">⚔ 배틀</button>
+      <button data-go="relics">📕 수렵 도감</button>
       <button data-go="biz">🏪 내 가게</button>
       <button data-go="casino">🎰 카지노</button>
       <button data-go="stocks">📈 증권</button>
@@ -836,6 +842,110 @@ function startBattle(){
   setTimeout(step,700);
 }
 
+// ================= ANCIENT HUNT VAULT (1조원 oripa, 100 unique collection-only monsters) =================
+// original giant-monster designs painted with smooth canvas shapes (no pixel art). Never sellable, never in battles/shops.
+const RELIC_PRICE=1e12;
+const R_ELEM=[['화염','#ff5a1a','#ffcf4f','#3a0800'],['빙결','#7ad8ff','#e8fbff','#0a2a4a'],['뇌광','#ffe82a','#fff6c0','#2a2a00'],['폭풍','#7affc8','#e0fff4','#0a3a2a'],['심연','#8a3aff','#e0b0ff','#120020'],['황금','#ffcf4f','#fff3c0','#3a2a00'],
+  ['흑요','#4a4a6a','#c8c8e8','#08080e'],['혈월','#ff2a4a','#ffb0c0','#2a0008'],['천공','#5ab0ff','#ffffff','#0a1a3a'],['대지','#b88a4a','#f0d8a8','#2a1a08'],['맹독','#a0ff3a','#e8ffc0','#1a2a00'],['성광','#fff3a0','#ffffff','#3a3a1a']];
+const R_BODY=['비룡','고룡','해룡','아수','갑각종','조룡'];
+const R_TITLE=['폭군','군주','방랑자','파괴자','수호자','왕','여제','망령','포식자','사신'];
+const R_SYL=['가','르','바','쿠','나','제','라','오','스','토','디','온','벨','크','미','드','레','고','젤','하','카','루','세','무','타','지','네','브','아','즈'];
+const RELICS=[];
+(function(){const r=mulberry(20261017),used=new Set();
+  for(let i=0;i<100;i++){let nm;do{nm='';const n=3+Math.floor(r()*2);for(let j=0;j<n;j++)nm+=pick(R_SYL,r)}while(used.has(nm));used.add(nm);
+    const e=Math.floor(r()*R_ELEM.length),b=i%6===1&&r()<.7?1:Math.floor(r()*R_BODY.length),rank=1+Math.min(9,Math.floor(Math.pow(r(),2.2)*10));
+    RELICS.push({id:i,name:nm,title:`${R_ELEM[e][0]}의 ${pick(R_TITLE,r)}`,elem:e,body:b,rank,seed:Math.floor(r()*1e9),ds:`${R_ELEM[e][0]} 속성 ${R_BODY[b]}. 위험도 ★${rank}.`})}})();
+const relicCache={};
+function drawRelicArt(m,W=320,H=240){const key=m.id+':'+W;if(relicCache[key])return relicCache[key];
+  const cv=document.createElement('canvas');cv.width=W;cv.height=H;const c=cv.getContext('2d'),r=mulberry(m.seed),[_,main,light,dark]=R_ELEM[m.elem];
+  c.save();c.scale(W/320,H/240);
+  // scene
+  const sky=c.createLinearGradient(0,0,0,240);sky.addColorStop(0,dark);sky.addColorStop(.6,mix(dark,main,.35));sky.addColorStop(1,mix(dark,'#000000',.4));c.fillStyle=sky;c.fillRect(0,0,320,240);
+  const sunx=60+r()*200;const sg=c.createRadialGradient(sunx,60,4,sunx,60,90);sg.addColorStop(0,light+'cc');sg.addColorStop(1,light+'00');c.fillStyle=sg;c.fillRect(0,0,320,240);
+  for(let k=0;k<3;k++){c.fillStyle=mix(dark,'#000000',.2+k*.25);c.beginPath();c.moveTo(0,240);let x=0;while(x<=340){c.lineTo(x,150+k*25-r()*50);x+=20+r()*40}c.lineTo(320,240);c.fill()}
+  for(let k=0;k<40;k++){c.fillStyle=light+Math.floor(40+r()*120).toString(16);c.beginPath();c.arc(r()*320,r()*240,r()*2+.5,0,7);c.fill()}
+  // monster painting helpers (everything is drawn facing right; dir mirrors the whole figure)
+  const dk=mix(main,'#000000',.55),md=main,lt=mix(main,light,.45),bone=mix(light,'#ffffff',.45);
+  const shade=(y1,y2)=>{const g=c.createLinearGradient(0,y1,0,y2);g.addColorStop(0,lt);g.addColorStop(.5,md);g.addColorStop(1,dk);return g};
+  const torso=(x,y,rx,ry,rot=0)=>{c.save();c.translate(x,y);c.rotate(rot);c.fillStyle=shade(-ry,ry);c.beginPath();c.ellipse(0,0,rx,ry,0,0,7);c.fill();
+    c.clip();c.strokeStyle=mix(dk,'#000000',.2)+'88';c.lineWidth=1.2;for(let yy=-ry;yy<ry;yy+=7)for(let xx=-rx+((yy/7|0)%2)*5;xx<rx;xx+=10){c.beginPath();c.arc(xx,yy,5,0,Math.PI);c.stroke()}
+    c.fillStyle=mix(light,'#ffffff',.2)+'aa';c.beginPath();c.ellipse(0,ry*.75,rx*.85,ry*.45,0,0,7);c.fill();c.strokeStyle=dk+'88';for(let xx=-rx*.7;xx<rx*.7;xx+=9){c.beginPath();c.moveTo(xx,ry*.35);c.lineTo(xx+2,ry);c.stroke()}
+    c.restore();c.strokeStyle=bone+'55';c.lineWidth=2;c.beginPath();c.ellipse(x,y,rx,ry,rot,Math.PI*1.1,Math.PI*1.9);c.stroke()};
+  const tube=(pts,w0,w1)=>{const n=12;for(let k=n;k>=0;k--){const t=k/n;c.strokeStyle=mix(md,dk,t*.6);c.lineWidth=w1+(w0-w1)*(1-t);c.lineCap='round';c.beginPath();c.moveTo(pts[0][0],pts[0][1]);
+      if(pts.length===3)c.quadraticCurveTo(pts[1][0],pts[1][1],pts[2][0],pts[2][1]);else c.bezierCurveTo(pts[1][0],pts[1][1],pts[2][0],pts[2][1],pts[3][0],pts[3][1]);c.stroke()}
+    c.strokeStyle=lt+'88';c.lineWidth=Math.max(1,w1*.3);c.beginPath();c.moveTo(pts[0][0],pts[0][1]-w0*.3);if(pts.length===3)c.quadraticCurveTo(pts[1][0],pts[1][1]-w0*.3,pts[2][0],pts[2][1]-w1*.3);else c.bezierCurveTo(pts[1][0],pts[1][1]-w0*.3,pts[2][0],pts[2][1]-w1*.3,pts[3][0],pts[3][1]-w1*.3);c.stroke()};
+  const leg=(x,y,dx,len,w)=>{const kx=x+dx*.5+6,ky=y+len*.5,fx=x+dx,fy=y+len;tube([[x,y],[kx+8,ky-6],[kx,ky]],w,w*.75);tube([[kx,ky],[kx-2,ky+len*.25],[fx,fy]],w*.75,w*.55);
+    c.fillStyle=bone;for(let k=-1;k<=1;k++){c.beginPath();c.moveTo(fx+k*w*.35-3,fy);c.quadraticCurveTo(fx+k*w*.35+6,fy+2,fx+k*w*.35+8,fy+8);c.lineTo(fx+k*w*.35+2,fy+1);c.fill()}};
+  const horn=(x,y,dx,dy,w)=>{const g=c.createLinearGradient(x,y,x+dx,y+dy);g.addColorStop(0,mix(bone,dk,.3));g.addColorStop(1,'#ffffff');c.fillStyle=g;c.beginPath();c.moveTo(x-w,y);c.quadraticCurveTo(x+dx*.4-w,y+dy*.7,x+dx,y+dy);c.quadraticCurveTo(x+dx*.6+w,y+dy*.4,x+w,y);c.fill()};
+  const head=(x,y,sz,kind)=>{const s=sz*1.25;c.save();
+    if(kind==='beak'){c.fillStyle=shade(y-14*s,y+14*s);c.beginPath();c.ellipse(x,y,20*s,14*s,0,0,7);c.fill();c.fillStyle='#ffcf4f';c.beginPath();c.moveTo(x+12*s,y-8*s);c.quadraticCurveTo(x+44*s,y-6*s,x+52*s,y+6*s);c.quadraticCurveTo(x+30*s,y+4*s,x+12*s,y+8*s);c.fill();c.strokeStyle='#8a5a00';c.lineWidth=1.5;c.stroke();
+      for(let k=0;k<5;k++)horn(x-10*s+k*3*s,y-10*s,-26*s-k*4*s,-18*s+k*6*s,3*s)}
+    else{for(let k=0;k<(kind==='crown'?4:2);k++)horn(x-6*s-k*5*s,y-8*s,-(34+k*10)*s*(kind==='crown'?1.2:1),-(22-k*10)*s,4*s);
+      c.fillStyle=shade(y-14*s,y+16*s);c.beginPath();c.moveTo(x-18*s,y-8*s);c.quadraticCurveTo(x,y-20*s,x+22*s,y-11*s);c.lineTo(x+50*s,y-4*s);c.quadraticCurveTo(x+56*s,y,x+50*s,y+4*s);c.lineTo(x+14*s,y+6*s);c.quadraticCurveTo(x-12*s,y+14*s,x-18*s,y-8*s);c.fill();
+      c.fillStyle=mix(dk,'#000000',.2);c.beginPath();c.moveTo(x-6*s,y+6*s);c.lineTo(x+44*s,y+6*s);c.quadraticCurveTo(x+40*s,y+16*s,x+14*s,y+18*s);c.quadraticCurveTo(x-6*s,y+16*s,x-6*s,y+6*s);c.fill();
+      c.fillStyle='#3a0a0a';c.beginPath();c.moveTo(x+4*s,y+6*s);c.lineTo(x+46*s,y+5*s);c.lineTo(x+40*s,y+10*s);c.lineTo(x+8*s,y+12*s);c.fill();
+      c.fillStyle='#fffbe8';for(let k=0;k<7;k++){const tx=x+(8+k*5.5)*s;c.beginPath();c.moveTo(tx,y+5*s);c.lineTo(tx+2*s,y+9.5*s);c.lineTo(tx+4*s,y+5*s);c.fill();c.beginPath();c.moveTo(tx+1*s,y+12*s);c.lineTo(tx+3*s,y+8*s);c.lineTo(tx+5*s,y+11.5*s);c.fill()}
+      c.fillStyle=mix(dk,'#000000',.3);c.beginPath();c.ellipse(x+47*s,y-2*s,2*s,1.2*s,0,0,7);c.fill()}
+    c.shadowColor=light;c.shadowBlur=18;c.fillStyle=light;c.beginPath();c.moveTo(x+4*s,y-5*s);c.quadraticCurveTo(x+12*s,y-10*s,x+20*s,y-6*s);c.quadraticCurveTo(x+12*s,y-3*s,x+4*s,y-5*s);c.fill();c.fillStyle='#ffffff';c.beginPath();c.arc(x+13*s,y-6.5*s,1.4*s,0,7);c.fill();c.restore()};
+  const wing=(x,y,span,lift)=>{const tip=[x-span*.15,y-lift],fingers=[[x-span,y-lift*.55],[x-span*.82,y-lift*.05],[x-span*.55,y+lift*.12],[x-span*.25,y+lift*.18]];
+    const g=c.createLinearGradient(x,y,x-span,y-lift);g.addColorStop(0,mix(dk,md,.5)+'f0');g.addColorStop(1,mix(md,light,.4)+'b0');c.fillStyle=g;c.beginPath();c.moveTo(x,y);c.lineTo(tip[0],tip[1]);
+    let prev=tip;fingers.forEach((f,i)=>{c.quadraticCurveTo((prev[0]+f[0])/2+span*.04,(prev[1]+f[1])/2+lift*.12,f[0],f[1]);prev=f});c.quadraticCurveTo(x-span*.1,y+lift*.1,x,y);c.fill();
+    c.strokeStyle=mix(dk,'#000000',.3);c.lineWidth=4;c.lineCap='round';c.beginPath();c.moveTo(x,y);c.lineTo(tip[0],tip[1]);c.stroke();c.lineWidth=2.5;fingers.forEach(f=>{c.beginPath();c.moveTo(tip[0],tip[1]);c.lineTo(f[0],f[1]);c.stroke()});
+    c.fillStyle=bone;c.beginPath();c.moveTo(tip[0]-3,tip[1]);c.lineTo(tip[0]+2,tip[1]-12);c.lineTo(tip[0]+5,tip[1]+2);c.fill()};
+  const spikes=(x1,y1,x2,y2,n,h=14)=>{for(let k=0;k<n;k++){const t=k/(n-1||1),x=x1+(x2-x1)*t,y=y1+(y2-y1)*t,hh=h*(.6+.4*Math.sin(t*Math.PI));horn(x,y,-hh*.5,-hh,3.5)}};
+  c.save();c.shadowColor='rgba(0,0,0,.65)';c.shadowBlur=24;c.shadowOffsetY=10;
+  const cx=160,dir=r()<.5?1:-1,sc=.85+r()*.2;c.translate(cx,150);c.scale(dir*sc,sc);c.translate(-cx,-150);
+  c.shadowColor='transparent';c.fillStyle='rgba(0,0,0,.35)';c.beginPath();c.ellipse(160,222,110,10,0,0,7);c.fill();c.shadowColor='rgba(0,0,0,.6)';
+  switch(m.body){
+    case 0: // wyvern
+      wing(150,118,150,105);tube([[120,158],[80,150],[50,180],[18,168]],26,5);leg(140,165,-6,50,16);torso(158,150,52,30,-.15);leg(172,168,8,46,18);
+      spikes(115,128,185,118,6);tube([[195,135],[215,118],[225,104]],24,16);head(228,98,1.05);wing(168,118,110,80);break;
+    case 1: // elder dragon
+      c.save();c.strokeStyle=light;c.lineWidth=3;c.shadowColor=light;c.shadowBlur=25;c.beginPath();c.arc(232,82,36,0,7);c.stroke();c.restore();
+      wing(150,112,170,125);tube([[110,160],[60,170],[40,200],[10,185]],28,6);leg(118,165,-10,52,17);leg(140,168,0,50,18);torso(160,148,62,32,-.08);leg(185,168,6,50,19);leg(205,164,14,52,18);
+      spikes(105,124,205,116,9,18);tube([[210,130],[226,112],[232,96]],26,18);head(236,88,1.25,'crown');wing(178,112,120,95);break;
+    case 2: // sea leviathan
+      tube([[30,205],[90,120],[140,235],[205,150]],30,20);for(let k=0;k<6;k++){const t=k/5,x=50+t*140,y=190-Math.sin(t*3.1)*50;horn(x,y-14,-10,-22,5)}
+      c.fillStyle=lt+'cc';c.beginPath();c.moveTo(150,175);c.quadraticCurveTo(128,220,172,212);c.quadraticCurveTo(160,195,150,175);c.fill();
+      tube([[205,150],[218,125],[228,110]],22,18);head(232,104,1.1);break;
+    case 3: // fanged beast
+      tube([[112,140],[80,120],[60,100],[40,112]],20,6);leg(122,158,-8,54,18);leg(140,162,2,52,18);torso(160,145,58,30,0);leg(185,160,4,52,19);leg(203,156,12,54,19);
+      for(let k=0;k<12;k++)horn(196+k*2,122,-20-k*1.5,-26+k*2,4);tube([[205,140],[218,138],[226,140]],26,20);head(228,142,1.1);break;
+    case 4: // armored carapace
+      for(let k=0;k<4;k++)leg(128+k*20,165,-14+k*4,46,10);
+      [[92,128,-1],[230,126,1]].forEach(([x,y,sd])=>{tube([[160+sd*30,150],[x-sd*10,y+20],[x,y]],16,12);c.fillStyle=shade(y-16,y+16);c.beginPath();c.ellipse(x+sd*6,y-6,26,15,sd*.5,0,7);c.fill();c.fillStyle=bone;c.beginPath();c.moveTo(x+sd*20,y-14);c.lineTo(x+sd*40,y-22);c.lineTo(x+sd*26,y-4);c.fill()});
+      torso(160,148,60,40,0);for(let k=0;k<6;k++){c.strokeStyle=dk;c.lineWidth=3;c.beginPath();c.arc(160,152,14+k*7,Math.PI*1.08,Math.PI*1.92);c.stroke()}spikes(112,118,208,118,8,16);
+      c.shadowColor=light;c.shadowBlur=16;c.fillStyle=light;[[146,136],[174,136]].forEach(([x,y])=>{c.beginPath();c.arc(x,y,4.5,0,7);c.fill()});break;
+    case 5: // bird wyvern
+      wing(148,124,140,95);tube([[122,160],[90,170],[70,178],[50,170]],18,4);for(let k=0;k<5;k++)horn(60+k*4,172,-34,-4+k*6,4);
+      leg(148,170,-4,48,11);torso(160,155,40,28,-.25);leg(170,172,6,46,12);tube([[184,138],[196,118],[204,104]],16,12);head(206,98,.95,'beak');wing(166,124,100,75);break;
+  }
+  c.restore();
+  // aura & atmosphere
+  if(m.rank>=7){const ag=c.createRadialGradient(160,140,20,160,140,170);ag.addColorStop(0,main+'00');ag.addColorStop(.7,main+'33');ag.addColorStop(1,main+'00');c.fillStyle=ag;c.fillRect(0,0,320,240)}
+  for(let k=0;k<25;k++){c.fillStyle=light+'88';c.beginPath();c.arc(r()*320,120+r()*120,r()*2.5,0,7);c.fill()}
+  const vg=c.createRadialGradient(160,120,80,160,120,220);vg.addColorStop(0,'rgba(0,0,0,0)');vg.addColorStop(1,'rgba(0,0,0,.6)');c.fillStyle=vg;c.fillRect(0,0,320,240);
+  c.restore();relicCache[key]=cv;return cv}
+function relicCard(m,owned){const d=el(`<div class="relic ${owned?'':'locked'}"><div class="rart"></div><div class="rname">${owned?m.name:'???'}</div><div class="rsub">No.${String(m.id+1).padStart(3,'0')} · ${owned?m.title:'미발견'}</div><div class="rrank">${'★'.repeat(m.rank)}</div></div>`);
+  const a=copyCanvas(drawRelicArt(m));a.style.width='100%';a.style.display='block';d.querySelector('.rart').appendChild(a);return d}
+function relicLeft(){return RELICS.filter(m=>!S.relics.includes(m.id))}
+function buyRelic(){const left=relicLeft();if(!left.length)return toast('모든 몬스터를 수렵했어요!');if(S.money<RELIC_PRICE)return toast('1조원이 필요해요');
+  S.money-=RELIC_PRICE;const m=pick(left);S.relics.push(m.id);sfx('legend');flash();pushNews(`🐉 햄붕이 13호가 고대 수렵 금고에서 「${m.name}」을(를) 수렵!`);save();render();
+  $('endM').dataset.kind='';$('endBox').innerHTML=`<div class="bigmsg" style="color:var(--gold)">🐉 수렵 성공!</div><div id="relicShow" style="max-width:560px;margin:0 auto"></div><p>${m.ds}<br>판매할 수 없고, 수렵 도감에만 기록돼요. (${S.relics.length}/100)</p><button class="pbtn" onclick="$('endM').classList.remove('on')">확인</button>`;
+  const big=copyCanvas(drawRelicArt(m,640,480));big.style.width='100%';big.style.borderRadius='12px';big.style.boxShadow='0 0 40px '+R_ELEM[m.elem][1];$('relicShow').appendChild(big);$('relicShow').appendChild(el(`<h3 style="margin:10px 0 0">${m.name} <span class="note">${m.title}</span></h3>`));$('endM').classList.add('on');checkEnd()}
+function renderRelicShop(m){
+  m.appendChild(el(`<div class="sign" style="margin-top:6px"><h1>🐉 고대 수렵 금고</h1><small>1회 1조원 · 이곳에서만 나오는 거대 몬스터 100종 · 판매 불가, 수렵 도감 전용</small></div>`));
+  const left=relicLeft();
+  const box=el(`<div class="binder" style="text-align:center"><div class="relicgrid" id="relicPeek"></div><p>남은 몬스터 <b style="color:var(--gold)">${left.length}</b>/100 · 이미 수렵한 몬스터는 다시 나오지 않아요.</p></div>`);
+  RELICS.slice(0,4).forEach(x=>{const c=relicCard(x,false);box.querySelector('#relicPeek').appendChild(c)});
+  box.appendChild(actBtn(left.length?`🐉 1회 수렵 (${won(RELIC_PRICE)})`:'모두 수렵 완료',RELIC_PRICE,buyRelic,left.length?null:'모든 몬스터를 모았어요'));
+  const go2=document.createElement('button');go2.className='pbtn alt';go2.textContent='📕 수렵 도감 보기';go2.onclick=()=>go('relics');box.appendChild(go2);m.appendChild(box)}
+function renderRelics(m){
+  m.appendChild(el(`<div class="sign" style="margin-top:6px"><h1>📕 수렵 도감</h1><small>고대 수렵 금고 전용 몬스터 · ${S.relics.length}/100 수렵</small></div>`));
+  const g=el('<div class="relicgrid"></div>');RELICS.forEach(x=>g.appendChild(relicCard(x,S.relics.includes(x.id))));m.appendChild(g)}
+function drawVault(cv){const c=cv.getContext('2d');px(c,0,58,64,6,'#3a3448');px(c,6,10,52,48,'#0a0610');px(c,7,11,50,47,'#2a1a08');for(let y=0;y<10;y++)px(c,32-(y*2.6+4),2+y,(y*2.6+4)*2,1,y%2?'#c98a1a':'#ffcf4f');
+  for(let a=0;a<12;a++){const x=32+Math.cos(a*.52)*14,y=34+Math.sin(a*.52)*14;px(c,x-1,y-1,3,3,'#ffcf4f')}px(c,24,26,17,17,'#5a3a10');px(c,28,30,9,9,'#ff3a1a');px(c,30,32,5,5,'#ffcf4f')}
+
 // ================= MY BUSINESS =================
 // the player's own oripa shop: up to 3 oripas x 30 cards from the binder, plus a 12-slot showcase.
 // a listing is only sold while (average card value / ticket price) stays >= 60%; simulated customers buy more when the deal is better.
@@ -910,44 +1020,78 @@ function renderBizPicker(){const b=S.biz,pk=bizPick,o=pk.type==='ori'?b.oris[pk.
   $('endM').classList.add('on')}
 
 // ================= CASINO =================
-// realistic 5x3 video slot on a smooth canvas. A paid spin has an 8% SCATTER (15 free spins; each free spin has a 20% meteor
-// worth 200%-1,000,000% of the stake) and an independent 12% surprise event. Line pays, meteor tiers and event tiers are
-// balanced so the machine returns roughly 100% overall (lines ~4%, free games ~74%, events ~22%).
-const SLOT_W=[30,26,22,18,10,6,3],SLOT_TW=SLOT_W.reduce((a,b)=>a+b),SCATTER=7;
+// realistic 5x3 video slot on a smooth canvas. Every paid spin rolls one outcome:
+//   8%  bunny scatter  -> 15 free spins, each 30%: the bunny dealer appears and pays 2x ~ 1,000,000x the stake
+//   7%  storm scatter  -> 15 free spins, each 30%: a sticky WILD (1x ~ 2,000,000x) drops on reels 1-5; lines through wilds pay the SUM of their multipliers
+//   7%  big win of 10x or more (no scatter)
+//   otherwise ordinary line wins, kept under 10x. The 12% surprise event still rolls independently.
+// Payout tiers are steep (most results sit at the low end) but the minimums the rules require keep the machine above 100% overall.
+const SLOT_W=[30,26,22,18,10,6,3],SLOT_TW=SLOT_W.reduce((a,b)=>a+b),SC1=7,SC2=8,WILD=9;
 const SLOT_PAY=[[1.2,3.6,12],[2,5,15],[2.5,7,20],[3.5,10,30],[7,24,72],[12,48,150],[24,120,480]].map(r=>r.map(x=>x*.33));
-const SYMS=[{e:'🌻',bg:'#fff3c0'},{e:'🌰',bg:'#f0d8b8'},{e:'🧀',bg:'#fff0a0'},{e:'🍒',bg:'#ffd0d8'},{e:'💎',bg:'#d0ecff'},{e:'👑',bg:'#fff0b0'},{e:'7',bg:'#ffe0e0'},{e:'⭐',bg:'#2a1050'}];
+const SYMS=[{e:'🌻',bg:'#fff3c0'},{e:'🌰',bg:'#f0d8b8'},{e:'🧀',bg:'#fff0a0'},{e:'🍒',bg:'#ffd0d8'},{e:'💎',bg:'#d0ecff'},{e:'👑',bg:'#fff0b0'},{e:'7',bg:'#ffe0e0'},{e:'BUNNY',bg:'#ff6ab0'},{e:'STORM',bg:'#3a1a90'},{e:'WILD',bg:'#ffcf4f'}];
 const LINES=[[1,1,1,1,1],[0,0,0,0,0],[2,2,2,2,2],[0,1,2,1,0],[2,1,0,1,2]],LINE_COL=['#ff3a5a','#4fd27a','#5ab0ff','#ffcf4f','#ff8af0'];
 const EVENTS=[['⚡ 황금 번개 습격!','#ffe27a','bolt'],['🐹 햄스터 갱단 기습!','#ff9a3a','coins'],['💰 코인 폭포!','#7dffb0','coins'],['🌈 무지개 잭팟 러시!','#ff8af0','rainbow']];
-const slot={grid:null,busy:false,free:0,freeBet:0,freeWin:0,bet:10000,msg:'베팅 금액을 정하고 SPIN!',win:[],auto:0,reels:null,fx:[],banner:null,shake:0,meteor:null,bolts:[],scatterGlow:0,lastWin:0};
+const slot={grid:null,busy:false,free:0,freeBet:0,freeWin:0,bet:10000,msg:'베팅 금액을 정하고 SPIN!',win:[],auto:0,reels:null,fx:[],banner:null,shake:0,meteor:null,bolts:[],scatterGlow:0,lastWin:0,mode:'base',wilds:[],drop:null,bunny:null};
 const lu=(a,b)=>a*Math.pow(b/a,R());
-function meteorMult(){const u=R();if(u<.97)return 2+R()*.5;if(u<.9925)return 2.5+R()*7.5;if(u<.9993)return lu(10,100);if(u<.99993)return lu(100,1000);return lu(1000,10000)}
+// tiered draws: [probability, low, high, logUniform]
+function tier(T){let u=R();for(const[p,a,b,lg]of T){if(u<p)return lg?lu(a,b):a+R()*(b-a);u-=p}const l=T[0];return l[1]+R()*(l[2]-l[1])}
+const BIG_T=[[.9495,10,12],[.045,12,30],[.005,30,100,1],[.0005,100,1000,1]];
+const BUNNY_T=[[.9654,2,3],[.03,3,10],[.004,10,100,1],[.0005,100,1e3,1],[.00005,1e3,1e4,1],[.000005,1e4,1e5,1],[.0000005,1e5,1e6,1]];
+const WILD_T=[[.95,1,1.5],[.04,2,10],[.008,10,100,1],[.0018,100,1e3,1],[.0002,1e3,1e4,1],[.00002,1e4,1e5,1],[.000002,1e5,2e6,1]];
 function eventMult(){const u=R();if(u<.7)return .3+R()*.9;if(u<.95)return 2+R()*2;if(u<.995)return 5+R()*5;return lu(20,100)}
 function slotSym(){let x=R()*SLOT_TW;for(let i=0;i<SLOT_W.length;i++){x-=SLOT_W[i];if(x<0)return i}return 0}
-function slotGrid(trig,allowScatter=true){const g=Array.from({length:5},()=>Array.from({length:3},slotSym));
-  if(!allowScatter)return g;
-  const n=trig?3+(R()<.3?1:0)+(R()<.1?1:0):(R()<.35?1:0)+(R()<.12?1:0);
-  shuffle([0,1,2,3,4]).slice(0,n).forEach(c=>{g[c][Math.floor(R()*3)]=SCATTER});return g}
-function slotLines(g){const out=[];LINES.forEach((L,li)=>{const f=g[0][L[0]];if(f===SCATTER)return;let n=1;while(n<5&&g[n][L[n]]===f)n++;if(n>=3)out.push({li,n,mult:SLOT_PAY[f][n-3]/5})});return out}
-
+// mode: 's1'/'s2' forces 3-5 of that scatter; 'free' has no scatters; otherwise 0-2 of each (never 3)
+function slotGrid(mode){const g=Array.from({length:5},()=>Array.from({length:3},slotSym));if(mode==='free')return g;
+  const place=(sym,n)=>shuffle([0,1,2,3,4]).filter(c=>!g[c].includes(SC1)&&!g[c].includes(SC2)).slice(0,n).forEach(c=>{g[c][Math.floor(R()*3)]=sym});
+  place(SC1,mode==='s1'?3+(R()<.3?1:0)+(R()<.1?1:0):(R()<.3?1:0)+(R()<.1?1:0));
+  place(SC2,mode==='s2'?3+(R()<.3?1:0)+(R()<.1?1:0):(R()<.3?1:0)+(R()<.1?1:0));return g}
+// line wins (each of the 5 lines carries 1/5 of the stake); wilds substitute, and a winning line through wilds adds the sum of their multipliers on that line bet
+function slotLines(g,wm){const out=[];LINES.forEach((L,li)=>{let f=-1,n=0,ws=0;
+  for(let i=0;i<5;i++){const k=g[i][L[i]];if(k===WILD){n++;ws+=(wm&&wm[i+','+L[i]])||1;continue}if(k>=SC1)break;if(f<0)f=k;if(k!==f)break;n++}
+  if(n>=3){const base=SLOT_PAY[f<0?6:f][n-3]/5;out.push({li,n,mult:base+ws/5,ws})}});return out}
+function forceBig(g){const li=Math.floor(R()*5),L=LINES[li],k=4+Math.floor(R()*3);for(let i=0;i<5;i++)g[i][L[i]]=k;return g}
 // ---- renderer ----
 const SW_=960,SH_=600,RX=70,RY=118,RW=164,CH=118,RGAP=0;
 const EMOJI='"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
 function rr(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath()}
 function drawSym(c,k,x,y,w,h,t,blur){const S_=SYMS[k],cx=x+w/2,cy=y+h/2;
   c.save();
-  if(k===SCATTER){const pulse=1+Math.sin(t/120)*.08+(slot.scatterGlow?Math.sin(t/60)*.15:0);
-    const g=c.createRadialGradient(cx,cy,4,cx,cy,w*.6);g.addColorStop(0,'#fff6c0');g.addColorStop(.35,'#ff3af0');g.addColorStop(.7,'#5a1ab0');g.addColorStop(1,'#1a0630');c.fillStyle=g;rr(c,x+6,y+6,w-12,h-12,16);c.fill();
-    c.translate(cx,cy-6);c.rotate(Math.sin(t/400)*.15);c.scale(pulse,pulse);c.shadowColor='#fff3a0';c.shadowBlur=30;c.font=`${h*.55}px ${EMOJI}`;c.textAlign='center';c.textBaseline='middle';c.fillText('⭐',0,0);
-    c.restore();c.save();c.font='bold 17px Georgia,serif';c.textAlign='center';c.lineWidth=4;c.strokeStyle='#3a0a40';c.strokeText('SCATTER',cx,y+h-16);const tg=c.createLinearGradient(0,y+h-28,0,y+h-8);tg.addColorStop(0,'#fff6c0');tg.addColorStop(1,'#ffb02a');c.fillStyle=tg;c.fillText('SCATTER',cx,y+h-16);c.restore();return}
+  if(k===SC1){const pulse=1+Math.sin(t/140)*.05+(slot.scatterGlow?Math.sin(t/60)*.1:0);
+    const g=c.createRadialGradient(cx,cy,4,cx,cy,w*.65);g.addColorStop(0,'#ffe0f0');g.addColorStop(.5,'#ff5aa8');g.addColorStop(1,'#5a0a3a');c.fillStyle=g;rr(c,x+6,y+6,w-12,h-12,16);c.fill();c.strokeStyle='#ffd0e8';c.lineWidth=3;c.stroke();
+    c.translate(cx,cy+4);c.scale(pulse*h/118,pulse*h/118);drawBunny(c,0,-6,.42,t);c.restore();c.save();
+    c.font='bold 15px Georgia,serif';c.textAlign='center';c.lineWidth=4;c.strokeStyle='#4a0028';c.strokeText('BUNNY',cx,y+h-14);c.fillStyle='#fff0f8';c.fillText('BUNNY',cx,y+h-14);c.restore();return}
+  if(k===SC2){const g=c.createRadialGradient(cx,cy,4,cx,cy,w*.65);g.addColorStop(0,'#c8b0ff');g.addColorStop(.5,'#3a1aa8');g.addColorStop(1,'#0a0430');c.fillStyle=g;rr(c,x+6,y+6,w-12,h-12,16);c.fill();
+    c.strokeStyle='#fff6c0';c.lineWidth=5;c.shadowColor='#7affff';c.shadowBlur=20+Math.sin(t/80)*10;c.beginPath();c.moveTo(cx+8,y+16);c.lineTo(cx-12,cy+2);c.lineTo(cx+4,cy+2);c.lineTo(cx-10,y+h-30);c.stroke();
+    c.shadowBlur=0;c.font='bold 15px Georgia,serif';c.textAlign='center';c.lineWidth=4;c.strokeStyle='#0a0430';c.strokeText('STORM',cx,y+h-14);c.fillStyle='#e0fbff';c.fillText('STORM',cx,y+h-14);c.restore();return}
+  if(k===WILD){const g=c.createLinearGradient(x,y,x,y+h);g.addColorStop(0,'#fff6c0');g.addColorStop(.5,'#ffb02a');g.addColorStop(1,'#8a4a00');c.fillStyle=g;rr(c,x+5,y+5,w-10,h-10,16);c.fill();
+    c.strokeStyle='#ffffff';c.lineWidth=3;c.shadowColor='#ffcf4f';c.shadowBlur=24;c.stroke();c.shadowBlur=0;c.font='900 34px Georgia,serif';c.textAlign='center';c.textBaseline='middle';c.lineWidth=6;c.strokeStyle='#5a2a00';c.strokeText('WILD',cx,cy-10);c.fillStyle='#fffbe0';c.fillText('WILD',cx,cy-10);
+    const mm=slot.curWild;if(mm){c.font='bold 20px Georgia,serif';c.lineWidth=5;const tx='×'+fmt(Math.round(mm));c.strokeText(tx,cx,cy+24);c.fillStyle='#ff3a5a';c.fillText(tx,cx,cy+24)}c.restore();return}
   const g=c.createRadialGradient(cx,cy-h*.2,4,cx,cy,w*.7);g.addColorStop(0,'#ffffff');g.addColorStop(1,S_.bg);c.fillStyle=g;rr(c,x+8,y+8,w-16,h-16,14);c.fill();
   c.strokeStyle='rgba(0,0,0,.12)';c.lineWidth=2;c.stroke();
   if(blur){c.globalAlpha=.35;for(let i=-2;i<=2;i++){if(!i)continue;drawGlyph(c,k,cx,cy+i*14,h)}c.globalAlpha=.8}
   drawGlyph(c,k,cx,cy,h);c.restore()}
+// classy casino dealer in a bunny-ear headband and tuxedo (vector, non-pixel)
+function drawBunny(c,x,y,s,t){c.save();c.translate(x,y);c.scale(s,s);
+  const ear=(dx,rot)=>{c.save();c.translate(dx,-112);c.rotate(rot+Math.sin(t/500+dx)*.05);c.fillStyle='#1a1a22';c.beginPath();c.ellipse(0,-34,15,42,0,0,7);c.fill();c.fillStyle='#ff9ac8';c.beginPath();c.ellipse(0,-32,8,32,0,0,7);c.fill();c.restore()};
+  ear(-22,-.18);ear(22,.2);
+  c.fillStyle='#2a1a2a';c.beginPath();c.ellipse(0,-58,60,64,0,Math.PI,0);c.lineTo(62,40);c.quadraticCurveTo(0,52,-62,40);c.fill();
+  c.fillStyle='#ffe0cc';c.beginPath();c.ellipse(0,-50,44,52,0,0,7);c.fill();
+  c.fillStyle='#2a1a2a';c.beginPath();c.ellipse(0,-92,50,26,0,Math.PI,0);c.quadraticCurveTo(30,-70,0,-86);c.quadraticCurveTo(-34,-70,-50,-92);c.fill();
+  c.fillStyle='#1a1a22';c.fillRect(-46,-108,92,9);
+  [-17,17].forEach(ex=>{c.fillStyle='#ffffff';c.beginPath();c.ellipse(ex,-50,9,11,0,0,7);c.fill();c.fillStyle='#8a2a6a';c.beginPath();c.arc(ex,-48,6.5,0,7);c.fill();c.fillStyle='#1a0010';c.beginPath();c.arc(ex,-47,3,0,7);c.fill();c.fillStyle='#fff';c.beginPath();c.arc(ex+2,-51,2,0,7);c.fill()});
+  c.fillStyle='#ff9aaa';c.globalAlpha=.6;[-28,28].forEach(ex=>{c.beginPath();c.ellipse(ex,-30,8,4,0,0,7);c.fill()});c.globalAlpha=1;
+  c.strokeStyle='#c83a5a';c.lineWidth=3;c.lineCap='round';c.beginPath();c.arc(0,-28,9,.2,Math.PI-.2);c.stroke();
+  c.fillStyle='#ffe0cc';c.fillRect(-12,0,24,16);
+  c.fillStyle='#1a1a22';c.beginPath();c.moveTo(-70,90);c.quadraticCurveTo(-68,20,-20,14);c.lineTo(0,60);c.lineTo(20,14);c.quadraticCurveTo(68,20,70,90);c.fill();
+  c.fillStyle='#ffffff';c.beginPath();c.moveTo(-20,14);c.lineTo(0,60);c.lineTo(20,14);c.lineTo(10,12);c.lineTo(0,30);c.lineTo(-10,12);c.fill();
+  c.fillStyle='#e8104a';c.beginPath();c.moveTo(0,22);c.lineTo(-16,14);c.lineTo(-16,30);c.fill();c.beginPath();c.moveTo(0,22);c.lineTo(16,14);c.lineTo(16,30);c.fill();c.beginPath();c.arc(0,22,4,0,7);c.fill();
+  c.fillStyle='#ffcf4f';[36,52].forEach(yy=>{c.beginPath();c.arc(0,yy,2.5,0,7);c.fill()});
+  c.restore()}
 function drawGlyph(c,k,cx,cy,h){c.textAlign='center';c.textBaseline='middle';
   if(k===6){c.font=`900 ${h*.72}px Georgia,"Times New Roman",serif`;c.lineWidth=7;c.strokeStyle='#7a4a00';c.strokeText('7',cx,cy+4);const g=c.createLinearGradient(0,cy-h*.35,0,cy+h*.35);g.addColorStop(0,'#ff8a8a');g.addColorStop(.5,'#e8101a');g.addColorStop(1,'#7a0008');c.fillStyle=g;c.fillText('7',cx,cy+4);c.lineWidth=2;c.strokeStyle='#ffe27a';c.strokeText('7',cx,cy+4);return}
   c.shadowColor='rgba(0,0,0,.35)';c.shadowBlur=8;c.shadowOffsetY=4;c.font=`${h*.56}px ${EMOJI}`;c.fillText(SYMS[k].e,cx,cy+2);c.shadowColor='transparent'}
 function reelSymAt(col,j){const r=slot.reels&&slot.reels[col];if(r)return r.strip[j]??0;return (slot.grid?slot.grid[col][j]:((col*3+j)*5)%7)??((col+j)%7)}
-function drawSlotFrame(t){const cv=$('slotC');if(!cv)return false;const c=cv.getContext('2d');const free=slot.free>0||slot.mode==='free';
+function drawSlotFrame(t){const cv=$('slotC');if(!cv)return false;const c=cv.getContext('2d');const free=slot.free>0||slot.mode==='s1'||slot.mode==='s2';
   c.save();if(slot.shake>0){c.translate((R()-.5)*slot.shake,(R()-.5)*slot.shake);slot.shake*=.9;if(slot.shake<.5)slot.shake=0}
   // cabinet
   const bg=c.createLinearGradient(0,0,0,SH_);if(free){bg.addColorStop(0,'#0a0628');bg.addColorStop(.5,'#2a0a5a');bg.addColorStop(1,'#0a0628')}else{bg.addColorStop(0,'#5a0010');bg.addColorStop(.5,'#a8102a');bg.addColorStop(1,'#3a0008')}
@@ -959,7 +1103,7 @@ function drawSlotFrame(t){const cv=$('slotC');if(!cv)return false;const c=cv.get
   rr(c,52,22,SW_-104,68,16);c.fillStyle=free?'#140830':'#2a0008';c.fill();
   for(let i=0;i<28;i++){const x=58+i*((SW_-116)/27),on=((t/140|0)+i)%3===0;c.beginPath();c.arc(x,17,5,0,7);c.fillStyle=on?'#fffbe0':'#8a5a10';c.shadowColor='#fff3a0';c.shadowBlur=on?14:0;c.fill();c.beginPath();c.arc(x,95,5,0,7);c.fill()}
   c.shadowBlur=0;c.font='900 44px Georgia,serif';c.textAlign='center';c.textBaseline='middle';
-  const title=free?`FREE GAMES  ${15-slot.free}/15`:'HAMZZI FORTUNE';const tg=c.createLinearGradient(0,30,0,80);tg.addColorStop(0,'#fff6c0');tg.addColorStop(.5,'#ffcf4f');tg.addColorStop(1,'#c87a00');
+  const title=free?`${slot.mode==='s2'?'STORM WILDS':'LUCKY BUNNY'}  ${15-slot.free}/15`:'HAMZZI FORTUNE';const tg=c.createLinearGradient(0,30,0,80);tg.addColorStop(0,'#fff6c0');tg.addColorStop(.5,'#ffcf4f');tg.addColorStop(1,'#c87a00');
   c.lineWidth=6;c.strokeStyle='#3a1000';c.strokeText(title,SW_/2,57);c.shadowColor=free?'#ff3af0':'#ffcf4f';c.shadowBlur=18+Math.sin(t/200)*8;c.fillStyle=tg;c.fillText(title,SW_/2,57);c.shadowBlur=0;
   // reel housing
   rr(c,RX-18,RY-16,RW*5+36,CH*3+32,20);const hg=c.createLinearGradient(0,RY-16,0,RY+CH*3+16);hg.addColorStop(0,'#e8e8f0');hg.addColorStop(.5,'#8a8a98');hg.addColorStop(1,'#e8e8f0');c.fillStyle=hg;c.fill();
@@ -968,7 +1112,8 @@ function drawSlotFrame(t){const cv=$('slotC');if(!cv)return false;const c=cv.get
     c.save();c.beginPath();c.rect(x+3,RY,RW-6,CH*3);c.clip();
     const cg=c.createLinearGradient(0,RY,0,RY+CH*3);cg.addColorStop(0,'#9a9aa8');cg.addColorStop(.18,'#f4f4f8');cg.addColorStop(.5,'#ffffff');cg.addColorStop(.82,'#f4f4f8');cg.addColorStop(1,'#9a9aa8');c.fillStyle=cg;c.fillRect(x,RY,RW,CH*3);
     let p=0,blur=false;if(r){const e=Math.min(1,(t-r.t0)/(r.t1-r.t0)),k=1.25,ease=1+(k+1)*Math.pow(e-1,3)+k*Math.pow(e-1,2);p=r.n*(1-ease);blur=e<.85;if(e>=1)p=0}
-    const j0=Math.floor(p);for(let j=j0-1;j<j0+4;j++){if(j<0)continue;const y=RY+(j-p)*CH;drawSym(c,reelSymAt(col,j),x,y,RW,CH,t,blur)}
+    const j0=Math.floor(p);for(let j=j0-1;j<j0+4;j++){if(j<0)continue;const y=RY+(j-p)*CH;const wv=!r&&slot.wildMap&&slot.wildMap[col+','+j];slot.curWild=wv||0;drawSym(c,wv?WILD:reelSymAt(col,j),x,y,RW,CH,t,blur&&!wv);slot.curWild=0}
+    if(r&&slot.wildMap)Object.entries(slot.wildMap).forEach(([kk,mv])=>{const[wc,wr]=kk.split(',').map(Number);if(wc!==col)return;slot.curWild=mv;drawSym(c,WILD,x,RY+wr*CH,RW,CH,t,false);slot.curWild=0});
     const sh=c.createLinearGradient(0,RY,0,RY+CH*3);sh.addColorStop(0,'rgba(0,0,0,.55)');sh.addColorStop(.15,'rgba(0,0,0,0)');sh.addColorStop(.85,'rgba(0,0,0,0)');sh.addColorStop(1,'rgba(0,0,0,.55)');c.fillStyle=sh;c.fillRect(x,RY,RW,CH*3);
     c.restore();if(col)c.fillStyle='#14080c',c.fillRect(x-2,RY,4,CH*3)}
   // glass shine
@@ -977,7 +1122,20 @@ function drawSlotFrame(t){const cv=$('slotC');if(!cv)return false;const c=cv.get
   if(!slot.reels&&slot.win.length){slot.win.forEach((w,wi)=>{const L=LINES[w.li];c.save();c.strokeStyle=LINE_COL[w.li];c.lineWidth=7;c.shadowColor=LINE_COL[w.li];c.shadowBlur=20;c.setLineDash([22,10]);c.lineDashOffset=-t/20;c.beginPath();
     for(let i=0;i<5;i++){const xx=RX+i*RW+RW/2,yy=RY+L[i]*CH+CH/2;i?c.lineTo(xx,yy):c.moveTo(xx,yy)}c.stroke();c.restore();
     for(let i=0;i<w.n;i++){c.save();c.strokeStyle='#ffe27a';c.lineWidth=5;c.shadowColor='#ffcf4f';c.shadowBlur=25*(.6+.4*Math.sin(t/100));rr(c,RX+i*RW+8,RY+L[i]*CH+8,RW-16,CH-16,14);c.stroke();c.restore()}})}
-  if(slot.scatterGlow&&slot.grid&&!slot.reels){slot.grid.forEach((colv,ci)=>colv.forEach((k,ri)=>{if(k!==SCATTER)return;const cx=RX+ci*RW+RW/2,cy=RY+ri*CH+CH/2;for(let q=0;q<3;q++){const rad=((t/6+q*40)%120);c.beginPath();c.arc(cx,cy,rad,0,7);c.strokeStyle=`rgba(255,120,255,${1-rad/120})`;c.lineWidth=4;c.stroke()}}))}
+  if(slot.scatterGlow&&slot.grid&&!slot.reels){slot.grid.forEach((colv,ci)=>colv.forEach((k,ri)=>{if(k!==SC1&&k!==SC2)return;const cx=RX+ci*RW+RW/2,cy=RY+ri*CH+CH/2;for(let q=0;q<3;q++){const rad=((t/6+q*40)%120);c.beginPath();c.arc(cx,cy,rad,0,7);c.strokeStyle=`rgba(255,120,255,${1-rad/120})`;c.lineWidth=4;c.stroke()}}))}
+  // falling sticky wild
+  if(slot.drop){const d=slot.drop,e=Math.min(1,(t-d.t0)/700),x=RX+d.col*RW,yT=RY+d.row*CH,y=-CH+(yT+CH)*(1-Math.pow(1-e,3));
+    c.save();c.globalAlpha=.5;for(let k=1;k<5;k++){slot.curWild=d.mult;drawSym(c,WILD,x,y-k*26,RW,CH,t,false)}c.globalAlpha=1;slot.curWild=d.mult;drawSym(c,WILD,x,y,RW,CH,t,false);slot.curWild=0;c.restore();
+    if(e>=1&&!d.hit){d.hit=1;slot.shake=10;burst(x+RW/2,yT+CH/2,90,['#fff6c0','#ffcf4f','#ff8a1a'],'spark',12)}if(t-d.t0>900)slot.drop=null}
+  // bunny dealer appearance
+  if(slot.bunny){const bn=slot.bunny,e=(t-bn.t0)/bn.dur;if(e>=1)slot.bunny=null;else{const ap=Math.min(1,e*4),fade=e>.85?(1-e)/.15:1;
+    c.save();c.globalAlpha=fade*.8;const bg=c.createRadialGradient(SW_/2,SH_/2,40,SW_/2,SH_/2,520);bg.addColorStop(0,'#ff6ab0');bg.addColorStop(.5,'#5a0a3a');bg.addColorStop(1,'#0a0010');c.fillStyle=bg;c.fillRect(0,0,SW_,SH_);
+    c.globalAlpha=fade;c.save();c.translate(SW_/2,SH_/2);c.rotate(t/1200);for(let i=0;i<20;i++){c.rotate(Math.PI/10);c.fillStyle='rgba(255,220,240,.12)';c.beginPath();c.moveTo(0,0);c.lineTo(700,-40);c.lineTo(700,40);c.fill()}c.restore();
+    for(let i=0;i<30;i++){const a=i*1.7+t/700,rr2=180+Math.sin(t/300+i)*40;c.fillStyle=i%2?'#fff6c0':'#ffb0d8';c.beginPath();c.arc(SW_/2+Math.cos(a)*rr2*1.6,SH_/2+Math.sin(a)*rr2*.9,3+i%3,0,7);c.fill()}
+    drawBunny(c,SW_*.3,SH_*.62+(1-ap)*200,1.6,t);
+    c.textAlign='center';c.textBaseline='middle';c.font='900 54px Georgia,serif';const g2=c.createLinearGradient(0,150,0,230);g2.addColorStop(0,'#ffffff');g2.addColorStop(1,'#ff6ab0');c.lineWidth=10;c.strokeStyle='#3a0020';c.strokeText('LUCKY BUNNY!',SW_*.66,SH_*.33);c.fillStyle=g2;c.shadowColor='#ff6ab0';c.shadowBlur=30;c.fillText('LUCKY BUNNY!',SW_*.66,SH_*.33);
+    c.shadowBlur=10;c.font='bold 46px Georgia,serif';const v=Math.round(bn.win*Math.min(1,e*1.8));c.strokeText('+'+fmt(v)+'원',SW_*.66,SH_*.5);c.fillStyle='#fff6c0';c.fillText('+'+fmt(v)+'원',SW_*.66,SH_*.5);
+    c.font='bold 30px Georgia,serif';c.strokeText('×'+fmt(Math.round(bn.mult*100)/100),SW_*.66,SH_*.63);c.fillStyle='#ffd0e8';c.fillText('×'+fmt(Math.round(bn.mult*100)/100),SW_*.66,SH_*.63);c.restore()}}
   // lightning bolts (surprise event)
   slot.bolts=slot.bolts.filter(b=>t-b.t0<500);slot.bolts.forEach(b=>{c.save();c.strokeStyle='#fffbe0';c.lineWidth=4;c.shadowColor='#ffe27a';c.shadowBlur=30;c.globalAlpha=1-(t-b.t0)/500;c.beginPath();b.pts.forEach((pt,i)=>i?c.lineTo(pt[0],pt[1]):c.moveTo(pt[0],pt[1]));c.stroke();c.restore()});
   // meteor
@@ -1026,7 +1184,7 @@ function slotSnd(k){if(!AC)return;const t=AC.currentTime;
 // ---- game flow ----
 function startReels(g,fast,done){const now=performance.now(),base=fast?380:560,step=fast?120:200;slot.grid=g;slot.win=[];slot.scatterGlow=0;
   slot.reels=g.map((col,i)=>{const n=14+i*4+(fast?0:4),strip=[...col];for(let j=0;j<n+4;j++)strip.push(slotSym());return{strip,n,t0:now,t1:now+base+i*step}});
-  slotSnd('spin');g.forEach((_,i)=>setTimeout(()=>{slotSnd('stop');if(g[i].includes(SCATTER)&&!fast)tone(AC?AC.currentTime:0,84+i*2,.2,'square',.12)},base+i*step));
+  slotSnd('spin');g.forEach((_,i)=>setTimeout(()=>{slotSnd('stop');if((g[i].includes(SC1)||g[i].includes(SC2))&&!fast)tone(AC?AC.currentTime:0,84+i*2,.2,'square',.12)},base+i*step));
   if(!casinoRAF&&$('slotC'))casinoRAF=requestAnimationFrame(casinoLoop);
   setTimeout(()=>{slot.reels=null;done()},base+4*step+80)}
 function slotInfo(){const i=$('slotInfo');if(i)i.innerHTML=slot.free>0?`<b style="color:#ff8af0">🌠 FREE GAME ${15-slot.free}/15</b> · 베팅 ${won(slot.freeBet)} · 누적 <b style="color:var(--gold)">${won(slot.freeWin)}</b><br>${slot.msg}`:slot.msg;
@@ -1035,42 +1193,57 @@ function slotInfo(){const i=$('slotInfo');if(i)i.innerHTML=slot.free>0?`<b style
   const bt=$('slotBet');if(bt)bt.textContent=won(slot.bet)}
 function slotSetBet(v){slot.bet=Math.max(1000,Math.min(1e8,Math.round(v/1000)*1000));slotInfo()}
 function slotSpin(){if(slot.busy||slot.free>0||S.over||paused)return;const bet=slot.bet;if(bet<1000||bet>1e8||S.money<bet){slot.auto=0;return toast('잔액이 부족해요')}
-  S.money-=bet;slot.busy=true;slot.lastWin=0;slot.msg='돌아가는 중…';const trig=R()<.08,ev=R()<.12,g=slotGrid(trig);slotInfo();renderHUD();
-  startReels(g,false,()=>{const ws=slotLines(g),mult=ws.reduce((a,w)=>a+w.mult,0),win=Math.round(bet*mult);slot.win=ws;
-    if(win){S.money+=win;slot.lastWin=win;slot.msg=`🎉 ${ws.length}줄 당첨! +${won(win)} (${mult.toFixed(2)}배)`;
-      if(mult>=10){slotSnd('big');banner(mult>=100?'EPIC WIN':mult>=30?'MEGA WIN':'BIG WIN','#ffcf4f',2600,{rays:true,count:win});coinRain(120);slot.shake=8}else{sfx('rare');burst(SW_/2,RY+CH*1.5,40,['#ffcf4f','#fff6c0'],'coin',8)}}
+  S.money-=bet;slot.busy=true;slot.lastWin=0;slot.msg='돌아가는 중…';slot.wildMap=null;
+  const u=R(),mode=u<.08?'s1':u<.15?'s2':null,big=!mode&&R()<.07/.85,ev=R()<.12;
+  let g=slotGrid(mode),bigM=0;
+  if(big){g=forceBig(g);bigM=tier(BIG_T)}else for(let k=0;k<30&&slotLines(g).reduce((a,w)=>a+w.mult,0)>=10;k++)g=slotGrid(mode);
+  slotInfo();renderHUD();
+  startReels(g,false,()=>{const ws=slotLines(g),mult=big?bigM:ws.reduce((a,w)=>a+w.mult,0),win=Math.round(bet*mult);slot.win=ws;
+    if(win){S.money+=win;slot.lastWin=win;slot.msg=`🎉 ${big?'BIG WIN!':ws.length+'줄 당첨!'} +${won(win)} (${mult.toFixed(2)}배)`;
+      if(mult>=10){slotSnd('big');banner(mult>=100?'EPIC WIN':mult>=30?'MEGA WIN':'BIG WIN','#ffcf4f',2600,{rays:true,count:win});coinRain(140);slot.shake=8;fireworks(mult>=30?8:3)}else{sfx('rare');burst(SW_/2,RY+CH*1.5,40,['#ffcf4f','#fff6c0'],'coin',8)}}
     else slot.msg='꽝… 다시 도전!';
     slotInfo();renderHUD();
-    const afterEvent=()=>{if(trig)return runScatter(bet);slot.busy=false;save();slotInfo();renderHUD();checkEnd();if(slot.auto>0&&!S.over){slot.auto--;setTimeout(slotSpin,500)}};
-    if(ev)setTimeout(()=>runEvent(bet,afterEvent),win?900:250);else afterEvent()})}
+    const afterEvent=()=>{if(mode)return runScatter(mode,bet);slot.busy=false;save();slotInfo();renderHUD();checkEnd();if(slot.auto>0&&!S.over){slot.auto--;setTimeout(slotSpin,500)}};
+    if(ev)setTimeout(()=>runEvent(bet,afterEvent),win?(mult>=10?2700:900):250);else afterEvent()})}
 function runEvent(bet,next){const E=pick(EVENTS),m=eventMult(),win=Math.round(bet*m);slotSnd('alarm');slot.shake=10;
   banner(E[0],E[1],2400,{rays:true,size:64,count:win});
   if(E[2]==='bolt')for(let k=0;k<6;k++)setTimeout(()=>{const x=RX+R()*RW*5;let y=0,pts=[[x,0]];while(y<RY+CH*3){y+=30+R()*40;pts.push([x+(R()-.5)*80,y])}slot.bolts.push({t0:performance.now(),pts});burst(pts[pts.length-1][0],pts[pts.length-1][1],40,['#fffbe0','#ffe27a'])},k*260);
   else if(E[2]==='rainbow')for(let k=0;k<5;k++)setTimeout(()=>burst(RX+R()*RW*5,RY+R()*CH*3,60,['#ff3a5a','#ffcf4f','#4fd27a','#5ab0ff','#ff8af0'],'confetti',9),k*250);
   else coinRain(200);
   setTimeout(()=>{S.money+=win;slot.lastWin+=win;slot.msg=`${E[0]} 보너스 +${won(win)} (${(m*100).toFixed(0)}%)`;sfx(m>=5?'legend':'rare');if(m>=20){pushNews(`🎰 카지노 기습 이벤트 ${(m*100).toFixed(0)}% 대박!`);fireworks(6)}save();slotInfo();renderHUD();setTimeout(next,600)},1800)}
-function runScatter(bet){slot.scatterGlow=1;slotSnd('scatter');slot.msg=`✨ SCATTER ${slot.grid.flat().filter(x=>x===SCATTER).length}개! 프리게임 15회!`;slotInfo();
-  setTimeout(()=>{banner('FREE GAMES','#ff3af0',3400,{rays:true,sub:'× 15 SPINS'});flash();slot.shake=16;fireworks(14);coinRain(260);
-    for(let k=0;k<4;k++)setTimeout(()=>burst(SW_/2,SH_/2,120,['#ff3af0','#fff3a0','#7affff','#ffcf4f'],'confetti',14),k*500);
-    setTimeout(()=>{slot.scatterGlow=0;slot.free=15;slot.freeBet=bet;slot.freeWin=0;slot.auto=0;slot.mode='free';slotInfo();save();slotFree()},3600)},1200)}
-function slotFree(){if(slot.free<=0)return;slot.free--;slot.msg='프리 스핀…';slotInfo();
-  startReels(slotGrid(false,false),true,()=>{const after=()=>{slotInfo();renderHUD();
-      if(slot.free>0)return setTimeout(slotFree,500);
-      const pct=slot.freeWin/slot.freeBet*100;slot.mode='base';slot.busy=false;slot.lastWin=slot.freeWin;slot.msg=`🌠 프리게임 종료! 총 +${won(slot.freeWin)} (${fmt(Math.round(pct))}%)`;
-      banner('TOTAL WIN','#7dffb0',3000,{rays:true,count:slot.freeWin});coinRain(150);sfx('win');slotInfo();save();checkEnd()};
-    if(R()<.2){const mult=meteorMult(),win=Math.round(slot.freeBet*mult),huge=mult>=100,big=mult>=10;
-      const col=Math.floor(R()*5),row=Math.floor(R()*3);slot.meteor={t0:performance.now(),tx:RX+col*RW+RW/2,ty:RY+row*CH+CH/2,size:huge?90:big?60:40};
-      slotSnd('boom');if(huge){sfx('legend');pushNews(`☄ 햄찌 카지노에서 ${fmt(Math.round(mult*100))}% 초거대 메테오 당첨! +${won(win)}`)}
-      setTimeout(()=>{S.money+=win;slot.freeWin+=win;flash();slot.msg=`${huge?'🌋 초거대 메테오!!':big?'🔥 대형 메테오!':'☄ 메테오 낙하!'} +${won(win)} (${fmt(Math.round(mult*100))}%)`;
-        banner(huge?'COSMIC METEOR':big?'MEGA METEOR':'METEOR!',huge?'#ff3af0':'#ff8a1a',huge?3000:1600,{rays:big,size:huge?80:70,count:win});if(big)fireworks(huge?12:5);save();slotInfo();renderHUD();
-        setTimeout(after,huge?3000:1500)},800)}
-    else{slot.msg='메테오가 오지 않았다…';after()}})}
+function runScatter(mode,bet){slot.scatterGlow=1;slotSnd('scatter');const n=slot.grid.flat().filter(x=>x===(mode==='s1'?SC1:SC2)).length;
+  slot.msg=mode==='s1'?`🐰 BUNNY 스캐터 ${n}개! 럭키 바니 프리게임 15회!`:`⚡ STORM 스캐터 ${n}개! 스톰 와일드 프리게임 15회!`;slotInfo();
+  setTimeout(()=>{banner(mode==='s1'?'LUCKY BUNNY':'STORM WILDS',mode==='s1'?'#ff6ab0':'#7affff',3400,{rays:true,sub:'FREE GAMES × 15'});flash();slot.shake=18;fireworks(16);coinRain(280);
+    for(let k=0;k<5;k++)setTimeout(()=>burst(SW_/2,SH_/2,130,mode==='s1'?['#ff6ab0','#fff3a0','#ffd0e8','#ffffff']:['#7affff','#c8b0ff','#fff6c0','#5ab0ff'],'confetti',15),k*450);
+    if(mode==='s2')for(let k=0;k<8;k++)setTimeout(()=>{const x=R()*SW_;let y=0,pts=[[x,0]];while(y<SH_){y+=40+R()*50;pts.push([x+(R()-.5)*120,y])}slot.bolts.push({t0:performance.now(),pts})},k*300);
+    setTimeout(()=>{slot.scatterGlow=0;slot.free=15;slot.freeBet=bet;slot.freeWin=0;slot.auto=0;slot.mode=mode;slot.wildMap=mode==='s2'?{}:null;slotInfo();save();slotFree()},3600)},1200)}
+function freeDone(){const pct=slot.freeWin/slot.freeBet*100;slot.mode='base';slot.wildMap=null;slot.busy=false;slot.lastWin=slot.freeWin;slot.msg=`🌠 프리게임 종료! 총 +${won(slot.freeWin)} (${fmt(Math.round(pct))}%)`;
+  banner('TOTAL WIN','#7dffb0',3000,{rays:true,count:slot.freeWin});coinRain(160);sfx('win');if(pct>=10000)pushNews(`🎰 카지노 프리게임 ${fmt(Math.round(pct))}% 대박!`);slotInfo();save();checkEnd()}
+function slotFree(){if(slot.free<=0)return;slot.free--;slot.msg='프리 스핀…';slot.win=[];slotInfo();
+  const g=slotGrid('free');if(slot.mode==='s2')Object.keys(slot.wildMap).forEach(kk=>{const[c2,r2]=kk.split(',').map(Number);g[c2][r2]=WILD});
+  startReels(g,true,()=>{const next=()=>{slotInfo();renderHUD();if(slot.free>0)return setTimeout(slotFree,450);freeDone()};
+    if(slot.mode==='s1'){
+      if(R()<.3){const mult=tier(BUNNY_T),win=Math.round(slot.freeBet*mult),huge=mult>=100;slot.bunny={t0:performance.now(),dur:huge?3600:2200,mult,win};
+        sfx(huge?'legend':'epic');slot.shake=huge?16:6;if(huge){fireworks(12);pushNews(`🐰 럭키 바니가 ${fmt(Math.round(mult*100))}% 당첨을 안겨줬다! +${won(win)}`)}coinRain(huge?260:90);
+        setTimeout(()=>{S.money+=win;slot.freeWin+=win;slot.lastWin=win;slot.msg=`🐰 럭키 바니 등장! +${won(win)} (×${fmt(Math.round(mult*100)/100)})`;save();slotInfo();renderHUD();setTimeout(next,huge?2600:1500)},700)}
+      else{slot.msg='바니는 다음 기회에…';next()}return}
+    // storm wilds: maybe drop a new sticky wild, then pay lines through wilds
+    const settle=()=>{const gg=slot.grid;Object.keys(slot.wildMap).forEach(kk=>{const[c2,r2]=kk.split(',').map(Number);gg[c2][r2]=WILD});
+      const ws=slotLines(gg,slot.wildMap).filter(w=>w.ws>0),mult=ws.reduce((a,w)=>a+w.mult,0),win=Math.round(slot.freeBet*mult);slot.win=ws;
+      if(win){S.money+=win;slot.freeWin+=win;slot.lastWin=win;slot.msg=`⚡ 와일드 연결 ${ws.length}줄! +${won(win)} (×${fmt(Math.round(mult*100)/100)})`;
+        if(mult>=10){banner(mult>=1000?'STORM JACKPOT':'WILD WIN','#7affff',2400,{rays:true,count:win});coinRain(160);fireworks(mult>=1000?10:3)}else sfx('rare')}
+      save();slotInfo();renderHUD();setTimeout(next,win?(mult>=10?2400:1100):300)};
+    if(R()<.3){const free=[];for(let c2=0;c2<5;c2++)for(let r2=0;r2<3;r2++)if(!slot.wildMap[c2+','+r2])free.push([c2,r2]);
+      if(free.length){const[c2,r2]=pick(free),mult=tier(WILD_T);slot.drop={col:c2,row:r2,mult,t0:performance.now()};slotSnd('boom');
+        slot.msg=`⚡ 와일드 낙하! ${c2+1}열 ×${fmt(Math.round(mult*100)/100)} 고정`;slotInfo();if(mult>=1000)pushNews(`⚡ 카지노에 ×${fmt(Math.round(mult))} 초거대 와일드 낙하!`);
+        setTimeout(()=>{slot.wildMap[c2+','+r2]=mult;settle()},800);return}}
+    settle()})}
 function coinFlip(pickOdd){const bet=slot.bet;if(slot.busy||slot.free>0||S.money<bet)return toast('잔액이 부족해요');
   S.money-=bet;const n=1+Math.floor(R()*100),odd=n%2===1,win=odd===pickOdd;
   if(win){S.money+=Math.round(bet*1.95);sfx('rare');burst(SW_/2,SH_/2,50,['#ffcf4f'],'coin',8)}else sfx('fail');
   slot.msg=`🪙 나온 숫자 ${n} (${odd?'홀':'짝'}) · ${win?`승리! +${won(bet*.95)}`:'패배…'}`;save();slotInfo();renderHUD();checkEnd()}
 function renderCasino(m){
-  m.appendChild(el(`<div class="sign" style="margin-top:6px"><h1>🎰 햄찌 카지노</h1><small>슬롯 1,000원 ~ 1억원 · SCATTER 8% → 프리게임 15회 · 메테오 20% → 베팅의 200% ~ 1,000,000% · 기습 이벤트 12%</small></div>`));
+  m.appendChild(el(`<div class="sign" style="margin-top:6px"><h1>🎰 햄찌 카지노</h1><small>슬롯 1,000원 ~ 1억원 · 🐰 BUNNY 8% · ⚡ STORM 7% · 10배 이상 빅윈 7% · 기습 이벤트 12%</small></div>`));
   const box=el(`<div class="binder" style="max-width:820px;margin:0 auto;text-align:center;padding:8px">
     <canvas id="slotC" width="${SW_}" height="${SH_}" style="width:100%;aspect-ratio:${SW_}/${SH_};border-radius:18px;image-rendering:auto;box-shadow:0 0 40px #ffcf4f55"></canvas>
     <div id="slotInfo" class="news" style="margin:10px 0;min-height:52px"></div>
@@ -1078,7 +1251,7 @@ function renderCasino(m){
     <div class="row" id="betBtns" style="justify-content:center;margin-bottom:8px"></div>
     <div class="row" style="justify-content:center"><button class="pbtn red" id="slotSpin" style="font-size:20px;padding:14px 36px">SPIN</button><button class="pbtn alt slotctl" id="slotAuto">자동 10회</button></div>
     <h2>🪙 홀짝 (같은 베팅 금액, 맞히면 1.95배)</h2><div class="row" style="justify-content:center"><button class="pbtn slotctl" id="cfOdd">홀</button><button class="pbtn blue slotctl" id="cfEven">짝</button></div>
-    <p class="note">줄 당첨: 가운데·위·아래 줄과 V자 2줄, 왼쪽부터 같은 그림 3개 이상. SCATTER 3개 이상이면 프리게임 15회, 프리게임마다 20% 확률로 메테오(대부분 200~250%, 드물게 대형·초거대 최대 1,000,000%). 스핀마다 12% 확률로 기습 이벤트(대부분 30~400%, 드물게 최대 10,000%). 전체 환급률은 약 100%예요. 돈을 전부 잃으면 실패!</p></div>`);
+    <p class="note">줄 당첨: 가운데·위·아래 줄과 V자 2줄, 왼쪽부터 같은 그림 3개 이상.<br>🐰 <b>BUNNY 스캐터(8%)</b>: 프리게임 15회, 매 회 30% 확률로 럭키 바니가 나타나 베팅의 2배~100만배 당첨.<br>⚡ <b>STORM 스캐터(7%)</b>: 프리게임 15회, 매 회 30% 확률로 1~5열 중 한 곳에 와일드가 떨어져 고정(배수 1~200만배). 와일드가 이어진 줄은 와일드 배수를 모두 더해 그 줄의 베팅(전체 베팅의 1/5)에 곱해 지급.<br>💥 스캐터가 아닐 때 7% 확률로 10배 이상 빅윈. 기습 이벤트 12%. 큰 배수일수록 아주 드물게 나와요. 돈을 전부 잃으면 실패!</p></div>`);
   m.appendChild(box);
   const bb=$('betBtns');[[1e3,'1천'],[1e4,'1만'],[1e5,'10만'],[1e6,'100만'],[1e7,'1000만'],[1e8,'1억']].forEach(([v,t])=>{const b=document.createElement('button');b.className='pbtn alt slotctl';b.textContent=t;b.onclick=()=>slotSetBet(v);bb.appendChild(b)});
   [['½',()=>slotSetBet(slot.bet/2)],['×2',()=>slotSetBet(slot.bet*2)],['MAX',()=>slotSetBet(Math.min(1e8,S.money-1))]].forEach(([t,f])=>{const b=document.createElement('button');b.className='pbtn slotctl';b.textContent=t;b.onclick=f;bb.appendChild(b)});
@@ -1106,10 +1279,10 @@ function drawCasino(cv){const c=cv.getContext('2d');px(c,0,58,64,6,'#3a3448');px
 let S;
 const SAVE='hamcard-v2';
 function newState(){return freshAssetMarket({money:1000000,day:1,elapsed:0,owned:{},tickets:freshTickets(),
-  stocks:STOCKS.map(s=>({price:s.p,hist:[s.p],qty:0,cost:0})),houses:HOUSES.map(()=>0),cars:CARS.map(()=>0),market:CARDS.map(()=>1),mprev:CARDS.map(()=>1),speed:1,lev:[],levSet:{side:1,lev:10,margin:1e5},biz:null,mood:{name:'개장 첫날',icon:'🎉'},passers:newPassers(),news:['DAY 1 개장! 카드 거리가 문을 열었습니다.'],over:false})}
+  stocks:STOCKS.map(s=>({price:s.p,hist:[s.p],qty:0,cost:0})),houses:HOUSES.map(()=>0),cars:CARS.map(()=>0),market:CARDS.map(()=>1),mprev:CARDS.map(()=>1),speed:1,lev:[],levSet:{side:1,lev:10,margin:1e5},biz:null,relics:[],mood:{name:'개장 첫날',icon:'🎉'},passers:newPassers(),news:['DAY 1 개장! 카드 거리가 문을 열었습니다.'],over:false})}
 // three layers: browser storage (every few seconds), cloud doc per signed-in player (on changes), and a copy-paste save code
 function validSave(s){if(!s||typeof s!=='object'||s.over||typeof s.money!=='number'||!Array.isArray(s.tickets)||s.tickets.length>SHOPS.length||!Array.isArray(s.stocks)||s.stocks.length>STOCKS.length)return null;
-  STOCKS.forEach((d,i)=>{if(!s.stocks[i])s.stocks[i]={price:d.p,hist:[d.p],qty:0,cost:0}});s.speed=[1,2,3,5].includes(s.speed)?s.speed:1;s.lev=Array.isArray(s.lev)?s.lev:[];s.levSet=s.levSet||{side:1,lev:10,margin:1e5};s.biz=s.biz||null;
+  STOCKS.forEach((d,i)=>{if(!s.stocks[i])s.stocks[i]={price:d.p,hist:[d.p],qty:0,cost:0}});s.speed=[1,2,3,5].includes(s.speed)?s.speed:1;s.lev=Array.isArray(s.lev)?s.lev:[];s.levSet=s.levSet||{side:1,lev:10,margin:1e5};s.biz=s.biz||null;s.relics=Array.isArray(s.relics)?s.relics.filter(x=>x>=0&&x<100):[];
   s.houses=HOUSES.map((_,i)=>+(s.houses||[])[i]||0);s.cars=CARS.map((_,i)=>+(s.cars||[])[i]||0);s.owned=s.owned||{};s.news=s.news||[];s.elapsed=Math.max(0,+s.elapsed||0);s.day=+s.day||1;s.savedAt=+s.savedAt||0;
   const fresh=freshTickets();s.tickets=SHOPS.map((sh,i)=>sh.list.map((_,k)=>s.tickets[i]?(Array.isArray(s.tickets[i][k])?s.tickets[i][k]:[]):fresh[i][k]));
   if(!Array.isArray(s.market))s.market=[];s.market=CARDS.map((_,i)=>+s.market[i]||1);if(!Array.isArray(s.mprev))s.mprev=[];s.mprev=CARDS.map((_,i)=>+s.mprev[i]||s.market[i]);freshAssetMarket(s);s.mood=s.mood||{name:'평범한 시세',icon:'☁'};
@@ -1369,12 +1542,12 @@ function renderHUD(){
   $('money').textContent=fmt(S.money);$('day').textContent=S.day;$('cnt').textContent=totalCards();$('worth').textContent=won(netWorth());
   const left=Math.max(0,DAY_LEN-S.elapsed);$('clock').textContent=Math.floor(left/60)+':'+String(Math.floor(left%60)).padStart(2,'0');
   $('daybar').style.width=(S.elapsed/DAY_LEN*100)+'%';
-  document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.go===screen||(screen==='battle'&&b.dataset.go==='arena')));
+  document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.go===screen||(screen==='battle'&&b.dataset.go==='arena')||(screen==='relicshop'&&b.dataset.go==='relics')));
 }
 function go(sc,arg){screen=sc;if(sc==='shop')curShop=arg;if(sc==='battle'){curOpp=arg;bsel={}}setTrack(sc==='shop'?0:sc==='stocks'?2:1);render();window.scrollTo({top:0})}
 document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>go(b.dataset.go));
 function render(){renderHUD();renderSpeed();const m=$('screen');m.innerHTML='';sceneCanvas=null;
-  ({shop:renderShop,town:renderTown,estate:()=>renderAssets('estate'),motors:()=>renderAssets('motors'),stocks:renderStocks,collection:renderCollection,arena:renderArena,battle:renderBattle,casino:renderCasino,biz:renderBiz})[screen](m)}
+  ({shop:renderShop,town:renderTown,estate:()=>renderAssets('estate'),motors:()=>renderAssets('motors'),stocks:renderStocks,collection:renderCollection,arena:renderArena,battle:renderBattle,casino:renderCasino,biz:renderBiz,relicshop:renderRelicShop,relics:renderRelics})[screen](m)}
 // button with money check: disabled + reason when short, warning when it spends every last won
 function actBtn(label,cost,fn,block,cls=''){const b=document.createElement('button');b.className='pbtn '+cls;b.textContent=label;b.onclick=fn;
   if(block){b.disabled=true;b.title=block}
@@ -1437,7 +1610,7 @@ function renderTown(m){
   m.appendChild(g);
   m.appendChild(el('<h2>▶ 자산 거리</h2>'));
   const a=el('<div class="shops"></div>');
-  [['arena','⚔ 길거리 배틀','지나가는 트레이너와 카드를 걸고 대결 (5장 이상)',c=>{const t=document.createElement('canvas');t.width=24;t.height=32;drawPerson(t,(S.passers[0]||{}).seed||7);const x=c.getContext('2d');px(x,0,58,64,6,'#3a3448');x.imageSmoothingEnabled=false;x.drawImage(t,8,10,36,48);drawHam2(x)}],['biz','🏪 내 가게','내 카드로 오리파 장사 · 진열 판매',drawRealtor],['casino','🎰 햄찌 카지노','슬롯 · 프리게임 · 메테오 · 기습 이벤트',drawCasino],['estate','🏠 햄스터 부동산',`집 ${HOUSES.length}종 · 시세 변동`,drawRealtor],['motors','🚗 햄붕 모터스',`차 ${CARS.length}종 · 시세 변동`,drawDealer],['stocks','📈 수원 증권 거래소',`${STOCKS.length}개 종목 · 매도 수수료 10%`,drawExchange]].forEach(([k,n,d,f])=>{
+  [['arena','⚔ 길거리 배틀','지나가는 트레이너와 카드를 걸고 대결 (5장 이상)',c=>{const t=document.createElement('canvas');t.width=24;t.height=32;drawPerson(t,(S.passers[0]||{}).seed||7);const x=c.getContext('2d');px(x,0,58,64,6,'#3a3448');x.imageSmoothingEnabled=false;x.drawImage(t,8,10,36,48);drawHam2(x)}],['relicshop','🐉 고대 수렵 금고','1회 1조원 · 전용 몬스터 100종',drawVault],['biz','🏪 내 가게','내 카드로 오리파 장사 · 진열 판매',drawRealtor],['casino','🎰 햄찌 카지노','슬롯 · 프리게임 · 메테오 · 기습 이벤트',drawCasino],['estate','🏠 햄스터 부동산',`집 ${HOUSES.length}종 · 시세 변동`,drawRealtor],['motors','🚗 햄붕 모터스',`차 ${CARS.length}종 · 시세 변동`,drawDealer],['stocks','📈 수원 증권 거래소',`${STOCKS.length}개 종목 · 매도 수수료 10%`,drawExchange]].forEach(([k,n,d,f])=>{
     const b=el(`<button class="fac"><canvas width="64" height="64"></canvas><div class="fn">${n}</div><div class="fp">${d}</div></button>`);f(b.querySelector('canvas'));b.onclick=()=>go(k);a.appendChild(b)});
   m.appendChild(a);
 }
