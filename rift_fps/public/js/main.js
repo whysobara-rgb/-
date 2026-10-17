@@ -288,11 +288,11 @@ const hud = {
   bname: document.querySelector('#bossbar .bname'), bskill: document.querySelector('#bossbar .bskill'),
 };
 const SKILLS = [['dash', 'Q', '💨'], ['shock', 'E', '💥'], ['over', 'F', '⚡'], ['nade', 'G', '💣'], ['slash', 'V', '🗡']];
-$('skills').innerHTML = SKILLS.map(([k, key, ic]) => `<div class="sk" id="sk-${k}"><kbd>${key}</kbd>${ic}<div class="cd"></div><span class="cdt"></span></div>`).join('');
-let runCoins = 0, lastSlotsKey = '', skillTimer = null;
+$('skills').innerHTML = SKILLS.map(([k, key, ic]) => `<div class="sk" id="sk-${k}"><kbd>${key}</kbd><span class="ic">${ic}</span><div class="cd"></div><span class="cdt"></span></div>`).join('');
+let runCoins = 0, lastSlotsKey = '', lastPipKey = '', skillTimer = null;
 
 const game = window.__game = new Game($('c'), {
-  onStart(total) { runCoins = 0; $('runCoins').textContent = '0'; lastSlotsKey = ''; $('lootfeed').innerHTML = ''; $('toasts').innerHTML = ''; hud.boss.classList.remove('show'); },
+  onStart(total) { runCoins = 0; $('runCoins').textContent = '0'; lastSlotsKey = ''; lastPipKey = ''; $('lootfeed').innerHTML = ''; $('toasts').innerHTML = ''; hud.boss.classList.remove('show'); },
   onCoins(n) { P.coins += n; runCoins += n; $('runCoins').textContent = fmt(runCoins); sfx('coin'); },
   onLoot(def) {
     addWeapon(def.id);
@@ -324,6 +324,15 @@ const game = window.__game = new Game($('c'), {
     $('hpTxt').textContent = Math.ceil(h.hp); $('armorTxt').textContent = Math.ceil(h.armor);
     const a = $('ammoTxt'); a.textContent = h.over || h.melee ? '∞' : h.ammo; a.className = h.over ? 'inf' : !h.melee && h.ammo <= h.mag * 0.25 ? 'low' : '';
     $('magTxt').textContent = h.melee ? '근접' : '/ ' + h.mag;
+    // 탄약 눈금: 탄창 크기만큼 칸을 그리고 남은 탄만 밝게
+    const pipKey = h.melee || h.over ? 'x' : h.mag + ':' + h.ammo;
+    if (pipKey !== lastPipKey) {
+      lastPipKey = pipKey;
+      const pips = $('ammoPips'), n = h.melee || h.over ? 0 : Math.min(h.mag, 120);
+      pips.className = h.mag > 40 ? 'many' : '';
+      const filled = Math.round(h.ammo / h.mag * n);
+      pips.innerHTML = Array.from({ length: n }, (_, i) => `<i class="${i < filled ? '' : 'e'}"></i>`).join('');
+    }
     const R = RARITIES[h.weapon.rarity];
     $('wName').innerHTML = `<small style="color:${R.color}">${R.en} · ${h.weapon.cls}</small>${h.weapon.name}`;
     $('reloadBar').classList.toggle('show', h.reload >= 0); $('reloadBar').firstElementChild.style.width = Math.max(0, h.reload) * 100 + '%';
@@ -335,6 +344,9 @@ const game = window.__game = new Game($('c'), {
     $('killsTxt').textContent = `처치 ${fmt(h.kills)} · 남은 개체 ${fmt(Math.max(0, h.remaining))}`;
     hud.rbar.style.width = (h.kills / (h.total + 1)) * 100 + '%';
     $('timeTxt').textContent = `${Math.floor(h.time / 60)}:${String(Math.floor(h.time % 60)).padStart(2, '0')}`;
+    const st = $('stageTimer');
+    st.textContent = h.collapsed ? '균열 붕괴 — 보스 강림' : `붕괴까지 ${Math.floor(h.stageLeft / 60)}:${String(Math.floor(h.stageLeft % 60)).padStart(2, '0')}`;
+    st.classList.toggle('urgent', h.collapsed || h.stageLeft < 30);
     $('combo').innerHTML = h.combo >= 5 ? `${h.combo}<small>KILL STREAK</small>` : '';
     for (const [k] of SKILLS) {
       const el = $('sk-' + k), cd = h.cds[k];
@@ -408,4 +420,14 @@ function finishRun(r) {
 $('resBtn').onclick = () => { $('result').classList.remove('show'); $('lobby').classList.add('show'); showTab('rift'); };
 
 addEventListener('beforeunload', () => { if (P) store.save(P); });
+// 카드 3D 기울기 + 하이라이트가 마우스를 따라감
+addEventListener('pointermove', (e) => {
+  const c = e.target.closest && e.target.closest('.wcard');
+  document.querySelectorAll('.wcard.tilt').forEach((x) => { if (x !== c) { x.classList.remove('tilt'); x.style.transform = ''; } });
+  if (!c || c.closest('.flip')) return;
+  const r = c.getBoundingClientRect(), px = (e.clientX - r.left) / r.width, py = (e.clientY - r.top) / r.height;
+  c.classList.add('tilt');
+  c.style.setProperty('--mx', px * 100 + '%'); c.style.setProperty('--my', py * 100 + '%');
+  c.style.transform = `rotateY(${(px - 0.5) * 12}deg) rotateX(${(0.5 - py) * 10}deg) translateY(-4px)`;
+});
 buildLogin();

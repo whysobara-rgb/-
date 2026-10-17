@@ -14,64 +14,77 @@
 <div id="vignette"></div>
 <div id="flash"></div>
 <div id="dmglayer"></div>
+<div id="scanlines"></div>
 
 <!-- 로그인 -->
 <section id="login" class="screen show">
-  <div class="logo"><span>RIFT</span>BREAKER<small>차원의 틈 · 엘리트 강습 작전</small></div>
-  <div class="panel login-panel">
-    <label>서버 선택</label>
-    <div id="serverList" class="servers"></div>
-    <label>콜사인</label>
-    <input id="callsign" maxlength="16" placeholder="2~16자" autocomplete="off">
-    <label>PIN (숫자 4~8자리)</label>
-    <input id="pin" type="password" inputmode="numeric" maxlength="8" placeholder="처음이면 새로 생성됩니다">
-    <button id="loginBtn" class="btn primary big">작전 지휘소 접속</button>
-    <p id="loginErr" class="err"></p>
-    <p class="hint">서버·콜사인마다 세이브 데이터가 완전히 분리 저장됩니다.</p>
+  <div class="login-wrap">
+    <div class="logo-block">
+      <div class="logo-ring"></div>
+      <div class="logo" data-text="RIFTBREAKER"><span>RIFT</span>BREAKER</div>
+      <div class="logo-sub"><i></i>차원의 틈 · 엘리트 강습 작전<i></i></div>
+    </div>
+    <div class="panel login-panel chamfer">
+      <div class="panel-head"><b>OPERATOR LOGIN</b><span>SECURE CHANNEL · v2.0</span></div>
+      <label>서버 선택</label>
+      <div id="serverList" class="servers"></div>
+      <label>콜사인</label>
+      <input id="callsign" maxlength="16" placeholder="2~16자" autocomplete="off">
+      <label>PIN (숫자 4~8자리)</label>
+      <input id="pin" type="password" inputmode="numeric" maxlength="8" placeholder="처음이면 새로 생성됩니다">
+      <button id="loginBtn" class="btn primary big">작전 지휘소 접속 <em>▶</em></button>
+      <p id="loginErr" class="err"></p>
+      <p class="hint">서버·콜사인마다 세이브 데이터가 완전히 분리 저장됩니다.</p>
+    </div>
   </div>
 </section>
 
 <!-- 로비 -->
 <section id="lobby" class="screen">
   <header class="topbar">
-    <div class="brand"><span>RIFT</span>BREAKER</div>
+    <div class="brand"><span>RIFT</span>BREAKER<small>COMMAND CENTER</small></div>
     <nav id="tabs">
-      <button data-tab="rift" class="active">차원의 틈</button>
-      <button data-tab="arsenal">무기고</button>
-      <button data-tab="shop">상점</button>
-      <button data-tab="gacha">랜덤 뽑기</button>
-      <button data-tab="armor">방어구</button>
-      <button data-tab="settings">설정</button>
+      <button data-tab="rift" class="active"><i>◈</i>차원의 틈</button>
+      <button data-tab="arsenal"><i>⌖</i>무기고</button>
+      <button data-tab="shop"><i>◇</i>상점</button>
+      <button data-tab="gacha"><i>✦</i>랜덤 뽑기</button>
+      <button data-tab="armor"><i>⛨</i>방어구</button>
+      <button data-tab="settings"><i>⚙</i>설정</button>
     </nav>
     <div class="wallet"><span class="coin"></span><b id="coins">0</b></div>
-    <div class="who"><b id="whoName"></b><small id="whoServer"></small></div>
+    <div class="who"><div class="avatar">◆</div><div><b id="whoName"></b><small id="whoServer"></small></div></div>
   </header>
 
   <div class="tab show" id="tab-rift">
     <div class="rift-hero">
       <div class="rift-info">
+        <div class="eyebrow"><span class="pulse-dot"></span>균열 감지 — 위협 등급 상승 중</div>
         <h1>차원의 틈 <em id="riftLevel">LV.1</em></h1>
-        <p>균열 너머의 괴생물체가 쏟아져 나옵니다. 300~5000 개체가 무작위로 출현하며, 중간보스와 보스를 처치해야 균열이 닫힙니다.</p>
+        <p>균열 너머의 괴생물체가 쏟아져 나옵니다. 300~5000 개체가 무작위로 출현하며, 제한 시간이 지나면 균열이 붕괴하고 보스가 강림합니다. 중간보스와 보스를 처치해 균열을 닫으세요.</p>
         <ul class="facts">
-          <li><b>6%</b>일반 개체 무기 드랍</li>
-          <li><b>45%</b>중간보스 무기 드랍</li>
-          <li><b>100%</b>보스 무기 드랍</li>
-          <li><b id="lossInfo">사망 시</b>보유 아이템 일부 소실</li>
+          <li><b>6%</b><span>일반 개체 무기 드랍</span></li>
+          <li><b>45%</b><span>중간보스 무기 드랍</span></li>
+          <li><b>100%</b><span>보스 무기 드랍</span></li>
+          <li class="warn"><b id="lossInfo">KIA</b><span>사망 시 아이템 일부 소실</span></li>
         </ul>
+        <div class="section-label">현재 로드아웃</div>
         <div id="loadoutPreview" class="loadout-preview"></div>
-        <button id="deployBtn" class="btn primary huge">출격 ▶</button>
+        <button id="deployBtn" class="btn primary huge"><span>출격</span><em>DEPLOY ▶</em></button>
       </div>
-      <div class="controls panel">
-        <h3>조작</h3>
-        <div class="keys">
-          <span><kbd>WASD</kbd>이동</span><span><kbd>Shift</kbd>질주</span><span><kbd>Space</kbd>점프 (더블)</span>
-          <span><kbd>LMB</kbd>사격</span><span><kbd>RMB</kbd>조준</span><span><kbd>R</kbd>장전</span>
-          <span><kbd>1-4</kbd>/<kbd>휠</kbd>무기교체</span><span><kbd>Q</kbd>대시(무적)</span><span><kbd>E</kbd>충격파</span>
-          <span><kbd>F</kbd>오버드라이브</span><span><kbd>G</kbd>수류탄</span><span><kbd>V</kbd>근접 베기</span>
-          <span><kbd>ESC</kbd>일시정지</span>
+      <div class="side">
+        <div class="controls panel chamfer">
+          <div class="panel-head"><b>조작</b><span>CONTROLS</span></div>
+          <div class="keys">
+            <span><kbd>WASD</kbd>이동</span><span><kbd>Shift</kbd>질주</span><span><kbd>Space</kbd>점프 (더블)</span>
+            <span><kbd>LMB</kbd>사격</span><span><kbd>RMB</kbd>조준</span><span><kbd>R</kbd>장전</span>
+            <span><kbd>1-4</kbd>무기교체</span><span><kbd>Q</kbd>대시(무적)</span><span><kbd>E</kbd>충격파</span>
+            <span><kbd>F</kbd>오버드라이브</span><span><kbd>G</kbd>수류탄</span><span><kbd>V</kbd>근접 베기</span>
+          </div>
         </div>
-        <h3>전적</h3>
-        <div id="statsBox" class="stats"></div>
+        <div class="panel chamfer">
+          <div class="panel-head"><b>전적</b><span>SERVICE RECORD</span></div>
+          <div id="statsBox" class="stats"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -84,13 +97,13 @@
   </div>
 
   <div class="tab" id="tab-shop">
-    <div class="section-head"><h2>오늘의 무기 상점</h2><p>매일 5종이 새로 입고됩니다. <span id="shopReset"></span></p></div>
+    <div class="section-head"><h2>오늘의 무기 상점</h2><p>매일 5종이 새로 입고됩니다. <span id="shopReset" class="timer-chip"></span></p></div>
     <div id="shopGrid" class="grid shop"></div>
   </div>
 
   <div class="tab" id="tab-gacha">
     <div class="gacha-wrap">
-      <div class="gacha-banner panel">
+      <div class="gacha-banner panel chamfer">
         <div class="gb-title"><small>LIMITED BANNER</small><h2 id="gbTheme"></h2><p id="gbFeat"></p></div>
         <div class="gb-odds" id="gbOdds"></div>
         <p class="hint">차원의 틈을 클리어할 때마다 배너의 가격·확률·픽업 계열이 바뀝니다.</p>
@@ -99,7 +112,7 @@
           <button id="pull10" class="btn gold big">10회 뽑기</button>
         </div>
       </div>
-      <div id="gachaStage" class="gacha-stage"><div class="gacha-idle">◆ 균열 캡슐 대기 중 ◆</div></div>
+      <div id="gachaStage" class="gacha-stage"><div class="gacha-idle"><div class="capsule"></div>균열 캡슐 대기 중</div></div>
     </div>
   </div>
 
@@ -109,7 +122,8 @@
   </div>
 
   <div class="tab" id="tab-settings">
-    <div class="panel settings">
+    <div class="panel settings chamfer">
+      <div class="panel-head"><b>설정</b><span>SETTINGS</span></div>
       <label>마우스 감도 <b id="sensV"></b><input type="range" id="sens" min="0.2" max="3" step="0.05"></label>
       <label>시야각(FOV) <b id="fovV"></b><input type="range" id="fov" min="70" max="110" step="1"></label>
       <label>효과음 볼륨 <b id="volV"></b><input type="range" id="vol" min="0" max="1" step="0.05"></label>
@@ -120,38 +134,43 @@
 
 <!-- 전투 HUD -->
 <section id="hud" class="screen">
-  <div id="crosshair"><i></i><i></i><i></i><i></i></div>
+  <div id="crosshair"><i></i><i></i><i></i><i></i><b></b></div>
   <div id="hitmarker"></div>
-  <div id="bossbar"><div class="bname"></div><div class="bbar"><i></i></div><div class="bskill"></div></div>
-  <div id="riftbar"><span id="killsTxt"></span><div class="rbar"><i></i></div><span id="timeTxt"></span></div>
-  <canvas id="minimap" width="170" height="170"></canvas>
+  <div id="bossbar"><div class="bname"></div><div class="bframe"><div class="bbar"><i></i><s></s></div></div><div class="bskill"></div></div>
+  <div id="riftbar" class="hud-panel">
+    <div class="rb-top"><span class="tag">RIFT</span><span id="killsTxt"></span></div>
+    <div class="rbar"><i></i></div>
+    <div class="rb-bot"><span id="timeTxt"></span><span id="stageTimer"></span></div>
+  </div>
+  <div id="mapwrap"><canvas id="minimap" width="170" height="170"></canvas><div class="map-ring"></div><span class="map-n">N</span></div>
   <div id="combo"></div>
   <div id="toasts"></div>
   <div id="lootfeed"></div>
-  <div id="vitals">
+  <div id="vitals" class="hud-panel">
     <div class="vrow"><span>ARMOR</span><div class="bar armor"><i></i></div><b id="armorTxt"></b></div>
-    <div class="vrow"><span>HP</span><div class="bar hp"><i></i></div><b id="hpTxt"></b></div>
+    <div class="vrow"><span>HP</span><div class="bar hp"><i></i><s></s></div><b id="hpTxt"></b></div>
     <div id="skills"></div>
   </div>
-  <div id="weaponHud">
+  <div id="weaponHud" class="hud-panel">
     <div id="wSlots"></div>
     <div class="wname" id="wName"></div>
     <div class="ammo"><b id="ammoTxt"></b><small id="magTxt"></small></div>
+    <div id="ammoPips"></div>
     <div class="reload" id="reloadBar"><i></i></div>
   </div>
   <div id="coinHud"><span class="coin"></span><b id="runCoins">0</b></div>
 </section>
 
 <section id="pause" class="screen modal">
-  <div class="panel center">
-    <h2>일시정지</h2>
+  <div class="panel center chamfer">
+    <div class="panel-head"><b>일시정지</b><span>PAUSED</span></div>
     <button id="resumeBtn" class="btn primary big">계속하기</button>
     <button id="abandonBtn" class="btn danger">작전 포기 (사망 처리)</button>
   </div>
 </section>
 
 <section id="result" class="screen modal">
-  <div class="panel center result">
+  <div class="panel center result chamfer">
     <h1 id="resTitle"></h1>
     <div id="resStats" class="res-stats"></div>
     <div id="resLoot" class="res-loot"></div>
