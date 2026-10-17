@@ -1,0 +1,227 @@
+<title>시암의 손</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=Gowun+Dodum&display=swap">
+<style>
+/* Layout: 왼쪽 손님 차트(증상·반응 기록), 오른쪽 마사지 매트 위 인체 — 좁으면 위아래로 쌓임 */
+:root{
+  --bg:#f3ece0; --paper:#fbf7f0; --ink:#2b231c; --muted:#7a6a58;
+  --teak:#7a4a2a; --jade:#2f7a63; --gold:#b8862b; --hot:#c4442f; --warm:#d98a2b; --cold:#5a7fa6;
+  --skin:#e9c9a5; --skin-line:#b98e66; --mat:#e6d6bd;
+  --display:"Gowun Batang",Georgia,serif; --body:"Gowun Dodum",system-ui,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#1b1612; --paper:#251e18; --ink:#f0e6d8; --muted:#a8977f;
+  --teak:#d39a6a; --jade:#5fc2a1; --gold:#e0b45a; --hot:#ef6a52; --warm:#f0a54a; --cold:#86a9d1;
+  --skin:#b88f6a; --skin-line:#8a6646; --mat:#2e251d; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#1b1612; --paper:#251e18; --ink:#f0e6d8; --muted:#a8977f;
+  --teak:#d39a6a; --jade:#5fc2a1; --gold:#e0b45a; --hot:#ef6a52; --warm:#f0a54a; --cold:#86a9d1;
+  --skin:#b88f6a; --skin-line:#8a6646; --mat:#2e251d; color-scheme:dark}
+html,body{min-height:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.55;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px}
+.wrap{max-width:980px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+header{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px 20px}
+h1{font-family:var(--display);font-size:2rem;margin:0;color:var(--teak);text-wrap:balance}
+h1 small{font-size:.9rem;color:var(--muted);font-family:var(--body);margin-left:8px;letter-spacing:.04em}
+.stats{display:flex;gap:18px;font-variant-numeric:tabular-nums}
+.stat{display:flex;flex-direction:column;align-items:flex-end}
+.stat b{font-family:var(--display);font-size:1.4rem;color:var(--ink)}
+.stat span{font-size:.72rem;letter-spacing:.08em;color:var(--muted)}
+.main{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:16px}
+@media (max-width:720px){.main{grid-template-columns:1fr}}
+.chart{background:var(--paper);border:1px solid color-mix(in srgb,var(--teak) 25%,transparent);border-radius:6px;padding:18px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.label{font-size:.72rem;letter-spacing:.12em;color:var(--muted)}
+.guest{display:flex;gap:12px;align-items:center}
+.avatar{width:48px;height:48px;border-radius:50%;background:var(--mat);display:grid;place-items:center;font-family:var(--display);font-size:1.3rem;color:var(--teak);flex:none}
+.guest h2{margin:0;font-family:var(--display);font-size:1.2rem}
+.guest p{margin:0;color:var(--muted);font-size:.85rem}
+.complaint{font-family:var(--display);font-size:1.08rem;border-left:3px solid var(--gold);padding-left:12px;margin:0}
+.reaction{min-height:3.2em;padding:10px 12px;border-radius:4px;background:var(--mat);transition:background .3s}
+.reaction.hot{background:color-mix(in srgb,var(--hot) 18%,var(--mat))}
+.reaction.warm{background:color-mix(in srgb,var(--warm) 18%,var(--mat))}
+.reaction.cold{background:color-mix(in srgb,var(--cold) 18%,var(--mat))}
+.reaction.win{background:color-mix(in srgb,var(--jade) 25%,var(--mat))}
+.log{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;font-size:.88rem;max-height:180px;overflow:auto}
+.log li{display:flex;justify-content:space-between;gap:8px;border-bottom:1px dashed color-mix(in srgb,var(--muted) 35%,transparent);padding-block:3px}
+.tag{font-size:.75rem;padding:0 8px;border-radius:99px;color:var(--paper);flex:none}
+.tag.hot{background:var(--hot)}.tag.warm{background:var(--warm)}.tag.cold{background:var(--cold)}.tag.win{background:var(--jade)}
+.legend{display:flex;flex-wrap:wrap;gap:10px;font-size:.78rem;color:var(--muted)}
+button{font-family:var(--body);font-size:1rem;border:0;border-radius:4px;padding:10px 16px;background:var(--teak);color:var(--paper);cursor:pointer}
+button:hover{filter:brightness(1.08)}
+button:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.mat{background:var(--mat);border-radius:6px;position:relative;min-width:0}
+svg{display:block;width:100%;height:auto;max-height:78vh}
+.pt{cursor:pointer}
+.pt circle.ring{fill:transparent;stroke:var(--teak);stroke-width:1.5;stroke-dasharray:3 3;opacity:.55;transition:opacity .2s}
+.pt circle.dot{fill:var(--gold);transition:r .2s}
+.pt:hover circle.ring,.pt:focus circle.ring{opacity:1;stroke-dasharray:none}
+.pt:focus{outline:none}
+.pt.hot circle.dot{fill:var(--hot)} .pt.warm circle.dot{fill:var(--warm)} .pt.cold circle.dot{fill:var(--cold)} .pt.win circle.dot{fill:var(--jade)}
+.pt text{font-size:9px;fill:var(--muted);pointer-events:none;font-family:var(--body)}
+.body-shape{fill:var(--skin);stroke:var(--skin-line);stroke-width:1.2}
+.ripple{fill:none;stroke:var(--gold);stroke-width:2;animation:rip .7s ease-out forwards;pointer-events:none}
+@keyframes rip{from{r:6;opacity:1}to{r:34;opacity:0}}
+@media (prefers-reduced-motion:reduce){.ripple{animation:none;opacity:0}}
+.overlay{position:absolute;inset:0;display:grid;place-items:center;background:color-mix(in srgb,var(--bg) 82%,transparent);border-radius:6px;padding:20px;text-align:center}
+.overlay .card{background:var(--paper);padding:22px;border-radius:6px;max-width:340px;display:flex;flex-direction:column;gap:10px;align-items:center}
+.overlay h3{margin:0;font-family:var(--display);font-size:1.4rem;color:var(--teak)}
+.overlay p{margin:0}
+.rules{font-size:.85rem;color:var(--muted);margin:0}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>시암의 손 <small>방콕 왓포 뒷골목 마사지 · 혈 찾기</small></h1>
+    <div class="stats">
+      <div class="stat"><b id="sRound">1/5</b><span>손님</span></div>
+      <div class="stat"><b id="sPress">0</b><span>이번 지압</span></div>
+      <div class="stat"><b id="sScore">0</b><span>점수</span></div>
+      <div class="stat"><b id="sBest">–</b><span>최고</span></div>
+    </div>
+  </header>
+
+  <div class="main">
+    <section class="chart" aria-live="polite">
+      <div class="label">오늘의 손님</div>
+      <div class="guest"><div class="avatar" id="gInit">?</div><div><h2 id="gName">—</h2><p id="gMeta">—</p></div></div>
+      <p class="complaint" id="gSay">—</p>
+      <div class="label">손님의 반응</div>
+      <div class="reaction" id="react">혈 자리를 눌러 기의 흐름을 읽으세요. 반응이 뜨거울수록 막힌 혈에 가깝습니다.</div>
+      <div class="legend"><span>● <span style="color:var(--hot)">뜨거움</span> 바로 근처</span><span>● <span style="color:var(--warm)">따뜻함</span> 가까움</span><span>● <span style="color:var(--cold)">차가움</span> 멀다</span></div>
+      <div class="label">지압 기록</div>
+      <ul class="log" id="log"></ul>
+      <p class="rules">한 손님당 첫 지압에 맞히면 100점, 한 번 더 누를 때마다 15점씩 깎입니다(최저 10점). 손님은 다섯 명입니다.</p>
+    </section>
+
+    <section class="mat">
+      <svg id="svg" viewBox="0 0 300 520" role="img" aria-label="마사지 매트 위의 손님 몸">
+        <g id="figure">
+          <ellipse class="body-shape" cx="150" cy="52" rx="30" ry="36"/>
+          <rect class="body-shape" x="138" y="84" width="24" height="18" rx="6"/>
+          <path class="body-shape" d="M98 104 Q150 92 202 104 L208 200 Q204 262 196 282 L104 282 Q96 262 92 200 Z"/>
+          <path class="body-shape" d="M98 106 Q80 112 74 140 L58 236 Q54 262 50 284 L66 288 Q74 262 80 238 L104 150 Z"/>
+          <path class="body-shape" d="M202 106 Q220 112 226 140 L242 236 Q246 262 250 284 L234 288 Q226 262 220 238 L196 150 Z"/>
+          <ellipse class="body-shape" cx="56" cy="300" rx="12" ry="18"/>
+          <ellipse class="body-shape" cx="244" cy="300" rx="12" ry="18"/>
+          <path class="body-shape" d="M104 280 L148 284 L144 400 L140 482 L116 482 L110 400 Z"/>
+          <path class="body-shape" d="M196 280 L152 284 L156 400 L160 482 L184 482 L190 400 Z"/>
+          <ellipse class="body-shape" cx="126" cy="494" rx="18" ry="10"/>
+          <ellipse class="body-shape" cx="174" cy="494" rx="18" ry="10"/>
+        </g>
+        <g id="points"></g>
+        <g id="fx"></g>
+      </svg>
+      <div class="overlay" id="ov">
+        <div class="card">
+          <h3>문을 열 시간입니다</h3>
+          <p>다섯 손님이 각자 숨긴 고통과 욕망을 안고 찾아옵니다. 그들은 어디가 막혔는지 말하지 않습니다. 눌러서 알아내세요.</p>
+          <button id="startBtn">첫 손님 맞이하기</button>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+const POINTS=[
+ {id:'baekhoe',name:'백회',x:150,y:20},
+ {id:'indang',name:'인당',x:150,y:44},
+ {id:'pungji',name:'풍지',x:150,y:92},
+ {id:'gyeonL',name:'견정(좌)',x:112,y:112},
+ {id:'gyeonR',name:'견정(우)',x:188,y:112},
+ {id:'danjung',name:'단중',x:150,y:150},
+ {id:'jungwan',name:'중완',x:150,y:200},
+ {id:'gwanwon',name:'관원',x:150,y:258},
+ {id:'naegwan',name:'내관',x:64,y:250},
+ {id:'hapgok',name:'합곡',x:244,y:300},
+ {id:'joksamni',name:'족삼리',x:176,y:390},
+ {id:'yanggu',name:'혈해',x:122,y:345},
+ {id:'gonryun',name:'곤륜',x:130,y:472},
+ {id:'yongcheon',name:'용천',x:174,y:500},
+];
+const GUESTS=[
+ {n:'솜차이',m:'58세 · 툭툭 기사',say:'"밤마다 눈을 감아도 생각이 멈추질 않아. 머릿속이 위로 끓어올라."',t:'baekhoe',cure:'머리 꼭대기에서 무언가가 빠져나가자 그가 그대로 잠들었습니다.'},
+ {n:'니드',m:'24세 · 대학원생',say:'"이마 안쪽이 조여. 화면을 너무 오래 봤나 봐."',t:'indang',cure:'미간이 풀리며 그녀의 눈빛이 맑아졌습니다.'},
+ {n:'한스',m:'41세 · 독일 배낭여행자',say:'"배낭을 열흘 멨더니 오른쪽 어깨가 돌덩이 같아."',t:'gyeonR',cure:'우두둑. 그의 오른팔이 처음으로 가볍게 올라갑니다.'},
+ {n:'쁘라파',m:'63세 · 시장 상인',say:'"가슴이 꽉 막혀. 할 말을 삼키고 산 지 삼십 년이야."',t:'danjung',cure:'긴 한숨과 함께 그녀가 웃음을 터뜨렸습니다.'},
+ {n:'톰',m:'33세 · 요리사',say:'"뭘 먹어도 명치에 걸린 것 같아. 맛도 잘 모르겠어."',t:'jungwan',cure:'꾸르륵. 그의 배가 다시 배고프다고 말합니다.'},
+ {n:'마리',m:'29세 · 화가',say:'"예전엔 그리고 싶은 게 넘쳤는데, 이제 아랫배 깊은 곳의 불씨가 꺼진 것 같아."',t:'gwanwon',cure:'단전에 온기가 돌자 그녀가 냅킨에 스케치를 시작합니다.'},
+ {n:'켄지',m:'37세 · 출장 중 회사원',say:'"배를 타고 왔더니 속이 울렁거리고 손목까지 저려."',t:'naegwan',cure:'메스꺼움이 파도처럼 물러났습니다.'},
+ {n:'분미',m:'45세 · 은행원',say:'"이를 꽉 물고 살아. 화가 손끝에서 빠져나가질 않아."',t:'hapgok',cure:'엄지와 검지 사이가 풀리자 그의 턱에서 힘이 빠졌습니다.'},
+ {n:'애나',m:'52세 · 마라토너',say:'"다리가 납덩이야. 무릎 아래에 기운이 하나도 없어."',t:'joksamni',cure:'그녀가 벌떡 일어나 제자리에서 뛰어봅니다.'},
+ {n:'피차이',m:'70세 · 은퇴한 어부',say:'"뒤꿈치부터 허리까지 당겨. 바다에서 너무 오래 서 있었지."',t:'gonryun',cure:'발목 바깥이 풀리며 허리가 곧게 펴졌습니다.'},
+ {n:'리나',m:'26세 · 무용수',say:'"발바닥이 땅에 닿지 않는 기분이야. 불안해서 붕 떠 있어."',t:'yongcheon',cure:'발바닥이 따뜻해지자 그녀가 다시 땅을 딛습니다.'},
+ {n:'차이',m:'48세 · 목수',say:'"목 뒤가 뻣뻣하고 찬바람만 불면 머리가 울려."',t:'pungji',cure:'목덜미의 찬 기운이 빠져나갔습니다.'},
+ {n:'누안',m:'35세 · 간호사',say:'"몸이 늘 차고 피가 안 도는 것 같아. 무릎 위쪽이 시려."',t:'yanggu',cure:'허벅지 안쪽에서부터 혈색이 돌아옵니다.'},
+];
+const REACT={
+ hot:['"으읏… 거기, 거기 가까워!"','"찌릿해! 바로 근처야."','"숨이 멎을 것 같아… 조금만 더."'],
+ warm:['"음, 따뜻한 기운이 번져."','"나쁘지 않아. 방향은 맞는 것 같아."','"어딘가 울리긴 하는데…"'],
+ cold:['"시원하긴 한데, 거긴 아니야."','"…아무 느낌이 없네."','"간지러워. 엉뚱한 데야."'],
+};
+const $=id=>document.getElementById(id);
+const NS='http://www.w3.org/2000/svg';
+let order=[],round=0,press=0,score=0,done=false,pressed=new Set();
+let best=null;try{best=Number(localStorage.getItem('siam-best'))||null}catch(e){}
+$('sBest').textContent=best??'–';
+
+function buildPoints(){
+  const g=$('points');
+  POINTS.forEach(p=>{
+    const el=document.createElementNS(NS,'g');
+    el.setAttribute('class','pt');el.setAttribute('tabindex','0');el.setAttribute('role','button');
+    el.setAttribute('aria-label',p.name+' 지압');el.dataset.id=p.id;
+    el.innerHTML=`<circle class="ring" cx="${p.x}" cy="${p.y}" r="11"/><circle class="dot" cx="${p.x}" cy="${p.y}" r="4"/><text x="${p.x+14}" y="${p.y+3}">${p.name}</text>`;
+    el.addEventListener('click',()=>pressPoint(p,el));
+    el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();pressPoint(p,el)}});
+    g.appendChild(el);
+  });
+}
+function shuffle(a){a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[a[i],a[j]]=[a[j],a[i]]}return a}
+function pick(a){return a[Math.random()*a.length|0]}
+
+function startGame(){order=shuffle(GUESTS).slice(0,5);round=0;score=0;$('sScore').textContent=0;$('ov').hidden=true;loadGuest()}
+function loadGuest(){
+  const g=order[round];press=0;done=false;pressed.clear();
+  $('sRound').textContent=`${round+1}/5`;$('sPress').textContent=0;
+  $('gInit').textContent=g.n[0];$('gName').textContent=g.n;$('gMeta').textContent=g.m;$('gSay').textContent=g.say;
+  $('react').className='reaction';$('react').textContent='손님이 매트에 눕습니다. 어디부터 눌러볼까요?';
+  $('log').innerHTML='';
+  document.querySelectorAll('.pt').forEach(e=>e.classList.remove('hot','warm','cold','win'));
+}
+function pressPoint(p,el){
+  if(done||!$('ov').hidden)return;
+  if(pressed.has(p.id)){$('react').textContent=`"${p.name}는 아까 눌렀잖아."`;return}
+  pressed.add(p.id);press++;$('sPress').textContent=press;
+  const rip=document.createElementNS(NS,'circle');rip.setAttribute('class','ripple');rip.setAttribute('cx',p.x);rip.setAttribute('cy',p.y);rip.setAttribute('r',6);
+  $('fx').appendChild(rip);setTimeout(()=>rip.remove(),800);
+  const g=order[round],t=POINTS.find(q=>q.id===g.t);
+  let cls,msg;
+  if(p.id===g.t){cls='win';msg=g.cure}
+  else{const d=Math.hypot(p.x-t.x,p.y-t.y);cls=d<75?'hot':d<160?'warm':'cold';msg=pick(REACT[cls])}
+  el.classList.add(cls);$('react').className='reaction '+cls;$('react').textContent=msg;
+  const li=document.createElement('li');
+  li.innerHTML=`<span>${press}. ${p.name}</span><span class="tag ${cls}">${{hot:'뜨거움',warm:'따뜻함',cold:'차가움',win:'뚫림'}[cls]}</span>`;
+  $('log').prepend(li);
+  if(cls==='win'){done=true;const pts=Math.max(10,100-(press-1)*15);score+=pts;$('sScore').textContent=score;setTimeout(()=>showRound(pts),900)}
+}
+function showRound(pts){
+  const last=round===4;
+  $('ov').innerHTML=`<div class="card"><h3>${last?'오늘 영업 끝':'혈이 뚫렸습니다'}</h3>
+   <p>${order[round].n} · 지압 ${press}번 · <b>+${pts}점</b></p>
+   ${last?finalText():''}
+   <button id="nextBtn">${last?'다시 영업하기':'다음 손님'}</button></div>`;
+  $('ov').hidden=false;
+  $('nextBtn').onclick=()=>{if(last)startGame();else{round++;$('ov').hidden=true;loadGuest()}};
+  $('nextBtn').focus();
+}
+function finalText(){
+  if(best===null||score>best){best=score;try{localStorage.setItem('siam-best',score)}catch(e){}$('sBest').textContent=best}
+  const r=score>=450?'왓포의 전설':score>=350?'방콕 최고의 손':score>=250?'숙련된 마사지사':'수습 마사지사';
+  return `<p>총점 <b>${score}</b> / 500 — <b>${r}</b></p>`;
+}
+buildPoints();
+$('startBtn').onclick=startGame;
+</script>
