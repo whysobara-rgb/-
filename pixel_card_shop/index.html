@@ -781,6 +781,12 @@ function go(sc,arg){screen=sc;if(sc==='shop')curShop=arg;setTrack(sc==='shop'?0:
 document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>go(b.dataset.go));
 function render(){renderHUD();const m=$('screen');m.innerHTML='';sceneCanvas=null;
   ({shop:renderShop,town:renderTown,estate:()=>renderAssets('estate'),motors:()=>renderAssets('motors'),stocks:renderStocks,collection:renderCollection})[screen](m)}
+// button with money check: disabled + reason when short, warning when it spends every last won
+function actBtn(label,cost,fn,block,cls=''){const b=document.createElement('button');b.className='pbtn '+cls;b.textContent=label;b.onclick=fn;
+  if(block){b.disabled=true;b.title=block}
+  else if(S.money<cost){b.disabled=true;b.title=`${won(cost-S.money)} 부족해요`}
+  else if(S.money===cost){b.className='pbtn red';b.textContent='⚠ '+label;b.title='전 재산이에요! 사면 0원이 되어 실패합니다'}
+  return b}
 function el(html){const d=document.createElement('div');d.innerHTML=html.trim();return d.firstChild}
 const tierColor=t=>['#9aa4b2','#9aa4b2','#4fd27a','#4fd27a','#4f9aff','#4f9aff','#c46bff','#c46bff','#ffcf4f','#ff8af0'][t];
 
@@ -803,7 +809,9 @@ function renderShop(m){
       <div class="bar"><i style="width:${left/o.total*100}%"></i></div><div class="buys"></div>${left?'':'<div class="soldout">SOLD OUT<small>내일 아침 재입고</small></div>'}</div>`);
     drawBox(d.querySelector('canvas'),s,k,!left);
     const bx=d.querySelector('.buys');
-    [1,5,10].forEach(n=>{const b=document.createElement('button');b.className='pbtn';b.textContent=n+'회';b.disabled=left<n||S.money<o.price*n;b.onclick=()=>buy(curShop,k,n);bx.appendChild(b)});
+    const opts=[...new Set([1,5,10].map(n=>Math.min(n,left)).filter(n=>n>0))];
+    if(!opts.length)opts.push(1);
+    opts.forEach(n=>bx.appendChild(actBtn(n===left&&n>1&&![1,5,10].includes(n)?`남은 ${n}회`:n+'회',o.price*n,()=>buy(curShop,k,n),!left?'품절이에요. 내일 아침에 재입고돼요':null)));
     grid.appendChild(d)});
   m.appendChild(grid);
   m.appendChild(el(`<p class="note">등급 칸은 남은 수량/총 수량이에요. 판 종류(노멀·리버스홀로·골드·프리즘·블랙다이아)는 뽑을 때마다 확률로 정해지고, 카드 가치가 각각 ×1·×2·×5·×15·×60이 됩니다. 마지막 1개를 뽑으면 라스트원상 보너스!</p>`));
@@ -857,8 +865,8 @@ function renderAssets(kind){
       <div class="own">${own[i]?'보유 '+own[i]+'개':'&nbsp;'}</div><div class="buys"></div></div>`);
     (est?drawHouse:drawCar)(d.querySelector('canvas'),a);
     const bx=d.querySelector('.buys');
-    const b=document.createElement('button');b.className='pbtn';b.textContent='구매';b.disabled=S.money<a.price;b.onclick=()=>buyAsset(kind,i);bx.appendChild(b);
-    const s=document.createElement('button');s.className='pbtn red';s.textContent='매각 (90%)';s.disabled=!own[i];s.onclick=()=>sellAsset(kind,i);bx.appendChild(s);
+    bx.appendChild(actBtn(S.money<a.price?`잔액 부족 (${won(a.price-S.money)})`:'구매',a.price,()=>buyAsset(kind,i)));
+    if(own[i]){const s=document.createElement('button');s.className='pbtn red';s.textContent='매각 (90%)';s.onclick=()=>sellAsset(kind,i);bx.appendChild(s)}
     g.appendChild(d)});
   m.appendChild(g);
 }
@@ -883,10 +891,10 @@ function renderStocks(m){
     drawChart(r.querySelector('canvas'),s.hist);
     const bt=r.querySelector('.btns');
     const mk=(t,c,f,dis)=>{const b=document.createElement('button');b.className='pbtn '+c;b.textContent=t;b.disabled=dis;b.onclick=f;bt.appendChild(b)};
-    mk(`매수 ${stockQty}주`,'',()=>buyStock(i,stockQty),S.money<s.price*stockQty);
-    mk('최대 매수','',()=>buyStock(i,Math.floor((S.money-1)/s.price)),S.money-1<s.price);
-    mk(`매도 ${stockQty}주`,'blue',()=>sellStock(i,stockQty),s.qty<stockQty);
-    mk('전량 매도','blue',()=>sellStock(i,s.qty),!s.qty);
+    bt.appendChild(actBtn(`매수 ${fmt(stockQty)}주`,s.price*stockQty,()=>buyStock(i,stockQty)));
+    const mq=Math.floor((S.money-1)/s.price);
+    bt.appendChild(actBtn(mq>0?`최대 매수 (${fmt(mq)}주)`:'최대 매수',s.price,()=>buyStock(i,mq),mq>0?null:`1주(${won(s.price)})를 사고 1원 이상 남길 돈이 부족해요`));
+    if(s.qty){const sq=Math.min(stockQty,s.qty);mk(`매도 ${fmt(sq)}주`,'blue',()=>sellStock(i,sq),false);if(s.qty>sq)mk('전량 매도','blue',()=>sellStock(i,s.qty),false)}
     list.appendChild(r)});
   m.appendChild(list);
   m.appendChild(el(`<p class="note">상승은 빨강, 하락은 파랑. '최대 매수'는 1원을 남기고 삽니다. 매도 금액의 10%는 수수료로 빠져요.</p>`));
@@ -941,7 +949,7 @@ function sellDup(){let sum=0,cnt=0;for(const k in S.owned){const n=S.owned[k]-1;
   if(!cnt)return toast('중복 카드가 없어요');S.money+=sum;sfx('sell');toast(`중복 ${cnt}장 판매 +${won(sum)}`);save();render()}
 
 // ================= PULL =================
-function buy(si,k,n){
+function buy(si,k,n){if(S.over)return;
   const o=SHOPS[si].list[k],T=S.tickets[si][k];if(T.length<n||S.money<o.price*n)return;
   S.money-=o.price*n;sfx('coin');
   const got=[];
@@ -975,6 +983,10 @@ function openOne(f,c,v){if(f.classList.contains('open'))return;f.classList.add('
 $('openAll').onclick=()=>pending.forEach(([f])=>f.classList.add('open'));
 $('pullOk').onclick=()=>{$('pullM').classList.remove('on');checkEnd()};
 
+function closeModals(){if($('pullM').classList.contains('on')){$('pullM').classList.remove('on');checkEnd();return}
+  if($('endM').classList.contains('on')&&!S.over)$('endM').classList.remove('on')}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModals()});
+['pullM','endM'].forEach(id=>$(id).addEventListener('click',e=>{if(e.target.id===id)closeModals()}));
 // ================= DAY CYCLE =================
 const DAY_LEN=300;
 let started=false,lastT=0,saveAcc=0;
@@ -994,10 +1006,10 @@ function newDay(){
   if(!S.news.length)S.news.push('조용한 장세가 이어지고 있습니다.');
   sfx('day');save();
   const list=movers.map(([n,c])=>`<div><span>${n}</span> <b class="${c>0?'up':c<0?'down':''}" style="float:right">${c>0?'▲':'▼'} ${(c*100).toFixed(1)}%</b></div>`).join('');
-  $('endBox').innerHTML=`<div class="bigmsg" style="color:var(--gold)">☀ DAY ${S.day}</div><p>새 아침이 밝았다! 카드 거리의 모든 오리파 재고가 다시 채워졌어요.</p>
+  const dayHtml=`<div class="bigmsg" style="color:var(--gold)">☀ DAY ${S.day}</div><p>새 아침이 밝았다! 카드 거리의 모든 오리파 재고가 다시 채워졌어요.</p>
     <div class="daylist"><b style="color:var(--gold)">📰 오늘의 뉴스</b><br>${S.news.join('<br>')}</div><div class="daylist">${list}</div>
     <button class="pbtn" id="dayOk">좋아, 오늘도 출발!</button>`;
-  if(!$('pullM').classList.contains('on')){$('endM').classList.add('on');$('dayOk').onclick=()=>$('endM').classList.remove('on')}
+  if(!$('pullM').classList.contains('on')&&!$('endM').classList.contains('on')){$('endBox').innerHTML=dayHtml;$('endM').classList.add('on');$('dayOk').onclick=()=>$('endM').classList.remove('on')}
   else toast(`☀ DAY ${S.day}! 모든 가게 재입고`);
   render();
 }
