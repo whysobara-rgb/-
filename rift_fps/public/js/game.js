@@ -201,6 +201,7 @@ export class Game {
       if (!this.running || this.paused) return;
       if (e.code.startsWith('Digit')) { const n = +e.code.slice(5) - 1; if (n >= 0 && n < 4) this.switchWeapon(n); }
       if (e.code === 'KeyR') this.startReload();
+      if (e.code === 'Space' && !e.repeat) this.jump();
       if (e.code === 'KeyQ') this.skill('dash');
       if (e.code === 'KeyE') this.skill('shock');
       if (e.code === 'KeyF') this.skill('over');
@@ -695,7 +696,7 @@ export class Game {
     this.scene.remove(e.mesh); e.bodyMat.dispose();
     sfx('kill');
     const [c0, c1] = e.def.coin;
-    const coins = Math.round(rand(c0, c1 + 1) * this.diff.coin * (1 + Math.min(this.combo, 100) * 0.005));
+    const coins = Math.round(rand(c0, c1 + 1) * 6 * this.diff.coin * (1 + Math.min(this.combo, 100) * 0.005));
     this.coinsEarned += coins; this.hooks.onCoins(coins);
     const tier = e.def.boss === 2 ? 'boss' : e.def.boss === 1 ? 'mid' : 'normal';
     if (Math.random() < DROP_CHANCE[tier]) this.dropWeapon(pos, rollWeapon(DROP_RARITY[tier]));
@@ -956,6 +957,17 @@ export class Game {
     }
   }
 
+  // 더블 점프: 지상 점프 1회 + 공중 점프 1회
+  jump() {
+    const P = this.player;
+    if (P.onGround) { P.vel.y = 8.5; P.onGround = false; P.jumps = 1; return; }
+    if (P.jumps < 2) {
+      P.jumps = 2; P.vel.y = 9;
+      this.burst(tmp.copy(P.pos).setY(P.pos.y + 0.2), 20, '#7dd3fc', 5, 0.3, 0.35, 4);
+      sfx('dash');
+    }
+  }
+
   updatePlayer(dt) {
     const P = this.player, k = this.keys;
     const f = new V(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)), r = new V(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
@@ -967,11 +979,10 @@ export class Game {
     const accel = P.onGround ? 12 : 3;
     P.vel.x += (wish.x * speed - P.vel.x) * Math.min(1, accel * dt);
     P.vel.z += (wish.z * speed - P.vel.z) * Math.min(1, accel * dt);
-    if (k.Space && P.onGround) { P.vel.y = 8.5; P.onGround = false; }
     P.vel.y -= 24 * dt;
     if (P.dashT > 0) { P.dashT -= dt; P.pos.addScaledVector(P.dashDir, 38 * dt); this.burst(this.camera.position.clone().addScaledVector(P.dashDir, -1).setY(1), 3, '#7dd3fc', 2, 0.3, 0.3, 0); }
     P.pos.addScaledVector(P.vel, dt);
-    if (P.pos.y <= 0) { P.pos.y = 0; P.vel.y = 0; P.onGround = true; }
+    if (P.pos.y <= 0) { P.pos.y = 0; P.vel.y = 0; P.onGround = true; P.jumps = 0; }
     for (const pl of this.pillars) {
       const dx = P.pos.x - pl.x, dz = P.pos.z - pl.z, rr = pl.r + 0.5, d2 = dx * dx + dz * dz;
       if (d2 < rr * rr) { const d = Math.sqrt(d2) || 0.01; P.pos.x = pl.x + dx / d * rr; P.pos.z = pl.z + dz / d * rr; }

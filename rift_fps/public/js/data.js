@@ -155,7 +155,7 @@ export function dailyShop(day, server, player) {
 // 랜덤 뽑기 배너: 차원의 틈을 클리어할 때마다 시드가 바뀌어 가격·확률·픽업 계열이 달라진다
 export function gachaBanner(seed, server, player) {
   const R = rng(hashStr(`gacha:${seed}:${server}:${player}`));
-  const base = [48, 27, 14, 7, 3, 1];
+  const base = [30, 28, 20, 12, 7, 3];
   const odds = base.map((b, i) => b * (0.6 + R() * (0.6 + i * 0.18)));
   const sum = odds.reduce((a, b) => a + b, 0);
   const pct = odds.map((o) => +(o / sum * 100).toFixed(2));
@@ -170,6 +170,6 @@ export function gachaRoll(banner) {
   const ri = pickWeighted(banner.pct, Math.random());
   let pool = WEAPONS.filter((w) => w.rarity === ri);
   const feat = pool.filter((w) => w.type === banner.featured);
-  if (feat.length && Math.random() < 0.35) pool = feat;
+  if (feat.length && Math.random() < 0.5) pool = feat;
   return pool[Math.floor(Math.random() * pool.length)];
 }

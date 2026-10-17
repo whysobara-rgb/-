@@ -154,7 +154,7 @@ function renderArsenal() {
     .sort((a, b) => b.d.rarity - a.d.rarity || b.d.dps - a.d.dps);
   $('inventory').innerHTML = list.map(({ w, d }) => {
     const on = eq.has(w.uid);
-    const sell = Math.round(d.price * 0.25 / 10) * 10;
+    const sell = Math.round(d.price * 0.75 / 10) * 10;
     return weaponCard(d, `<div class="foot"><button class="btn" data-eq="${w.uid}">${on ? '해제' : `슬롯 ${selSlot + 1}에 장착`}</button><button class="btn danger" data-sell="${w.uid}">판매 ${fmt(sell)}</button></div>${on ? '<div class="eqbadge">장착중</div>' : ''}`, on ? 'equipped' : '');
   }).join('');
   $('inventory').onclick = (e) => {
@@ -170,7 +170,7 @@ function renderArsenal() {
       const uid = +b.dataset.sell;
       if (P.weapons.length <= 1) return notice('마지막 무기는 판매할 수 없습니다');
       const w = P.weapons.find((x) => x.uid === uid); const d = WEAPON_BY_ID[w.id];
-      P.weapons = P.weapons.filter((x) => x.uid !== uid); P.coins += Math.round(d.price * 0.25 / 10) * 10;
+      P.weapons = P.weapons.filter((x) => x.uid !== uid); P.coins += Math.round(d.price * 0.75 / 10) * 10;
       fixLoadout(); sfx('coin'); refreshCoins();
     }
     save(); renderArsenal();
