@@ -54,6 +54,7 @@ h2{font-size:15px;color:var(--gold);margin:18px 0 10px;text-shadow:2px 2px 0 #00
 .ori canvas{width:64px;height:64px;flex:none}
 .ori .nm{font-size:13px;color:#fff}
 .ori .pr{font-size:15px;color:var(--gold);margin-top:4px;font-variant-numeric:tabular-nums}
+.jackline{font-size:11px;background:#2a1a00;border:2px solid var(--gold2);padding:4px 6px;margin:4px 0;color:#fff3c0;line-height:1.5}
 .ori .ds{font-size:10px;color:var(--sub);margin:6px 0;line-height:1.4}
 .bar{height:10px;background:#0b0614;border:2px solid #000}
 .bar i{display:block;height:100%;background:repeating-linear-gradient(90deg,#4fd27a 0 4px,#3ab060 4px 8px)}
@@ -139,6 +140,7 @@ h2{font-size:15px;color:var(--gold);margin:18px 0 10px;text-shadow:2px 2px 0 #00
 .arena .side{display:flex;flex-direction:column;align-items:center;gap:6px;font-size:12px;min-width:120px}
 .arena .vs{font-size:28px;color:var(--red);text-shadow:3px 3px 0 #000}
 .hp{width:120px;height:10px;background:#0b0614;border:2px solid #000}.hp i{display:block;height:100%;width:100%;background:linear-gradient(90deg,#ff4f6d,#ffcf4f,#4fd27a);transition:width .3s}
+.bizin{background:#0b0614;color:#fff;border:2px solid var(--line);font:inherit;padding:4px 6px}
 .daylist{text-align:left;font-size:12px;line-height:1.8;background:#0b0614;border:2px solid var(--line);padding:8px 12px;margin:10px 0;font-variant-numeric:tabular-nums}
 @media (max-width:640px){
   .sign h1{font-size:15px}
@@ -154,7 +156,7 @@ h2{font-size:15px;color:var(--gold);margin:18px 0 10px;text-shadow:2px 2px 0 #00
 <div class="wrap">
   <div class="hud">
     <div class="row">
-      <div class="stat money">💰 <b id="money">100,000</b>원</div>
+      <div class="stat money">💰 <b id="money">1,000,000</b>원</div>
       <div class="stat clock">☀ DAY <b id="day">1</b> · 남은시간 <b id="clock">3:00</b></div>
       <div class="daybar"><i id="daybar" style="width:0%"></i></div>
       <div class="row speed" id="speed" title="하루 시간 배속"></div>
@@ -168,6 +170,7 @@ h2{font-size:15px;color:var(--gold);margin:18px 0 10px;text-shadow:2px 2px 0 #00
       <button data-go="estate">🏠 부동산</button>
       <button data-go="motors">🚗 모터스</button>
       <button data-go="arena">⚔ 배틀</button>
+      <button data-go="biz">🏪 내 가게</button>
       <button data-go="casino">🎰 카지노</button>
       <button data-go="stocks">📈 증권</button>
       <button data-go="collection">📖 컬렉션</button>
@@ -180,11 +183,11 @@ h2{font-size:15px;color:var(--gold);margin:18px 0 10px;text-shadow:2px 2px 0 #00
   <canvas id="hamC" width="40" height="40" style="width:120px;height:120px"></canvas>
   <h3>햄햄팡팡 직원 · 햄붕이 13호</h3>
   <p>요즘 몬스터 카드에 푹 빠진 햄붕이 13호. 수원에 거대한 카드 거리가 생겼다!<br>
-  지갑엔 <b style="color:#7dffb0">100,000원</b>뿐이지만, 목표는 <b style="color:var(--gold)">집과 차를 잔뜩 사는 부자</b>.<br><br>
+  지갑엔 <b style="color:#7dffb0">1,000,000원</b>뿐이지만, 목표는 <b style="color:var(--gold)">집과 차를 잔뜩 사는 부자</b>.<br><br>
   ▸ 카드 거리의 <b>오리파 가게 18곳</b>: 동네 문방구부터 1회 1억원이 넘는 신전까지 · 카드 210종<br>
   ▸ 하루는 <b>3분</b>. 날이 바뀌면 모든 가게 재고가 다시 채워진다<br>
   ▸ 뽑은 카드는 가치만큼 되팔 수 있다. 골드·프리즘·블랙다이아 판은 몸값이 몇 배!<br>
-  ▸ 증권 거래소의 주가는 <b>4초마다</b> 요동친다. 폭등·폭락·상장폐지까지! <b>매도할 때마다 10% 수수료</b><br>
+  ▸ 증권 거래소의 주가는 <b>2초마다</b>(배속하면 더 빠르게) 요동친다. 레버리지 최대 125배! 폭등·폭락·상장폐지까지! <b>매도할 때마다 10% 수수료</b><br>
   ▸ 부동산·모터스의 집과 차 각각 50여 종. 시세가 미친 듯이 오르내린다<br>
   ▸ 길거리 배틀(50:50)과 🎰 카지노 슬롯·홀짝도 있다. 하루 시간은 1·2·3·5배속 조절 가능<br>
   ▸ <b style="color:var(--red)">돈을 전부 써버리면 실패</b>. 처음부터 다시!</p>
@@ -259,6 +262,12 @@ const VARIANTS=[
   {name:'블랙다이아',mult:60,color:'#e8e8ff'},
   {name:'그레이딩10',mult:300,color:'#9ad8ff'},
   {name:'세계 단 1장',mult:1500,color:'#ff6a8a'},
+  {name:'황금 트로피',mult:5000,color:'#ffd84f'},
+  {name:'신의 카드',mult:30000,color:'#ffffff'},
+  {name:'태초의 원본',mult:200000,color:'#ff3af0'},
+  {name:'우주 유일',mult:2e6,color:'#7affff'},
+  {name:'창세의 카드',mult:2e7,color:'#ffb02a'},
+  {name:'무한의 카드',mult:2e8,color:'#ff5a5a'},
 ];
 const ELEM=[
   {n:'화염',icon:'🔥',p:['#5a1010','#c8361e','#ff7a2a','#ffd06a'],g:'#ff9a2a',h:'#fff3a0',pre:['불꽃','화염','용암','잉걸','홍련','작열'],arch:'quad'},
@@ -471,8 +480,8 @@ function drawBG(ctx,card,ox,oy,w,h,v){
     case 13:for(let y=0;y<h*.7;y+=4)for(let x=(y/4%2)*3;x<w;x+=6)px(ctx,ox+x,oy+y,3,2,mix(p[0],p[2],.25));star(ctx,ox+w-10,oy+5,E.g);break;
   }
   if(v===1){ctx.globalAlpha=.18;for(let i=-h;i<w;i+=5)for(let y=0;y<h;y++){const x=i+y;if(x>=0&&x<w)px(ctx,ox+x,oy+y,1,1,'#ffffff')}ctx.globalAlpha=1}
-  if(v===3||v===6){ctx.globalAlpha=v===6?.3:.22;for(let y=0;y<h;y++)for(let x=0;x<w;x++)if((x+y)%2===0)px(ctx,ox+x,oy+y,1,1,hsl2hex(((x+y)/60)%1,.9,.6));ctx.globalAlpha=1}
-  if(v>=4)for(let i=0;i<(v===6?24:14);i++)star(ctx,Math.round(ox+r()*(w-3)),Math.round(oy+r()*(h-3)),i%3?'#ffffff':'#ffcf4f');
+  if(v===3||v>=6){ctx.globalAlpha=v>=6?.3:.22;for(let y=0;y<h;y++)for(let x=0;x<w;x++)if((x+y)%2===0)px(ctx,ox+x,oy+y,1,1,hsl2hex(((x+y)/60)%1,.9,.6));ctx.globalAlpha=1}
+  if(v>=4)for(let i=0;i<(v>=6?24:14);i++)star(ctx,Math.round(ox+r()*(w-3)),Math.round(oy+r()*(h-3)),i%3?'#ffffff':'#ffcf4f');
 }
 function drawCard(card,v=0){
   const key=card.id+':'+v;if(cardCache[key])return cardCache[key];
@@ -485,7 +494,7 @@ function drawCard(card,v=0){
     else if(v===3)c=hsl2hex(((x+y)/90)%1,.85,.62);
     else if(v===4)c=(x*7+y*3)%17===0?'#ffffff':'#1c1626';
     else if(v===5)c=y<4?'#2a4a8a':((x+y)%3?'#eef4ff':'#b8c8e0');
-    else if(v===6)c=(x+y)%4<2?hsl2hex(((x+y)/70)%1,.95,.6):((x+y)%8<4?'#fff3a0':'#ffcf4f');
+    else if(v>=6)c=v>6&&(x*3+y*5)%11===0?'#ffffff':(x+y)%4<2?hsl2hex(((x+y)/70)%1,.95,.6):((x+y)%8<4?'#fff3a0':'#ffcf4f');
     else c=(x===1||y===1||x===62||y===90)?G.dark:G.color;
     if(v===1&&(x+y)%9===0)c='#ffffff';
     px(ctx,x,y,1,1,c)}
@@ -529,7 +538,7 @@ function cardBack(){
 }
 const BACK=cardBack();
 const holoClass=(g,v)=>v>=3||g===4?'h hx':(v>=1||g===3)?'h':'';
-const VMAX=VARIANTS.length-1;
+const VMAX=VARIANTS.length-1,NORMAL_VMAX=6;
 
 // ================= SHOPS =================
 const SHOPS=[
@@ -572,28 +581,41 @@ const SHOPS=[
    oris:['신전 입장권','제단의 불꽃','신의 시련','태초의 카드'],ds:'모든 카드의 기원. 세계 단 1장이 쏟아지는 곳.'},
 ];
 const SHOP_ORDER=SHOPS.map((s,i)=>i).sort((a,b)=>(SHOPS[a].lv??a)-(SHOPS[b].lv??b));
+// flagship oripas pushed to absurd prices: shop index -> [k, variant centre]
+const ULTRA={9:[3,6],15:[3,7.2],16:[3,8],17:[3,8.7]};
+// cheapest card+edition worth at least `min` (picks among close candidates so prizes vary)
+function findJack(min,r){let best=null;const cand=[];
+  CARDS.forEach(c=>VARIANTS.forEach((V,v)=>{const val=c.value*V.mult;if(val>=min){if(!best||val<best.val)best={id:c.id,v,val};if(val<=min*1.35)cand.push({id:c.id,v,val})}}));
+  return cand.length?cand[Math.floor(r()*cand.length)]:best}
 (function buildOris(){
+  const jr=mulberry(9090);
   SHOPS.forEach((s,i)=>{const t=s.lv??i;s.lv=t;s.t=Math.floor(t);s.list=[];
     for(let k=0;k<4;k++){
-      const c=Math.min(4,t*.38+k*.55),stock=Math.max(t>=10?4:6,[40,30,22,14][k]-Math.floor(t));
+      const ultra=ULTRA[i]&&ULTRA[i][0]===k;
+      const c=ultra?4:Math.min(4,t*.38+k*.55),stock=Math.max(20,[40,30,22,14][k]-Math.floor(t))-1;
       const w=[0,1,2,3,4].map(g=>Math.exp(-((g-c)**2)/.9)),ws=w.reduce((a,b)=>a+b,0);
       let pool=w.map(x=>Math.round(x/ws*stock));
       let diff=stock-pool.reduce((a,b)=>a+b,0);const mi=w.indexOf(Math.max(...w));pool[mi]+=diff;
       const top=Math.min(4,Math.floor(c)+2);if(!pool[top]){const lo=pool.findIndex(n=>n>1);pool[lo]--;pool[top]++}
       pool=pool.map(n=>Math.max(0,n));
       // shops below lv10 top out at black diamond; premium shops reach graded slabs and one-of-a-kind cards
-      const vc=t<10?t*.42+k*.15:3.6+(t-9)*.5+k*.35,vmax=t<10?4:VMAX,vw=VARIANTS.map((_,v)=>v>vmax?0:Math.exp(-((v-vc)**2)/.7));
+      const vc=ultra?ULTRA[i][1]:t<10?t*.42+k*.15:3.6+(t-9)*.5+k*.35,vmax=ultra?Math.ceil(vc)+1:t<10?4:NORMAL_VMAX,vw=VARIANTS.map((_,v)=>v>vmax?0:Math.exp(-((v-vc)**2)/.7));
       const vs=vw.reduce((a,b)=>a+b,0),mult=vw.reduce((a,x,v)=>a+x*VARIANTS[v].mult,0)/vs;
       const per=t>=13?[1,2,3,5][k]:t>=10?[1,1,2,3][k]:(k===1&&t%2===0)?3:1,total=pool.reduce((a,b)=>a+b,0);
       const extraAvg=t>=10?pool.reduce((a,n,g)=>a+n*AVG[Math.max(2,g-1)],0)/total:.85*AVG[0]+.15*AVG[1];
       const ev=(pool.reduce((a,n,g)=>a+n*AVG[g],0)/total+(per-1)*extraAvg)*mult;
-      const payback=Math.max(.76,.9-t*.012);
-      s.list.push({name:s.oris[k],k,pool,vw,per,price:nice(ev/payback),total,
-        ds:(per>1?`1회 ${per}장${t>=10?'(추가 카드도 고급판)':''}! `:'')+['가볍게 즐기는 기본 오리파.','조금 더 좋은 확률.','상위 등급 비중이 높다.','가게의 간판 상품. 대박 1장 봉인.'][k]});
+      const payback=Math.max(.76,.9-t*.012),T=total+1;
+      // price so that (normal tickets + one top prize >= 10x price) returns `payback` of what customers pay
+      let P=nice(total*ev/(payback*T-10.6)),J=null;
+      for(let it=0;it<6;it++){J=findJack(P*10.3,jr);P=nice((total*ev+J.val)/(payback*T));if(J.val>=P*10)break}
+      while(J.val<P*10){J=findJack(P*10.3,jr)}
+      s.list.push({name:s.oris[k],k,pool,vw,vmax,per,price:P,total:T,jack:{id:J.id,v:J.v},ultra,
+        ds:(ultra?'💀 초극단 VVIP 상품. ':'')+(per>1?`1회 ${per}장${t>=10?'(추가 카드도 고급판)':''}! `:'')+['가볍게 즐기는 기본 오리파.','조금 더 좋은 확률.','상위 등급 비중이 높다.','가게의 간판 상품.'][k]});
     }});
 })();
 function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(R()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
-function freshTickets(){return SHOPS.map(s=>s.list.map(o=>{const t=[];o.pool.forEach((n,g)=>{for(let i=0;i<n;i++)t.push(g)});return shuffle(t)}))}
+const JACK=9; // ticket code for the oripa's top prize
+function freshTickets(){return SHOPS.map(s=>s.list.map(o=>{const t=[JACK];o.pool.forEach((n,g)=>{for(let i=0;i<n;i++)t.push(g)});return shuffle(t)}))}
 function pickVariant(vw){const s=vw.reduce((a,b)=>a+b,0);let x=R()*s;for(let v=0;v<vw.length;v++){x-=vw[v];if(x<=0)return v}return 0}
 
 // ================= ASSETS =================
@@ -814,22 +836,256 @@ function startBattle(){
   setTimeout(step,700);
 }
 
+// ================= MY BUSINESS =================
+// the player's own oripa shop: up to 3 oripas x 30 cards from the binder, plus a 12-slot showcase.
+// a listing is only sold while (average card value / ticket price) stays >= 60%; simulated customers buy more when the deal is better.
+const BIZ_FEE=5e5,BIZ_MIN=.6,BIZ_ORIS=3,BIZ_CAP=30,SHOW_CAP=12;
+const bizAvg=o=>o.cards.length?o.cards.reduce((a,k)=>a+cardVal(k),0)/o.cards.length:0;
+const bizRatio=o=>o.price>0?bizAvg(o)/o.price:0;
+const bizValue=()=>{const b=S.biz;if(!b)return 0;return b.oris.reduce((a,o)=>a+o.cards.reduce((x,k)=>x+cardVal(k),0),0)+b.show.reduce((a,x)=>a+cardVal(x.k),0)};
+function bizLog(t){const b=S.biz;b.log.unshift(`D${S.day} ${t}`);if(b.log.length>40)b.log.length=40}
+function bizOpen(){if(S.money<BIZ_FEE)return toast('오픈 비용이 부족해요');S.money-=BIZ_FEE;
+  S.biz={name:'햄붕이 13호의 오리파',oris:Array.from({length:BIZ_ORIS},(_,i)=>({name:['햄붕 럭키백','13호 스페셜','사장님 추천 박스'][i],price:0,cards:[],sold:0,rev:0,on:false})),show:[],log:[],rev:0,visits:0};
+  bizLog('🎉 가게 오픈!');sfx('buybig');flash();save();render();checkEnd()}
+function takeCard(k){if(!S.owned[k])return false;S.owned[k]--;if(!S.owned[k])delete S.owned[k];return true}
+function giveCard(k){S.owned[k]=(S.owned[k]||0)+1}
+function bizTick(scale){const b=S.biz;if(!b)return;let sold=0;
+  b.oris.forEach(o=>{if(!o.on||!o.cards.length)return;const r=bizRatio(o);
+    if(r<BIZ_MIN){o.on=false;bizLog(`⏸ ${o.name}: 시세 하락으로 환급률 ${Math.round(r*100)}% → 자동 판매 중지`);return}
+    const pf=Math.max(.25,Math.min(1,1.35-Math.log10(o.price)/10)),pr=Math.min(.85,Math.max(.02,.06+(r-.6)*1.2))*pf*Math.min(2,scale);
+    let n=0;while(n<3&&o.cards.length&&R()<pr){n++;const k=o.cards.splice(Math.floor(R()*o.cards.length),1)[0];S.money+=o.price;o.sold++;o.rev+=o.price;b.rev+=o.price;b.visits++;sold++;
+      const[id,v]=k.split(':').map(Number);bizLog(`🎟 ${o.name} 판매 +${won(o.price)} · 손님 당첨: ${CARDS[id].name}${v?'('+VARIANTS[v].name+')':''}`)}});
+  b.show=b.show.filter(x=>{const mv=cardVal(x.k),pr=Math.min(.5,Math.max(.003,.25*(1.6-x.price/Math.max(1,mv))))*Math.min(2,scale);
+    if(R()<pr){S.money+=x.price;b.rev+=x.price;b.visits++;sold++;bizLog(`🛒 전시 카드 판매: ${CARDS[+x.k.split(':')[0]].name} +${won(x.price)} (시세 ${won(mv)})`);return false}return true});
+  if(sold){if(screen==='biz'&&!(document.activeElement&&document.activeElement.tagName==='INPUT')&&!document.querySelector('.modal.on'))render();if(sold>=2||R()<.3)sfx('coin')}}
+let bizPick=null;
+function renderBiz(m){const b=S.biz;
+  m.appendChild(el(`<div class="sign" style="margin-top:6px"><h1>🏪 내 가게</h1><small>내 카드로 오리파를 만들고, 카드를 전시해서 팔아요</small></div>`));
+  if(!b){const d=el(`<div class="binder" style="text-align:center"><p>오픈 비용 <b style="color:var(--gold)">${won(BIZ_FEE)}</b><br>오리파 ${BIZ_ORIS}종(각 최대 ${BIZ_CAP}장) + 진열장 ${SHOW_CAP}칸.<br>손님들은 가격과 내용물을 보고 살지 말지 정해요.<br>오리파는 <b>최소 환급률 60%</b>(평균 카드 시세 ÷ 뽑기 금액)를 지켜야 팔 수 있어요.</p></div>`);
+    d.appendChild(actBtn(`🏪 가게 오픈 (${won(BIZ_FEE)})`,BIZ_FEE,bizOpen));m.appendChild(d);return}
+  m.appendChild(el(`<div class="row" style="margin-bottom:10px"><div class="stat">총 매출 <b>${won(b.rev)}</b></div><div class="stat">손님 <b>${fmt(b.visits)}</b>명</div><div class="stat">진열·재고 시세 <b>${won(bizValue())}</b></div></div>`));
+  const g=el('<div class="assets"></div>');
+  b.oris.forEach((o,oi)=>{const avg=bizAvg(o),r=bizRatio(o),maxP=Math.floor(avg/BIZ_MIN/100)*100;
+    const d=el(`<div class="asset"><div class="an">🎁 <input class="bizin" data-f="name" value="${o.name.replace(/"/g,'&quot;')}" maxlength="20" style="width:70%"></div>
+      <div class="ad">카드 <b>${o.cards.length}</b>/${BIZ_CAP}장 · 평균 시세 ${won(avg)} · 판매 ${o.sold}회 · 매출 ${won(o.rev)}</div>
+      <div class="row" style="margin:6px 0">1회 가격 <input class="bizin" data-f="price" type="number" min="100" step="100" value="${o.price||''}" placeholder="${maxP||0}" style="width:120px"></div>
+      <div class="ad">환급률 <b class="${r>=BIZ_MIN?'up':'down'}">${o.price?Math.round(r*100)+'%':'-'}</b> · 최대 가능 가격 <b>${won(maxP)}</b></div>
+      <div class="ad" style="color:${o.on?'#7dffb0':'var(--sub)'}">${o.on?'🟢 판매 중':'⚪ 판매 중지'}</div>
+      <div class="mini" style="grid-template-columns:repeat(auto-fill,minmax(28px,1fr));gap:3px;margin:6px 0"></div><div class="buys" style="flex-wrap:wrap"></div></div>`);
+    const mini=d.querySelector('.mini');o.cards.slice(0,30).forEach(k=>{const[id,v]=k.split(':').map(Number);const c=copyCanvas(drawCard(CARDS[id],v));c.style.width='100%';c.title=CARDS[id].name+' '+won(cardVal(k));mini.appendChild(c)});
+    d.querySelectorAll('.bizin').forEach(inp=>inp.onchange=()=>{if(inp.dataset.f==='name'){o.name=inp.value.trim()||o.name}else{let v=Math.max(100,Math.round(+inp.value/100)*100||0);
+      if(o.cards.length&&avg/v<BIZ_MIN){v=maxP;toast(`최소 환급률 60%를 지키려면 ${won(maxP)} 이하여야 해요. 자동으로 맞췄어요`)}o.price=v}save();render()});
+    const bx=d.querySelector('.buys'),mk=(t,c,f,dis,title)=>{const x=document.createElement('button');x.className='pbtn '+c;x.textContent=t;x.disabled=!!dis;if(title)x.title=title;x.onclick=f;bx.appendChild(x)};
+    mk('＋ 카드 넣기','alt',()=>{bizPick={type:'ori',oi};render()},o.cards.length>=BIZ_CAP,'최대 30장');
+    mk('전부 회수','alt',()=>{o.cards.forEach(giveCard);o.cards=[];o.on=false;save();render()},!o.cards.length);
+    const why=!o.cards.length?'카드를 넣어주세요':!o.price?'가격을 정해주세요':r<BIZ_MIN?'환급률이 60% 미만이에요':'';
+    if(o.on)mk('⏸ 판매 중지','red',()=>{o.on=false;save();render()});else mk('▶ 판매 시작','',()=>{o.on=true;bizLog(`▶ ${o.name} 판매 시작 (${won(o.price)}, ${o.cards.length}장)`);save();render()},why,why);
+    g.appendChild(d)});
+  m.appendChild(el('<h2>▶ 내 오리파 (3종)</h2>'));m.appendChild(g);
+  m.appendChild(el(`<h2>▶ 진열장 (${b.show.length}/${SHOW_CAP})</h2>`));
+  const sh=el('<div class="cards"></div>');
+  b.show.forEach((x,si)=>{const[id,v]=x.k.split(':').map(Number),c=CARDS[id],mv=cardVal(x.k);
+    const w=el(`<div class="cw"><div class="card ${holoClass(c.grade,v)}"></div><div class="cn">${c.name}</div><div class="note">시세 ${won(mv)}</div><input class="bizin" type="number" min="10" value="${x.price}" style="width:100%"><div class="note">시세 대비 <b class="${x.price<=mv?'up':'down'}">${Math.round(x.price/Math.max(1,mv)*100)}%</b></div></div>`);
+    w.querySelector('.card').appendChild(copyCanvas(drawCard(c,v)));
+    w.querySelector('input').onchange=e=>{x.price=Math.max(10,Math.round(+e.target.value)||mv);save();render()};
+    const rb=document.createElement('button');rb.className='pbtn alt';rb.textContent='회수';rb.onclick=()=>{giveCard(x.k);b.show.splice(si,1);save();render()};w.appendChild(rb);sh.appendChild(w)});
+  if(b.show.length<SHOW_CAP){const add=el('<div class="cw" style="display:flex;align-items:center;justify-content:center;min-height:120px"></div>');const ab=document.createElement('button');ab.className='pbtn';ab.textContent='＋ 카드 전시';ab.onclick=()=>{bizPick={type:'show'};render()};add.appendChild(ab);sh.appendChild(add)}
+  m.appendChild(sh);
+  m.appendChild(el(`<p class="note">손님은 2초마다(배속하면 더 자주) 들러요. 오리파는 환급률이 높을수록, 가격이 낮을수록 잘 팔려요. 진열 카드는 시세보다 싸게 걸수록 빨리 팔려요. 카드 시세가 떨어져 환급률이 60% 아래로 내려가면 판매가 자동으로 멈춰요.</p>`));
+  m.appendChild(el(`<div class="news"><b style="color:var(--gold)">🧾 판매 기록</b><br>${b.log.slice(0,15).join('<br>')||'아직 기록이 없어요'}</div>`));
+  if(bizPick)renderBizPicker();
+}
+function renderBizPicker(){const b=S.biz,pk=bizPick,o=pk.type==='ori'?b.oris[pk.oi]:null;
+  $('endM').dataset.kind='pick';
+  const box=$('endBox');box.innerHTML=`<h3>${o?`🎁 ${o.name}에 넣을 카드 (${o.cards.length}/${BIZ_CAP})`:'🖼 진열할 카드 고르기'}</h3><p class="note">가치 높은 순 · ${o?'누른 만큼 들어가요':'시세 가격으로 진열돼요(나중에 수정 가능)'}</p><div class="cards" id="pickGrid" style="max-height:60vh;overflow:auto"></div><button class="pbtn" id="pickDone" style="margin-top:10px">완료</button>`;
+  const keys=Object.keys(S.owned).sort((a,b2)=>cardVal(b2)-cardVal(a)).slice(0,150),grid=$('pickGrid');
+  if(!keys.length)grid.appendChild(el('<div class="empty">넣을 카드가 없어요</div>'));
+  keys.forEach(k=>{const[id,v]=k.split(':').map(Number),c=CARDS[id];const w=el(`<div class="cw"><div class="card ${holoClass(c.grade,v)}"></div><div class="cnt">×${S.owned[k]}</div><div class="cn">${c.name}</div><div class="cv">${won(cardVal(k))}</div></div>`);
+    w.querySelector('.card').appendChild(copyCanvas(drawCard(c,v)));
+    const add=n=>{for(let j=0;j<n;j++){if(o){if(o.cards.length>=BIZ_CAP)break;if(!takeCard(k))break;o.cards.push(k)}else{if(b.show.length>=SHOW_CAP)break;if(!takeCard(k))break;b.show.push({k,price:cardVal(k)})}}save();renderBizPicker()};
+    const b1=document.createElement('button');b1.className='pbtn';b1.textContent='＋1';b1.onclick=()=>add(1);w.appendChild(b1);
+    if(o&&S.owned[k]>1){const b2=document.createElement('button');b2.className='pbtn alt';b2.textContent='전부';b2.onclick=()=>add(S.owned[k]);w.appendChild(b2)}
+    grid.appendChild(w)});
+  $('pickDone').onclick=()=>{bizPick=null;$('endM').classList.remove('on');render()};
+  $('endM').classList.add('on')}
+
 // ================= CASINO =================
-// 5x3 slot, 5 paylines. Scatter (8% per paid spin) opens 15 free spins; each free spin has a 20% meteor worth 200%-1,000,000% of the stake.
-// meteor tiers keep the average near 3.6x (most land at 200-350%, 1000x+ is ~0.007%) so the machine as a whole returns about 99%
-function meteorMult(){const u=R(),lu=(a,b)=>a*Math.pow(b/a,R());
-  if(u<.97)return 2+R()*1.5;if(u<.9925)return 3.5+R()*6.5;if(u<.9993)return lu(10,100);if(u<.99993)return lu(100,1000);return lu(1000,10000)}
+// realistic 5x3 video slot on a smooth canvas. A paid spin has an 8% SCATTER (15 free spins; each free spin has a 20% meteor
+// worth 200%-1,000,000% of the stake) and an independent 12% surprise event. Line pays, meteor tiers and event tiers are
+// balanced so the machine returns roughly 100% overall (lines ~4%, free games ~74%, events ~22%).
 const SLOT_W=[30,26,22,18,10,6,3],SLOT_TW=SLOT_W.reduce((a,b)=>a+b),SCATTER=7;
-const SLOT_PAY=[[1.2,3.6,12],[2,5,15],[2.5,7,20],[3.5,10,30],[7,24,72],[12,48,150],[24,120,480]];
-const SLOT_NAMES=['해바라기씨','도토리','치즈','베리','보석','왕관','7','SCATTER'];
-const LINES=[[1,1,1,1,1],[0,0,0,0,0],[2,2,2,2,2],[0,1,2,1,0],[2,1,0,1,2]];
-const slot={grid:null,busy:false,free:0,freeBet:0,freeWin:0,bet:10000,msg:'베팅 금액을 정하고 SPIN!',win:[],auto:0,meteor:null};
+const SLOT_PAY=[[1.2,3.6,12],[2,5,15],[2.5,7,20],[3.5,10,30],[7,24,72],[12,48,150],[24,120,480]].map(r=>r.map(x=>x*.33));
+const SYMS=[{e:'🌻',bg:'#fff3c0'},{e:'🌰',bg:'#f0d8b8'},{e:'🧀',bg:'#fff0a0'},{e:'🍒',bg:'#ffd0d8'},{e:'💎',bg:'#d0ecff'},{e:'👑',bg:'#fff0b0'},{e:'7',bg:'#ffe0e0'},{e:'⭐',bg:'#2a1050'}];
+const LINES=[[1,1,1,1,1],[0,0,0,0,0],[2,2,2,2,2],[0,1,2,1,0],[2,1,0,1,2]],LINE_COL=['#ff3a5a','#4fd27a','#5ab0ff','#ffcf4f','#ff8af0'];
+const EVENTS=[['⚡ 황금 번개 습격!','#ffe27a','bolt'],['🐹 햄스터 갱단 기습!','#ff9a3a','coins'],['💰 코인 폭포!','#7dffb0','coins'],['🌈 무지개 잭팟 러시!','#ff8af0','rainbow']];
+const slot={grid:null,busy:false,free:0,freeBet:0,freeWin:0,bet:10000,msg:'베팅 금액을 정하고 SPIN!',win:[],auto:0,reels:null,fx:[],banner:null,shake:0,meteor:null,bolts:[],scatterGlow:0,lastWin:0};
+const lu=(a,b)=>a*Math.pow(b/a,R());
+function meteorMult(){const u=R();if(u<.97)return 2+R()*.5;if(u<.9925)return 2.5+R()*7.5;if(u<.9993)return lu(10,100);if(u<.99993)return lu(100,1000);return lu(1000,10000)}
+function eventMult(){const u=R();if(u<.7)return .3+R()*.9;if(u<.95)return 2+R()*2;if(u<.995)return 5+R()*5;return lu(20,100)}
 function slotSym(){let x=R()*SLOT_TW;for(let i=0;i<SLOT_W.length;i++){x-=SLOT_W[i];if(x<0)return i}return 0}
 function slotGrid(trig,allowScatter=true){const g=Array.from({length:5},()=>Array.from({length:3},slotSym));
   if(!allowScatter)return g;
   const n=trig?3+(R()<.3?1:0)+(R()<.1?1:0):(R()<.35?1:0)+(R()<.12?1:0);
   shuffle([0,1,2,3,4]).slice(0,n).forEach(c=>{g[c][Math.floor(R()*3)]=SCATTER});return g}
 function slotLines(g){const out=[];LINES.forEach((L,li)=>{const f=g[0][L[0]];if(f===SCATTER)return;let n=1;while(n<5&&g[n][L[n]]===f)n++;if(n>=3)out.push({li,n,mult:SLOT_PAY[f][n-3]/5})});return out}
+
+// ---- renderer ----
+const SW_=960,SH_=600,RX=70,RY=118,RW=164,CH=118,RGAP=0;
+const EMOJI='"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+function rr(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath()}
+function drawSym(c,k,x,y,w,h,t,blur){const S_=SYMS[k],cx=x+w/2,cy=y+h/2;
+  c.save();
+  if(k===SCATTER){const pulse=1+Math.sin(t/120)*.08+(slot.scatterGlow?Math.sin(t/60)*.15:0);
+    const g=c.createRadialGradient(cx,cy,4,cx,cy,w*.6);g.addColorStop(0,'#fff6c0');g.addColorStop(.35,'#ff3af0');g.addColorStop(.7,'#5a1ab0');g.addColorStop(1,'#1a0630');c.fillStyle=g;rr(c,x+6,y+6,w-12,h-12,16);c.fill();
+    c.translate(cx,cy-6);c.rotate(Math.sin(t/400)*.15);c.scale(pulse,pulse);c.shadowColor='#fff3a0';c.shadowBlur=30;c.font=`${h*.55}px ${EMOJI}`;c.textAlign='center';c.textBaseline='middle';c.fillText('⭐',0,0);
+    c.restore();c.save();c.font='bold 17px Georgia,serif';c.textAlign='center';c.lineWidth=4;c.strokeStyle='#3a0a40';c.strokeText('SCATTER',cx,y+h-16);const tg=c.createLinearGradient(0,y+h-28,0,y+h-8);tg.addColorStop(0,'#fff6c0');tg.addColorStop(1,'#ffb02a');c.fillStyle=tg;c.fillText('SCATTER',cx,y+h-16);c.restore();return}
+  const g=c.createRadialGradient(cx,cy-h*.2,4,cx,cy,w*.7);g.addColorStop(0,'#ffffff');g.addColorStop(1,S_.bg);c.fillStyle=g;rr(c,x+8,y+8,w-16,h-16,14);c.fill();
+  c.strokeStyle='rgba(0,0,0,.12)';c.lineWidth=2;c.stroke();
+  if(blur){c.globalAlpha=.35;for(let i=-2;i<=2;i++){if(!i)continue;drawGlyph(c,k,cx,cy+i*14,h)}c.globalAlpha=.8}
+  drawGlyph(c,k,cx,cy,h);c.restore()}
+function drawGlyph(c,k,cx,cy,h){c.textAlign='center';c.textBaseline='middle';
+  if(k===6){c.font=`900 ${h*.72}px Georgia,"Times New Roman",serif`;c.lineWidth=7;c.strokeStyle='#7a4a00';c.strokeText('7',cx,cy+4);const g=c.createLinearGradient(0,cy-h*.35,0,cy+h*.35);g.addColorStop(0,'#ff8a8a');g.addColorStop(.5,'#e8101a');g.addColorStop(1,'#7a0008');c.fillStyle=g;c.fillText('7',cx,cy+4);c.lineWidth=2;c.strokeStyle='#ffe27a';c.strokeText('7',cx,cy+4);return}
+  c.shadowColor='rgba(0,0,0,.35)';c.shadowBlur=8;c.shadowOffsetY=4;c.font=`${h*.56}px ${EMOJI}`;c.fillText(SYMS[k].e,cx,cy+2);c.shadowColor='transparent'}
+function reelSymAt(col,j){const r=slot.reels&&slot.reels[col];if(r)return r.strip[j]??0;return (slot.grid?slot.grid[col][j]:((col*3+j)*5)%7)??((col+j)%7)}
+function drawSlotFrame(t){const cv=$('slotC');if(!cv)return false;const c=cv.getContext('2d');const free=slot.free>0||slot.mode==='free';
+  c.save();if(slot.shake>0){c.translate((R()-.5)*slot.shake,(R()-.5)*slot.shake);slot.shake*=.9;if(slot.shake<.5)slot.shake=0}
+  // cabinet
+  const bg=c.createLinearGradient(0,0,0,SH_);if(free){bg.addColorStop(0,'#0a0628');bg.addColorStop(.5,'#2a0a5a');bg.addColorStop(1,'#0a0628')}else{bg.addColorStop(0,'#5a0010');bg.addColorStop(.5,'#a8102a');bg.addColorStop(1,'#3a0008')}
+  c.fillStyle=bg;c.fillRect(-20,-20,SW_+40,SH_+40);
+  if(free){for(let i=0;i<70;i++){const x=(i*137.5)%SW_,y=(i*91.3+t*.02*(1+i%3))%SH_;c.fillStyle=`rgba(255,255,255,${.3+.7*Math.abs(Math.sin(t/500+i))})`;c.fillRect(x,y,2,2)}
+    const ag=c.createLinearGradient(0,0,SW_,0);ag.addColorStop(0,'rgba(80,255,200,0)');ag.addColorStop(.5,`rgba(120,255,220,${.15+.1*Math.sin(t/700)})`);ag.addColorStop(1,'rgba(160,80,255,0)');c.fillStyle=ag;c.fillRect(0,40,SW_,80)}
+  // marquee
+  const mg=c.createLinearGradient(0,10,0,100);mg.addColorStop(0,'#fff3a0');mg.addColorStop(.5,'#ffb02a');mg.addColorStop(1,'#a85a00');rr(c,40,12,SW_-80,88,22);c.fillStyle=mg;c.fill();
+  rr(c,52,22,SW_-104,68,16);c.fillStyle=free?'#140830':'#2a0008';c.fill();
+  for(let i=0;i<28;i++){const x=58+i*((SW_-116)/27),on=((t/140|0)+i)%3===0;c.beginPath();c.arc(x,17,5,0,7);c.fillStyle=on?'#fffbe0':'#8a5a10';c.shadowColor='#fff3a0';c.shadowBlur=on?14:0;c.fill();c.beginPath();c.arc(x,95,5,0,7);c.fill()}
+  c.shadowBlur=0;c.font='900 44px Georgia,serif';c.textAlign='center';c.textBaseline='middle';
+  const title=free?`FREE GAMES  ${15-slot.free}/15`:'HAMZZI FORTUNE';const tg=c.createLinearGradient(0,30,0,80);tg.addColorStop(0,'#fff6c0');tg.addColorStop(.5,'#ffcf4f');tg.addColorStop(1,'#c87a00');
+  c.lineWidth=6;c.strokeStyle='#3a1000';c.strokeText(title,SW_/2,57);c.shadowColor=free?'#ff3af0':'#ffcf4f';c.shadowBlur=18+Math.sin(t/200)*8;c.fillStyle=tg;c.fillText(title,SW_/2,57);c.shadowBlur=0;
+  // reel housing
+  rr(c,RX-18,RY-16,RW*5+36,CH*3+32,20);const hg=c.createLinearGradient(0,RY-16,0,RY+CH*3+16);hg.addColorStop(0,'#e8e8f0');hg.addColorStop(.5,'#8a8a98');hg.addColorStop(1,'#e8e8f0');c.fillStyle=hg;c.fill();
+  rr(c,RX-8,RY-6,RW*5+16,CH*3+12,12);c.fillStyle='#14080c';c.fill();
+  for(let col=0;col<5;col++){const x=RX+col*RW,r=slot.reels&&slot.reels[col];
+    c.save();c.beginPath();c.rect(x+3,RY,RW-6,CH*3);c.clip();
+    const cg=c.createLinearGradient(0,RY,0,RY+CH*3);cg.addColorStop(0,'#9a9aa8');cg.addColorStop(.18,'#f4f4f8');cg.addColorStop(.5,'#ffffff');cg.addColorStop(.82,'#f4f4f8');cg.addColorStop(1,'#9a9aa8');c.fillStyle=cg;c.fillRect(x,RY,RW,CH*3);
+    let p=0,blur=false;if(r){const e=Math.min(1,(t-r.t0)/(r.t1-r.t0)),k=1.25,ease=1+(k+1)*Math.pow(e-1,3)+k*Math.pow(e-1,2);p=r.n*(1-ease);blur=e<.85;if(e>=1)p=0}
+    const j0=Math.floor(p);for(let j=j0-1;j<j0+4;j++){if(j<0)continue;const y=RY+(j-p)*CH;drawSym(c,reelSymAt(col,j),x,y,RW,CH,t,blur)}
+    const sh=c.createLinearGradient(0,RY,0,RY+CH*3);sh.addColorStop(0,'rgba(0,0,0,.55)');sh.addColorStop(.15,'rgba(0,0,0,0)');sh.addColorStop(.85,'rgba(0,0,0,0)');sh.addColorStop(1,'rgba(0,0,0,.55)');c.fillStyle=sh;c.fillRect(x,RY,RW,CH*3);
+    c.restore();if(col)c.fillStyle='#14080c',c.fillRect(x-2,RY,4,CH*3)}
+  // glass shine
+  const gl=c.createLinearGradient(RX,RY,RX+300,RY+CH*3);gl.addColorStop(0,'rgba(255,255,255,.18)');gl.addColorStop(.3,'rgba(255,255,255,0)');c.fillStyle=gl;c.fillRect(RX,RY,RW*5,CH*3);
+  // winning lines
+  if(!slot.reels&&slot.win.length){slot.win.forEach((w,wi)=>{const L=LINES[w.li];c.save();c.strokeStyle=LINE_COL[w.li];c.lineWidth=7;c.shadowColor=LINE_COL[w.li];c.shadowBlur=20;c.setLineDash([22,10]);c.lineDashOffset=-t/20;c.beginPath();
+    for(let i=0;i<5;i++){const xx=RX+i*RW+RW/2,yy=RY+L[i]*CH+CH/2;i?c.lineTo(xx,yy):c.moveTo(xx,yy)}c.stroke();c.restore();
+    for(let i=0;i<w.n;i++){c.save();c.strokeStyle='#ffe27a';c.lineWidth=5;c.shadowColor='#ffcf4f';c.shadowBlur=25*(.6+.4*Math.sin(t/100));rr(c,RX+i*RW+8,RY+L[i]*CH+8,RW-16,CH-16,14);c.stroke();c.restore()}})}
+  if(slot.scatterGlow&&slot.grid&&!slot.reels){slot.grid.forEach((colv,ci)=>colv.forEach((k,ri)=>{if(k!==SCATTER)return;const cx=RX+ci*RW+RW/2,cy=RY+ri*CH+CH/2;for(let q=0;q<3;q++){const rad=((t/6+q*40)%120);c.beginPath();c.arc(cx,cy,rad,0,7);c.strokeStyle=`rgba(255,120,255,${1-rad/120})`;c.lineWidth=4;c.stroke()}}))}
+  // lightning bolts (surprise event)
+  slot.bolts=slot.bolts.filter(b=>t-b.t0<500);slot.bolts.forEach(b=>{c.save();c.strokeStyle='#fffbe0';c.lineWidth=4;c.shadowColor='#ffe27a';c.shadowBlur=30;c.globalAlpha=1-(t-b.t0)/500;c.beginPath();b.pts.forEach((pt,i)=>i?c.lineTo(pt[0],pt[1]):c.moveTo(pt[0],pt[1]));c.stroke();c.restore()});
+  // meteor
+  if(slot.meteor){const m=slot.meteor,e=(t-m.t0)/1400;
+    if(e<.55){const f=e/.55,x=SW_+80-f*(SW_+80-m.tx),y=-80+f*(m.ty+80),sz=m.size;
+      for(let i=0;i<4;i++)slot.fx.push({x:x+R()*sz*.6,y:y-R()*sz*.6,vx:2+R()*3,vy:-2-R()*3,life:0,max:30+R()*20,size:3+R()*6*sz/40,color:pick(['#fff6c0','#ffb02a','#ff5a1a','#ff2a00']),type:'spark'});
+      const tg2=c.createLinearGradient(x,y,x+sz*5,y-sz*4);tg2.addColorStop(0,'rgba(255,240,180,.9)');tg2.addColorStop(.3,'rgba(255,120,30,.6)');tg2.addColorStop(1,'rgba(255,40,0,0)');c.save();c.strokeStyle=tg2;c.lineWidth=sz*1.4;c.lineCap='round';c.beginPath();c.moveTo(x,y);c.lineTo(x+sz*5,y-sz*4);c.stroke();
+      const fg=c.createRadialGradient(x,y,2,x,y,sz);fg.addColorStop(0,'#ffffff');fg.addColorStop(.3,'#fff3a0');fg.addColorStop(.6,'#ff8a1a');fg.addColorStop(1,'rgba(255,40,0,0)');c.fillStyle=fg;c.shadowColor='#ff8a1a';c.shadowBlur=60;c.beginPath();c.arc(x,y,sz,0,7);c.fill();c.restore()}
+    else{const f=(e-.55)/.45;if(!m.hit){m.hit=1;slot.shake=m.size/2;for(let i=0;i<120*m.size/40;i++){const a=R()*7,v=4+R()*14;slot.fx.push({x:m.tx,y:m.ty,vx:Math.cos(a)*v,vy:Math.sin(a)*v-4,life:0,max:50+R()*40,size:3+R()*7,color:pick(['#fff6c0','#ffcf4f','#ff8a1a','#ff3a1a','#ffffff']),type:'spark',g:.25})}}
+      c.save();c.globalAlpha=Math.max(0,1-f);c.beginPath();c.arc(m.tx,m.ty,f*420,0,7);c.strokeStyle='#fff3a0';c.lineWidth=14*(1-f)+2;c.shadowColor='#ff8a1a';c.shadowBlur=40;c.stroke();
+      const fl=c.createRadialGradient(m.tx,m.ty,0,m.tx,m.ty,300*(1-f)+40);fl.addColorStop(0,'rgba(255,255,220,.9)');fl.addColorStop(1,'rgba(255,120,0,0)');c.fillStyle=fl;c.fillRect(0,0,SW_,SH_);c.restore()}
+    if(e>=1)slot.meteor=null}
+  // particles
+  slot.fx=slot.fx.filter(p=>p.life<p.max);slot.fx.forEach(p=>{p.life++;p.x+=p.vx;p.y+=p.vy;p.vy+=p.g??.18;p.vx*=.99;const a=1-p.life/p.max;c.save();c.globalAlpha=a;
+    if(p.type==='coin'){c.translate(p.x,p.y);c.scale(Math.abs(Math.cos(p.life/6+p.size)),1);const cg2=c.createRadialGradient(-3,-3,1,0,0,p.size);cg2.addColorStop(0,'#fffbe0');cg2.addColorStop(.6,'#ffcf4f');cg2.addColorStop(1,'#a86a00');c.fillStyle=cg2;c.beginPath();c.arc(0,0,p.size,0,7);c.fill()}
+    else if(p.type==='confetti'){c.translate(p.x,p.y);c.rotate(p.life/8);c.fillStyle=p.color;c.fillRect(-p.size/2,-p.size/4,p.size,p.size/2)}
+    else{c.fillStyle=p.color;c.shadowColor=p.color;c.shadowBlur=10;c.beginPath();c.arc(p.x,p.y,p.size*a+.5,0,7);c.fill()}c.restore()});
+  if(slot.fx.length>1500)slot.fx.splice(0,slot.fx.length-1500);
+  // banner
+  if(slot.banner){const b=slot.banner,e=(t-b.t0)/b.dur;if(e>=1)slot.banner=null;else{const ap=Math.min(1,e*6),sc=e<.12?.3+e/.12*.85:1.15-Math.min(.15,(e-.12)*.3),fade=e>.85?(1-e)/.15:1;
+    c.save();c.globalAlpha=fade*.75;c.fillStyle='#000';c.fillRect(0,0,SW_,SH_);c.globalAlpha=fade;
+    if(b.rays){c.save();c.translate(SW_/2,SH_/2);c.rotate(t/900);for(let i=0;i<16;i++){c.rotate(Math.PI/8);const rg=c.createLinearGradient(0,0,700,0);rg.addColorStop(0,b.color+'cc');rg.addColorStop(1,b.color+'00');c.fillStyle=rg;c.beginPath();c.moveTo(0,0);c.lineTo(700,-60);c.lineTo(700,60);c.closePath();c.fill()}c.restore()}
+    c.translate(SW_/2,SH_/2-20);c.scale(sc*ap,sc*ap);c.textAlign='center';c.textBaseline='middle';c.font=`900 ${b.size||86}px Georgia,serif`;
+    const g2=c.createLinearGradient(0,-50,0,50);g2.addColorStop(0,'#ffffff');g2.addColorStop(.4,b.color);g2.addColorStop(1,'#7a3a00');c.lineWidth=12;c.strokeStyle='#1a0008';c.strokeText(b.text,0,0);c.shadowColor=b.color;c.shadowBlur=40;c.fillStyle=g2;c.fillText(b.text,0,0);
+    if(b.sub){c.shadowBlur=10;c.font='bold 40px Georgia,serif';c.lineWidth=8;c.strokeText(b.sub,0,78);c.fillStyle='#fff6c0';c.fillText(typeof b.sub==='function'?b.sub():b.sub,0,78)}
+    if(b.count){const v=Math.round(b.count*Math.min(1,e*1.6));c.shadowBlur=10;c.font='bold 44px Georgia,serif';c.lineWidth=8;const tx='+'+fmt(v)+'원';c.strokeText(tx,0,82);c.fillStyle='#fff6c0';c.fillText(tx,0,82)}
+    c.restore()}}
+  // bottom info
+  c.fillStyle='rgba(0,0,0,.55)';rr(c,40,RY+CH*3+26,SW_-80,44,12);c.fill();c.font='bold 22px "Nanum Gothic Coding",monospace';c.textAlign='left';c.fillStyle='#ffcf4f';
+  c.fillText('BET '+won(free?slot.freeBet:slot.bet),60,RY+CH*3+50);c.textAlign='right';c.fillStyle='#7dffb0';c.fillText((free?'FREE WIN ':'WIN ')+won(free?slot.freeWin:slot.lastWin),SW_-60,RY+CH*3+50);
+  c.restore();return true}
+let casinoRAF=0;
+function casinoLoop(t){if(!drawSlotFrame(t)){casinoRAF=0;return}casinoRAF=requestAnimationFrame(casinoLoop)}
+function burst(x,y,n,colors,type='spark',spd=10){for(let i=0;i<n;i++){const a=R()*7,v=2+R()*spd;slot.fx.push({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v-2,life:0,max:50+R()*50,size:type==='coin'?8+R()*8:type==='confetti'?8+R()*8:2+R()*4,color:pick(colors),type,g:type==='spark'?.08:.25})}}
+function coinRain(n){for(let i=0;i<n;i++)slot.fx.push({x:R()*SW_,y:-20-R()*300,vx:(R()-.5)*2,vy:2+R()*4,life:0,max:140,size:9+R()*9,type:'coin',g:.2})}
+function fireworks(times){for(let k=0;k<times;k++)setTimeout(()=>{burst(150+R()*(SW_-300),120+R()*260,90,[pick(['#ff3a5a','#ffcf4f','#5ab0ff','#4fd27a','#ff8af0','#ffffff']),'#ffffff'],'spark',12);if(AC)noise(AC.currentTime,.25,.12,1500)},k*220)}
+function banner(text,color,dur,opt={}){slot.banner={text,color,dur,t0:performance.now(),...opt}}
+// ---- sound ----
+function slotSnd(k){if(!AC)return;const t=AC.currentTime;
+  if(k==='stop'){tone(t,52,.08,'square',.12,-6);noise(t,.05,.1,800)}
+  else if(k==='spin'){for(let i=0;i<8;i++)tone(t+i*.05,70+i,.04,'triangle',.05)}
+  else if(k==='scatter'){[60,64,67,72,76,79,84,88,91,96].forEach((n,i)=>{tone(t+i*.09,n,.6,'square',.14);tone(t+i*.09,n-12,.6,'triangle',.18)});noise(t+.9,1.2,.18,4000)}
+  else if(k==='alarm'){for(let i=0;i<6;i++){tone(t+i*.16,88,.08,'square',.14);tone(t+i*.16+.08,81,.08,'square',.14)}}
+  else if(k==='boom'){noise(t,1.2,.35,200);tone(t,40,.9,'sine',.6,-24)}
+  else if(k==='big'){[72,76,79,84,88,91,96].forEach((n,i)=>tone(t+i*.07,n,.35,'square',.14))}}
+// ---- game flow ----
+function startReels(g,fast,done){const now=performance.now(),base=fast?380:560,step=fast?120:200;slot.grid=g;slot.win=[];slot.scatterGlow=0;
+  slot.reels=g.map((col,i)=>{const n=14+i*4+(fast?0:4),strip=[...col];for(let j=0;j<n+4;j++)strip.push(slotSym());return{strip,n,t0:now,t1:now+base+i*step}});
+  slotSnd('spin');g.forEach((_,i)=>setTimeout(()=>{slotSnd('stop');if(g[i].includes(SCATTER)&&!fast)tone(AC?AC.currentTime:0,84+i*2,.2,'square',.12)},base+i*step));
+  if(!casinoRAF&&$('slotC'))casinoRAF=requestAnimationFrame(casinoLoop);
+  setTimeout(()=>{slot.reels=null;done()},base+4*step+80)}
+function slotInfo(){const i=$('slotInfo');if(i)i.innerHTML=slot.free>0?`<b style="color:#ff8af0">🌠 FREE GAME ${15-slot.free}/15</b> · 베팅 ${won(slot.freeBet)} · 누적 <b style="color:var(--gold)">${won(slot.freeWin)}</b><br>${slot.msg}`:slot.msg;
+  document.querySelectorAll('.slotctl').forEach(b=>b.disabled=slot.busy||slot.free>0);
+  const sp=$('slotSpin');if(sp){sp.disabled=slot.busy||slot.free>0||S.money<slot.bet;sp.title=S.money<slot.bet?'잔액이 부족해요':''}
+  const bt=$('slotBet');if(bt)bt.textContent=won(slot.bet)}
+function slotSetBet(v){slot.bet=Math.max(1000,Math.min(1e8,Math.round(v/1000)*1000));slotInfo()}
+function slotSpin(){if(slot.busy||slot.free>0||S.over||paused)return;const bet=slot.bet;if(bet<1000||bet>1e8||S.money<bet){slot.auto=0;return toast('잔액이 부족해요')}
+  S.money-=bet;slot.busy=true;slot.lastWin=0;slot.msg='돌아가는 중…';const trig=R()<.08,ev=R()<.12,g=slotGrid(trig);slotInfo();renderHUD();
+  startReels(g,false,()=>{const ws=slotLines(g),mult=ws.reduce((a,w)=>a+w.mult,0),win=Math.round(bet*mult);slot.win=ws;
+    if(win){S.money+=win;slot.lastWin=win;slot.msg=`🎉 ${ws.length}줄 당첨! +${won(win)} (${mult.toFixed(2)}배)`;
+      if(mult>=10){slotSnd('big');banner(mult>=100?'EPIC WIN':mult>=30?'MEGA WIN':'BIG WIN','#ffcf4f',2600,{rays:true,count:win});coinRain(120);slot.shake=8}else{sfx('rare');burst(SW_/2,RY+CH*1.5,40,['#ffcf4f','#fff6c0'],'coin',8)}}
+    else slot.msg='꽝… 다시 도전!';
+    slotInfo();renderHUD();
+    const afterEvent=()=>{if(trig)return runScatter(bet);slot.busy=false;save();slotInfo();renderHUD();checkEnd();if(slot.auto>0&&!S.over){slot.auto--;setTimeout(slotSpin,500)}};
+    if(ev)setTimeout(()=>runEvent(bet,afterEvent),win?900:250);else afterEvent()})}
+function runEvent(bet,next){const E=pick(EVENTS),m=eventMult(),win=Math.round(bet*m);slotSnd('alarm');slot.shake=10;
+  banner(E[0],E[1],2400,{rays:true,size:64,count:win});
+  if(E[2]==='bolt')for(let k=0;k<6;k++)setTimeout(()=>{const x=RX+R()*RW*5;let y=0,pts=[[x,0]];while(y<RY+CH*3){y+=30+R()*40;pts.push([x+(R()-.5)*80,y])}slot.bolts.push({t0:performance.now(),pts});burst(pts[pts.length-1][0],pts[pts.length-1][1],40,['#fffbe0','#ffe27a'])},k*260);
+  else if(E[2]==='rainbow')for(let k=0;k<5;k++)setTimeout(()=>burst(RX+R()*RW*5,RY+R()*CH*3,60,['#ff3a5a','#ffcf4f','#4fd27a','#5ab0ff','#ff8af0'],'confetti',9),k*250);
+  else coinRain(200);
+  setTimeout(()=>{S.money+=win;slot.lastWin+=win;slot.msg=`${E[0]} 보너스 +${won(win)} (${(m*100).toFixed(0)}%)`;sfx(m>=5?'legend':'rare');if(m>=20){pushNews(`🎰 카지노 기습 이벤트 ${(m*100).toFixed(0)}% 대박!`);fireworks(6)}save();slotInfo();renderHUD();setTimeout(next,600)},1800)}
+function runScatter(bet){slot.scatterGlow=1;slotSnd('scatter');slot.msg=`✨ SCATTER ${slot.grid.flat().filter(x=>x===SCATTER).length}개! 프리게임 15회!`;slotInfo();
+  setTimeout(()=>{banner('FREE GAMES','#ff3af0',3400,{rays:true,sub:'× 15 SPINS'});flash();slot.shake=16;fireworks(14);coinRain(260);
+    for(let k=0;k<4;k++)setTimeout(()=>burst(SW_/2,SH_/2,120,['#ff3af0','#fff3a0','#7affff','#ffcf4f'],'confetti',14),k*500);
+    setTimeout(()=>{slot.scatterGlow=0;slot.free=15;slot.freeBet=bet;slot.freeWin=0;slot.auto=0;slot.mode='free';slotInfo();save();slotFree()},3600)},1200)}
+function slotFree(){if(slot.free<=0)return;slot.free--;slot.msg='프리 스핀…';slotInfo();
+  startReels(slotGrid(false,false),true,()=>{const after=()=>{slotInfo();renderHUD();
+      if(slot.free>0)return setTimeout(slotFree,500);
+      const pct=slot.freeWin/slot.freeBet*100;slot.mode='base';slot.busy=false;slot.lastWin=slot.freeWin;slot.msg=`🌠 프리게임 종료! 총 +${won(slot.freeWin)} (${fmt(Math.round(pct))}%)`;
+      banner('TOTAL WIN','#7dffb0',3000,{rays:true,count:slot.freeWin});coinRain(150);sfx('win');slotInfo();save();checkEnd()};
+    if(R()<.2){const mult=meteorMult(),win=Math.round(slot.freeBet*mult),huge=mult>=100,big=mult>=10;
+      const col=Math.floor(R()*5),row=Math.floor(R()*3);slot.meteor={t0:performance.now(),tx:RX+col*RW+RW/2,ty:RY+row*CH+CH/2,size:huge?90:big?60:40};
+      slotSnd('boom');if(huge){sfx('legend');pushNews(`☄ 햄찌 카지노에서 ${fmt(Math.round(mult*100))}% 초거대 메테오 당첨! +${won(win)}`)}
+      setTimeout(()=>{S.money+=win;slot.freeWin+=win;flash();slot.msg=`${huge?'🌋 초거대 메테오!!':big?'🔥 대형 메테오!':'☄ 메테오 낙하!'} +${won(win)} (${fmt(Math.round(mult*100))}%)`;
+        banner(huge?'COSMIC METEOR':big?'MEGA METEOR':'METEOR!',huge?'#ff3af0':'#ff8a1a',huge?3000:1600,{rays:big,size:huge?80:70,count:win});if(big)fireworks(huge?12:5);save();slotInfo();renderHUD();
+        setTimeout(after,huge?3000:1500)},800)}
+    else{slot.msg='메테오가 오지 않았다…';after()}})}
+function coinFlip(pickOdd){const bet=slot.bet;if(slot.busy||slot.free>0||S.money<bet)return toast('잔액이 부족해요');
+  S.money-=bet;const n=1+Math.floor(R()*100),odd=n%2===1,win=odd===pickOdd;
+  if(win){S.money+=Math.round(bet*1.95);sfx('rare');burst(SW_/2,SH_/2,50,['#ffcf4f'],'coin',8)}else sfx('fail');
+  slot.msg=`🪙 나온 숫자 ${n} (${odd?'홀':'짝'}) · ${win?`승리! +${won(bet*.95)}`:'패배…'}`;save();slotInfo();renderHUD();checkEnd()}
+function renderCasino(m){
+  m.appendChild(el(`<div class="sign" style="margin-top:6px"><h1>🎰 햄찌 카지노</h1><small>슬롯 1,000원 ~ 1억원 · SCATTER 8% → 프리게임 15회 · 메테오 20% → 베팅의 200% ~ 1,000,000% · 기습 이벤트 12%</small></div>`));
+  const box=el(`<div class="binder" style="max-width:820px;margin:0 auto;text-align:center;padding:8px">
+    <canvas id="slotC" width="${SW_}" height="${SH_}" style="width:100%;aspect-ratio:${SW_}/${SH_};border-radius:18px;image-rendering:auto;box-shadow:0 0 40px #ffcf4f55"></canvas>
+    <div id="slotInfo" class="news" style="margin:10px 0;min-height:52px"></div>
+    <div class="row" style="justify-content:center;margin-bottom:8px">베팅 <b id="slotBet" style="color:var(--gold);font-size:18px;min-width:120px"></b></div>
+    <div class="row" id="betBtns" style="justify-content:center;margin-bottom:8px"></div>
+    <div class="row" style="justify-content:center"><button class="pbtn red" id="slotSpin" style="font-size:20px;padding:14px 36px">SPIN</button><button class="pbtn alt slotctl" id="slotAuto">자동 10회</button></div>
+    <h2>🪙 홀짝 (같은 베팅 금액, 맞히면 1.95배)</h2><div class="row" style="justify-content:center"><button class="pbtn slotctl" id="cfOdd">홀</button><button class="pbtn blue slotctl" id="cfEven">짝</button></div>
+    <p class="note">줄 당첨: 가운데·위·아래 줄과 V자 2줄, 왼쪽부터 같은 그림 3개 이상. SCATTER 3개 이상이면 프리게임 15회, 프리게임마다 20% 확률로 메테오(대부분 200~250%, 드물게 대형·초거대 최대 1,000,000%). 스핀마다 12% 확률로 기습 이벤트(대부분 30~400%, 드물게 최대 10,000%). 전체 환급률은 약 100%예요. 돈을 전부 잃으면 실패!</p></div>`);
+  m.appendChild(box);
+  const bb=$('betBtns');[[1e3,'1천'],[1e4,'1만'],[1e5,'10만'],[1e6,'100만'],[1e7,'1000만'],[1e8,'1억']].forEach(([v,t])=>{const b=document.createElement('button');b.className='pbtn alt slotctl';b.textContent=t;b.onclick=()=>slotSetBet(v);bb.appendChild(b)});
+  [['½',()=>slotSetBet(slot.bet/2)],['×2',()=>slotSetBet(slot.bet*2)],['MAX',()=>slotSetBet(Math.min(1e8,S.money-1))]].forEach(([t,f])=>{const b=document.createElement('button');b.className='pbtn slotctl';b.textContent=t;b.onclick=f;bb.appendChild(b)});
+  $('slotSpin').onclick=()=>{slot.auto=0;slotSpin()};$('slotAuto').onclick=()=>{slot.auto=9;slotSpin()};
+  $('cfOdd').onclick=()=>coinFlip(true);$('cfEven').onclick=()=>coinFlip(false);
+  slotInfo();if(!casinoRAF)casinoRAF=requestAnimationFrame(casinoLoop);
+}
 function drawSlotSym(c,x,y,k){const P=(dx,dy,w,h,col)=>px(c,x+dx,y+dy,w,h,col);
   switch(k){
     case 0:P(7,3,6,14,'#1a1424');P(8,4,4,12,'#6a6a7a');P(9,5,1,10,'#e8e8f0');P(11,5,1,10,'#e8e8f0');break;
@@ -841,64 +1097,6 @@ function drawSlotSym(c,x,y,k){const P=(dx,dy,w,h,col)=>px(c,x+dx,y+dy,w,h,col);
     case 6:P(4,3,12,3,'#ff3a3a');P(13,6,3,3,'#ff3a3a');P(11,9,3,3,'#e82a2a');P(9,12,3,5,'#c81a1a');P(4,3,12,1,'#ffaaaa');break;
     case 7:{const t=(performance.now()/120|0)%6;for(let a=0;a<8;a++){const r=a%2?4:8,ang=a*Math.PI/4+t*.1;P(10+Math.cos(ang)*r-1,10+Math.sin(ang)*r-1,3,3,hsl2hex((a/8+t/6)%1,.9,.65))}P(7,7,6,6,'#fff6c0');P(9,8,2,4,'#ff3a9a');break}
   }}
-function drawSlot(spinCols){const cv=$('slotC');if(!cv)return;const c=cv.getContext('2d');
-  px(c,0,0,124,82,'#2a0a12');px(c,2,2,120,78,'#ffcf4f');px(c,4,4,116,74,'#1a0610');
-  for(let col=0;col<5;col++)for(let row=0;row<3;row++){const x=6+col*23,y=6+row*24;px(c,x,y,21,22,'#0b0614');
-    const k=spinCols&&spinCols[col]?slotSym():slot.grid?slot.grid[col][row]:(col+row)%7;drawSlotSym(c,x+1,y+1,k)}
-  slot.win.forEach(w=>{const L=LINES[w.li];c.strokeStyle=['#ff3a5a','#4fd27a','#5ab0ff','#ffcf4f','#ff8af0'][w.li];c.lineWidth=2;c.beginPath();
-    for(let i=0;i<w.n;i++){const x=6+i*23+10.5,y=6+L[i]*24+11;i?c.lineTo(x,y):c.moveTo(x,y)}c.stroke()});
-  if(slot.meteor){const m=slot.meteor,t=Math.min(1,(performance.now()-m.t0)/900);
-    const sz=m.huge?3:m.mult>=10?2:1;if(t<.7){const f=t/.7,x=124-f*70,y=-10+f*50;for(let i=0;i<10*sz;i++)px(c,x+i*2,y-i*1.6,3*sz,3*sz,i<3*sz?'#fff6c0':i<6*sz?'#ffb02a':'#ff3a1a');px(c,x-3*sz,y-3*sz,7*sz,7*sz,'#fff6c0')}
-    else{const f=(t-.7)/.3;c.globalAlpha=1-f;for(let a=0;a<16*sz;a++){const r=6+f*40*sz;px(c,54+Math.cos(a*.4)*r,40+Math.sin(a*.4)*r,3,3,a%2?'#ffcf4f':'#ff5a1a')}c.globalAlpha=1;
-      c.fillStyle='#fff';c.font='bold 11px monospace';c.textAlign='center';c.fillText('+'+fmt(Math.round(m.mult*100))+'%',62,44)}}}
-let slotAnim=null;
-function slotAnimate(dur,onDone){const t0=performance.now();cancelAnimationFrame(slotAnim);
-  const f=now=>{const e=now-t0,cols=[0,1,2,3,4].map(i=>e<dur+i*170);drawSlot(cols);
-    if(cols.some(Boolean)){if(Math.floor(e/170)!==Math.floor((e-16)/170)&&AC)tone(AC.currentTime,84,.03,'square',.05);slotAnim=requestAnimationFrame(f)}else{drawSlot();onDone()}};slotAnim=requestAnimationFrame(f)}
-function slotInfo(){const i=$('slotInfo');if(!i)return;
-  i.innerHTML=slot.free>0?`<b style="color:#ff8af0">🌠 FREE GAME ${15-slot.free}/15</b> · 베팅 ${won(slot.freeBet)} · 누적 <b style="color:var(--gold)">${won(slot.freeWin)}</b><br>${slot.msg}`:slot.msg;
-  document.querySelectorAll('.slotctl').forEach(b=>b.disabled=slot.busy||slot.free>0);
-  const sp=$('slotSpin');if(sp){sp.disabled=slot.busy||slot.free>0||S.money<slot.bet;sp.title=S.money<slot.bet?'잔액이 부족해요':''}
-  const bt=$('slotBet');if(bt)bt.textContent=won(slot.bet)}
-function slotSetBet(v){slot.bet=Math.max(1000,Math.min(1e8,Math.round(v/1000)*1000));slotInfo()}
-function slotSpin(){if(slot.busy||slot.free>0||S.over||paused)return;const bet=slot.bet;if(bet<1000||bet>1e8||S.money<bet){slot.auto=0;return toast('잔액이 부족해요')}
-  S.money-=bet;slot.busy=true;slot.win=[];slot.msg='돌아가는 중…';const trig=R()<.08,g=slotGrid(trig);slot.grid=g;slotInfo();renderHUD();
-  slotAnimate(450,()=>{const ws=slotLines(g),mult=ws.reduce((a,w)=>a+w.mult,0),win=Math.round(bet*mult);slot.win=ws;drawSlot();
-    if(win){S.money+=win;sfx(mult>=5?'epic':'rare');slot.msg=`🎉 ${ws.length}줄 당첨! +${won(win)} (${mult.toFixed(1)}배)`}else slot.msg='꽝… 다시 도전!';
-    if(trig){sfx('legend');flash();slot.free=15;slot.freeBet=bet;slot.freeWin=0;slot.auto=0;slot.msg=`✨ SCATTER ${g.flat().filter(x=>x===SCATTER).length}개! 프리게임 15회 시작!`;slotInfo();save();setTimeout(slotFree,1600);return}
-    slot.busy=false;save();slotInfo();renderHUD();checkEnd();
-    if(slot.auto>0&&!S.over){slot.auto--;setTimeout(slotSpin,500)}})}
-function slotFree(){if(slot.free<=0)return;slot.free--;slot.win=[];slot.msg='프리 스핀…';slot.grid=slotGrid(false,false);slotInfo();
-  slotAnimate(350,()=>{const after=()=>{slotInfo();renderHUD();
-      if(slot.free>0)return setTimeout(slotFree,550);
-      slot.busy=false;slot.msg=`🌠 프리게임 종료! 총 +${won(slot.freeWin)} (${(slot.freeWin/slot.freeBet*100).toFixed(0)}%)`;
-      if(slot.freeWin)sfx('win');slotInfo();save();checkEnd()};
-    if(R()<.2){const mult=meteorMult(),win=Math.round(slot.freeBet*mult),huge=mult>=100;slot.meteor={t0:performance.now(),mult,huge};if(huge){sfx('legend');pushNews(`☄ 햄찌 카지노에서 ${fmt(Math.round(mult*100))}% 초거대 메테오 당첨! +${won(win)}`)}
-      if(AC){noise(AC.currentTime,.9,.25,300);tone(AC.currentTime+.6,40,.5,'sine',.5,-20)}
-      const anim=()=>{drawSlot();if(performance.now()-slot.meteor.t0<1000)requestAnimationFrame(anim);else{slot.meteor=null;drawSlot();after()}};requestAnimationFrame(anim);
-      S.money+=win;slot.freeWin+=win;slot.msg=`${huge?'🌋 초거대 메테오!!':mult>=10?'🔥 대형 메테오!':'☄ 메테오 낙하!'} +${won(win)} (${fmt(Math.round(mult*100))}%)`;flash();save();slotInfo()}
-    else{slot.msg='메테오가 오지 않았다…';after()}})}
-function coinFlip(pickOdd){const bet=slot.bet;if(slot.busy||slot.free>0||S.money<bet)return toast('잔액이 부족해요');
-  S.money-=bet;const n=1+Math.floor(R()*100),odd=n%2===1,win=odd===pickOdd;
-  if(win){S.money+=Math.round(bet*1.95);sfx('rare')}else sfx('fail');
-  slot.msg=`🪙 나온 숫자 ${n} (${odd?'홀':'짝'}) · ${win?`승리! +${won(bet*.95)}`:'패배…'}`;save();slotInfo();renderHUD();checkEnd()}
-function renderCasino(m){
-  m.appendChild(el(`<div class="sign" style="margin-top:6px"><h1>🎰 햄찌 카지노</h1><small>슬롯 1,000원 ~ 1억원 · SCATTER 8% → 프리게임 15회 · 메테오 20% → 베팅의 200% ~ 1,000,000%</small></div>`));
-  const box=el(`<div class="binder" style="max-width:640px;margin:0 auto;text-align:center">
-    <canvas id="slotC" width="124" height="82" style="width:100%;aspect-ratio:124/82;border:4px solid #000"></canvas>
-    <div id="slotInfo" class="news" style="margin:10px 0;min-height:52px"></div>
-    <div class="row" style="justify-content:center;margin-bottom:8px">베팅 <b id="slotBet" style="color:var(--gold);font-size:18px;min-width:120px"></b></div>
-    <div class="row" id="betBtns" style="justify-content:center;margin-bottom:8px"></div>
-    <div class="row" style="justify-content:center"><button class="pbtn red" id="slotSpin" style="font-size:18px;padding:12px 28px">SPIN</button><button class="pbtn alt slotctl" id="slotAuto">자동 10회</button></div>
-    <h2>🪙 홀짝 (같은 베팅 금액, 맞히면 1.95배)</h2><div class="row" style="justify-content:center"><button class="pbtn slotctl" id="cfOdd">홀</button><button class="pbtn blue slotctl" id="cfEven">짝</button></div>
-    <p class="note">줄 당첨: 가운데·위·아래 줄과 V자 2줄, 왼쪽부터 같은 그림 3개 이상. 7 다섯 개면 베팅의 96배! 프리게임 중에는 SCATTER가 나오지 않고 메테오만 떨어져요. 메테오는 대부분 200~350%이고, 드물게 대형(1,000%↑), 아주 드물게 초거대(10,000%~1,000,000%)가 떨어져요. 카지노도 돈을 전부 잃으면 실패예요.</p></div>`);
-  m.appendChild(box);
-  const bb=$('betBtns');[[1e3,'1천'],[1e4,'1만'],[1e5,'10만'],[1e6,'100만'],[1e7,'1000만'],[1e8,'1억']].forEach(([v,t])=>{const b=document.createElement('button');b.className='pbtn alt slotctl';b.textContent=t;b.onclick=()=>slotSetBet(v);bb.appendChild(b)});
-  [['½',()=>slotSetBet(slot.bet/2)],['×2',()=>slotSetBet(slot.bet*2)],['MAX',()=>slotSetBet(Math.min(1e8,S.money-1))]].forEach(([t,f])=>{const b=document.createElement('button');b.className='pbtn slotctl';b.textContent=t;b.onclick=f;bb.appendChild(b)});
-  $('slotSpin').onclick=()=>{slot.auto=0;slotSpin()};$('slotAuto').onclick=()=>{slot.auto=9;slotSpin()};
-  $('cfOdd').onclick=()=>coinFlip(true);$('cfEven').onclick=()=>coinFlip(false);
-  drawSlot();slotInfo();
-}
 function drawCasino(cv){const c=cv.getContext('2d');px(c,0,58,64,6,'#3a3448');px(c,4,14,56,44,'#0a0610');px(c,5,15,54,43,'#5a0a2a');
   for(let x=5;x<59;x+=3){px(c,x,15,2,1,x%6?'#ffcf4f':'#ff3a9a');px(c,x+1,57,2,1,x%6?'#ff3a9a':'#ffcf4f')}
   px(c,10,4,44,10,'#0a0610');px(c,11,5,42,8,'#ff3a9a');for(let i=0;i<6;i++)px(c,14+i*6,7,4,4,'#fff3a0');
@@ -907,11 +1105,11 @@ function drawCasino(cv){const c=cv.getContext('2d');px(c,0,58,64,6,'#3a3448');px
 // ================= STATE =================
 let S;
 const SAVE='hamcard-v2';
-function newState(){return freshAssetMarket({money:100000,day:1,elapsed:0,owned:{},tickets:freshTickets(),
-  stocks:STOCKS.map(s=>({price:s.p,hist:[s.p],qty:0,cost:0})),houses:HOUSES.map(()=>0),cars:CARS.map(()=>0),market:CARDS.map(()=>1),mprev:CARDS.map(()=>1),speed:1,mood:{name:'개장 첫날',icon:'🎉'},passers:newPassers(),news:['DAY 1 개장! 카드 거리가 문을 열었습니다.'],over:false})}
+function newState(){return freshAssetMarket({money:1000000,day:1,elapsed:0,owned:{},tickets:freshTickets(),
+  stocks:STOCKS.map(s=>({price:s.p,hist:[s.p],qty:0,cost:0})),houses:HOUSES.map(()=>0),cars:CARS.map(()=>0),market:CARDS.map(()=>1),mprev:CARDS.map(()=>1),speed:1,lev:[],levSet:{side:1,lev:10,margin:1e5},biz:null,mood:{name:'개장 첫날',icon:'🎉'},passers:newPassers(),news:['DAY 1 개장! 카드 거리가 문을 열었습니다.'],over:false})}
 // three layers: browser storage (every few seconds), cloud doc per signed-in player (on changes), and a copy-paste save code
 function validSave(s){if(!s||typeof s!=='object'||s.over||typeof s.money!=='number'||!Array.isArray(s.tickets)||s.tickets.length>SHOPS.length||!Array.isArray(s.stocks)||s.stocks.length>STOCKS.length)return null;
-  STOCKS.forEach((d,i)=>{if(!s.stocks[i])s.stocks[i]={price:d.p,hist:[d.p],qty:0,cost:0}});s.speed=[1,2,3,5].includes(s.speed)?s.speed:1;
+  STOCKS.forEach((d,i)=>{if(!s.stocks[i])s.stocks[i]={price:d.p,hist:[d.p],qty:0,cost:0}});s.speed=[1,2,3,5].includes(s.speed)?s.speed:1;s.lev=Array.isArray(s.lev)?s.lev:[];s.levSet=s.levSet||{side:1,lev:10,margin:1e5};s.biz=s.biz||null;
   s.houses=HOUSES.map((_,i)=>+(s.houses||[])[i]||0);s.cars=CARS.map((_,i)=>+(s.cars||[])[i]||0);s.owned=s.owned||{};s.news=s.news||[];s.elapsed=Math.max(0,+s.elapsed||0);s.day=+s.day||1;s.savedAt=+s.savedAt||0;
   const fresh=freshTickets();s.tickets=SHOPS.map((sh,i)=>sh.list.map((_,k)=>s.tickets[i]?(Array.isArray(s.tickets[i][k])?s.tickets[i][k]:[]):fresh[i][k]));
   if(!Array.isArray(s.market))s.market=[];s.market=CARDS.map((_,i)=>+s.market[i]||1);if(!Array.isArray(s.mprev))s.mprev=[];s.mprev=CARDS.map((_,i)=>+s.mprev[i]||s.market[i]);freshAssetMarket(s);s.mood=s.mood||{name:'평범한 시세',icon:'☁'};
@@ -968,14 +1166,14 @@ const cardVal=k=>{const[id,v]=k.split(':').map(Number);return cardPrice(CARDS[id
 const mktChg=id=>S.mprev&&S.mprev[id]?mkt(id)/S.mprev[id]-1:0;
 const chgTag=x=>Math.abs(x)<.005?'<span class="note">-</span>':`<span class="${x>0?'up':'down'}">${x>0?'▲':'▼'}${Math.abs(x*100).toFixed(0)}%</span>`;
 // card market: each day picks a mood (calm to extreme); every card's multiplier drifts back toward 1 plus shocks, element-wide swings and rare spikes/crashes
-const MOODS=[['잔잔한 시세','🌊',.03,.005],['평범한 시세','☁',.1,.03],['요동치는 시세','🌪',.28,.08],['극단적 시세 대폭발','🌋',.7,.2]];
+const MOODS=[['잔잔한 시세','🌊',.15,.02],['평범한 시세','☁',.4,.06],['요동치는 시세','🌪',.9,.15],['극단적 시세 대폭발','🌋',1.8,.35]];
 function marketDay(){
   S.mprev=S.market.slice();
   const r=R(),mi=r<.3?0:r<.62?1:r<.88?2:3,[name,icon,sig,evp]=MOODS[mi];
   const eb=ELEM.map(()=>gauss()*sig*.6);
   S.market=S.market.map((m,id)=>{let l=Math.log(m)*.85+gauss()*sig+eb[CARDS[id].elem];
     if(R()<evp){l+=R()<.5?Math.log(2+R()*3):Math.log(.15+R()*.35)}
-    l=Math.max(Math.log(.05),Math.min(Math.log(40),l));return Math.round(Math.exp(l)*1000)/1000});
+    l=Math.max(Math.log(.005),Math.min(Math.log(1000),l));return Math.round(Math.exp(l)*10000)/10000});
   const order=eb.map((b,i)=>i).sort((a,b)=>eb[b]-eb[a]);
   S.mood={name,icon,hot:order[0],cold:order[order.length-1]};
 }
@@ -1003,7 +1201,17 @@ function assetTick(scale=1){const alerts=[];
 function freshAssetMarket(st){Object.values(AK).forEach(k=>{const n=k.L.length;
   const fit=(a,f)=>Array.from({length:n},(_,i)=>Array.isArray(a)&&a[i]!=null?a[i]:f(i));
   st[k.m]=fit(st[k.m],()=>1);st[k.cost]=fit(st[k.cost],i=>(st[k.own][i]||0)*k.L[i].price);st[k.open]=fit(st[k.open],i=>st[k.m][i]);st[k.hist]=fit(st[k.hist],()=>[])});return st}
-const netWorth=()=>S.money+cardsValue()+stockValue()*.9+assetValue();
+// leveraged positions: value = margin + side*(price/entry-1)*lev*margin; at 0 the position is liquidated and the margin is gone
+const LEVS=[2,3,5,10,20,50,75,100,125];
+const posValue=p=>Math.max(0,p.margin+p.side*(S.stocks[p.i].price/p.entry-1)*p.lev*p.margin);
+const levValue=()=>(S.lev||[]).reduce((a,p)=>a+posValue(p),0);
+function levOpen(i){const st=S.levSet,m=Math.min(st.margin,S.money);if(m<1000||S.money<st.margin)return toast('증거금이 부족해요');
+  S.money-=st.margin;S.lev.push({i,side:st.side,lev:st.lev,margin:st.margin,entry:S.stocks[i].price,id:Math.random().toString(36).slice(2,8)});
+  sfx('coin');toast(`⚡ ${STOCKS[i].name} ${st.side>0?'롱':'숏'} x${st.lev} 진입 (증거금 ${won(st.margin)})`);save();render();checkEnd()}
+function levClose(id){const k=S.lev.findIndex(p=>p.id===id);if(k<0)return;const p=S.lev[k],v=posValue(p),fee=Math.round(v*.1);
+  S.lev.splice(k,1);S.money+=v-fee;sfx(v>p.margin?'rare':'sell');toast(`포지션 정리 +${won(v-fee)} (수수료 ${won(fee)}) · 손익 ${v-p.margin>=0?'+':''}${won(v-p.margin)}`);save();render();checkEnd()}
+function levCheck(){const alerts=[];S.lev=(S.lev||[]).filter(p=>{if(posValue(p)>0)return true;alerts.push(`💀 ${STOCKS[p.i].name} x${p.lev} ${p.side>0?'롱':'숏'} 강제 청산! (-${won(p.margin)})`);pushNews(`💀 햄붕이 13호의 ${STOCKS[p.i].name} x${p.lev} 포지션 청산`);return false});return alerts}
+const netWorth=()=>S.money+cardsValue()+stockValue()*.9+assetValue()+levValue()*.9+bizValue();
 
 // ================= AUDIO =================
 let AC,master,bgmOn=true,bgmTimer,step=0,nextT=0,track=0;
@@ -1166,7 +1374,7 @@ function renderHUD(){
 function go(sc,arg){screen=sc;if(sc==='shop')curShop=arg;if(sc==='battle'){curOpp=arg;bsel={}}setTrack(sc==='shop'?0:sc==='stocks'?2:1);render();window.scrollTo({top:0})}
 document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>go(b.dataset.go));
 function render(){renderHUD();renderSpeed();const m=$('screen');m.innerHTML='';sceneCanvas=null;
-  ({shop:renderShop,town:renderTown,estate:()=>renderAssets('estate'),motors:()=>renderAssets('motors'),stocks:renderStocks,collection:renderCollection,arena:renderArena,battle:renderBattle,casino:renderCasino})[screen](m)}
+  ({shop:renderShop,town:renderTown,estate:()=>renderAssets('estate'),motors:()=>renderAssets('motors'),stocks:renderStocks,collection:renderCollection,arena:renderArena,battle:renderBattle,casino:renderCasino,biz:renderBiz})[screen](m)}
 // button with money check: disabled + reason when short, warning when it spends every last won
 function actBtn(label,cost,fn,block,cls=''){const b=document.createElement('button');b.className='pbtn '+cls;b.textContent=label;b.onclick=fn;
   if(block){b.disabled=true;b.title=block}
@@ -1190,7 +1398,7 @@ function renderShop(m){
     const rateHtml=cnt.map((n,g)=>o.pool[g]?`<span style="background:${GRADES[g].dark};color:${GRADES[g].color}">${GRADES[g].k} ${n}/${o.pool[g]}</span>`:'').join('');
     const varHtml=o.vw.map((w,v)=>w/vsum>=.02?`<span style="color:${VARIANTS[v].color};border-color:${VARIANTS[v].color}">${VARIANTS[v].name} ${Math.round(w/vsum*100)}%</span>`:'').join('');
     const d=el(`<div class="ori k${k}"><div class="top"><canvas width="32" height="32"></canvas><div><div class="nm">${o.name}</div><div class="pr">${won(o.price)}</div><div style="font-size:10px;color:var(--sub)">1회 ${o.per}장</div></div></div>
-      <div class="ds">${o.ds}</div><div class="rates">${rateHtml}</div><div class="rates">${varHtml}</div>
+      <div class="ds">${o.ds}</div><div class="jackline">🏆 1등상 ${S.tickets[curShop][k].includes(JACK)?'':'<s>'}${CARDS[o.jack.id].name} · ${VARIANTS[o.jack.v].name}${S.tickets[curShop][k].includes(JACK)?'':'</s> (당첨됨)'}<br><b>${won(cardPrice(CARDS[o.jack.id],o.jack.v))}</b> <span class="note">(뽑기 금액의 ${(cardPrice(CARDS[o.jack.id],o.jack.v)/o.price).toFixed(1)}배)</span></div><div class="rates">${rateHtml}</div><div class="rates">${varHtml}</div>
       <div class="stk"><span>남은 수량</span><span><b style="color:#fff">${left}</b> / ${o.total}</span></div>
       <div class="bar"><i style="width:${left/o.total*100}%"></i></div><div class="buys"></div>${left?'':'<div class="soldout">SOLD OUT<small>내일 아침 재입고</small></div>'}</div>`);
     drawBox(d.querySelector('canvas'),s,k,!left);
@@ -1200,7 +1408,7 @@ function renderShop(m){
     opts.forEach(n=>bx.appendChild(actBtn(n===left&&n>1&&![1,5,10].includes(n)?`남은 ${n}회`:n+'회',o.price*n,()=>buy(curShop,k,n),!left?'품절이에요. 내일 아침에 재입고돼요':null)));
     grid.appendChild(d)});
   m.appendChild(grid);
-  m.appendChild(el(`<p class="note">등급 칸은 남은 수량/총 수량이에요. 판 종류(노멀·리버스홀로·골드·프리즘·블랙다이아·그레이딩10·세계 단 1장)는 뽑을 때마다 확률로 정해지고, 카드 가치가 각각 ×1·×2·×5·×15·×60·×300·×1500이 됩니다. 카드 값은 매일 시세에 따라 바뀌어요. 마지막 1개를 뽑으면 라스트원상 보너스!</p>`));
+  m.appendChild(el(`<p class="note">모든 오리파에는 뽑기 금액의 10배 이상 가치의 1등상이 1장 들어 있어요. 등급 칸은 남은 수량/총 수량이에요. 판 종류(노멀·리버스홀로·골드·프리즘·블랙다이아·그레이딩10·세계 단 1장)는 뽑을 때마다 확률로 정해지고, 카드 가치가 각각 ×1·×2·×5·×15·×60·×300·×1500이 됩니다. 카드 값은 매일 시세에 따라 바뀌어요. 마지막 1개를 뽑으면 라스트원상 보너스!</p>`));
 }
 function drawBox(cv,s,k,sold){
   const c=cv.getContext('2d');c.clearRect(0,0,32,32);const b=s.wall[0],l=s.wall[2],d=s.wall[1];
@@ -1229,7 +1437,7 @@ function renderTown(m){
   m.appendChild(g);
   m.appendChild(el('<h2>▶ 자산 거리</h2>'));
   const a=el('<div class="shops"></div>');
-  [['arena','⚔ 길거리 배틀','지나가는 트레이너와 카드를 걸고 대결 (5장 이상)',c=>{const t=document.createElement('canvas');t.width=24;t.height=32;drawPerson(t,(S.passers[0]||{}).seed||7);const x=c.getContext('2d');px(x,0,58,64,6,'#3a3448');x.imageSmoothingEnabled=false;x.drawImage(t,8,10,36,48);drawHam2(x)}],['casino','🎰 햄찌 카지노','슬롯 · 프리게임 · 메테오 · 홀짝',drawCasino],['estate','🏠 햄스터 부동산',`집 ${HOUSES.length}종 · 시세 변동`,drawRealtor],['motors','🚗 햄붕 모터스',`차 ${CARS.length}종 · 시세 변동`,drawDealer],['stocks','📈 수원 증권 거래소',`${STOCKS.length}개 종목 · 매도 수수료 10%`,drawExchange]].forEach(([k,n,d,f])=>{
+  [['arena','⚔ 길거리 배틀','지나가는 트레이너와 카드를 걸고 대결 (5장 이상)',c=>{const t=document.createElement('canvas');t.width=24;t.height=32;drawPerson(t,(S.passers[0]||{}).seed||7);const x=c.getContext('2d');px(x,0,58,64,6,'#3a3448');x.imageSmoothingEnabled=false;x.drawImage(t,8,10,36,48);drawHam2(x)}],['biz','🏪 내 가게','내 카드로 오리파 장사 · 진열 판매',drawRealtor],['casino','🎰 햄찌 카지노','슬롯 · 프리게임 · 메테오 · 기습 이벤트',drawCasino],['estate','🏠 햄스터 부동산',`집 ${HOUSES.length}종 · 시세 변동`,drawRealtor],['motors','🚗 햄붕 모터스',`차 ${CARS.length}종 · 시세 변동`,drawDealer],['stocks','📈 수원 증권 거래소',`${STOCKS.length}개 종목 · 매도 수수료 10%`,drawExchange]].forEach(([k,n,d,f])=>{
     const b=el(`<button class="fac"><canvas width="64" height="64"></canvas><div class="fn">${n}</div><div class="fp">${d}</div></button>`);f(b.querySelector('canvas'));b.onclick=()=>go(k);a.appendChild(b)});
   m.appendChild(a);
 }
@@ -1246,7 +1454,7 @@ function assetSprite(kind,i){const key=kind+i;if(!assetSprites[key]){const est=k
 let assetSort='price';
 function renderAssets(kind){
   const m=$('screen'),est=kind==='estate',k=AK[kind],L=k.L,own=S[k.own],rg=AREG[(S.areg&&S.areg[kind])??2];
-  m.appendChild(el(`<div class="sign" style="margin-top:6px"><h1>${est?'🏠 햄스터 부동산':'🚗 햄붕 모터스'}</h1><small>${L.length}개 매물 · 시세는 4초마다 요동쳐요 · 지금 시장: ${rg[1]} ${rg[0]} · 되팔 때는 현재 시세의 90%</small></div>`));
+  m.appendChild(el(`<div class="sign" style="margin-top:6px"><h1>${est?'🏠 햄스터 부동산':'🚗 햄붕 모터스'}</h1><small>${L.length}개 매물 · 시세는 2초마다(배속 시 더 빠르게) 요동쳐요 · 지금 시장: ${rg[1]} ${rg[0]} · 되팔 때는 현재 시세의 90%</small></div>`));
   m.appendChild(el(`<p class="note">⚠ 구매 후 남은 현금이 0원이 되면 실패예요. 꼭 여윳돈을 남겨두세요. 등락률은 오늘 아침 시세 대비예요.</p>`));
   const tools=el('<div class="row" style="margin-bottom:10px;font-size:12px"><span>정렬:</span></div>');
   [['price','가격순'],['chg','오늘 급등순'],['own','보유 우선']].forEach(([key,t])=>{const b=document.createElement('button');b.className='pbtn '+(assetSort===key?'':'alt');b.textContent=t;b.onclick=()=>{assetSort=key;render()};tools.appendChild(b)});
@@ -1274,8 +1482,23 @@ function sellAsset(kind,i){const k=AK[kind],n=S[k.own][i];if(!n)return;const v=M
   S[k.cost][i]-=S[k.cost][i]/n;S[k.own][i]--;S.money+=v;sfx('sell');toast(`${k.L[i].name} 매각 +${won(v)}`);save();render()}
 
 function renderStocks(m){
-  m.appendChild(el(`<div class="sign" style="margin-top:6px"><h1>📈 수원 증권 거래소</h1><small>주가는 4초마다 움직입니다 · 폭등·폭락·상장폐지 주의 · 매도 시 매도 금액의 10% 수수료</small></div>`));
+  m.appendChild(el(`<div class="sign" style="margin-top:6px"><h1>📈 수원 증권 거래소</h1><small>주가는 2초마다(배속 시 더 빠르게) 움직입니다 · 폭등·폭락·상장폐지 주의 · 매도 시 매도 금액의 10% 수수료</small></div>`));
   m.appendChild(el(`<div class="news"><b style="color:var(--gold)">📰 실시간 속보 · DAY ${S.day}</b><br>${S.news.join('<br>')}</div>`));
+  // leverage panel
+  const ls=S.levSet,lp=el(`<div class="news" style="border-color:#ff8a2a"><b style="color:#ff8a2a">⚡ 레버리지 (2~125배)</b> <span class="note">증거금만 내고 주가 변동의 N배로 벌고 잃어요. 손실이 증거금에 닿으면 강제 청산! 정리할 때 받는 금액의 10%는 수수료.</span>
+    <div class="row" style="margin-top:6px" id="levRow1"><span>방향</span></div><div class="row" style="margin-top:6px" id="levRow2"><span>배율</span></div><div class="row" style="margin-top:6px" id="levRow3"><span>증거금</span></div><div id="levPos" style="margin-top:8px"></div></div>`);
+  m.appendChild(lp);
+  const opt=(row,label,on,f,cls='')=>{const b=document.createElement('button');b.className='pbtn '+(on?cls:'alt');b.textContent=label;b.onclick=()=>{f();saveLocal();render()};lp.querySelector(row).appendChild(b)};
+  opt('#levRow1','📈 롱(상승)',ls.side>0,()=>ls.side=1,'red');opt('#levRow1','📉 숏(하락)',ls.side<0,()=>ls.side=-1,'blue');
+  LEVS.forEach(n=>opt('#levRow2','x'+n,ls.lev===n,()=>ls.lev=n));
+  [1e5,1e6,1e7,1e8,1e9].forEach(n=>opt('#levRow3',won(n),ls.margin===n,()=>ls.margin=n));
+  opt('#levRow3','잔액 10%',false,()=>ls.margin=Math.max(1000,Math.floor(S.money*.1/1000)*1000));
+  lp.querySelector('#levRow3').appendChild(el(`<span class="note">현재 ${won(ls.margin)}</span>`));
+  const pos=lp.querySelector('#levPos');
+  if(!S.lev.length)pos.appendChild(el('<span class="note">열린 포지션이 없어요. 아래 종목의 ⚡ 버튼으로 진입하세요.</span>'));
+  S.lev.forEach(p=>{const v=posValue(p),pl=v-p.margin,liq=p.entry*(1-p.side/p.lev);
+    const r=el(`<div class="row" style="justify-content:space-between;border-top:1px dashed var(--line);padding:4px 0;font-size:12px"><span>${STOCKS[p.i].name} <b class="${p.side>0?'up':'down'}">${p.side>0?'롱':'숏'} x${p.lev}</b> · 진입 ${fmt(p.entry)} → 현재 ${fmt(S.stocks[p.i].price)} · 청산가 ${fmt(Math.max(0,liq))}<br>증거금 ${won(p.margin)} · 평가 ${won(v)} <b class="${pl>=0?'up':'down'}">${pl>=0?'+':''}${won(pl)} (${(pl/p.margin*100).toFixed(0)}%)</b></span></div>`);
+    const b=document.createElement('button');b.className='pbtn';b.textContent='정리';b.onclick=()=>levClose(p.id);r.appendChild(b);pos.appendChild(r)});
   const q=el(`<div class="row" style="margin-bottom:10px;font-size:12px"><span>주문 수량:</span></div>`);
   [1,10,100,1000].forEach(n=>{const b=document.createElement('button');b.className='pbtn '+(stockQty===n?'':'alt');b.textContent=n+'주';b.onclick=()=>{stockQty=n;render()};q.appendChild(b)});
   m.appendChild(q);
@@ -1294,6 +1517,7 @@ function renderStocks(m){
     const mq=Math.floor((S.money-1)/s.price);
     bt.appendChild(actBtn(mq>0?`최대 매수 (${fmt(mq)}주)`:'최대 매수',s.price,()=>buyStock(i,mq),mq>0?null:`1주(${won(s.price)})를 사고 1원 이상 남길 돈이 부족해요`));
     if(s.qty){const sq=Math.min(stockQty,s.qty);mk(`매도 ${fmt(sq)}주`,'blue',()=>sellStock(i,sq),false);if(s.qty>sq)mk('전량 매도','blue',()=>sellStock(i,s.qty),false)}
+    bt.appendChild(actBtn(`⚡ ${S.levSet.side>0?'롱':'숏'} x${S.levSet.lev}`,S.levSet.margin,()=>levOpen(i)));
     list.appendChild(r)});
   m.appendChild(list);
   m.appendChild(el(`<p class="note">상승은 빨강, 하락은 파랑. '최대 매수'는 1원을 남기고 삽니다. 매도 금액의 10%는 수수료로 빠져요. 주가가 원래 가격의 2% 아래로 떨어지면 상장폐지되어 보유 주식이 사라져요!</p>`));
@@ -1356,11 +1580,12 @@ function buy(si,k,n){if(S.over)return;
   const o=SHOPS[si].list[k],T=S.tickets[si][k];if(T.length<n||S.money<o.price*n)return;
   S.money-=o.price*n;sfx('coin');
   const got=[];
-  for(let i=0;i<n;i++){const g=T.pop(),v=pickVariant(o.vw);got.push({c:pick(byGrade[g]),v});
+  for(let i=0;i<n;i++){const g0=T.pop(),g=g0===JACK?4:g0;if(g0===JACK){got.push({c:CARDS[o.jack.id],v:o.jack.v,jack:true});pushNews(`🏆 ${o.name} 1등상 당첨자 등장!`)}else got.push({c:pick(byGrade[g]),v:pickVariant(o.vw)});
     for(let j=1;j<o.per;j++)got.push({c:pick(byGrade[SHOPS[si].lv>=10?Math.max(2,g-1):(R()<.15?1:0)]),v:pickVariant(o.vw)})}
   let last=null;
-  if(!T.length){last={c:pick(byGrade[Math.min(4,3+(k>=2?1:0))]),v:Math.min(SHOPS[si].lv<10?4:VMAX,pickVariant(o.vw)+1)};got.push(last)}
+  if(!T.length){last={c:pick(byGrade[Math.min(4,3+(k>=2?1:0))]),v:Math.min(o.vmax,pickVariant(o.vw)+1)};got.push(last)}
   got.forEach(({c,v})=>{const key=c.id+':'+v;S.owned[key]=(S.owned[key]||0)+1});
+  if(got.some(x=>x.jack)){sfx('legend');flash()}
   save();render();showPull(o,got,last);
 }
 let pending=[];
@@ -1388,7 +1613,7 @@ $('openAll').onclick=()=>pending.forEach(([f])=>f.classList.add('open'));
 $('pullOk').onclick=()=>{$('pullM').classList.remove('on');checkEnd()};
 
 function closeModals(){if($('pullM').classList.contains('on')){$('pullM').classList.remove('on');checkEnd();return}
-  if($('endM').classList.contains('on')&&!S.over){if(!started&&$('svClose'))return $('svClose').click();$('endM').classList.remove('on')}}
+  if($('endM').classList.contains('on')&&!S.over){if($('endM').dataset.kind==='pick'){bizPick=null;$('endM').classList.remove('on');return render()}if(!started&&$('svClose'))return $('svClose').click();$('endM').classList.remove('on')}}
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModals()});
 ['pullM','endM'].forEach(id=>$(id).addEventListener('click',e=>{if(e.target.id===id)closeModals()}));
 // ================= DAY CYCLE =================
@@ -1402,27 +1627,31 @@ function loop(ts){
     renderHUD()}
   lastT=ts;requestAnimationFrame(loop)}
 // market engine: every few seconds each stock drifts with a hidden trend, plus random jumps, mega surges/crashes and delisting
-const TICK_SEC=4;let tickAcc=0,lastInput=0,lastAuto=0;
+const TICK_SEC=2;let tickAcc=0,lastInput=0,lastAuto=0;
 addEventListener('pointerdown',()=>{lastInput=Date.now();if(AC&&AC.state==='suspended')AC.resume()},true);
 function pushNews(t){S.news.unshift(t);if(S.news.length>8)S.news.length=8}
+// card prices also move on every tick: a random walk plus frequent x2-10 spikes and x0.05-0.3 crashes
+function cardTick(scale){S.market=S.market.map(m=>{let l=Math.log(m)+gauss()*.07*Math.sqrt(scale);
+  if(R()<.004*scale)l+=R()<.5?Math.log(2+R()*8):Math.log(.05+R()*.25);
+  return Math.round(Math.exp(Math.max(Math.log(.005),Math.min(Math.log(1000),l)))*10000)/10000})}
 function stockTick(scale=1){
-  const alerts=[];let shock=0;
+  const alerts=[];let shock=0;cardTick(scale);
   if(R()<.01*scale){const up=R()<.45;shock=up?Math.log(1.3+R()*.5):Math.log(.4+R()*.3);pushNews(up?'🚀🚀 증시 전체 대폭등! 전 종목 불기둥':'🧊🧊 블랙 먼데이! 전 종목 서킷브레이커');alerts.push(up?'🚀 증시 전체 대폭등!':'🧊 증시 전체 대폭락!')}
   S.stocks.forEach((s,i)=>{const d=STOCKS[i],old=s.price,v=d.vol;
     if(s.tr===undefined||R()<.06*scale)s.tr=(R()-.48)*v*.35;
-    let ch=d.mu/10+s.tr+v*.42*gauss()*Math.sqrt(scale)+shock,tag=null;
-    if(R()<.06*scale){const up=R()<.5,mag=.15+R()*.45;ch+=up?Math.log(1+mag):Math.log(1-mag*.75);tag=[up,pick(up?NEWS_UP:NEWS_DN)]}
-    if(R()<.012*scale){const up=R()<.5;ch+=up?Math.log(2+R()*3):Math.log(.12+R()*.3);s.tr=up?v*.25:-v*.25;tag=[up,pick(up?NEWS_MEGA_UP:NEWS_MEGA_DN),1]}
+    let ch=d.mu/10+s.tr+v*.6*gauss()*Math.sqrt(scale)+shock,tag=null;
+    if(R()<.08*scale){const up=R()<.5,mag=.2+R()*.6;ch+=up?Math.log(1+mag):Math.log(1-mag*.75);tag=[up,pick(up?NEWS_UP:NEWS_DN)]}
+    if(R()<.02*scale){const up=R()<.5;ch+=up?Math.log(3+R()*5):Math.log(.04+R()*.21);s.tr=up?v*.25:-v*.25;tag=[up,pick(up?NEWS_MEGA_UP:NEWS_MEGA_DN),1]}
     s.price=Math.max(1,Math.round(old*Math.exp(ch)));
     if(s.price<d.p*.02){const lost=s.qty;pushNews(`☠ ${d.name} 상장폐지! 보유 주식이 휴지조각이 됐다${lost?` (${fmt(lost)}주 소멸)`:''}. 새 법인으로 재상장`);
-      if(lost)alerts.push(`☠ ${d.name} 상장폐지… ${fmt(lost)}주 소멸`);s.qty=0;s.cost=0;s.price=d.p;s.tr=0;s.hist=[];s.open=d.p}
+      if(lost)alerts.push(`☠ ${d.name} 상장폐지… ${fmt(lost)}주 소멸`);s.qty=0;s.cost=0;s.price=d.p;s.tr=0;s.hist=[];s.open=d.p;S.lev=(S.lev||[]).filter(p=>{if(p.i!==i)return true;alerts.push(`☠ ${d.name} 상장폐지로 x${p.lev} 포지션 소멸`);return false})}
     else if(tag){const pct=((s.price-old)/old*100).toFixed(0);pushNews(`${tag[0]?'🔺':'🔻'}${tag[2]?'🔥':''} ${d.name} ${pct>0?'+':''}${pct}%: ${tag[1]}`);
       if(s.qty&&(tag[2]||Math.abs(pct)>=25))alerts.push(`${tag[0]?'🚀':'💥'} 보유 중인 ${d.name} ${pct>0?'+':''}${pct}%!`)}
     s.hist.push(s.price);if(s.hist.length>160)s.hist.shift();
     if(!s.open)s.open=s.hist[0]||s.price});
-  alerts.push(...assetTick(scale));
+  alerts.push(...levCheck(),...assetTick(scale));bizTick(scale);
   if(alerts.length){toast(alerts.slice(0,3).join(' · '));sfx(/🚀|🔥/.test(alerts[0])?'rare':'fail')}
-  if(['stocks','estate','motors'].includes(screen)&&!document.querySelector('.modal.on')&&Date.now()-lastInput>1500&&Date.now()-lastAuto>2500){lastAuto=Date.now();render()}else renderHUD();
+  if(['stocks','estate','motors'].includes(screen)&&!document.querySelector('.modal.on')&&Date.now()-lastInput>1500&&Date.now()-lastAuto>Math.max(700,2500/(S.speed||1))){lastAuto=Date.now();render()}else renderHUD();
 }
 function newDay(){
   S.day++;S.tickets=freshTickets();S.news=[];
