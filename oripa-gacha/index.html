@@ -2,9 +2,10 @@
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Jua&display=swap">
 <style>
-/* Layout: phone app shell — sticky point bar, pack feed, bottom tabs; pulls play full-screen */
+/* Layout: phone app shell — sticky point bar, live win feed, pack feed, 3 bottom tabs; pulls play full-screen */
 :root{
-  --bg:#f3eefe; --card:#ffffff; --ink:#2b2140; --muted:#8a7fa6; --pri:#ff4f8b; --pri-d:#c92c63; --mint:#3fd0b0; --sky:#5b8cff; --gold:#ffbf2e;
+  --bg:#f3eefe; --card:#ffffff; --ink:#2b2140; --muted:#8a7fa6; --line:rgba(138,127,166,.2);
+  --pri:#ff4f8b; --pri-d:#c92c63; --mint:#3fd0b0; --sky:#5b8cff; --gold:#ffbf2e;
   --f-d:"Black Han Sans","Apple SD Gothic Neo",sans-serif; --f-u:"Jua","Apple SD Gothic Neo",sans-serif;
   color-scheme:light;
 }
@@ -17,125 +18,175 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-u);-webk
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
 .wrap{max-width:480px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0 96px}
 .top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);display:flex;align-items:center;justify-content:space-between;padding-block:12px 10px}
-.logo{font-family:var(--f-d);font-size:26px;color:var(--pri);letter-spacing:.01em;text-shadow:0 3px 0 rgba(201,44,99,.25)}
+.logo{font-family:var(--f-d);font-size:26px;color:var(--pri);text-shadow:0 3px 0 rgba(201,44,99,.25)}
 .logo span{color:var(--sky)}
 .pt{display:flex;align-items:center;gap:6px;background:var(--card);border-radius:999px;padding:6px 6px 6px 12px;box-shadow:0 4px 0 rgba(43,33,64,.08)}
 .pt b{font-family:var(--f-d);font-weight:400;font-size:17px;font-variant-numeric:tabular-nums}
-.pt .coin{width:20px;height:20px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff3b0,var(--gold) 55%,#d48a00);box-shadow:inset 0 -2px 0 rgba(0,0,0,.15)}
+.coin{width:20px;height:20px;border-radius:50%;flex:none;background:radial-gradient(circle at 35% 30%,#fff3b0,var(--gold) 55%,#d48a00);box-shadow:inset 0 -2px 0 rgba(0,0,0,.15)}
 .pt button{border:0;background:var(--pri);color:#fff;font:inherit;border-radius:999px;padding:5px 10px;cursor:pointer}
-.banner{border-radius:22px;padding:18px;color:#fff;background:linear-gradient(120deg,#ff4f8b,#a35bff 55%,#5b8cff);box-shadow:0 8px 0 rgba(120,50,200,.25);position:relative;overflow:hidden;margin-bottom:16px}
-.banner h2{font-family:var(--f-d);font-weight:400;font-size:24px;margin:0 0 4px;text-wrap:balance}
-.banner p{margin:0;font-size:14px;opacity:.9}
-.banner::after{content:"SSS";position:absolute;right:-6px;bottom:-22px;font-family:var(--f-d);font-size:92px;opacity:.16}
+.feed{display:flex;align-items:center;gap:8px;background:var(--card);border-radius:14px;padding:8px 12px;margin-bottom:12px;overflow:hidden;font-size:13px;box-shadow:0 3px 0 rgba(43,33,64,.06)}
+.feed .live{flex:none;background:var(--pri);color:#fff;border-radius:6px;padding:1px 6px;font-size:11px}
+.feed .msg{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;animation:fin .4s}
+@keyframes fin{from{transform:translateY(100%);opacity:0}}
+.feed .msg b{color:var(--pri);font-weight:400}
+.banner{border-radius:22px;padding:18px;color:#fff;background:linear-gradient(120deg,#ff4f8b,#a35bff 55%,#5b8cff);box-shadow:0 8px 0 rgba(120,50,200,.25);position:relative;overflow:hidden;margin-bottom:16px;min-height:110px}
+.banner h2{font-family:var(--f-d);font-weight:400;font-size:23px;margin:0 0 4px;text-wrap:balance;max-width:62%}
+.banner p{margin:0;font-size:13px;opacity:.9;max-width:62%}
+.banner .bm{position:absolute;right:6px;bottom:-6px;width:120px;filter:drop-shadow(0 6px 0 rgba(0,0,0,.2))}
 .chips{display:flex;gap:8px;overflow-x:auto;padding-bottom:10px;margin-bottom:4px}
 .chip{flex:none;border:0;font:inherit;padding:7px 14px;border-radius:999px;background:var(--card);color:var(--muted);cursor:pointer;box-shadow:0 3px 0 rgba(43,33,64,.07)}
 .chip.on{background:var(--ink);color:var(--bg)}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-.pack{background:var(--card);border-radius:22px;overflow:hidden;cursor:pointer;box-shadow:0 6px 0 rgba(43,33,64,.08);transition:transform .12s;border:0;padding:0;font:inherit;color:inherit;text-align:left}
+.pack{background:var(--card);border-radius:22px;overflow:hidden;cursor:pointer;box-shadow:0 6px 0 rgba(43,33,64,.08);transition:transform .12s;border:0;padding:0;font:inherit;color:inherit;text-align:left;position:relative}
 .pack:active{transform:scale(.97)}
-.pack .art{aspect-ratio:1/1.05;max-width:100%;position:relative;display:flex;align-items:center;justify-content:center;font-size:56px}
-.pack .art .tag{position:absolute;left:10px;top:10px;background:#fff;color:var(--pri);font-size:11px;padding:3px 8px;border-radius:999px}
-.pack .art .hot{position:absolute;right:10px;top:10px;background:var(--ink);color:#fff;font-size:11px;padding:3px 8px;border-radius:999px}
+.pack .art{aspect-ratio:1/1.05;max-width:100%;position:relative;display:flex;align-items:center;justify-content:center}
+.pack .art svg{width:70%}
+.pack .tag{position:absolute;left:10px;top:10px;background:#fff;color:var(--pri);font-size:11px;padding:3px 8px;border-radius:999px}
+.pack .hot{position:absolute;right:10px;top:10px;background:var(--ink);color:#fff;font-size:11px;padding:3px 8px;border-radius:999px}
 .pack .info{padding:10px 12px 12px}
 .pack h3{margin:0;font-size:15px;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.pack .price{font-family:var(--f-d);font-size:17px;color:var(--pri);margin-top:2px}
-.bar{height:8px;background:rgba(138,127,166,.2);border-radius:99px;margin-top:8px;overflow:hidden}
+.price{font-family:var(--f-d);font-size:17px;color:var(--pri);margin-top:2px}
+.price small{font-family:var(--f-u);font-size:12px;color:var(--muted)}
+.bar{height:8px;background:var(--line);border-radius:99px;margin-top:8px;overflow:hidden}
 .bar i{display:block;height:100%;background:linear-gradient(90deg,var(--mint),var(--sky));border-radius:99px}
 .left{font-size:11px;color:var(--muted);margin-top:4px;font-variant-numeric:tabular-nums}
+.sold{position:absolute;inset:0;background:rgba(20,12,40,.6);display:flex;align-items:center;justify-content:center;color:#fff;font-family:var(--f-d);font-size:28px;transform:rotate(-8deg)}
 .tabs{position:fixed;left:0;right:0;bottom:0;z-index:6;background:var(--card);display:flex;justify-content:center;box-shadow:0 -4px 20px rgba(43,33,64,.1);
   padding-bottom:env(safe-area-inset-bottom,0px);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
-.tabs button{flex:1;max-width:160px;border:0;background:none;font:inherit;color:var(--muted);padding:12px 0 14px;cursor:pointer;font-size:14px}
+.tabs button{flex:1;max-width:140px;border:0;background:none;font:inherit;color:var(--muted);padding:10px 0 12px;cursor:pointer;font-size:13px}
 .tabs button.on{color:var(--pri)}
 .tabs button span{display:block;font-size:20px}
 button:focus-visible{outline:3px solid var(--sky);outline-offset:2px}
 
-/* detail sheet */
+/* sheets */
 .sheet{position:fixed;inset:0;z-index:20;background:rgba(20,12,40,.55);display:flex;align-items:flex-end;justify-content:center;animation:fd .2s}
 @keyframes fd{from{opacity:0}}
-.sheet .in{background:var(--bg);width:100%;max-width:480px;border-radius:26px 26px 0 0;max-height:88%;overflow-y:auto;animation:up .3s cubic-bezier(.2,1.2,.4,1);
+.sheet .in{background:var(--bg);width:100%;max-width:480px;border-radius:26px 26px 0 0;max-height:90%;overflow-y:auto;animation:up .3s cubic-bezier(.2,1.2,.4,1);
   padding-block:18px calc(18px + env(safe-area-inset-bottom,0px));padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
 @keyframes up{from{transform:translateY(100%)}}
-.sheet h2{font-family:var(--f-d);font-weight:400;margin:0;font-size:24px}
-.odds{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:14px 0}
-.odds div{background:var(--card);border-radius:14px;padding:8px;text-align:center}
-.odds b{display:block;font-family:var(--f-d);font-weight:400;font-size:20px}
-.odds small{color:var(--muted);font-size:12px}
+.sheet h2{font-family:var(--f-d);font-weight:400;margin:0;font-size:22px}
+.sec{font-family:var(--f-d);font-size:18px;margin:16px 0 10px}
+.show{display:flex;gap:12px;overflow-x:auto;padding:4px 2px 10px}
+.show .tc{flex:none;width:120px;font-size:13px}
+.odds{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.odds div{background:var(--card);border-radius:12px;padding:8px 4px;text-align:center}
+.odds b{display:block;font-family:var(--f-d);font-weight:400;font-size:18px}
+.odds small{color:var(--muted);font-size:11px}
 .prizes{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
-.buy{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px}
-.btn{border:0;font:inherit;font-size:17px;color:#fff;border-radius:18px;padding:14px 8px;cursor:pointer;background:var(--sky);box-shadow:0 5px 0 #3a63c9;transition:transform .08s}
+.prizes .tc{font-size:8px}
+.buy{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px;position:sticky;bottom:0;background:var(--bg);padding-top:8px}
+.btn{border:0;font:inherit;font-size:16px;color:#fff;border-radius:16px;padding:13px 8px;cursor:pointer;background:var(--sky);box-shadow:0 5px 0 #3a63c9;transition:transform .08s}
 .btn.p{background:var(--pri);box-shadow:0 5px 0 var(--pri-d)}
+.btn.g{background:var(--mint);box-shadow:0 5px 0 #23977f}
+.btn.k{background:var(--card);color:var(--ink);box-shadow:0 5px 0 var(--line)}
 .btn:active{transform:translateY(4px);box-shadow:none}
 .btn small{display:block;font-size:12px;opacity:.85}
 .btn:disabled{opacity:.45}
+.pkgs{display:grid;gap:10px;margin-top:12px}
+.pkg{display:flex;align-items:center;gap:10px;background:var(--card);border:0;font:inherit;color:inherit;border-radius:16px;padding:14px;cursor:pointer;box-shadow:0 4px 0 var(--line);text-align:left}
+.pkg b{font-family:var(--f-d);font-weight:400;font-size:20px;flex:1}
+.pkg em{font-style:normal;color:var(--pri);font-size:13px}
+.pkg span.w{background:var(--ink);color:var(--bg);border-radius:10px;padding:6px 10px;font-size:14px}
+.note{font-size:12px;color:var(--muted);margin-top:10px}
+.field{display:flex;flex-direction:column;gap:4px;margin-top:10px;font-size:13px;color:var(--muted)}
+.field input{font:inherit;font-size:16px;padding:10px 12px;border-radius:12px;border:2px solid var(--line);background:var(--card);color:var(--ink)}
 
-/* trading card */
-.tc{aspect-ratio:63/88;max-width:100%;border-radius:10px;position:relative;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;
-  box-shadow:0 4px 0 rgba(0,0,0,.15)}
-.tc .em{font-size:2.2em;line-height:1;filter:drop-shadow(0 3px 0 rgba(0,0,0,.2))}
-.tc .nm{font-size:.62em;margin-top:.3em;text-align:center;padding:0 4px;line-height:1.1}
-.tc .gr{position:absolute;left:5px;top:4px;font-family:var(--f-d);font-size:.6em}
-.g-B{background:linear-gradient(160deg,#9aa6c2,#5d6886)}
-.g-A{background:linear-gradient(160deg,#5ad6ff,#2f6fe0)}
-.g-S{background:linear-gradient(160deg,#ffd54a,#f08a00)}
+/* trading card (original monsters) */
+.tc{aspect-ratio:63/88;max-width:100%;border-radius:.7em;position:relative;overflow:hidden;padding:.35em;box-shadow:0 .3em 0 rgba(0,0,0,.18);color:#2b2140}
+.tc .cf{height:100%;border-radius:.45em;background:#fffdf5;display:flex;flex-direction:column;overflow:hidden}
+.tc .ch{display:flex;justify-content:space-between;align-items:baseline;padding:.25em .4em .1em;font-size:.72em;white-space:nowrap;gap:.3em}
+.tc .ch span:first-child{overflow:hidden;text-overflow:ellipsis}
+.tc .hp{font-family:var(--f-d);color:#d8343a;font-size:.85em;flex:none}
+.tc .art{flex:1;margin:0 .3em;border-radius:.3em;background:radial-gradient(circle at 50% 40%,#fff,var(--tc));display:flex;align-items:center;justify-content:center;min-height:0;border:.12em solid rgba(0,0,0,.15)}
+.tc .art svg{width:88%;height:auto;max-height:100%}
+.tc .cb{display:flex;justify-content:space-between;align-items:center;padding:.2em .4em .3em;font-size:.6em}
+.tc .ty{background:var(--tc);color:#fff;border-radius:99px;padding:0 .5em}
+.tc .gr{font-family:var(--f-d)}
+.g-B{background:linear-gradient(160deg,#d7dbe6,#9aa3bb)}
+.g-A{background:linear-gradient(160deg,#7fe0ff,#2f6fe0)}
+.g-S{background:linear-gradient(160deg,#ffe27a,#f08a00)}
 .g-SSS{background:linear-gradient(135deg,#ff5f8f,#ffb84a,#5fffb0,#5bb0ff,#c35bff);background-size:300% 300%;animation:holo 2.5s linear infinite}
+.g-LAST{background:linear-gradient(160deg,#3a2c1a,#111);box-shadow:0 0 0 .15em #ffd54a inset,0 .3em 0 rgba(0,0,0,.25)}
+.g-LAST .cf{background:linear-gradient(#2b2140,#120c20);color:#ffd54a}
+.g-SSS .cf::after,.g-LAST .cf::after{content:"";position:absolute;inset:0;background:linear-gradient(115deg,transparent 35%,rgba(255,255,255,.5) 47%,transparent 60%);background-size:250% 100%;animation:shine 2s linear infinite;pointer-events:none}
+.g-S .art::after{content:"";position:absolute;inset:0;background:linear-gradient(115deg,transparent 40%,rgba(255,255,255,.4) 50%,transparent 60%);background-size:250% 100%;animation:shine 2.4s linear infinite;pointer-events:none}
 @keyframes holo{to{background-position:300% 0}}
-.g-SSS::after,.g-S::after{content:"";position:absolute;inset:0;background:linear-gradient(115deg,transparent 30%,rgba(255,255,255,.55) 45%,transparent 60%);background-size:250% 100%;animation:shine 2s linear infinite}
 @keyframes shine{from{background-position:150% 0}to{background-position:-100% 0}}
 
 /* pull stage */
 .stage{position:fixed;inset:0;z-index:30;background:radial-gradient(circle at 50% 45%,#3a2470,#0c0718);display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;
-  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
-.stage canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
-.packbig{width:min(52vw,220px);aspect-ratio:3/4;border-radius:18px;position:relative;z-index:2;display:flex;align-items:center;justify-content:center;font-size:80px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px}
+.stage canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:4}
+.packbig{width:min(52vw,220px);aspect-ratio:3/4;border-radius:18px;position:relative;z-index:2;display:flex;align-items:center;justify-content:center;
   box-shadow:0 10px 0 rgba(0,0,0,.3),0 0 60px rgba(255,255,255,.2);cursor:pointer}
-.packbig::before{content:"";position:absolute;left:0;right:0;top:14%;height:6px;background:repeating-linear-gradient(90deg,rgba(255,255,255,.8) 0 8px,transparent 8px 14px)}
+.packbig svg{width:75%}
+.packbig::before{content:"";position:absolute;left:0;right:0;top:12%;height:6px;background:repeating-linear-gradient(90deg,rgba(255,255,255,.8) 0 8px,transparent 8px 14px)}
+.packbig .pn{position:absolute;bottom:10px;left:0;right:0;text-align:center;color:#fff;font-family:var(--f-d);font-size:15px;text-shadow:0 2px 0 rgba(0,0,0,.3)}
 .packbig.shake{animation:pshake .12s infinite}
 @keyframes pshake{0%{transform:rotate(-3deg) scale(1.02)}50%{transform:rotate(3deg) scale(1.05)}100%{transform:rotate(-3deg) scale(1.02)}}
 .packbig.boom{animation:boom .45s forwards}
 @keyframes boom{to{transform:scale(1.8);opacity:0;filter:brightness(3)}}
-.hint{color:#fff;margin-top:22px;z-index:2;font-size:16px;animation:bl 1s infinite}
+.hint{color:#fff;margin-top:22px;z-index:2;font-size:16px;animation:bl 1s infinite;text-align:center}
 @keyframes bl{50%{opacity:.35}}
 .glow{position:absolute;width:140vmax;height:140vmax;border-radius:50%;z-index:1;opacity:0;pointer-events:none}
 .glow.on{animation:gl 1.2s ease-out forwards}
 @keyframes gl{0%{opacity:0;transform:scale(.1)}30%{opacity:1}100%{opacity:.55;transform:scale(1)}}
-.reveal{z-index:3;display:flex;flex-direction:column;align-items:center;gap:14px}
-.flip{width:min(60vw,240px);perspective:900px;cursor:pointer}
-.flip .fi{position:relative;transition:transform .7s cubic-bezier(.3,1.4,.5,1);transform-style:preserve-3d;transform:rotateY(180deg)}
-.flip.open .fi{transform:none}
-.flip .tc{font-size:42px;backface-visibility:hidden;-webkit-backface-visibility:hidden}
-.flip .back{position:absolute;inset:0;transform:rotateY(180deg);background:repeating-linear-gradient(45deg,#2b2140 0 12px,#3a2c5a 12px 24px);border:6px solid #fff;
-  display:flex;align-items:center;justify-content:center;font-family:var(--f-d);color:var(--gold);font-size:34px}
-.grade{font-family:var(--f-d);font-size:clamp(48px,16vw,84px);line-height:1;color:#fff;animation:slam .45s cubic-bezier(.2,1.6,.4,1)}
+.yokoku{position:fixed;inset:0;z-index:35;background:#000;display:flex;align-items:center;justify-content:center;flex-direction:column}
+.yokoku b{font-family:var(--f-d);font-weight:400;font-size:clamp(70px,28vw,140px);color:#ffd54a;text-shadow:0 0 30px #ff4f8b,0 6px 0 #c92c63;animation:yk .5s cubic-bezier(.2,1.8,.4,1)}
+.yokoku span{color:#fff;font-size:20px;margin-top:6px}
+@keyframes yk{from{transform:scale(4) rotate(20deg);opacity:0}}
+.cutin{position:fixed;left:-10%;right:-10%;top:42%;z-index:36;height:90px;display:flex;align-items:center;justify-content:center;transform:skewY(-6deg);
+  font-family:var(--f-d);font-size:clamp(40px,13vw,64px);color:#fff;animation:cut 1.3s cubic-bezier(.2,.9,.3,1) forwards;pointer-events:none}
+.cutin.S{background:linear-gradient(90deg,#f08a00,#ffd54a,#f08a00);text-shadow:0 4px 0 #a35a00}
+.cutin.SSS{background:linear-gradient(90deg,#ff5f8f,#ffb84a,#5fffb0,#5bb0ff,#c35bff);text-shadow:0 4px 0 #5a1a6a,0 0 20px #fff}
+.cutin.LAST{background:linear-gradient(90deg,#111,#3a2c1a,#111);color:#ffd54a;text-shadow:0 0 20px #ffd54a}
+@keyframes cut{0%{transform:skewY(-6deg) translateX(110%)}25%{transform:skewY(-6deg) translateX(0)}75%{transform:skewY(-6deg) translateX(0);opacity:1}100%{transform:skewY(-6deg) translateX(-110%);opacity:0}}
+.reveal{z-index:3;display:flex;flex-direction:column;align-items:center;gap:12px}
+.flip{width:min(62vw,250px);perspective:900px;cursor:pointer}
+.flip .fi,.multi .fi{position:relative;transition:transform .7s cubic-bezier(.3,1.4,.5,1);transform-style:preserve-3d;transform:rotateY(180deg)}
+.flip.open .fi,.multi .slot.open .fi{transform:none}
+.flip .tc{font-size:26px}
+.flip .tc,.multi .tc,.cback{backface-visibility:hidden;-webkit-backface-visibility:hidden}
+.cback{position:absolute;inset:0;transform:rotateY(180deg);border-radius:.7em;background:radial-gradient(circle,#ff4f8b 0 18%,#fff 18% 24%,transparent 24%),repeating-linear-gradient(45deg,#2b2140 0 .5em,#3a2c5a .5em 1em);border:.3em solid #fff}
+.grade{font-family:var(--f-d);font-size:clamp(46px,15vw,80px);line-height:1;color:#fff;animation:slam .45s cubic-bezier(.2,1.6,.4,1)}
 @keyframes slam{from{transform:scale(3);opacity:0}}
-.grade.B{text-shadow:0 5px 0 #5d6886}.grade.A{text-shadow:0 5px 0 #2f6fe0,0 0 30px #5ad6ff}.grade.S{text-shadow:0 5px 0 #b06000,0 0 40px #ffd54a}
+.grade.B{text-shadow:0 5px 0 #6d7690}.grade.A{text-shadow:0 5px 0 #2f6fe0,0 0 30px #5ad6ff}.grade.S{text-shadow:0 5px 0 #b06000,0 0 40px #ffd54a}
 .grade.SSS{background:linear-gradient(90deg,#ff5f8f,#ffb84a,#5fffb0,#5bb0ff,#c35bff);-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 5px 0 rgba(0,0,0,.4)) drop-shadow(0 0 20px #fff)}
-.cname{color:#fff;font-size:18px}
-.multi{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;width:100%;max-width:440px;z-index:3}
+.grade.LAST{color:#ffd54a;text-shadow:0 0 30px #ffd54a}
+.cname{color:#fff;font-size:17px;text-align:center}
+.multi{display:grid;grid-template-columns:repeat(5,1fr);gap:7px;width:100%;max-width:440px;z-index:3}
 .multi .slot{perspective:600px}
-.multi .fi{position:relative;transition:transform .5s cubic-bezier(.3,1.4,.5,1);transform-style:preserve-3d;transform:rotateY(180deg)}
-.multi .slot.open .fi{transform:none}
-.multi .tc{font-size:15px;backface-visibility:hidden;-webkit-backface-visibility:hidden}
-.multi .back{position:absolute;inset:0;transform:rotateY(180deg);backface-visibility:hidden;-webkit-backface-visibility:hidden;background:repeating-linear-gradient(45deg,#2b2140 0 6px,#3a2c5a 6px 12px);border:3px solid #fff;border-radius:10px}
-.multi .slot.hi .tc{box-shadow:0 0 0 3px #fff,0 0 20px #fff}
-.sumrow{color:#fff;z-index:3;margin-top:16px;text-align:center}
-.stage .btn{z-index:3;margin-top:14px;min-width:200px}
+.multi .tc,.multi .cback{font-size:7.5px}
+.multi .slot.hi .tc{box-shadow:0 0 0 2px #fff,0 0 18px #fff}
+.sumrow{color:#fff;z-index:3;margin-top:14px;text-align:center;font-size:15px}
+.sumrow b{color:var(--gold);font-weight:400}
+.acts{display:grid;grid-template-columns:1fr 1fr;gap:10px;width:100%;max-width:440px;z-index:3;margin-top:14px}
+.acts .wide{grid-column:1/-1}
 .flash{position:fixed;inset:0;background:#fff;z-index:40;pointer-events:none;opacity:0}
 .flash.go{animation:fl .5s}
 @keyframes fl{0%{opacity:1}100%{opacity:0}}
 
-/* inventory */
+/* inventory & ranking */
 .inv{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
-.inv .it{position:relative}
-.inv .tc{font-size:16px}
-.inv .ct{position:absolute;right:-4px;top:-6px;background:var(--ink);color:var(--bg);font-size:11px;border-radius:99px;padding:2px 6px}
-.empty{text-align:center;color:var(--muted);padding:40px 0}
-.sec{font-family:var(--f-d);font-size:20px;margin:6px 0 12px}
-.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px}
-.stats div{background:var(--card);border-radius:14px;padding:8px;text-align:center}
-.stats b{display:block;font-family:var(--f-d);font-size:20px;font-weight:400}
+.inv .it{position:relative;border:0;padding:0;background:none;cursor:pointer}
+.inv .tc{font-size:8.5px}
+.inv .st{position:absolute;left:50%;bottom:-4px;transform:translateX(-50%);background:var(--mint);color:#fff;font-size:10px;border-radius:99px;padding:1px 6px;white-space:nowrap}
+.empty{text-align:center;color:var(--muted);padding:40px 0;grid-column:1/-1}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}
+.stats div{background:var(--card);border-radius:14px;padding:10px 6px;text-align:center}
+.stats b{display:block;font-family:var(--f-d);font-size:18px;font-weight:400;font-variant-numeric:tabular-nums}
 .stats small{color:var(--muted);font-size:12px}
-.toast{position:fixed;left:50%;bottom:calc(90px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:14px;z-index:50;font-size:14px}
-@media (prefers-reduced-motion:reduce){.g-SSS,.g-SSS::after,.g-S::after,.packbig.shake{animation:none}}
+.filters{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
+.rank{display:flex;flex-direction:column;gap:8px}
+.rk{display:flex;align-items:center;gap:12px;background:var(--card);border-radius:16px;padding:10px 14px;box-shadow:0 3px 0 var(--line)}
+.rk .n{font-family:var(--f-d);font-size:20px;width:28px;text-align:center}
+.rk .n.m1{color:#e8a800}.rk .n.m2{color:#9aa3bb}.rk .n.m3{color:#c07a3a}
+.rk .who{flex:1;min-width:0}
+.rk .who small{display:block;color:var(--muted);font-size:12px}
+.rk b{font-family:var(--f-d);font-weight:400;font-variant-numeric:tabular-nums}
+.rk.me{outline:3px solid var(--pri)}
+.toast{position:fixed;left:50%;bottom:calc(90px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:14px;z-index:60;font-size:14px;max-width:90vw;text-align:center}
+@media (prefers-reduced-motion:reduce){.g-SSS,.g-SSS .cf::after,.g-LAST .cf::after,.g-S .art::after,.packbig.shake{animation:none}}
 </style>
 
 <div class="wrap">
@@ -144,17 +195,24 @@ button:focus-visible{outline:3px solid var(--sky);outline-offset:2px}
     <div class="pt"><span class="coin"></span><b id="pts">0</b><button id="charge">충전</button></div>
   </div>
   <main id="home">
-    <div class="banner"><h2>오늘의 SSS 확률 UP!</h2><p>잔여 수량이 줄어들수록 남은 대박 확률은 올라가요</p></div>
+    <div class="feed"><span class="live">LIVE 데모</span><div class="msg" id="feed">당첨 소식을 불러오는 중…</div></div>
+    <div class="banner"><h2>전설 오리파 라스트원 임박!</h2><p>마지막 1장을 뽑으면 LAST ONE 카드를 추가로 드려요</p><div class="bm" id="bannerMon"></div></div>
     <div class="chips" id="chips"></div>
     <div class="grid" id="packs"></div>
   </main>
   <main id="box" hidden>
-    <div class="sec">내 컬렉션</div>
+    <div class="sec" style="margin-top:4px">내 보관함</div>
     <div class="stats" id="stats"></div>
+    <div class="filters" id="filters"></div>
     <div class="inv" id="inv"></div>
   </main>
+  <main id="rank" hidden>
+    <div class="sec" style="margin-top:4px">주간 뽑기 랭킹</div>
+    <p class="note" style="margin-top:-4px">획득한 카드의 환원 가치 합계 기준이에요. 다른 플레이어는 데모 데이터예요.</p>
+    <div class="rank" id="rankList"></div>
+  </main>
 </div>
-<nav class="tabs"><button class="on" data-t="home"><span>🎴</span>오리파</button><button data-t="box"><span>🗃️</span>컬렉션</button></nav>
+<nav class="tabs"><button class="on" data-t="home"><span>🎴</span>오리파</button><button data-t="box"><span>🗃️</span>보관함</button><button data-t="rank"><span>🏆</span>랭킹</button></nav>
 
 <div class="sheet" id="sheet" hidden><div class="in" id="sheetIn"></div></div>
 <div class="stage" id="stage" hidden><canvas id="fx"></canvas><div class="glow" id="glow"></div><div id="stageBody" style="display:contents"></div></div>
@@ -163,37 +221,81 @@ button:focus-visible{outline:3px solid var(--sky);outline-offset:2px}
 <script>
 const $=id=>document.getElementById(id);
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
-const fmt=n=>n.toLocaleString('ko-KR');
+const fmt=n=>Math.round(n).toLocaleString('ko-KR');
 const GR=['SSS','S','A','B'];
-const GCOL={SSS:'conic-gradient(#ff5f8f,#ffb84a,#5fffb0,#5bb0ff,#c35bff,#ff5f8f)',S:'radial-gradient(circle,#fff6b0,#ffb800 40%,transparent 70%)',A:'radial-gradient(circle,#c8f2ff,#3f9cff 40%,transparent 70%)',B:'radial-gradient(circle,#e0e4f0,#7a86a6 40%,transparent 70%)'};
+const GRANK=['LAST','SSS','S','A','B'];
+const CONV={B:.3,A:1.2,S:8,SSS:50,LAST:30};
+const TYPES={불:{c:'#ff7a45'},물:{c:'#3fa9ff'},풀:{c:'#4cc96b'},전기:{c:'#f5c400'},에스퍼:{c:'#c77dff'},드래곤:{c:'#6c63ff'},노말:{c:'#c9a77c'}};
+// [이름, 타입, 귀/장식, 눈(s=졸린눈), 몸색(선택)]
+const MONS=[
+ ['불꼬미','불','flame'],['화르릉','불','horn','', '#ff9a5b'],['염룡 이그니스','불','horn','', '#e8503a'],
+ ['퐁당이','물','fin'],['물방울몽','물','none','s','#7cc8ff'],['아쿠아린','물','bunny','', '#5fb4ff'],
+ ['새싹콩','풀','leaf','', '#8fe07a'],['잎사귀냥','풀','cat','', '#6fcf6b'],['숲지기 포레','풀','leaf','s','#4fae5a'],
+ ['찌릿토','전기','bunny','', '#ffd84a'],['번개냥','전기','cat','', '#ffcf2e'],['볼트리온','전기','horn','', '#f2b600'],
+ ['몽글이','에스퍼','none','s','#e3b4ff'],['미스틱','에스퍼','cat','', '#c99bff'],['루나핀','에스퍼','bunny','s','#b98cff'],
+ ['드라코','드래곤','horn','', '#8a84ff'],['비늘룡','드래곤','fin','', '#6f7bff'],['황금룡 아우룸','드래곤','horn','', '#ffcc33'],
+ ['뭉치','노말','cat','', '#e6c9a0'],['토실이','노말','bunny','s','#f0d7b5'],['꼬마곰','노말','bear','', '#c99a6b'],
+].map(([n,t,e,y,col],i)=>({n,t,e,y,col:col||TYPES[t].c,hp:({'황금룡 아우룸':340,'염룡 이그니스':280,'볼트리온':260,'아쿠아린':250,'숲지기 포레':240,'루나핀':250})[n]||(40+((i*37)%13)*10)}));
+const svgCache={};
+function monSVG(i){
+ if(svgCache[i]) return svgCache[i];
+ const m=MONS[i], b=m.col, st='stroke="rgba(0,0,0,.22)" stroke-width="2"'; let back='',front='';
+ if(m.e==='cat') back=`<path d="M30 42 L30 16 L46 32Z M70 42 L70 16 L54 32Z" fill="${b}" ${st}/><path d="M33 34 L33 23 L40 30Z M67 34 L67 23 L60 30Z" fill="#ffc4d6"/>`;
+ if(m.e==='bunny') back=`<ellipse cx="38" cy="22" rx="7" ry="18" fill="${b}" ${st}/><ellipse cx="62" cy="22" rx="7" ry="18" fill="${b}" ${st}/><ellipse cx="38" cy="24" rx="3.5" ry="11" fill="#ffc4d6"/><ellipse cx="62" cy="24" rx="3.5" ry="11" fill="#ffc4d6"/>`;
+ if(m.e==='horn') back=`<path d="M34 38 Q24 16 34 8 Q36 24 46 32Z M66 38 Q76 16 66 8 Q64 24 54 32Z" fill="#fff3c4" ${st}/>`;
+ if(m.e==='bear') back=`<circle cx="29" cy="36" r="10" fill="${b}" ${st}/><circle cx="71" cy="36" r="10" fill="${b}" ${st}/><circle cx="29" cy="36" r="5" fill="#ffc4d6"/><circle cx="71" cy="36" r="5" fill="#ffc4d6"/>`;
+ if(m.e==='fin') back=`<path d="M22 60 L6 46 L14 70Z M78 60 L94 46 L86 70Z" fill="${b}" ${st}/><path d="M42 36 L50 14 L60 36Z" fill="${b}" ${st}/>`;
+ if(m.e==='leaf') front=`<path d="M50 36 Q50 26 50 20" stroke="#2f8f46" stroke-width="3" fill="none"/><path d="M50 21 Q36 8 28 18 Q40 27 50 21Z M50 21 Q64 8 72 18 Q60 27 50 21Z" fill="#6ee07d" stroke="#2f8f46" stroke-width="2"/>`;
+ if(m.e==='flame') front=`<path d="M50 38 Q34 26 45 6 Q48 17 54 12 Q68 24 50 38Z" fill="#ffb03a"/><path d="M50 35 Q43 26 50 17 Q57 26 50 35Z" fill="#fff07a"/>`;
+ const eyes=m.y==='s'
+  ? `<path d="M35 58 Q41 63 47 58 M53 58 Q59 63 65 58" stroke="#2b2140" stroke-width="3" fill="none" stroke-linecap="round"/>`
+  : `<ellipse cx="41" cy="57" rx="5.5" ry="7" fill="#2b2140"/><ellipse cx="59" cy="57" rx="5.5" ry="7" fill="#2b2140"/><circle cx="43" cy="54" r="2.2" fill="#fff"/><circle cx="61" cy="54" r="2.2" fill="#fff"/>`;
+ return svgCache[i]=`<svg viewBox="0 0 100 100" aria-hidden="true"><ellipse cx="50" cy="93" rx="26" ry="4" fill="rgba(0,0,0,.15)"/>${back}
+  <ellipse cx="36" cy="88" rx="9" ry="6" fill="${b}" ${st}/><ellipse cx="64" cy="88" rx="9" ry="6" fill="${b}" ${st}/>
+  <ellipse cx="50" cy="64" rx="31" ry="27" fill="${b}" ${st}/><ellipse cx="50" cy="75" rx="17" ry="11" fill="rgba(255,255,255,.55)"/>
+  <ellipse cx="40" cy="44" rx="10" ry="5" fill="rgba(255,255,255,.35)"/>${eyes}
+  <ellipse cx="31" cy="66" rx="5.5" ry="3.5" fill="#ff7aa8" opacity=".65"/><ellipse cx="69" cy="66" rx="5.5" ry="3.5" fill="#ff7aa8" opacity=".65"/>
+  <path d="M45 66 Q47.5 70 50 66 Q52.5 70 55 66" stroke="#2b2140" stroke-width="2.2" fill="none" stroke-linecap="round"/>${front}</svg>`;
+}
+const M=n=>MONS.findIndex(x=>x.n===n);
 const PACKS=[
- {id:'dragon',name:'드래곤 레전드 오리파',cat:'몬스터',price:500,em:'🐲',bg:'linear-gradient(150deg,#ff8a5b,#ff4f8b)',tag:'HOT',stock:{SSS:3,S:30,A:170,B:797},
-  items:{SSS:[['🐉','황금룡 아우룸']],S:[['🔥','불꽃 와이번'],['🦖','고대 티라노']],A:[['🦎','번개 도마뱀'],['🐊','늪지 크로코'],['🪽','바람 그리폰']],B:[['🥚','드래곤 알'],['🦴','화석 조각'],['🪨','용암석']]}},
- {id:'star',name:'별빛 아이돌 오리파',cat:'아이돌',price:300,em:'🌟',bg:'linear-gradient(150deg,#a35bff,#5b8cff)',tag:'NEW',stock:{SSS:2,S:25,A:150,B:623},
-  items:{SSS:[['👑','센터 퀸 루나']],S:[['🎤','메인보컬 하나'],['💃','댄스머신 리아']],A:[['🎧','DJ 소라'],['📸','포토카드 세트'],['🎀','리본 유니폼']],B:[['🎫','응원 티켓'],['🪄','응원봉'],['💌','팬레터']]}},
- {id:'sea',name:'딥씨 트레저 오리파',cat:'몬스터',price:200,em:'🐙',bg:'linear-gradient(150deg,#3fd0b0,#2f8fe0)',stock:{SSS:2,S:20,A:120,B:458},
-  items:{SSS:[['🧜','바다의 여왕 세레나']],S:[['🦈','메가로돈'],['🐋','고래왕 모비']],A:[['🐙','크라켄 주니어'],['🐡','독복어'],['🦑','심해 오징어']],B:[['🐚','소라 껍데기'],['🦀','꽃게'],['⚓','녹슨 닻']]}},
- {id:'sweet',name:'디저트 파티 오리파',cat:'캐주얼',price:100,em:'🍰',bg:'linear-gradient(150deg,#ffcf5b,#ff8ab0)',tag:'입문',stock:{SSS:1,S:15,A:90,B:394},
-  items:{SSS:[['🎂','레인보우 케이크']],S:[['🍫','황금 초콜릿'],['🍨','은하수 파르페']],A:[['🍩','글레이즈 도넛'],['🧁','딸기 컵케이크'],['🍮','캐러멜 푸딩']],B:[['🍪','쿠키'],['🍬','사탕'],['🍭','막대사탕']]}},
- {id:'cosmos',name:'코스믹 SSS 확정권',cat:'프리미엄',price:3000,em:'🪐',bg:'linear-gradient(150deg,#2b2140,#7a3cff)',tag:'S 이상 확정',stock:{SSS:5,S:45,A:0,B:0},
-  items:{SSS:[['🌌','은하 수호자 오리온']],S:[['☄️','유성 기사'],['🛸','UFO 파일럿']],A:[],B:[]}},
- {id:'ninja',name:'닌자 배틀 오리파',cat:'캐주얼',price:200,em:'🥷',bg:'linear-gradient(150deg,#5d6886,#2b2140)',stock:{SSS:2,S:18,A:110,B:470},
-  items:{SSS:[['🐉','칠흑의 쇼군']],S:[['⚔️','쌍검 카게'],['🦊','구미호 닌자']],A:[['🗡️','쿠나이 마스터'],['🎯','수리검'],['🏯','성의 자객']],B:[['🎋','대나무'],['🪵','통나무'],['🧣','두건']]}},
+ {id:'legend',name:'전설 오리파 100',cat:'프리미엄',price:1000,mon:M('황금룡 아우룸'),bg:'linear-gradient(150deg,#2b2140,#7a3cff)',tag:'라스트원',
+  stock:{SSS:1,S:6,A:23,B:70},last:M('황금룡 아우룸'),
+  items:{SSS:[M('황금룡 아우룸')],S:[M('염룡 이그니스'),M('볼트리온')],A:[M('드라코'),M('비늘룡'),M('미스틱')],B:[M('뭉치'),M('토실이'),M('꼬마곰')]}},
+ {id:'fire',name:'불꽃 드래곤 오리파',cat:'불·드래곤',price:500,mon:M('염룡 이그니스'),bg:'linear-gradient(150deg,#ff8a5b,#ff4f8b)',tag:'HOT',
+  stock:{SSS:3,S:30,A:170,B:797},last:M('드라코'),
+  items:{SSS:[M('염룡 이그니스')],S:[M('화르릉'),M('비늘룡')],A:[M('불꼬미'),M('드라코'),M('번개냥')],B:[M('뭉치'),M('토실이'),M('새싹콩')]}},
+ {id:'aqua',name:'아쿠아 트레저 오리파',cat:'물',price:300,mon:M('아쿠아린'),bg:'linear-gradient(150deg,#3fd0b0,#2f8fe0)',tag:'NEW',
+  stock:{SSS:2,S:25,A:150,B:623},last:M('아쿠아린'),
+  items:{SSS:[M('아쿠아린')],S:[M('비늘룡'),M('루나핀')],A:[M('퐁당이'),M('물방울몽'),M('몽글이')],B:[M('토실이'),M('뭉치'),M('꼬마곰')]}},
+ {id:'forest',name:'숲속 친구들 오리파',cat:'풀',price:100,mon:M('잎사귀냥'),bg:'linear-gradient(150deg,#b6f07a,#3fb68b)',tag:'입문',
+  stock:{SSS:1,S:15,A:90,B:394},last:M('숲지기 포레'),
+  items:{SSS:[M('숲지기 포레')],S:[M('잎사귀냥'),M('미스틱')],A:[M('새싹콩'),M('꼬마곰'),M('몽글이')],B:[M('뭉치'),M('토실이'),M('물방울몽')]}},
+ {id:'volt',name:'번개 S확정 오리파',cat:'전기',price:3000,mon:M('볼트리온'),bg:'linear-gradient(150deg,#ffd84a,#ff8a00)',tag:'S 이상 확정',
+  stock:{SSS:5,S:45,A:0,B:0},last:M('번개냥'),
+  items:{SSS:[M('볼트리온')],S:[M('찌릿토'),M('번개냥')],A:[],B:[]}},
+ {id:'psy',name:'에스퍼 미스터리 오리파',cat:'에스퍼',price:200,mon:M('루나핀'),bg:'linear-gradient(150deg,#e3b4ff,#7a5bff)',
+  stock:{SSS:2,S:18,A:110,B:470},last:M('몽글이'),
+  items:{SSS:[M('루나핀')],S:[M('미스틱'),M('몽글이')],A:[M('물방울몽'),M('찌릿토'),M('토실이')],B:[M('뭉치'),M('꼬마곰'),M('새싹콩')]}},
 ];
-const S={pts:5000,inv:{},pulls:0,stock:{}};
-try{const d=JSON.parse(localStorage.getItem('luckypack')||'null'); if(d) Object.assign(S,d);}catch(e){}
+const PK=Object.fromEntries(PACKS.map(p=>[p.id,p]));
+const S={pts:10000,inv:[],stock:{},earned:0,uid:1};
+try{const d=JSON.parse(localStorage.getItem('luckypack2')||'null'); if(d) Object.assign(S,d);}catch(e){}
 for(const p of PACKS) if(!S.stock[p.id]) S.stock[p.id]={...p.stock};
-function save(){try{localStorage.setItem('luckypack',JSON.stringify(S))}catch(e){}}
+function save(){try{localStorage.setItem('luckypack2',JSON.stringify(S))}catch(e){}}
 const total=o=>GR.reduce((a,g)=>a+(o[g]||0),0);
-function toast(t){let e=document.querySelector('.toast'); if(!e){e=document.createElement('div');e.className='toast';document.body.appendChild(e);} e.textContent=t; e.hidden=false; clearTimeout(e._t); e._t=setTimeout(()=>e.hidden=true,2000);}
+const val=c=>Math.round(PK[c.pack].price*CONV[c.g]);
+function toast(t){let e=document.querySelector('.toast'); if(!e){e=document.createElement('div');e.className='toast';document.body.appendChild(e);} e.textContent=t; e.hidden=false; clearTimeout(e._t); e._t=setTimeout(()=>e.hidden=true,2200);}
 function buzz(p){try{navigator.vibrate&&navigator.vibrate(p)}catch(e){}}
 
 /* audio */
 let AC; function au(){ if(!AC){try{AC=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}} else if(AC.state==='suspended') AC.resume(); }
 function tone(f,d,{type='sine',v=.2,at=0,slide=0}={}){ if(!AC) return; const t=AC.currentTime+at,o=AC.createOscillator(),g=AC.createGain(); o.type=type; o.frequency.setValueAtTime(f,t); if(slide) o.frequency.exponentialRampToValueAtTime(f*slide,t+d); g.gain.setValueAtTime(v,t); g.gain.exponentialRampToValueAtTime(.0001,t+d); o.connect(g); g.connect(AC.destination); o.start(t); o.stop(t+d); }
-const sfx={tick(){tone(900,.05,{type:'square',v:.05})},rise(){tone(200,1.2,{type:'sawtooth',v:.07,slide:5})},
- pop(g){const base={B:392,A:523,S:659,SSS:784}[g]; const n={B:2,A:3,S:5,SSS:8}[g]; for(let i=0;i<n;i++) tone(base*Math.pow(1.122,i*2),.4,{type:'triangle',v:.18,at:i*.07});},
- flip(){tone(1200,.08,{type:'triangle',v:.08,slide:.5})}};
+const sfx={tick(){tone(900,.05,{type:'square',v:.05})},rise(){tone(200,1.4,{type:'sawtooth',v:.07,slide:5})},
+ pop(g){const base={B:392,A:523,S:659,SSS:784,LAST:440}[g]; const n={B:2,A:3,S:5,SSS:8,LAST:7}[g]; for(let i=0;i<n;i++) tone(base*Math.pow(1.122,i*2),.4,{type:'triangle',v:.18,at:i*.07});},
+ flip(){tone(1200,.08,{type:'triangle',v:.08,slide:.5})},
+ boom(){tone(80,.6,{type:'sawtooth',v:.25,slide:.3}); tone(1600,.3,{type:'square',v:.06,slide:.2})},
+ coin(){tone(1800,.08,{type:'square',v:.05}); tone(2600,.12,{v:.05,at:.04})}};
 
 /* fx */
 const cv=$('fx'),cx=cv.getContext('2d'); let parts=[],fxOn=false; const DPR=Math.min(2,devicePixelRatio||1);
@@ -201,88 +303,156 @@ function burst(n,cols){const w=innerWidth,h=innerHeight; for(let i=0;i<n;i++){co
 function loop(){ if(!fxOn) return; cv.width=innerWidth*DPR; cv.height=innerHeight*DPR; cx.scale(DPR,DPR);
  parts=parts.filter(p=>p.l>0); for(const p of parts){p.vy+=.18;p.x+=p.vx;p.y+=p.vy;p.vx*=.99;p.l-=.012;p.rot+=.2; cx.globalAlpha=Math.max(0,p.l); cx.fillStyle=p.c; cx.save(); cx.translate(p.x,p.y); cx.rotate(p.rot); cx.fillRect(-p.r,-p.r/2,p.r*2,p.r); cx.restore();}
  requestAnimationFrame(loop);}
-const COLS={B:['#cfd6e8','#ffffff'],A:['#5ad6ff','#ffffff','#2f6fe0'],S:['#ffd54a','#fff6b0','#ff9a00'],SSS:['#ff5f8f','#ffb84a','#5fffb0','#5bb0ff','#c35bff','#fff']};
+const COLS={B:['#cfd6e8','#ffffff'],A:['#5ad6ff','#ffffff','#2f6fe0'],S:['#ffd54a','#fff6b0','#ff9a00'],SSS:['#ff5f8f','#ffb84a','#5fffb0','#5bb0ff','#c35bff','#fff'],LAST:['#ffd54a','#fff','#111']};
+const GCOL={SSS:'conic-gradient(#ff5f8f,#ffb84a,#5fffb0,#5bb0ff,#c35bff,#ff5f8f)',S:'radial-gradient(circle,#fff6b0,#ffb800 40%,transparent 70%)',A:'radial-gradient(circle,#c8f2ff,#3f9cff 40%,transparent 70%)',B:'radial-gradient(circle,#e0e4f0,#7a86a6 40%,transparent 70%)'};
 
-/* draw logic: real-stock oripa — draw without replacement */
+/* cards */
+function cardHTML(c){ const m=MONS[c.mon]; const t=TYPES[m.t];
+ return `<div class="tc g-${c.g}" style="--tc:${t.c}"><div class="cf"><div class="ch"><span>${m.n}</span><span class="hp">HP${m.hp}</span></div><div class="art" style="position:relative">${monSVG(c.mon)}</div><div class="cb"><span class="ty">${m.t}</span><span class="gr">${c.g==='LAST'?'LAST ONE':c.g}</span></div></div></div>`;}
+
+/* real-stock draw without replacement + last-one */
 function drawOne(p){ const st=S.stock[p.id]; const t=total(st); if(t<=0) return null; let r=Math.random()*t;
- for(const g of GR){ r-=st[g]; if(r<0){ st[g]--; const list=p.items[g]; const [em,nm]=list[Math.floor(Math.random()*list.length)]; return {g,em,nm,pack:p.id}; } } }
-function cardHTML(c){return `<div class="tc g-${c.g}"><span class="gr">${c.g}</span><span class="em">${c.em}</span><span class="nm">${c.nm}</span></div>`;}
+ for(const g of GR){ r-=st[g]; if(r<0){ st[g]--; const list=p.items[g]; return {g,mon:list[Math.floor(Math.random()*list.length)],pack:p.id}; } } }
+
+/* feed (demo) */
+const NICKS=['럭키걸','카드왕','뽑신','오늘도꽝','몬덕후','새벽뽑기','홀로덕','라스트헌터','SSS장인','첫뽑기'];
+function feedMsg(t){ const e=$('feed'); e.innerHTML=t; e.style.animation='none'; e.offsetWidth; e.style.animation=''; }
+function demoFeed(){ const p=PACKS[Math.floor(Math.random()*PACKS.length)]; const g=Math.random()<.25?'SSS':'S'; const mon=p.items[g][0]??p.items.S[0];
+ feedMsg(`${NICKS[Math.floor(Math.random()*NICKS.length)]}님이 ${p.name}에서 <b>${g} ${MONS[mon].n}</b> 당첨!`); }
+setInterval(demoFeed,3500); setTimeout(demoFeed,600);
 
 /* render */
-let cat='전체';
+let cat='전체', invF='전체';
 function renderTop(){ $('pts').textContent=fmt(S.pts); }
 function renderHome(){
  const cats=['전체',...new Set(PACKS.map(p=>p.cat))];
  $('chips').innerHTML=cats.map(c=>`<button class="chip ${c===cat?'on':''}" data-c="${c}">${c}</button>`).join('');
  $('packs').innerHTML=PACKS.filter(p=>cat==='전체'||p.cat===cat).map(p=>{const st=S.stock[p.id],t=total(st),T=total(p.stock);
-  return `<button class="pack" data-p="${p.id}"><div class="art" style="background:${p.bg}">${p.tag?`<span class="tag">${p.tag}</span>`:''}${st.SSS?`<span class="hot">SSS ${st.SSS}장 남음</span>`:''}${p.em}</div>
-  <div class="info"><h3>${p.name}</h3><div class="price">${fmt(p.price)}P <small style="font-size:12px;color:var(--muted)">/ 1회</small></div><div class="bar"><i style="width:${t/T*100}%"></i></div><div class="left">잔여 ${fmt(t)} / ${fmt(T)}</div></div></button>`}).join('');
+  return `<button class="pack" data-p="${p.id}"><div class="art" style="background:${p.bg}">${p.tag?`<span class="tag">${p.tag}</span>`:''}${st.SSS?`<span class="hot">SSS ${st.SSS}장 남음</span>`:''}${monSVG(p.mon)}</div>
+  <div class="info"><h3>${p.name}</h3><div class="price">${fmt(p.price)}P <small>/ 1회</small></div><div class="bar"><i style="width:${t/T*100}%"></i></div><div class="left">잔여 ${fmt(t)} / ${fmt(T)}</div></div>${t?'':'<div class="sold">SOLD OUT</div>'}</button>`}).join('');
+ $('bannerMon').innerHTML=monSVG(M('황금룡 아우룸'));
 }
 function renderBox(){
- const all=Object.values(S.inv); const cnt=g=>all.filter(c=>c.g===g).reduce((a,c)=>a+c.n,0);
- $('stats').innerHTML=GR.map(g=>`<div><b>${cnt(g)}</b><small>${g}</small></div>`).join('');
- const list=all.sort((a,b)=>GR.indexOf(a.g)-GR.indexOf(b.g));
- $('inv').innerHTML=list.length?list.map(c=>`<div class="it">${cardHTML(c)}${c.n>1?`<span class="ct">×${c.n}</span>`:''}</div>`).join(''):'<div class="empty" style="grid-column:1/-1">아직 뽑은 카드가 없어요.<br>오리파 탭에서 첫 팩을 뜯어보세요!</div>';
+ const kept=S.inv;
+ $('stats').innerHTML=`<div><b>${kept.length}</b><small>보관 카드</small></div><div><b>${kept.filter(c=>c.g==='SSS'||c.g==='LAST').length}</b><small>SSS·LAST</small></div><div><b>${fmt(kept.reduce((a,c)=>a+val(c),0))}</b><small>환원 가치 P</small></div>`;
+ const fs=['전체','LAST','SSS','S','A','B'];
+ $('filters').innerHTML=fs.map(f=>`<button class="chip ${f===invF?'on':''}" data-f="${f}">${f}</button>`).join('');
+ const list=kept.filter(c=>invF==='전체'||c.g===invF).sort((a,b)=>GRANK.indexOf(a.g)-GRANK.indexOf(b.g)||b.uid-a.uid);
+ $('inv').innerHTML=list.length?list.map(c=>`<button class="it" data-u="${c.uid}">${cardHTML(c)}${c.ship?'<span class="st">배송 준비중</span>':''}</button>`).join(''):'<div class="empty">보관 중인 카드가 없어요.<br>오리파 탭에서 첫 팩을 뜯어보세요!</div>';
 }
+function renderRank(){
+ const demo=[['SSS장인',812000],['라스트헌터',455300],['카드왕',301200],['뽑신',188400],['럭키걸',96500],['몬덕후',42800],['새벽뽑기',15600],['첫뽑기',3200]];
+ const rows=[...demo.map(([n,v])=>({n,v})),{n:'나',v:S.earned,me:true}].sort((a,b)=>b.v-a.v);
+ $('rankList').innerHTML=rows.map((r,i)=>`<div class="rk ${r.me?'me':''}"><span class="n m${i+1}">${i+1}</span><div class="who">${r.n}${r.me?'':' <small>데모 플레이어</small>'}${r.me?'<small>당신</small>':''}</div><b>${fmt(r.v)}P</b></div>`).join('');
+}
+function showTab(t){ document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.t===t)); for(const id of ['home','box','rank']) $(id).hidden=id!==t;
+ if(t==='box') renderBox(); if(t==='rank') renderRank(); if(t==='home') renderHome(); scrollTo(0,0); }
 document.addEventListener('click',e=>{
- const c=e.target.closest('.chip'); if(c){cat=c.dataset.c; renderHome(); return;}
- const p=e.target.closest('.pack'); if(p){openSheet(PACKS.find(x=>x.id===p.dataset.p)); return;}
- const t=e.target.closest('.tabs button'); if(t){document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b===t)); $('home').hidden=t.dataset.t!=='home'; $('box').hidden=t.dataset.t!=='box'; if(t.dataset.t==='box') renderBox(); scrollTo(0,0);}
+ const c=e.target.closest('.chip[data-c]'); if(c){cat=c.dataset.c; renderHome(); return;}
+ const f=e.target.closest('.chip[data-f]'); if(f){invF=f.dataset.f; renderBox(); return;}
+ const p=e.target.closest('.pack'); if(p){openPack(PK[p.dataset.p]); return;}
+ const it=e.target.closest('.it'); if(it){openCard(+it.dataset.u); return;}
+ const t=e.target.closest('.tabs button'); if(t) showTab(t.dataset.t);
 });
-$('charge').onclick=()=>{S.pts+=5000; save(); renderTop(); toast('5,000P 충전 완료 (체험용 포인트)');};
 $('sheet').addEventListener('click',e=>{ if(e.target.id==='sheet') $('sheet').hidden=true; });
+function sheet(html){ $('sheetIn').innerHTML=html; $('sheet').hidden=false; $('sheetIn').scrollTop=0; }
 
-function openSheet(p){
+/* charge */
+$('charge').onclick=()=>{
+ const P=[[1000,0],[5000,250],[10000,1000],[30000,4500],[50000,10000],[100000,25000]];
+ sheet(`<h2>포인트 충전</h2><div class="note">체험판이라 실제 결제 없이 바로 지급돼요.</div><div class="pkgs">${P.map(([a,b])=>`<button class="pkg" data-a="${a+b}"><span class="coin"></span><b>${fmt(a)}P</b>${b?`<em>+${fmt(b)} 보너스</em>`:''}<span class="w">₩${fmt(a)}</span></button>`).join('')}</div>`);
+ $('sheetIn').querySelectorAll('.pkg').forEach(b=>b.onclick=()=>{ au(); S.pts+=+b.dataset.a; save(); renderTop(); sfx.coin(); $('sheet').hidden=true; toast(`${fmt(+b.dataset.a)}P 충전 완료`); });
+};
+
+/* pack detail */
+function openPack(p){
  const st=S.stock[p.id],t=total(st);
- const prizes=GR.flatMap(g=>p.items[g].map(([em,nm])=>({g,em,nm})));
- $('sheetIn').innerHTML=`<h2>${p.em} ${p.name}</h2><div class="left" style="font-size:13px">잔여 ${fmt(t)}장 · 1회 ${fmt(p.price)}P</div>
- <div class="odds">${GR.map(g=>`<div><b>${st[g]}</b><small>${g} 잔여</small></div>`).join('')}</div>
- <div class="sec" style="font-size:16px">수록 카드</div><div class="prizes">${prizes.map(cardHTML).join('')}</div>
- <div class="buy"><button class="btn" id="b1" ${t<1?'disabled':''}>1회 뽑기<small>${fmt(p.price)}P</small></button><button class="btn p" id="b10" ${t<10?'disabled':''}>10연 뽑기<small>${fmt(p.price*10)}P</small></button></div>`;
- $('sheetIn').querySelectorAll('.prizes .tc').forEach(e=>e.style.fontSize='15px');
- $('sheet').hidden=false;
- $('b1').onclick=()=>pull(p,1); $('b10').onclick=()=>pull(p,10);
+ const top=[...p.items.SSS.map(mon=>({g:'SSS',mon})),...p.items.S.map(mon=>({g:'S',mon}))];
+ const all=GR.flatMap(g=>p.items[g].map(mon=>({g,mon})));
+ const n10=Math.min(10,t);
+ sheet(`<h2>${p.name}</h2><div class="left" style="font-size:13px">잔여 ${fmt(t)} / ${fmt(total(p.stock))}장 · 1회 ${fmt(p.price)}P</div>
+ <div class="sec">대박 상품</div><div class="show">${top.map(cardHTML).join('')}</div>
+ <div class="sec">등급별 잔여</div><div class="odds">${GR.map(g=>`<div><b>${st[g]}</b><small>${g}</small></div>`).join('')}<div><b>1</b><small>LAST</small></div></div>
+ <div class="sec">라스트원 상</div><div style="display:flex;gap:12px;align-items:center"><div style="width:90px;font-size:10px">${cardHTML({g:'LAST',mon:p.last})}</div><p class="note" style="margin:0">이 팩의 마지막 1장을 뽑은 사람에게 LAST ONE 카드를 추가로 드려요. 환원 가치 ${fmt(p.price*CONV.LAST)}P.</p></div>
+ <div class="sec">수록 카드</div><div class="prizes">${all.map(cardHTML).join('')}</div>
+ <div class="buy">${t?`<button class="btn" id="b1">1회 뽑기<small>${fmt(p.price)}P</small></button><button class="btn p" id="b10">${n10}연 뽑기<small>${fmt(p.price*n10)}P</small></button>`:'<button class="btn k" disabled style="grid-column:1/-1">SOLD OUT</button>'}</div>`);
+ if(t){ $('b1').onclick=()=>pull(p,1); $('b10').onclick=()=>pull(p,n10); }
 }
 
+/* card detail: convert / ship */
+function openCard(uid){
+ const c=S.inv.find(x=>x.uid===uid); if(!c) return; const m=MONS[c.mon];
+ sheet(`<div style="width:min(60vw,220px);margin:0 auto;font-size:22px">${cardHTML(c)}</div>
+ <h2 style="text-align:center;margin-top:14px">${c.g==='LAST'?'LAST ONE':c.g} ${m.n}</h2><div class="left" style="text-align:center;font-size:13px">${PK[c.pack].name} · 환원 가치 ${fmt(val(c))}P</div>
+ <div class="buy"><button class="btn g" id="cv">포인트 환원<small>+${fmt(val(c))}P</small></button><button class="btn p" id="sh" ${c.ship?'disabled':''}>${c.ship?'배송 준비중':'배송 신청'}<small>${c.ship?'신청 완료':'실물 카드 받기'}</small></button></div>`);
+ $('cv').onclick=()=>{ au(); S.pts+=val(c); S.inv=S.inv.filter(x=>x.uid!==uid); save(); renderTop(); sfx.coin(); $('sheet').hidden=true; renderBox(); toast(`${fmt(val(c))}P로 환원했어요`); };
+ if(!c.ship) $('sh').onclick=()=>shipForm(c);
+}
+function shipForm(c){
+ sheet(`<h2>배송 신청</h2><div class="note">체험판이에요. 입력한 정보는 어디에도 전송되지 않아요.</div>
+ <form id="sf"><label class="field">받는 분<input id="sfName" required placeholder="홍길동"></label><label class="field">연락처<input id="sfTel" required inputmode="tel" placeholder="010-0000-0000"></label><label class="field">주소<input id="sfAddr" required placeholder="서울시 ○○구 ○○로 12"></label>
+ <div class="buy"><button type="button" class="btn k" id="sfCancel">취소</button><button class="btn p">신청하기<small>배송비 0P</small></button></div></form>`);
+ $('sfCancel').onclick=()=>openCard(c.uid);
+ $('sf').onsubmit=e=>{ e.preventDefault(); c.ship=true; save(); $('sheet').hidden=true; renderBox(); toast('배송 신청 완료 · 배송 준비중으로 바뀌었어요'); };
+}
+
+/* pull */
+function flash(){const f=$('flash'); f.classList.remove('go'); f.offsetWidth; f.classList.add('go');}
+function cutin(g,text){ const d=document.createElement('div'); d.className='cutin '+g; d.textContent=text; document.body.appendChild(d); setTimeout(()=>d.remove(),1400); }
+async function yokoku(){ const d=document.createElement('div'); d.className='yokoku'; d.innerHTML='<b>!?</b><span>대박 예고…</span>'; document.body.appendChild(d); buzz([50,50,50]); tone(110,.6,{type:'sawtooth',v:.2}); await wait(1100); d.remove(); flash(); }
 async function pull(p,n){
- au(); if(S.pts<p.price*n){toast('포인트가 부족해요. 상단 충전 버튼을 눌러주세요'); return;}
- S.pts-=p.price*n; const got=[]; for(let i=0;i<n;i++){const c=drawOne(p); if(c) got.push(c);}
- for(const c of got){const k=c.pack+c.nm; S.inv[k]=S.inv[k]?{...S.inv[k],n:S.inv[k].n+1}:{...c,n:1};} S.pulls+=got.length; save(); renderTop();
+ au(); const cost=p.price*n; if(S.pts<cost){toast('포인트가 부족해요. 상단 충전 버튼을 눌러주세요'); return;}
+ S.pts-=cost; const got=[]; let last=false;
+ for(let i=0;i<n;i++){const c=drawOne(p); if(c){got.push(c); if(total(S.stock[p.id])===0) last=true;}}
+ if(last) got.push({g:'LAST',mon:p.last,pack:p.id});
+ for(const c of got){ c.uid=S.uid++; S.earned+=val(c); }
+ S.inv.push(...got); save(); renderTop();
  $('sheet').hidden=true;
- const best=got.reduce((a,c)=>GR.indexOf(c.g)<GR.indexOf(a.g)?c:a,got[0]);
+ const best=got.reduce((a,c)=>GRANK.indexOf(c.g)<GRANK.indexOf(a.g)?c:a,got[0]);
+ const bg=best.g==='LAST'?'SSS':best.g;
  const stage=$('stage'),body=$('stageBody'),glow=$('glow'); stage.hidden=false; glow.className='glow';
  fxOn=true; parts=[]; requestAnimationFrame(loop);
- body.innerHTML=`<div class="packbig" id="pb" style="background:${p.bg}">${p.em}</div><div class="hint">팩을 탭해서 뜯기!</div>`;
+ body.innerHTML=`<div class="packbig" id="pb" style="background:${p.bg}">${monSVG(p.mon)}<span class="pn">${p.name}</span></div><div class="hint">팩을 탭해서 뜯기!</div>`;
  await new Promise(r=>$('pb').addEventListener('click',r,{once:true}));
- const pb=$('pb'); body.querySelector('.hint').textContent= best.g==='SSS'||best.g==='S' ? '…뭔가 심상치 않다!' : '두근두근…';
+ const pb=$('pb'); const hint=body.querySelector('.hint');
+ hint.textContent=(bg==='SSS'||bg==='S')?'…뭔가 심상치 않다!':'두근두근…';
  pb.classList.add('shake'); sfx.rise();
- // tease: colour hint escalates for rare
- const steps=best.g==='SSS'?['B','A','S','SSS']:best.g==='S'?['B','A','S']:best.g==='A'?['B','A']:['B'];
+ const steps=bg==='SSS'?['B','A','S','SSS']:bg==='S'?['B','A','S']:bg==='A'?['B','A']:['B'];
  for(const g of steps){ glow.style.background=GCOL[g]; glow.className='glow'; glow.offsetWidth; glow.className='glow on'; buzz(30); for(let i=0;i<4;i++){sfx.tick(); await wait(110);} }
- pb.classList.remove('shake'); pb.classList.add('boom'); flash(); burst(best.g==='SSS'?220:best.g==='S'?120:50,COLS[best.g]); sfx.pop(best.g); buzz(best.g==='SSS'?[100,50,100,50,300]:60);
- await wait(400);
+ if(bg==='SSS' || (bg==='S'&&Math.random()<.5)) await yokoku();
+ pb.classList.remove('shake'); pb.classList.add('boom'); flash(); sfx.boom(); burst(bg==='SSS'?220:bg==='S'?120:50,COLS[bg]); buzz(bg==='SSS'?[100,50,100,50,300]:60);
+ if(bg==='SSS'||bg==='S') cutin(bg, bg==='SSS'?'SSS 확정!!!':'S 이상 확정!');
+ await wait(bg==='SSS'||bg==='S'?1200:400);
  if(n===1){
   const c=got[0];
-  body.innerHTML=`<div class="reveal"><div class="flip" id="fl"><div class="fi">${cardHTML(c)}<div class="tc back">?</div></div></div><div class="grade ${c.g}" hidden id="gd">${c.g}</div><div class="cname" hidden id="cn">${c.em} ${c.nm}</div><div class="hint" id="h2">카드를 탭해서 뒤집기</div></div>`;
+  body.innerHTML=`<div class="reveal"><div class="flip" id="fl"><div class="fi">${cardHTML(c)}<div class="cback" style="font-size:26px"></div></div></div><div class="grade ${c.g}" hidden id="gd">${c.g}</div><div class="cname" hidden id="cn">${MONS[c.mon].n} · 환원 ${fmt(val(c))}P</div><div class="hint" id="h2">카드를 탭해서 뒤집기</div></div><div id="acts" class="acts"></div>`;
   await new Promise(r=>$('fl').addEventListener('click',r,{once:true}));
   $('fl').classList.add('open'); sfx.flip(); $('h2').remove(); await wait(450);
   $('gd').hidden=false; $('cn').hidden=false; burst(c.g==='SSS'?160:60,COLS[c.g]); sfx.pop(c.g); if(c.g==='SSS'){flash(); buzz([200,80,300]);}
  } else {
-  body.innerHTML=`<div class="multi" id="mu">${got.map(c=>`<div class="slot"><div class="fi">${cardHTML(c)}<div class="back"></div></div></div>`).join('')}</div><div class="sumrow" id="sum">탭하면 한 번에 공개</div>`;
+  body.innerHTML=`<div class="multi" id="mu">${got.map(c=>`<div class="slot"><div class="fi">${cardHTML(c)}<div class="cback"></div></div></div>`).join('')}</div><div class="sumrow" id="sum">탭하면 한 번에 공개</div><div id="acts" class="acts"></div>`;
   const slots=[...$('mu').children]; let skip=false; $('mu').onclick=()=>skip=true;
-  for(let i=0;i<slots.length;i++){ const c=got[i]; const rare=c.g==='S'||c.g==='SSS';
+  for(let i=0;i<slots.length;i++){ const c=got[i]; const rare=c.g==='S'||c.g==='SSS'||c.g==='LAST';
    if(rare&&!skip) await wait(350);
-   slots[i].classList.add('open'); sfx.flip(); if(rare){slots[i].classList.add('hi'); sfx.pop(c.g); burst(c.g==='SSS'?120:50,COLS[c.g]); if(c.g==='SSS') flash();}
-   await wait(skip?40:rare?500:170); }
+   slots[i].classList.add('open'); sfx.flip();
+   if(rare){slots[i].classList.add('hi'); sfx.pop(c.g); burst(c.g==='S'?50:120,COLS[c.g]); if(c.g!=='S'){flash(); cutin(c.g,c.g==='LAST'?'LAST ONE 획득!':'SSS!!!');}}
+   await wait(skip?40:rare?(c.g==='S'?500:1300):170); }
   const cnt=g=>got.filter(c=>c.g===g).length;
-  $('sum').textContent=GR.filter(cnt).map(g=>`${g} ${cnt(g)}장`).join(' · ');
+  $('sum').innerHTML=GRANK.filter(cnt).map(g=>`${g==='LAST'?'LAST ONE':g} ${cnt(g)}장`).join(' · ')+`<br>총 환원 가치 <b>${fmt(got.reduce((a,c)=>a+val(c),0))}P</b>`;
  }
- const close=document.createElement('button'); close.className='btn p'; close.textContent='확인'; body.appendChild(close);
- const again=document.createElement('button'); again.className='btn'; again.textContent=`한 번 더 (${fmt(p.price*n)}P)`; body.appendChild(again);
+ if(last){ toast('🎉 라스트원 획득! LAST ONE 카드가 보관함에 들어갔어요'); }
+ const acts=$('acts'); const uids=new Set(got.map(c=>c.uid));
+ const lows=()=>S.inv.filter(c=>uids.has(c.uid)&&(c.g==='B'||c.g==='A'));
  const end=()=>{stage.hidden=true; fxOn=false; renderHome();};
- close.onclick=end; again.onclick=()=>{end(); if(total(S.stock[p.id])>=n) pull(p,n); else toast('남은 수량이 부족해요');};
+ const mk=(cls,html,fn)=>{const b=document.createElement('button'); b.className='btn '+cls; b.innerHTML=html; b.onclick=fn; acts.appendChild(b); return b;};
+ const lowV=lows().reduce((a,c)=>a+val(c),0);
+ if(lowV) mk('g','B·A 일괄 환원<small>+'+fmt(lowV)+'P</small>',e=>{ const v=lows().reduce((a,c)=>a+val(c),0); S.inv=S.inv.filter(c=>!(uids.has(c.uid)&&(c.g==='B'||c.g==='A'))); S.pts+=v; save(); renderTop(); sfx.coin(); toast(`${fmt(v)}P 환원 완료`); e.currentTarget.disabled=true; });
+ mk('k','보관함에 보관<small>나중에 환원·배송</small>',end);
+ const left=total(S.stock[p.id]); const nn=Math.min(n,left);
+ const again=mk('p wide',left?`한 번 더 ${nn}연<small>${fmt(p.price*nn)}P</small>`:'SOLD OUT',()=>{end(); pull(p,nn);});
+ if(!left) again.disabled=true;
+ if(!lowV) again.classList.remove('wide');
 }
-function flash(){const f=$('flash'); f.classList.remove('go'); f.offsetWidth; f.classList.add('go');}
 
 renderTop(); renderHome();
 </script>
