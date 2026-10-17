@@ -175,7 +175,7 @@ h2{font-size:15px;color:var(--gold);margin:18px 0 10px;text-shadow:2px 2px 0 #00
   ▸ 카드 거리의 <b>오리파 가게 10곳</b>: 동네 문방구부터 초고가 왕실 금고까지<br>
   ▸ 하루는 <b>3분</b>. 날이 바뀌면 모든 가게 재고가 다시 채워진다<br>
   ▸ 뽑은 카드는 가치만큼 되팔 수 있다. 골드·프리즘·블랙다이아 판은 몸값이 몇 배!<br>
-  ▸ 증권 거래소의 주가는 매일 바뀐다. <b>매도할 때마다 10% 수수료</b><br>
+  ▸ 증권 거래소의 주가는 <b>4초마다</b> 요동친다. 폭등·폭락·상장폐지까지! <b>매도할 때마다 10% 수수료</b><br>
   ▸ 부동산·모터스에서 집과 차를 사서 컬렉션을 늘리자<br>
   ▸ <b style="color:var(--red)">돈을 전부 써버리면 실패</b>. 처음부터 다시!</p>
   <p class="note" id="saveInfo" style="margin:0 0 10px">저장 데이터 확인 중…</p>
@@ -598,16 +598,18 @@ function drawCar(cv,car){
 
 // ================= STOCKS =================
 const STOCKS=[
-  {name:'햄햄팡팡 푸드',code:'HAMF',p:12000,vol:.03,mu:.004,ds:'해바라기씨 간식 1위. 느리지만 꾸준하다.'},
-  {name:'해바라기씨 홀딩스',code:'SUNF',p:48000,vol:.04,mu:.003,ds:'전국 해바라기 밭의 70%를 소유.'},
-  {name:'수원 반도체',code:'SWSC',p:85000,vol:.06,mu:.006,ds:'칩 하나에 카드 한 장. 경기 민감주.'},
-  {name:'몬스터카드 엔터',code:'MCEN',p:23000,vol:.09,mu:.005,ds:'몬스터 카드 발행사. 신규 팩 발매일에 강세.'},
-  {name:'오로라 에너지',code:'AURE',p:150000,vol:.07,mu:.004,ds:'우주 태양광 발전. 고가 성장주.'},
-  {name:'큐브 바이오',code:'CUBE',p:9000,vol:.15,mu:.002,ds:'신약 임상 결과에 따라 천국과 지옥.'},
-  {name:'로켓 모빌리티',code:'RCKT',p:31000,vol:.12,mu:.006,ds:'하늘을 나는 택시. 꿈은 크다.'},
-  {name:'도토리 코인',code:'DTRI',p:1200,vol:.28,mu:0,ds:'햄스터 밈 코인. 하루에 반토막도 두 배도.'},
+  {name:'햄햄팡팡 푸드',code:'HAMF',p:12000,vol:0.07,mu:.004,ds:'해바라기씨 간식 1위. 그나마 덜 미친 종목.'},
+  {name:'해바라기씨 홀딩스',code:'SUNF',p:48000,vol:0.09,mu:.003,ds:'전국 해바라기 밭의 70%를 소유. 날씨 뉴스에 출렁.'},
+  {name:'수원 반도체',code:'SWSC',p:85000,vol:0.13,mu:.006,ds:'칩 하나에 카드 한 장. 사이클 따라 롤러코스터.'},
+  {name:'몬스터카드 엔터',code:'MCEN',p:23000,vol:0.18,mu:.005,ds:'몬스터 카드 발행사. 신규 팩 소문에 폭등과 폭락.'},
+  {name:'오로라 에너지',code:'AURE',p:150000,vol:0.15,mu:.004,ds:'우주 태양광 발전. 고가 성장주.'},
+  {name:'큐브 바이오',code:'CUBE',p:9000,vol:0.32,mu:.002,ds:'신약 임상 한 방에 천국과 지옥.'},
+  {name:'로켓 모빌리티',code:'RCKT',p:31000,vol:0.26,mu:.006,ds:'하늘을 나는 택시. 꿈과 거품 사이.'},
+  {name:'도토리 코인',code:'DTRI',p:1200,vol:0.6,mu:0,ds:'햄스터 밈 코인. 몇 초 만에 두 배도, 반의 반토막도.'},
 ];
 const NEWS_UP=['신제품 대박 소식에 매수세 몰려','외국인 대량 매수','실적 서프라이즈 발표','햄스터 인플루언서가 언급','정부 지원 정책 수혜 기대'];
+const NEWS_MEGA_UP=['상한가 행진! 개미들 환호','초대형 인수합병 발표','전설의 투자자 "올인" 선언','정부 국책 사업 단독 선정'];
+const NEWS_MEGA_DN=['회계 부정 의혹으로 투매 폭발','CEO 해바라기씨 들고 잠적','핵심 공장 전소','거래소 투자 경고 지정'];
 const NEWS_DN=['대표 해바라기씨 과식 논란','공장 화재로 생산 차질','실적 쇼크','공매도 세력 집중 공격','규제 강화 우려'];
 
 // ================= STATE =================
@@ -914,16 +916,16 @@ function buyAsset(kind,i){const L=kind==='estate'?HOUSES:CARS,own=kind==='estate
 function sellAsset(kind,i){const L=kind==='estate'?HOUSES:CARS,own=kind==='estate'?S.houses:S.cars;if(!own[i])return;own[i]--;const v=L[i].price*.9;S.money+=v;sfx('sell');toast(`${L[i].name} 매각 +${won(v)}`);save();render()}
 
 function renderStocks(m){
-  m.appendChild(el(`<div class="sign" style="margin-top:6px"><h1>📈 수원 증권 거래소</h1><small>주가는 매일 아침 바뀝니다 · 매도 시 매도 금액의 10% 수수료</small></div>`));
-  m.appendChild(el(`<div class="news"><b style="color:var(--gold)">📰 DAY ${S.day} 뉴스</b><br>${S.news.join('<br>')}</div>`));
+  m.appendChild(el(`<div class="sign" style="margin-top:6px"><h1>📈 수원 증권 거래소</h1><small>주가는 4초마다 움직입니다 · 폭등·폭락·상장폐지 주의 · 매도 시 매도 금액의 10% 수수료</small></div>`));
+  m.appendChild(el(`<div class="news"><b style="color:var(--gold)">📰 실시간 속보 · DAY ${S.day}</b><br>${S.news.join('<br>')}</div>`));
   const q=el(`<div class="row" style="margin-bottom:10px;font-size:12px"><span>주문 수량:</span></div>`);
   [1,10,100,1000].forEach(n=>{const b=document.createElement('button');b.className='pbtn '+(stockQty===n?'':'alt');b.textContent=n+'주';b.onclick=()=>{stockQty=n;render()};q.appendChild(b)});
   m.appendChild(q);
   const list=el('<div class="stocks"></div>');
-  STOCKS.forEach((d,i)=>{const s=S.stocks[i],prev=s.hist.length>1?s.hist[s.hist.length-2]:s.hist[0],ch=(s.price-prev)/prev;
+  STOCKS.forEach((d,i)=>{const s=S.stocks[i],prev=s.open||s.hist[0]||s.price,ch=(s.price-prev)/prev,last=s.hist.length>1?s.hist[s.hist.length-2]:s.price,tk=s.price>last?' ↑':s.price<last?' ↓':'';
     const cls=ch>0?'up':ch<0?'down':'',val=s.price*s.qty,pl=val-s.cost;
     const r=el(`<div class="stock"><div><div class="sn">${d.name} <span style="font-size:10px;color:var(--sub)">${d.code}</span></div>
-      <div class="sp ${cls}">${fmt(s.price)}원</div><div class="sc ${cls}">${ch>0?'▲':ch<0?'▼':'-'} ${(ch*100).toFixed(1)}% (전일 ${fmt(prev)})</div><div class="note">${d.ds}</div></div>
+      <div class="sp ${cls}">${fmt(s.price)}원${tk}</div><div class="sc ${cls}">${ch>0?'▲':ch<0?'▼':'-'} ${(ch*100).toFixed(1)}% (오늘 시가 ${fmt(prev)})</div><div class="note">${d.ds}</div></div>
       <canvas width="160" height="56"></canvas>
       <div><div class="hold">보유 ${fmt(s.qty)}주${s.qty?` · 평단 ${fmt(s.cost/s.qty)}원<br>평가 ${won(val)} · <span class="${pl>=0?'up':'down'}">손익 ${pl>=0?'+':''}${won(pl)} (${(pl/s.cost*100).toFixed(1)}%)</span>`:''}</div>
       <div class="btns"></div></div></div>`);
@@ -936,11 +938,11 @@ function renderStocks(m){
     if(s.qty){const sq=Math.min(stockQty,s.qty);mk(`매도 ${fmt(sq)}주`,'blue',()=>sellStock(i,sq),false);if(s.qty>sq)mk('전량 매도','blue',()=>sellStock(i,s.qty),false)}
     list.appendChild(r)});
   m.appendChild(list);
-  m.appendChild(el(`<p class="note">상승은 빨강, 하락은 파랑. '최대 매수'는 1원을 남기고 삽니다. 매도 금액의 10%는 수수료로 빠져요.</p>`));
+  m.appendChild(el(`<p class="note">상승은 빨강, 하락은 파랑. '최대 매수'는 1원을 남기고 삽니다. 매도 금액의 10%는 수수료로 빠져요. 주가가 원래 가격의 2% 아래로 떨어지면 상장폐지되어 보유 주식이 사라져요!</p>`));
 }
 function drawChart(cv,h){const c=cv.getContext('2d'),W=160,H=56;c.clearRect(0,0,W,H);
   for(let y=8;y<H;y+=12)px(c,0,y,W,1,'#1a1428');
-  const d=h.slice(-30);if(d.length<2){px(c,0,H/2,W,1,'#b9a6d9');return}
+  const d=h.slice(-120);if(d.length<2){px(c,0,H/2,W,1,'#b9a6d9');return}
   const mn=Math.min(...d),mx=Math.max(...d),sc=v=>H-6-(mx===mn?.5:(v-mn)/(mx-mn))*(H-12);
   const up=d[d.length-1]>=d[0],col=up?'#ff5a6a':'#5aa8ff';
   c.fillStyle=up?'#ff5a6a22':'#5aa8ff22';c.beginPath();c.moveTo(0,H);d.forEach((v,i)=>c.lineTo(i/(d.length-1)*(W-4),sc(v)));c.lineTo(W-4,H);c.fill();
@@ -1031,21 +1033,41 @@ const DAY_LEN=180;
 let started=false,lastT=0,saveAcc=0;
 function loop(ts){
   if(started&&!S.over){const dt=Math.min(1,(ts-lastT)/1000);S.elapsed+=dt;saveAcc+=dt;
+    tickAcc+=dt;if(tickAcc>=TICK_SEC){tickAcc=0;stockTick()}
     if(S.elapsed>=DAY_LEN){S.elapsed-=DAY_LEN;newDay()}
     if(saveAcc>5){saveAcc=0;saveLocal()}
     renderHUD()}
   lastT=ts;requestAnimationFrame(loop)}
+// market engine: every few seconds each stock drifts with a hidden trend, plus random jumps, mega surges/crashes and delisting
+const TICK_SEC=4;let tickAcc=0;
+function pushNews(t){S.news.unshift(t);if(S.news.length>8)S.news.length=8}
+function stockTick(scale=1){
+  const alerts=[];
+  S.stocks.forEach((s,i)=>{const d=STOCKS[i],old=s.price,v=d.vol;
+    if(s.tr===undefined||R()<.06*scale)s.tr=(R()-.48)*v*.35;
+    let ch=d.mu/10+s.tr+v*.32*gauss()*Math.sqrt(scale),tag=null;
+    if(R()<.04*scale){const up=R()<.5,mag=.15+R()*.45;ch+=up?Math.log(1+mag):Math.log(1-mag*.75);tag=[up,pick(up?NEWS_UP:NEWS_DN)]}
+    if(R()<.007*scale){const up=R()<.5;ch+=up?Math.log(2+R()*2.5):Math.log(.15+R()*.3);s.tr=up?v*.25:-v*.25;tag=[up,pick(up?NEWS_MEGA_UP:NEWS_MEGA_DN),1]}
+    s.price=Math.max(1,Math.round(old*Math.exp(ch)));
+    if(s.price<d.p*.02){const lost=s.qty;pushNews(`☠ ${d.name} 상장폐지! 보유 주식이 휴지조각이 됐다${lost?` (${fmt(lost)}주 소멸)`:''}. 새 법인으로 재상장`);
+      if(lost)alerts.push(`☠ ${d.name} 상장폐지… ${fmt(lost)}주 소멸`);s.qty=0;s.cost=0;s.price=d.p;s.tr=0;s.hist=[];s.open=d.p}
+    else if(tag){const pct=((s.price-old)/old*100).toFixed(0);pushNews(`${tag[0]?'🔺':'🔻'}${tag[2]?'🔥':''} ${d.name} ${pct>0?'+':''}${pct}%: ${tag[1]}`);
+      if(s.qty&&(tag[2]||Math.abs(pct)>=25))alerts.push(`${tag[0]?'🚀':'💥'} 보유 중인 ${d.name} ${pct>0?'+':''}${pct}%!`)}
+    s.hist.push(s.price);if(s.hist.length>160)s.hist.shift();
+    if(!s.open)s.open=s.hist[0]||s.price});
+  if(alerts.length){toast(alerts.join(' · '));sfx(alerts[0].includes('🚀')?'rare':'fail')}
+  if(screen==='stocks'&&!document.querySelector('.modal.on'))render();else renderHUD();
+}
 function newDay(){
   S.day++;S.tickets=freshTickets();S.news=[];
-  const movers=[];
-  S.stocks.forEach((s,i)=>{const d=STOCKS[i];let ch=d.mu+d.vol*gauss(),nws=null;
-    if(R()<.1){const up=R()<.5,mag=.15+R()*.35;ch+=up?mag:-mag;nws=`${d.name}, ${pick(up?NEWS_UP:NEWS_DN)}`}
-    const old=s.price;s.price=Math.max(10,Math.round(s.price*Math.exp(ch)));s.hist.push(s.price);if(s.hist.length>60)s.hist.shift();
-    if(nws)S.news.push((s.price>old?'🔺 ':'🔻 ')+nws);movers.push([d.name,(s.price-old)/old])});
-  if(!S.news.length)S.news.push('조용한 장세가 이어지고 있습니다.');
+  const before=S.stocks.map(s=>s.open||s.price);
+  stockTick(4); // overnight gap: four ticks' worth of chaos at once
+  const movers=S.stocks.map((s,i)=>[STOCKS[i].name,(s.price-before[i])/before[i]]);
+  S.stocks.forEach(s=>s.open=s.price);
+  if(!S.news.length)S.news.push('밤사이 큰 뉴스는 없었습니다. 하지만 방심은 금물!');
   sfx('day');save();
   const list=movers.map(([n,c])=>`<div><span>${n}</span> <b class="${c>0?'up':c<0?'down':''}" style="float:right">${c>0?'▲':'▼'} ${(c*100).toFixed(1)}%</b></div>`).join('');
-  $('endM').dataset.kind='';const dayHtml=`<div class="bigmsg" style="color:var(--gold)">☀ DAY ${S.day}</div><p>새 아침이 밝았다! 카드 거리의 모든 오리파 재고가 다시 채워졌어요.</p>
+  $('endM').dataset.kind='';const dayHtml=`<div class="bigmsg" style="color:var(--gold)">☀ DAY ${S.day}</div><p>새 아침이 밝았다! 카드 거리의 모든 오리파 재고가 다시 채워졌어요.<br>아래는 어제 시가 대비 오늘 시가 등락이에요.</p>
     <div class="daylist"><b style="color:var(--gold)">📰 오늘의 뉴스</b><br>${S.news.join('<br>')}</div><div class="daylist">${list}</div>
     <button class="pbtn" id="dayOk">좋아, 오늘도 출발!</button>`;
   if(!$('pullM').classList.contains('on')&&!$('endM').classList.contains('on')){$('endBox').innerHTML=dayHtml;$('endM').classList.add('on');$('dayOk').onclick=()=>$('endM').classList.remove('on')}
