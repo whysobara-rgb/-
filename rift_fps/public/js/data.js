@@ -58,15 +58,15 @@ export const TYPES = [
   { key: 'flak', name: '플랙 캐논', cls: '폭발 샷건', mode: 'hitscan', dmg: 22, pellets: 6, aoe: 1.8, rate: 1.3, mag: 6, reload: 1.9, spread: 0.07, auto: false, len: 0.85 },
   { key: 'cryo', name: '크라이오 라이플', cls: '빙결', mode: 'hitscan', dmg: 24, slow: 0.5, pierce: 1, rate: 8, mag: 36, reload: 1.5, spread: 0.012, auto: true, len: 0.72 },
   // 근접 무기: 탄약 없음, 적중 시 체력 흡수(leech), range=사거리(m), arc=판정 각도(cos)
-  { key: 'knife', name: '컴뱃 나이프', cls: '근접', mode: 'melee', dmg: 34, rate: 4, range: 3.2, arc: 0.55, kb: 4, leech: 1, cleave: 1, auto: true, len: 0.3, mshape: 'knife' },
-  { key: 'katana', name: '카타나', cls: '근접 · 베기', mode: 'melee', dmg: 62, rate: 2.4, range: 4.2, arc: 0.3, kb: 6, leech: 1, cleave: 3, auto: true, len: 0.9, mshape: 'katana' },
-  { key: 'greatsword', name: '대검', cls: '근접 · 광역', mode: 'melee', dmg: 150, rate: 1.0, range: 5.2, arc: 0.0, kb: 16, leech: 2, cleave: 5, auto: true, len: 1.1, mshape: 'great' },
-  { key: 'hammer', name: '전쟁 망치', cls: '근접 · 충격', mode: 'melee', dmg: 175, rate: 0.85, range: 4.4, arc: 0.35, kb: 22, leech: 2, cleave: 4, aoe: 4.5, auto: true, len: 0.95, mshape: 'hammer' },
-  { key: 'chainsword', name: '체인소드', cls: '근접 · 연속', mode: 'melee', dmg: 13, rate: 12, range: 3.6, arc: 0.45, kb: 1.5, leech: 0, cleave: 2, auto: true, len: 0.85, mshape: 'chain' },
-  { key: 'scythe', name: '차원 낫', cls: '근접 · 회전', mode: 'melee', dmg: 85, rate: 1.4, range: 5, arc: -0.35, kb: 10, leech: 1, cleave: 6, auto: true, len: 1.1, mshape: 'scythe' },
-  { key: 'plasmablade', name: '플라즈마 블레이드', cls: '근접 · 검기', mode: 'melee', dmg: 75, rate: 2.2, range: 4.4, arc: 0.3, kb: 6, leech: 1, cleave: 3, wave: true, auto: true, len: 0.95, mshape: 'plasma' },
-  { key: 'gauntlet', name: '파워 건틀릿', cls: '근접 · 폭발', mode: 'melee', dmg: 110, rate: 1.7, range: 3.2, arc: 0.5, kb: 18, leech: 2, cleave: 1, aoe: 3, auto: true, len: 0.35, mshape: 'fist' },
-  { key: 'spear', name: '에너지 창', cls: '근접 · 관통', mode: 'melee', dmg: 80, rate: 1.8, range: 6.5, arc: 0.88, kb: 8, leech: 1, cleave: 4, auto: true, len: 1.3, mshape: 'spear' },
+  { key: 'knife', name: '컴뱃 나이프', cls: '근접', mode: 'melee', dmg: 24, rate: 3.2, range: 3.2, arc: 0.55, kb: 1.4, leech: 1, cleave: 1, auto: true, len: 0.3, mshape: 'knife' },
+  { key: 'katana', name: '카타나', cls: '근접 · 베기', mode: 'melee', dmg: 43, rate: 1.92, range: 4.2, arc: 0.3, kb: 2.1, leech: 1, cleave: 3, auto: true, len: 0.9, mshape: 'katana' },
+  { key: 'greatsword', name: '대검', cls: '근접 · 광역', mode: 'melee', dmg: 105, rate: 0.8, range: 5.2, arc: 0.0, kb: 5.6, leech: 2, cleave: 4, auto: true, len: 1.1, mshape: 'great' },
+  { key: 'hammer', name: '전쟁 망치', cls: '근접 · 충격', mode: 'melee', dmg: 122, rate: 0.68, range: 4.4, arc: 0.35, kb: 7.7, leech: 2, cleave: 3, aoe: 4.5, auto: true, len: 0.95, mshape: 'hammer' },
+  { key: 'chainsword', name: '체인소드', cls: '근접 · 연속', mode: 'melee', dmg: 9, rate: 9.6, range: 3.6, arc: 0.45, kb: 0.5, leech: 0, cleave: 2, auto: true, len: 0.85, mshape: 'chain' },
+  { key: 'scythe', name: '차원 낫', cls: '근접 · 회전', mode: 'melee', dmg: 59, rate: 1.12, range: 5, arc: -0.35, kb: 3.5, leech: 1, cleave: 4, auto: true, len: 1.1, mshape: 'scythe' },
+  { key: 'plasmablade', name: '플라즈마 블레이드', cls: '근접 · 검기', mode: 'melee', dmg: 52, rate: 1.76, range: 4.4, arc: 0.3, kb: 2.1, leech: 1, cleave: 3, wave: true, auto: true, len: 0.95, mshape: 'plasma' },
+  { key: 'gauntlet', name: '파워 건틀릿', cls: '근접 · 폭발', mode: 'melee', dmg: 77, rate: 1.36, range: 3.2, arc: 0.5, kb: 6.3, leech: 2, cleave: 1, aoe: 3, auto: true, len: 0.35, mshape: 'fist' },
+  { key: 'spear', name: '에너지 창', cls: '근접 · 관통', mode: 'melee', dmg: 56, rate: 1.44, range: 6.5, arc: 0.88, kb: 2.8, leech: 1, cleave: 3, auto: true, len: 1.3, mshape: 'spear' },
 ];
 
 const PREFIX = [
@@ -113,6 +113,29 @@ TYPES.forEach((t, ti) => {
     WEAPONS.push(w);
   });
 });
+// 전설·신화 무기 전용 스킬 (X키). 계열별로 다르고, 신화는 쿨타임 25% 감소·위력 60% 증가
+export const WEAPON_SKILLS = {
+  storm: { name: '탄막 폭풍', icon: '🌪', cd: 20, desc: '5초간 연사 속도 2.5배·탄약 소모 없음·탄환 관통' },
+  rail: { name: '차원 관통포', icon: '☄', cd: 15, desc: '조준 방향 일직선의 모든 적을 꿰뚫는 거대 광선' },
+  orbital: { name: '궤도 폭격', icon: '🛰', cd: 18, desc: '조준 지점에 하늘에서 3연속 폭격' },
+  thunder: { name: '뇌신의 심판', icon: '⚡', cd: 16, desc: '30m 안의 적 최대 12체에게 낙뢰' },
+  blackhole: { name: '특이점', icon: '🕳', cd: 20, desc: '조준 지점에 적을 빨아들인 뒤 대폭발하는 블랙홀' },
+  zero: { name: '절대 영도', icon: '❄', cd: 18, desc: '주변 18m 적을 얼려 4초간 거의 멈추게 하고 피해' },
+  nova: { name: '산탄 노바', icon: '✺', cd: 12, desc: '사방 360°로 산탄 48발을 동시에 발사' },
+  rend: { name: '차원 참격', icon: '🌀', cd: 15, desc: '주변 9m를 한 바퀴 베어내는 회전 참격' },
+};
+const SKILL_OF = {
+  pistol: 'storm', smg: 'storm', rifle: 'storm', burst: 'storm', drifle: 'storm', minigun: 'storm',
+  sniper: 'rail', railgun: 'rail', laser: 'rail',
+  rpg: 'orbital', gl: 'orbital', grenade: 'orbital', exrifle: 'orbital', pboom: 'orbital', flak: 'orbital',
+  tesla: 'thunder', plasma: 'blackhole', cryo: 'zero', shotgun: 'nova', dshotgun: 'nova',
+};
+for (const w of WEAPONS) {
+  if (w.rarity < 4) continue;
+  const id = w.mode === 'melee' ? 'rend' : SKILL_OF[w.type];
+  const base = WEAPON_SKILLS[id], mythic = w.rarity === 5;
+  w.skill = { id, ...base, cd: Math.round(base.cd * (mythic ? 0.75 : 1)), power: mythic ? 1.6 : 1 };
+}
 export const WEAPON_BY_ID = Object.fromEntries(WEAPONS.map((w) => [w.id, w]));
 
 export const ARMORS = [

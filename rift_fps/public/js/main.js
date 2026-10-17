@@ -88,6 +88,7 @@ function weaponCard(def, foot = '', extraClass = '') {
     ${def.mode === 'melee' ? statRow('흡혈', def.leech, 10, '+' + def.leech + ' HP') : statRow('장전', 3.2 - def.reload, 3, def.reload + 's')}
     ${def.mode === 'melee' ? statRow('사거리', def.range, 9, def.range + 'm') : statRow('탄창', def.mag, 260, def.mag)}
     <div class="tags">${tags(def)}</div>
+    ${def.skill ? `<div class="wskill-tag"><b>${def.skill.icon} ${def.skill.name}<em>X · ${def.skill.cd}s</em></b><span>${def.skill.desc}</span></div>` : ''}
     ${foot}</div>`;
 }
 
@@ -324,6 +325,12 @@ const game = window.__game = new Game($('c'), {
     $('hpTxt').textContent = Math.ceil(h.hp); $('armorTxt').textContent = Math.ceil(h.armor);
     const a = $('ammoTxt'); a.textContent = h.over || h.melee ? '∞' : h.ammo; a.className = h.over ? 'inf' : !h.melee && h.ammo <= h.mag * 0.25 ? 'low' : '';
     $('magTxt').textContent = h.melee ? '근접' : '/ ' + h.mag;
+    const ws = $('wSkill');
+    if (h.wskill) {
+      const k = h.wskill.left / h.wskill.cd;
+      ws.style.display = ''; ws.classList.toggle('ready', h.wskill.left <= 0);
+      ws.innerHTML = `<kbd>X</kbd><span class="ic">${h.wskill.icon}</span><span class="nm">${h.wskill.name}</span><em>${h.wskill.left > 0 ? Math.ceil(h.wskill.left) + 's' : 'READY'}</em><i style="width:${(1 - k) * 100}%"></i>`;
+    } else ws.style.display = 'none';
     // 탄약 눈금: 탄창 크기만큼 칸을 그리고 남은 탄만 밝게
     const pipKey = h.melee || h.over ? 'x' : h.mag + ':' + h.ammo;
     if (pipKey !== lastPipKey) {

@@ -55,7 +55,7 @@ input { font: inherit; }
 @keyframes deployGlow { 50% { box-shadow: 0 8px 50px rgba(255, 61, 187, .65), 0 0 0 1px rgba(255, 255, 255, .15) inset; } }
 
 /* ───── 로그인 ───── */
-#login.show { display: grid; place-items: center; background: radial-gradient(ellipse at 50% 40%, rgba(6, 3, 13, .05), rgba(6, 3, 13, .8)); }
+#login.show { display: flex; flex-direction: column; align-items: center; justify-content: safe center; overflow-y: auto; padding: 20px 0; background: radial-gradient(ellipse at 50% 40%, rgba(6, 3, 13, .05), rgba(6, 3, 13, .8)); }
 .login-wrap { display: flex; flex-direction: column; align-items: center; gap: 30px; }
 .logo-block { position: relative; text-align: center; }
 .logo-ring { position: absolute; left: 50%; top: 50%; width: 520px; height: 520px; margin: -260px; border-radius: 50%; border: 1px dashed rgba(255, 61, 187, .25); animation: spin 40s linear infinite; pointer-events: none; }
@@ -324,6 +324,18 @@ kbd { background: linear-gradient(180deg, rgba(255, 255, 255, .14), rgba(255, 25
 #ammoPips i { width: 4px; height: 10px; background: #fff; opacity: .85; transform: skewX(-15deg); }
 #ammoPips i.e { opacity: .12; }
 #ammoPips.many i { width: 2px; height: 8px; gap: 1px; }
+#wSkill { position: relative; display: flex; align-items: center; gap: 8px; justify-content: flex-end; margin-top: 8px; padding: 6px 10px; overflow: hidden; border: 1px solid rgba(255, 255, 255, .15); background: rgba(0, 0, 0, .45); font-size: 13px; font-weight: 700;
+  clip-path: polygon(8px 0, 100% 0, 100% 100%, 0 100%, 0 8px); }
+#wSkill i { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--dim-2); }
+#wSkill em { font-style: normal; font-family: var(--mono); font-size: 11px; color: var(--dim); min-width: 46px; text-align: right; }
+#wSkill.ready { border-color: var(--gold); box-shadow: inset 0 0 16px rgba(251, 191, 36, .25); }
+#wSkill.ready i { background: var(--gold); box-shadow: 0 0 8px var(--gold); }
+#wSkill.ready em { color: var(--gold); animation: pulse 1s infinite; }
+#wSkill .ic { font-size: 17px; }
+.wskill-tag { position: relative; margin-top: 10px; padding: 8px 10px; background: linear-gradient(90deg, color-mix(in srgb, var(--rc) 22%, transparent), transparent); border-left: 2px solid var(--rc); }
+.wskill-tag b { display: flex; justify-content: space-between; font-size: 12px; color: #fff; }
+.wskill-tag b em { font-style: normal; font-family: var(--mono); font-size: 9px; color: var(--rc); }
+.wskill-tag span { display: block; font-size: 11px; color: var(--dim); margin-top: 3px; line-height: 1.4; }
 .reload { height: 4px; width: 220px; margin-left: auto; margin-top: 8px; background: rgba(255, 255, 255, .1); overflow: hidden; visibility: hidden; }
 .reload.show { visibility: visible; }
 .reload i { display: block; height: 100%; background: linear-gradient(90deg, var(--cyan), #fff); box-shadow: 0 0 8px var(--cyan); }
@@ -353,4 +365,5 @@ kbd { background: linear-gradient(180deg, rgba(255, 255, 255, .14), rgba(255, 25
 .settings label { display: flex; flex-direction: column; gap: 8px; font-weight: 700; }
 .settings label b { font-family: var(--mono); color: var(--pink); }
 .settings input[type=range] { accent-color: var(--pink); }
+@media (max-height: 760px) { .logo { font-size: clamp(36px, 7vw, 76px); } .login-wrap { gap: 16px; } .logo-ring { width: 380px; height: 380px; margin: -190px; } .login-panel { padding: 16px; } }
 @media (max-width: 700px) { .facts, .loadout-preview, .slotbar { grid-template-columns: repeat(2, 1fr); } .keys { grid-template-columns: repeat(2, 1fr); } }
