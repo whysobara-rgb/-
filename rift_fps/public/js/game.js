@@ -106,17 +106,8 @@ export class Game {
     }));
     s.add(sky); this.sky = sky;
 
-    // 기둥(엄폐물)
+    // 기둥 없음: 탁 트인 아레나 (충돌/미니맵 코드는 빈 배열로 그대로 동작)
     this.pillars = [];
-    const pm = new THREE.MeshStandardMaterial({ color: 0x1d1530, roughness: 0.3, metalness: 0.7, flatShading: true });
-    const cm = new THREE.MeshStandardMaterial({ color: 0x220033, emissive: 0xb026ff, emissiveIntensity: 1.6, flatShading: true });
-    for (let i = 0; i < 16; i++) {
-      const a = (i / 16) * Math.PI * 2 + rand(-0.2, 0.2), d = rand(16, 54);
-      const x = Math.cos(a) * d, z = Math.sin(a) * d, r = rand(1.2, 2.4), h = rand(5, 16);
-      const p = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.7, r, h, 6), pm); p.position.set(x, h / 2, z); s.add(p);
-      const cr = new THREE.Mesh(new THREE.OctahedronGeometry(r * 0.8, 0), cm); cr.position.set(x, h + r * 0.6, z); cr.scale.y = 1.8; s.add(cr);
-      this.pillars.push({ x, z, r: r + 0.2, h, crystal: cr });
-    }
     // 소환 포탈
     this.portals = [];
     const portalMat = new THREE.ShaderMaterial({
