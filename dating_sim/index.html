@@ -1,0 +1,926 @@
+<meta charset="utf-8">
+<title>캠퍼스 하트 300</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&family=Gowun+Dodum&family=Gowun+Batang:wght@400;700&display=swap">
+<style>
+/* Layout: one game window filling the viewport; layered bg → particles → portrait → dialogue → HUD.
+   A deliberate single dusk-night look, so no light/dark switch. */
+:root{
+  --ink:#140e25;
+  --panel:rgba(26,18,48,.84);
+  --panel-solid:#211939;
+  --fg:#fcf2f7;
+  --muted:#c3b6d8;
+  --accent:#ff8fb3;
+  --gold:#ffd27a;
+  --good:#86f2c6;
+  --bad:#ff8080;
+  --me:#9cc2ff;
+  --line:rgba(255,236,250,.16);
+  --display:'Jua','Apple SD Gothic Neo','Malgun Gothic',sans-serif;
+  --body:'Gowun Dodum','Apple SD Gothic Neo','Malgun Gothic',sans-serif;
+  --story:'Gowun Batang','Nanum Myeongjo','AppleMyungjo',serif;
+  color-scheme:dark;
+}
+html,body{height:100%}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--ink);color:var(--fg);font-family:var(--body);font-size:15px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  padding-block:12px;overflow:hidden;-webkit-tap-highlight-color:transparent}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+#app{position:relative;height:100%;max-width:1100px;margin:0 auto;border-radius:18px;overflow:hidden;background:#0b0818;isolation:isolate;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.layer{position:absolute;inset:0}
+#bg{z-index:0;transition:opacity .5s}
+#bg .grad{position:absolute;inset:0}
+#bg svg{position:absolute;inset:0;width:100%;height:100%}
+#fx{z-index:1;pointer-events:none;width:100%;height:100%}
+section.layer{z-index:2}
+
+/* ---------- HUD ---------- */
+#topbar{position:absolute;z-index:6;top:0;left:0;right:0;display:flex;align-items:center;gap:10px;padding:12px 14px;pointer-events:none}
+#topbar > *{pointer-events:auto}
+.pill{display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:6px 14px;backdrop-filter:blur(8px)}
+#timer{font-family:var(--display);font-size:22px;font-variant-numeric:tabular-nums;min-width:118px}
+#timer .lbl,#scorebox .lbl{font-family:var(--body);font-size:11px;letter-spacing:.08em;color:var(--muted)}
+#timer.warn{color:var(--bad);animation:pulse 1s infinite}
+#scorebox{font-family:var(--display);font-size:20px;font-variant-numeric:tabular-nums}
+#phase{font-size:13px;color:var(--muted)}
+.spacer{flex:1}
+.iconbtn{width:40px;height:40px;border-radius:50%;background:var(--panel);border:1px solid var(--line);display:grid;place-items:center;font-size:16px}
+@keyframes pulse{50%{opacity:.55}}
+
+/* ---------- Title ---------- */
+#title{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:14px;padding:24px 16px;overflow:auto}
+#title .eyebrow{font-size:13px;letter-spacing:.3em;color:var(--gold)}
+#title h1{font-family:var(--display);font-weight:400;font-size:clamp(44px,9vw,96px);line-height:.95;margin:0;text-wrap:balance;
+  background:linear-gradient(180deg,#fff 10%,var(--accent) 95%);-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 4px 18px rgba(255,120,170,.45))}
+#title h1 small{display:block;font-size:.38em;letter-spacing:.12em;color:var(--fg);-webkit-text-fill-color:var(--fg)}
+#lineup{display:flex;justify-content:center;gap:4px;margin-top:6px;flex-wrap:wrap}
+#lineup .mini{width:92px;height:92px;border-radius:50%;overflow:hidden;background:rgba(255,255,255,.08);border:2px solid var(--line)}
+#lineup .mini svg{width:100%;height:100%}
+.rules{max-width:560px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 18px;text-align:left;line-height:1.7;font-size:14px;color:var(--muted)}
+.rules b{color:var(--fg)}
+.cta{font-family:var(--display);font-size:22px;padding:14px 44px;border-radius:999px;border:0;background:linear-gradient(180deg,#ffb3cb,#ff7fa8);color:#3a0d22;box-shadow:0 8px 24px rgba(255,110,160,.45),inset 0 -3px 0 rgba(0,0,0,.12);transition:transform .15s}
+.cta:hover{transform:translateY(-2px)}
+.ghost{font-size:14px;padding:10px 22px;border-radius:999px;border:1px solid var(--line);background:var(--panel)}
+#best{font-size:13px;color:var(--muted)}
+
+/* ---------- Hub ---------- */
+#hub{overflow:auto;padding:72px 18px 22px}
+#hub h2{font-family:var(--display);font-weight:400;font-size:28px;margin:6px 0 4px;text-wrap:balance;text-shadow:0 2px 10px rgba(40,10,50,.7),0 0 2px rgba(40,10,50,.9)}
+#hub .sub{color:var(--fg);margin:0 0 16px;font-size:14px;text-shadow:0 1px 6px rgba(40,10,50,.85)}
+#cards{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
+.card{position:relative;display:flex;flex-direction:column;text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:0 0 12px;overflow:hidden;transition:transform .15s,border-color .15s;backdrop-filter:blur(6px)}
+.card:hover:not(:disabled){transform:translateY(-4px);border-color:var(--c)}
+.card:disabled{opacity:.5;cursor:default}
+.card .face{aspect-ratio:1;max-width:100%;background:radial-gradient(circle at 50% 60%,var(--c) 0%,transparent 72%);}
+.card .face svg{width:100%;height:100%;display:block}
+.card .info{padding:8px 12px 0;display:flex;flex-direction:column;gap:3px;min-width:0}
+.card .nm{font-family:var(--display);font-size:20px}
+.card .tg{font-size:12px;color:var(--c)}
+.card .lc{font-size:12px;color:var(--muted)}
+.card .hint{font-size:12px;color:var(--muted);line-height:1.5;min-height:3em}
+.bar{position:relative;height:10px;border-radius:999px;background:rgba(255,255,255,.1);margin-top:6px}
+.bar i{position:absolute;inset:0 auto 0 0;border-radius:999px;background:linear-gradient(90deg,var(--c),#fff);transition:width .6s}
+.bar .mark{position:absolute;left:80%;top:-4px;bottom:-4px;width:2px;background:var(--gold)}
+.meta{display:flex;justify-content:space-between;font-size:12px;margin-top:4px;font-variant-numeric:tabular-nums}
+.meta .lv{color:var(--muted)}
+.badge{position:absolute;top:10px;right:10px;font-size:11px;padding:3px 8px;border-radius:999px;background:var(--gold);color:#3a2400;font-weight:700}
+
+/* ---------- Scene ---------- */
+#scene{cursor:pointer}
+#portrait{position:absolute;bottom:0;left:50%;transform:translateX(-50%);height:90%;aspect-ratio:320/420;max-width:100%;z-index:2;filter:drop-shadow(0 10px 30px rgba(0,0,0,.35))}
+#portrait svg{width:100%;height:100%;display:block}
+#portrait.enter{animation:rise .5s ease-out}
+#portrait.hop{animation:hop .35s}
+#portrait.shake{animation:shake .35s}
+@keyframes rise{from{opacity:0;transform:translate(-50%,24px)}}
+@keyframes hop{40%{transform:translate(-50%,-14px)}}
+@keyframes shake{25%{transform:translate(calc(-50% - 8px),0)}75%{transform:translate(calc(-50% + 8px),0)}}
+#locname{position:absolute;z-index:3;top:66px;left:16px;font-size:13px;letter-spacing:.06em;padding:5px 12px;border-radius:999px;background:var(--panel);border:1px solid var(--line)}
+#dialog{position:absolute;z-index:4;left:12px;right:12px;bottom:12px;min-height:138px;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:24px 22px 18px;backdrop-filter:blur(10px)}
+#speaker{position:absolute;top:-15px;left:18px;font-family:var(--display);font-size:17px;padding:4px 16px;border-radius:999px;background:var(--sc,#555);color:#1b0d18}
+#speaker:empty{display:none}
+#text{font-family:var(--story);font-size:clamp(16px,2.2vw,19px);line-height:1.75;margin:0;white-space:pre-wrap;min-height:3.4em;max-width:62ch}
+#text.narr{font-style:italic;color:var(--muted)}
+#nextind{position:absolute;right:18px;bottom:12px;color:var(--accent);animation:bob 1s infinite;font-size:14px}
+@keyframes bob{50%{transform:translateY(4px)}}
+#choices{position:absolute;z-index:5;left:0;right:0;top:15%;display:flex;flex-direction:column;align-items:center;gap:10px;padding:0 16px}
+#choices .q{font-family:var(--display);font-size:16px;color:var(--gold);background:var(--panel);padding:4px 14px;border-radius:999px;border:1px solid var(--line)}
+.choice{width:100%;max-width:560px;text-align:left;padding:14px 18px;border-radius:14px;background:rgba(255,248,252,.95);color:#2a1630;border:2px solid transparent;font-family:var(--story);font-size:16px;line-height:1.5;display:flex;gap:12px;align-items:flex-start;box-shadow:0 6px 18px rgba(0,0,0,.25);transition:transform .12s,border-color .12s;animation:pop .3s backwards}
+.choice:nth-child(3){animation-delay:.06s}.choice:nth-child(4){animation-delay:.12s}
+.choice:hover{transform:translateX(6px);border-color:var(--accent)}
+.choice .k{font-family:var(--display);font-size:14px;width:24px;height:24px;flex:none;border-radius:50%;display:grid;place-items:center;background:var(--accent);color:#3a0d22}
+@keyframes pop{from{opacity:0;transform:translateY(10px)}}
+
+/* service (CG) mode */
+#scene.cg #dialog{background:rgba(40,10,40,.78);border-color:rgba(255,190,220,.4)}
+#cgframe{position:absolute;inset:0;z-index:3;pointer-events:none;box-shadow:inset 0 0 120px 30px rgba(20,0,20,.75);border:3px solid rgba(255,210,122,.0);transition:border-color .6s}
+#scene.cg #cgframe{border-color:rgba(255,210,122,.55)}
+#cgbanner{position:absolute;z-index:6;top:62px;left:50%;transform:translateX(-50%);text-align:center;pointer-events:none;white-space:nowrap;opacity:0}
+#scene:not(.cg) #cgbanner{display:none}
+#cgbanner .t1{font-size:12px;letter-spacing:.4em;color:var(--gold)}
+#cgbanner .t2{font-family:var(--display);font-size:clamp(22px,4vw,34px);text-shadow:0 2px 16px rgba(255,120,170,.8)}
+#cgbanner.show{animation:banner 3.2s forwards}
+@keyframes banner{0%{opacity:0;transform:translate(-50%,-10px)}12%,80%{opacity:1;transform:translate(-50%,0)}100%{opacity:.0}}
+
+/* ---------- Toast & overlay ---------- */
+#toasts{position:absolute;z-index:8;top:30%;left:50%;transform:translateX(-50%);pointer-events:none;display:flex;flex-direction:column;align-items:center;gap:6px}
+.toast{font-family:var(--display);font-size:26px;padding:6px 18px;border-radius:999px;background:var(--panel);border:1px solid var(--line);animation:toast 1.6s forwards;white-space:nowrap}
+.toast.up{color:var(--good)}.toast.down{color:var(--bad)}.toast.gold{color:var(--gold)}
+@keyframes toast{0%{opacity:0;transform:translateY(16px) scale(.9)}15%{opacity:1;transform:none}75%{opacity:1}100%{opacity:0;transform:translateY(-30px)}}
+#overlay{position:absolute;z-index:10;inset:0;background:rgba(10,6,20,.78);backdrop-filter:blur(6px);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:20px}
+#overlay h3{font-family:var(--display);font-weight:400;font-size:clamp(28px,6vw,48px);margin:0}
+#overlay p{color:var(--muted);margin:0}
+#overlay .row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+
+/* ---------- Result ---------- */
+#result{overflow:auto;padding:28px 18px}
+.res{max-width:820px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+.res h2{font-family:var(--display);font-weight:400;font-size:20px;margin:0;color:var(--muted);letter-spacing:.06em}
+.rank{display:flex;align-items:center;gap:22px;flex-wrap:wrap}
+.rank .letter{font-family:var(--display);font-size:96px;line-height:1;background:linear-gradient(180deg,#fff,var(--gold));-webkit-background-clip:text;background-clip:text;color:transparent}
+.rank .score{font-family:var(--display);font-size:44px;font-variant-numeric:tabular-nums}
+.rank .ttl{color:var(--accent);font-size:16px}
+.rank .bd{color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums}
+.ending{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px 20px;display:flex;gap:16px;align-items:center}
+.ending .mini{width:96px;height:96px;flex:none;border-radius:50%;overflow:hidden;background:rgba(255,255,255,.08)}
+.ending .mini svg{width:100%;height:100%}
+.ending .tx{min-width:0}
+.ending b{font-family:var(--display);font-weight:400;font-size:20px;color:var(--gold)}
+.ending p{font-family:var(--story);line-height:1.8;margin:6px 0 0}
+.rows{display:flex;flex-direction:column;gap:8px}
+.rrow{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:12px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:8px 12px}
+.rrow .mini{width:52px;height:52px;border-radius:50%;overflow:hidden;background:rgba(255,255,255,.08)}
+.rrow .mini svg{width:100%;height:100%}
+.rrow .nm{font-family:var(--display);font-size:17px}
+.rrow .meta{justify-content:flex-start;gap:12px}
+.svc{font-size:12px;padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:transparent;white-space:nowrap}
+.svc.on{background:var(--gold);color:#3a2400;border-color:var(--gold)}
+.svc:disabled{opacity:.45;cursor:default}
+.res .row{display:flex;gap:10px;flex-wrap:wrap}
+
+@media (max-width:820px){
+  #cards{grid-template-columns:minmax(0,1fr)}
+  .card{flex-direction:row;align-items:center;padding:0 12px 0 0}
+  .card .face{width:96px;flex:none}
+  .card .info{flex:1;padding:10px 0}
+  .card .hint{min-height:0}
+}
+@media (max-width:520px){
+  body{padding-block:6px}
+  #app{border-radius:12px}
+  #timer{min-width:0;font-size:19px}
+  #timer .lbl,#scorebox .lbl{display:none}
+  #cgbanner{top:110px}
+  #phase{display:none}
+  #portrait{height:76%;bottom:18%}
+  #dialog{min-height:150px;padding:22px 16px 16px}
+  #choices{top:12%}
+  .choice{font-size:15px;padding:12px 14px}
+  .rank .letter{font-size:72px}
+  .ending{flex-direction:column;align-items:flex-start}
+  #lineup .mini{width:60px;height:60px}
+}
+@media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition:none!important}}
+</style>
+
+<div id="app">
+  <div id="bg" class="layer"></div>
+  <canvas id="fx" class="layer"></canvas>
+
+  <header id="topbar" hidden>
+    <div class="pill" id="timer"><span class="lbl">남은 시간</span><span id="tval">5:00</span></div>
+    <div class="pill" id="scorebox"><span class="lbl">SCORE</span><span id="sval">0</span></div>
+    <span id="phase" class="pill">오후</span>
+    <span class="spacer"></span>
+    <button class="iconbtn" id="muteBtn" aria-label="소리 켜기/끄기">♪</button>
+    <button class="iconbtn" id="pauseBtn" aria-label="일시정지">❚❚</button>
+  </header>
+
+  <section id="title" class="layer">
+    <div class="eyebrow">300 SECONDS · 5 HEROINES</div>
+    <h1><small>윤진석의</small>캠퍼스 하트 300</h1>
+    <div id="lineup"></div>
+    <div class="rules">
+      주어진 시간은 <b>딱 5분</b>. 캠퍼스를 돌아다니며 다섯 명의 그녀를 만나고, 선택지로 마음을 얻어내세요.<br>
+      · 좋은 선택을 연속으로 고르면 <b>콤보 보너스</b>가 붙어요.<br>
+      · 호감도가 <b>80</b>을 넘으면 그녀만의 <b>서비스 신</b>이 열립니다. (서비스 신 동안은 시간이 멈춰요)<br>
+      · 최종 점수 = 호감도 합계 × 10 + 서비스 신 1개당 1,000점<br>
+      · 조작: 화면 클릭 / Space로 대사 넘기기, 1·2·3 키로 선택
+    </div>
+    <button class="cta" id="startBtn">게임 시작</button>
+    <div id="best"></div>
+  </section>
+
+  <section id="hub" class="layer" hidden>
+    <h2 id="hubTitle">오늘은 누구를 만나러 갈까?</h2>
+    <p class="sub" id="hubSub">카드를 누르면 그녀가 있는 곳으로 이동합니다.</p>
+    <div id="cards"></div>
+  </section>
+
+  <section id="scene" class="layer" hidden>
+    <div id="portrait"></div>
+    <div id="cgframe"></div>
+    <div id="cgbanner"><div class="t1">♥ SERVICE SCENE UNLOCKED</div><div class="t2" id="cgtitle"></div></div>
+    <div id="locname"></div>
+    <div id="choices" hidden></div>
+    <div id="dialog">
+      <div id="speaker"></div>
+      <p id="text"></p>
+      <span id="nextind" hidden>▼</span>
+    </div>
+  </section>
+
+  <section id="result" class="layer" hidden></section>
+
+  <div id="toasts"></div>
+  <div id="overlay" hidden></div>
+</div>
+
+<script>
+'use strict';
+/* =========================================================
+   DATA — heroines, events, service scenes, endings
+   line format: [speaker, expression, text]
+   speaker: 'h' heroine · 'm' 윤진석 · 'x' narration
+   expression: n 보통 · h 웃음 · b 부끄 · a 삐짐/화 · s 슬픔 · w 놀람
+   ========================================================= */
+const ORDER=['seoyun','yeonhwa','lulu','iris','serena'];
+const CH={
+seoyun:{
+  name:'한서윤',tag:'인간 · 국문과 2학년',color:'#ffa47e',loc:'인문관 앞 벤치',start:20,
+  hint:'소꿉친구. 말은 퉁명스러워도, 솔직하게 챙겨주는 사람에게 약하다.',
+  look:{style:'pony',hair:'#86553b',hair2:'#4d2c1d',eye:'#d7963f',eye2:'#6e3a12',skin:'#ffe7da',outfit:'#f2dbc0',outfit2:'#ffffff',acc:'#e2475e'},
+  events:[
+    {bg:'campus',loc:'인문관 앞 벤치 · 오후',l:[
+      ['h','a','야, 윤진석. 너 또 1교시 째고 지금 왔지?'],
+      ['h','a','…아침은 먹었어? 아, 아니. 그냥 물어보는 거야. 딱히 걱정돼서 그런 거 아니거든.']],
+     q:'뭐라고 대답할까?',c:[
+      {t:'"아직. 같이 학식 먹으러 갈래? 내가 살게."',d:20,r:[['h','b','…네가 산다고 했다? 나 비싼 거 먹는다.'],['h','h','돈가스 정식에 음료수까지. 각오해.']]},
+      {t:'"네가 걱정해주니까 배가 다 부르네."',d:10,r:[['h','b','무, 뭐래! 진짜 바보 아냐?'],['x','b','서윤은 고개를 홱 돌렸지만, 귀 끝이 빨갛다.']]},
+      {t:'"너 우리 엄마냐?"',d:-10,r:[['h','a','하… 그래. 너 굶든 말든 내 알 바 아니지.']]}]},
+    {bg:'library',loc:'중앙도서관 3층 열람실',l:[
+      ['x','s','시험 기간의 도서관. 서윤이 책상에 이마를 박고 있다.'],
+      ['h','s','중간고사 망하면 나 진짜 끝이야… 너는 왜 그렇게 태평해?']],
+     q:'어떻게 할까?',c:[
+      {t:'딸기우유를 책상 위에 슬쩍 올려놓는다',d:20,r:[['h','w','…어?'],['h','b','이거 내가 제일 좋아하는 거… 아직도 기억하고 있었어?'],['h','b','……고마워. 진짜로.']]},
+      {t:'"같이 공부하자. 내가 문제 내줄게."',d:15,r:[['h','h','…너 공부도 안 했으면서 문제를 어떻게 내?'],['h','b','그래도, 옆에 있어 주는 건 허락해 줄게.']]},
+      {t:'"시험을 안 보면 안 망하지."',d:-10,r:[['h','a','……나가. 지금 당장.']]}]},
+    {bg:'cafe',loc:'학생식당 창가 자리',l:[
+      ['h','n','그러고 보니 너, 요즘 뒷산 신사에 자주 간다며?'],
+      ['h','a','거기에 엄청 예쁜 여우 누나가 산다는 소문이 있던데. …흥.']],
+     q:'뭐라고 할까?',c:[
+      {t:'"그래도 내가 제일 편한 건 너야."',d:20,r:[['h','w','…….'],['h','b','갑자기 그런 말 하지 마. 밥 먹다 체하잖아, 바보.']]},
+      {t:'"혹시… 질투해?"',d:10,r:[['h','a','누, 누가 질투를 해!'],['h','b','……조금.']]},
+      {t:'"응. 진짜 예쁘시더라."',d:-15,r:[['h','a','아, 그러셔? 그럼 그 여우 누나랑 밥 먹어. 난 간다.']]}]},
+    {bg:'rain',loc:'인문관 현관 · 소나기',l:[
+      ['x','s','갑자기 쏟아지는 소나기. 서윤이 현관에서 하늘만 올려다보고 있다.'],
+      ['h','s','아, 진짜… 오늘 우산 안 챙겼는데.']],
+     q:'내 가방에는 우산이 하나 있다.',c:[
+      {t:'"같이 쓰자." 우산을 그녀 쪽으로 기울인다',d:20,r:[['h','b','…너 어깨 다 젖잖아.'],['h','b','이, 이리 와. 더 붙어. …좁으니까 어쩔 수 없는 거야.']]},
+      {t:'우산을 쥐여주고 빗속으로 뛰어간다',d:10,r:[['h','w','야! 윤진석! 감기 걸리면 어쩌려고!'],['x','a','뒤에서 화난 목소리가 들렸지만, 조금 웃는 것 같기도 했다.']]},
+      {t:'"나도 없어. 비 그칠 때까지 여기 있자."',d:5,r:[['h','n','…가방 옆주머니에 우산 보이거든?'],['h','h','풉. 뭐야, 같이 있고 싶었던 거야? …뭐, 나쁘진 않네.']]}]},
+    {bg:'campus',loc:'축제 준비로 들뜬 캠퍼스',l:[
+      ['h','n','내일 축제잖아. 불꽃놀이도 한대.'],
+      ['h','b','……너, 누구랑 갈 거야?']],
+     q:'서윤이 내 대답을 기다린다.',c:[
+      {t:'"너랑 가고 싶어. 너 아니면 안 가."',d:25,r:[['h','w','……!'],['h','b','그, 그래? 그럼 어쩔 수 없지. 내일 일곱 시. 늦으면 죽는다.']]},
+      {t:'"다 같이 가자! 과 동기들도 부르고."',d:5,r:[['h','n','…아, 다 같이. 그래, 그러자.'],['x','s','서윤이 작게 한숨을 쉰 것 같았다.']]},
+      {t:'"글쎄, 아직 모르겠는데?"',d:-10,r:[['h','a','아 그래? 그럼 나도 딴 사람이랑 갈 거야.']]}]}
+  ],
+  service:{title:'불꽃이 지는 밤에',bg:'festival',fx:['fireworks','hearts'],look:{outfit:'#f59ab7',outfit2:'#fff4f8',yukata:true},l:[
+    ['x','n','펑— 밤하늘에 커다란 불꽃이 피어난다. 서윤은 분홍빛 유카타 차림이었다.'],
+    ['h','b','…뭘 그렇게 봐. 엄마가 억지로 입힌 거야. 이상하지?'],
+    ['m',null,'아니. 예뻐. 진짜로.'],
+    ['h','b','…….'],
+    ['h','n','있잖아. 어릴 때도 우리 여기서 같이 불꽃놀이 봤던 거 기억나?'],
+    ['h','s','그때 네가 "커서도 꼭 같이 보자"고 했었는데. 너는 다 잊어버렸겠지.'],
+    ['m',null,'기억해. 그래서 지금 여기 있는 거야.'],
+    ['x','b','불꽃 소리에 섞여, 볼에 아주 잠깐 따뜻한 감촉이 스쳤다.'],
+    ['h','b','…방금 건, 불꽃 때문에 못 본 걸로 해. 알았지, 바보야?']]},
+  end:{good:'축제가 끝난 다음 날부터, 서윤은 매일 아침 딸기우유를 두 개 사 온다. 하나는 자기 것, 하나는 "어쩌다 하나 더 산" 진석의 것. 소꿉친구라는 이름표는 이제 조금 다른 이름으로 바뀌었다.',
+       mid:'"…바보. 다음엔 좀 더 일찍 와." 서윤과의 거리는 여전히 한 뼘. 그 한 뼘을 좁히기엔 오늘 하루가 조금 짧았다.'}
+},
+yeonhwa:{
+  name:'연화',tag:'구미호 · 1,024세',color:'#ffc768',loc:'뒷산 폐신사',start:10,
+  hint:'뒷산 신사의 주인. 거짓말 냄새를 귀신같이 맡는다. 유부초밥과 솔직한 칭찬을 좋아한다.',
+  look:{style:'long',hair:'#f3ece6',hair2:'#b9a58f',hairEnd:'#f2c46b',eye:'#f0b02c',eye2:'#8a4b05',skin:'#fff1ea',outfit:'#fbf7f1',outfit2:'#c7303c',fox:true},
+  events:[
+    {bg:'shrine',loc:'뒷산 폐신사 · 노을',l:[
+      ['x','n','뒷산 계단 끝, 무너져 가는 도리이 아래에 은빛 머리의 여인이 앉아 있다.'],
+      ['h','h','어머, 인간 아이가 여기까지 올라오다니. 길을 잃었니? 아니면… 날 보러 왔니?'],
+      ['h','n','솔직하게 말하렴. 이 누나는 거짓말 냄새를 아주 잘 맡거든.']],
+     q:'솔직하게…?',c:[
+      {t:'"솔직히, 너무 예뻐서 눈을 못 떼겠어요."',d:20,r:[['h','b','어머나.'],['h','h','후후, 정직한 아이는 좋아해. 이름이 뭐니? …진석이라. 기억해 두마.']]},
+      {t:'편의점에서 산 유부초밥을 공손히 바친다',d:15,r:[['h','w','……!'],['h','h','공, 공물이니? 요즘 인간치고는 기특하구나. 냠.']]},
+      {t:'"그, 그냥 산책하다가요!"',d:-10,r:[['h','a','흐응~ 거짓말 냄새가 진동하는데?'],['h','n','재미없는 아이구나.']]}]},
+    {bg:'shrine',loc:'신사 툇마루',l:[
+      ['h','n','마침 잘 왔다. 꼬리를 좀 빗어 주지 않겠니?'],
+      ['h','h','아홉 개나 되다 보니, 혼자서는 손이 모자라서 말이야.']],
+     q:'푹신한 꼬리가 눈앞에서 살랑거린다.',c:[
+      {t:'한 가닥씩, 정성껏 빗어 준다',d:20,r:[['h','b','으음… 손길이 다정하구나.'],['h','b','이런 기분은 몇백 년 만인지 모르겠어.']]},
+      {t:'"와, 진짜 푹신하다! 베개 해도 돼요?"',d:10,r:[['h','a','무례하구나!'],['h','h','…조금만이다. 정말 조금만.']]},
+      {t:'"여우 꼬리면 털 엄청 빠지겠네요."',d:-10,r:[['h','a','…천 년 동안 들은 말 중에 제일 무례한 말이구나.']]}]},
+    {bg:'shrine',loc:'여우비가 내리는 신사',l:[
+      ['x','n','해가 쨍한데 빗방울이 떨어진다.'],
+      ['h','n','여우비구나. 인간들은 여우가 시집가는 날이라고 하지.'],
+      ['h','s','…너는 요괴와 인간이 맺어지는 이야기, 어떻게 생각하니?']],
+     q:'연화의 눈이 진지하다.',c:[
+      {t:'"종족이 무슨 상관이에요. 마음이 중요하죠."',d:20,r:[['h','w','……'],['h','b','천 년을 살았는데도, 그런 말은 처음 들어보는구나.']]},
+      {t:'"그럼 오늘 시집가는 여우는 연화 씨예요?"',d:15,r:[['h','h','이 녀석이~! 누나를 놀리는 거니?'],['h','b','…상대가 너라면, 생각해 보마.']]},
+      {t:'"옛날이야기는 대부분 비극으로 끝나던데요."',d:-5,r:[['h','s','…그렇지. 다들 그렇게 끝났지.']]}]},
+    {bg:'shrine',loc:'신사 돌계단',l:[
+      ['x','w','멍! 멍멍! 어디선가 동네 강아지가 뛰어 올라온다.'],
+      ['h','w','꺄앗?! 개, 개다! 진석아!'],
+      ['x','w','천 년 묵은 구미호가 내 등 뒤로 쏙 숨었다.']],
+     q:'강아지가 꼬리를 흔들며 다가온다.',c:[
+      {t:'연화 앞을 막아서고 강아지를 살살 돌려보낸다',d:20,r:[['h','a','흥, 무서웠던 건 아니야. 여우와 개는 원래 사이가 나쁠 뿐이야.'],['h','b','……그래도, 고맙구나.']]},
+      {t:'강아지를 번쩍 안아 든다. "얘 귀엽지 않아요?"',d:-5,r:[['h','a','가까이 오지 마! 둘 다!']]},
+      {t:'"구미호가 강아지를 무서워해요?" 웃음이 터진다',d:-10,r:[['h','a','……오늘 일은 평생 잊지 않으마. 나쁜 의미로.']]}]},
+    {bg:'shrineNight',loc:'달이 뜬 신사',l:[
+      ['h','s','천 년을 살면 말이야, 누군가를 기다리는 일에도 지치게 된단다.'],
+      ['h','s','다들 언젠가는 이 계단을 내려가서, 다시는 올라오지 않았거든.']],
+     q:'연화의 꼬리가 힘없이 늘어져 있다.',c:[
+      {t:'"이제 안 기다려도 돼요. 제가 매일 올라올게요."',d:25,r:[['h','w','……정말이니?'],['h','b','약속했다. 여우와의 약속은, 어기면 큰일 나는 거란다.']]},
+      {t:'"천 년이면… 많이 외로우셨겠어요."',d:10,r:[['h','n','…그래. 조금은.']]},
+      {t:'"다음 천 년도 화이팅!"',d:-10,r:[['h','a','……너는 정말 분위기를 모르는구나.']]}]}
+  ],
+  service:{title:'달빛 아래 아홉 꼬리',bg:'shrineNight',fx:['fireflies','hearts'],l:[
+    ['x','n','보름달이 신사 지붕 위로 떠올랐다. 반딧불이 천천히 날아오른다.'],
+    ['h','h','이리 오렴. 오늘은 특별히 이 누나의 무릎을 빌려주마.'],
+    ['x','b','머리를 기대자, 등 뒤로 아홉 개의 꼬리가 이불처럼 포근하게 감싸 왔다.'],
+    ['h','b','천 년 동안, 이 꼬리는 누구에게도 허락한 적이 없단다. …영광인 줄 알렴.'],
+    ['m',null,'따뜻해요.'],
+    ['h','h','후후. 잠들어도 괜찮아. 오늘 밤만은 내가 널 지켜줄 테니.'],
+    ['h','b','…진석아. 다음 보름달에도, 그다음 보름달에도. 꼭 오렴.']]},
+  end:{good:'그 뒤로 뒷산 신사에는 유부초밥 냄새가 끊이지 않는다. 천 년을 기다린 여우는 이제 기다리지 않는다. 계단을 올라오는 발소리가 들리면, 꼬리부터 먼저 흔들 뿐.',
+       mid:'"또 오렴, 인간 아이야." 여우는 웃으며 손을 흔들었다. 천 년에 비하면 하루는 너무 짧았다.'}
+},
+lulu:{
+  name:'루루',tag:'슬라임 퀸 · 제37대 여왕',color:'#6fe6cf',loc:'중앙광장 분수대',start:0,
+  hint:'차원문에서 떨어진 슬라임 왕국의 여왕. 여왕 대접과 단것을 좋아한다. 젤리 취급과 소금은 금물.',
+  look:{style:'twin',hair:'#7fe9d6',hair2:'#2fae9c',eye:'#ff5fa8',eye2:'#9b1457',skin:'#d9fbf2',outfit:'#3dbfaa',outfit2:'#ffd36b',slime:true},
+  events:[
+    {bg:'fountain',loc:'중앙광장 분수대',l:[
+      ['x','w','분수대에서 "뿌잉" 하는 소리와 함께 민트색 무언가가 튀어나왔다.'],
+      ['h','a','무엄하다, 인간! 짐은 슬라임 왕국 제37대 여왕, 루루 폰 프루프루이니라!'],
+      ['h','s','…그런데 여기는 어디지? 짐의 성은 어디로 갔지?']],
+     q:'말랑해 보이는 여왕님이 두리번거린다.',c:[
+      {t:'한쪽 무릎을 꿇는다. "여왕 폐하, 무엇을 도와드릴까요?"',d:20,r:[['h','w','오…!'],['h','h','이 세계에도 예의를 아는 자가 있었구나! 좋다, 너를 짐의 시종으로 임명하노라!']]},
+      {t:'"여기는 대학교야. 길을 잃었구나?"',d:10,r:[['h','n','대, 대학교? 처음 듣는 왕국이니라.'],['h','n','…안내를 허락하노라.']]},
+      {t:'"우와, 엄청 큰 젤리다!"',d:-10,r:[['h','a','젤리 아니니라!! 짐은 여왕이니라!!'],['x','a','루루가 부르르 떨며 살짝 녹아내렸다.']]}]},
+    {bg:'store',loc:'캠퍼스 편의점 앞',l:[
+      ['h','s','시종, 짐은… 배가 고프니라.'],
+      ['h','n','이 세계의 공물을 바쳐라. 어서!']],
+     q:'무엇을 사다 줄까?',c:[
+      {t:'알록달록한 마카롱 세트를 바친다',d:20,r:[['h','w','이, 이것은…! 보석이니라?!'],['h','h','달콤하니라~! 시종, 너는 오늘부터 수석 시종이니라!']]},
+      {t:'시원한 생수 한 병을 건넨다',d:5,r:[['h','n','…수분 보충은 중요하니라. 고맙다.']]},
+      {t:'짭짤한 감자칩을 건넨다',d:-15,r:[['h','w','꺄아악?! 소, 소금이니라!!'],['h','a','짐을 녹일 셈이냐, 반역자!']]}]},
+    {bg:'fountain',loc:'사람들로 붐비는 광장',l:[
+      ['x','s','학생들이 몰려들어 루루를 향해 휴대폰을 들이댄다. "뭐야 저거, 코스프레?"'],
+      ['h','s','이, 인간들이 짐을 구경거리로…!'],
+      ['x','s','당황한 루루의 몸이 점점 흐물흐물해진다.']],
+     q:'루루가 곤란해 보인다.',c:[
+      {t:'겉옷을 덮어 주고 손을 잡아 데리고 나온다',d:20,r:[['h','s','…시종.'],['h','b','짐을 구해 준 공을 인정하노라. 소, 손은… 조금 더 잡고 있어도 되느니라.']]},
+      {t:'"다들 폐하가 너무 귀여워서 그래."',d:10,r:[['h','b','귀, 귀엽…? 여왕에게 귀엽다니 무엄하니라!'],['h','h','…특별히 한 장만 찍는 걸 허락하노라.']]},
+      {t:'같이 휴대폰을 꺼내 사진을 찍는다',d:-10,r:[['h','a','너까지…! 배신이니라!']]}]},
+    {bg:'fountainNight',loc:'밤의 분수대',l:[
+      ['h','s','시종. 짐의 백성들은… 짐 없이도 잘 지내고 있을까.'],
+      ['h','s','짐은 사실, 여왕이 된 지 얼마 안 됐느니라. 아직 서툴러서…']],
+     q:'분수대 물에 비친 달이 흔들린다.',c:[
+      {t:'"폐하는 좋은 여왕이야. 다들 기다리고 있을 거야."',d:20,r:[['h','w','……정말?'],['h','b','시종이 그렇게 말하면… 그런 것 같으니라. 에헤헤.']]},
+      {t:'"돌아갈 방법, 같이 찾아보자."',d:15,r:[['h','h','…시종은 정말 쓸모 있는 자이니라.']]},
+      {t:'"그냥 여기 눌러살면 안 돼?"',d:0,r:[['h','n','여왕에게는 책임이라는 것이 있느니라… 그래도, 고맙다.']]}]},
+    {bg:'fountainNight',loc:'빛나는 차원문 앞',l:[
+      ['x','w','분수대 위로 커다란 빛의 고리가 열렸다.'],
+      ['h','s','문이 열렸느니라. 짐은… 돌아가야 하느니라.'],
+      ['h','s','하지만, 하지만…']],
+     q:'루루가 머뭇거린다.',c:[
+      {t:'루루의 손을 꼭 잡는다. "가지 마."',d:25,r:[['x','b','손바닥 안에서 말랑한 손이 꼬옥, 하고 마주 잡아 왔다.'],['h','b','…그 말을 기다렸느니라.']]},
+      {t:'"잘 가. 꼭 행복해야 해."',d:5,r:[['h','s','……응. 시종도.']]},
+      {t:'"가는 김에 기념품으로 한 덩이만 떼어 주고 가."',d:-10,r:[['h','a','짐은 분리되지 않느니라!! 이 무엄한!!']]}]}
+  ],
+  service:{title:'물컹물컹 대관식',bg:'throne',fx:['bubbles','hearts'],l:[
+    ['x','n','차원문 너머, 반짝이는 젤리 크리스털로 된 왕좌의 방. 수백 마리의 작은 슬라임들이 숨을 죽이고 있다.'],
+    ['h','n','인간, 아니… 윤진석. 무릎을 꿇어라.'],
+    ['x','n','루루가 자신의 작은 왕관을 벗어, 내 머리 위에 살포시 얹었다.'],
+    ['h','h','지금 이 순간부터 너를 슬라임 왕국의 부군(夫君)으로 임명하노라!'],
+    ['m',null,'부, 부군?!'],
+    ['h','b','거부권은 없느니라! 그, 그리고 이건 왕실의 전통적인 축복 의식이니라.'],
+    ['x','b','물컹. 온몸으로 꼬옥 안겨 왔다. 차갑고, 말랑하고, 이상하게 따뜻했다.'],
+    ['h','b','에헤헤… 이제 짐의 것이니라. 어디에도 못 가느니라.']]},
+  end:{good:'슬라임 왕국 역사상 최초로 인간 부군이 탄생했다. 루루는 차원문을 분수대에 고정해 놓고, 주말마다 진석을 데리고 "왕실 순방"을 다닌다. 소금 과자는 여전히 압수 대상이다.',
+       mid:'"다음에 또 짐을 알현하러 오거라!" 루루는 분수대 위에서 당당하게 외쳤다. …조금 아쉬운 얼굴로.'}
+},
+iris:{
+  name:'아이리스',tag:'안드로이드 · IRIS-07',color:'#6fdcff',loc:'공학관 로봇공학 연구실',start:0,
+  hint:'감정을 학습 중인 조교 안드로이드. 사람처럼 대해 주는 상대를 "흥미로운 데이터"로 분류한다.',
+  look:{style:'bob',hair:'#c3cbef',hair2:'#7c86b8',eye:'#47e6ff',eye2:'#0b5f8a',skin:'#fbf3f3',outfit:'#eef1f8',outfit2:'#23273b',android:true},
+  events:[
+    {bg:'lab',loc:'공학관 로봇공학 연구실',l:[
+      ['h','n','방문자 확인. 윤진석, 경영학과 2학년. 이 구역의 출입 권한이 없습니다.'],
+      ['h','n','…그러나 당신의 심박수가 분당 112회로 상승해 있습니다. 질병입니까?']],
+     q:'파란 눈동자가 나를 스캔한다.',c:[
+      {t:'"안녕, 난 진석이야. 네 이름은 뭐야?"',d:20,r:[['h','w','…이름.'],['h','n','형식 번호가 아니라 이름을 물어본 사람은 당신이 처음입니다. 아이리스. 그렇게 불러 주십시오.']]},
+      {t:'"널 보고 놀라서 그래. 너무 예뻐서."',d:15,r:[['h','n','"예쁘다". 데이터베이스에 저장했습니다.'],['h','b','…냉각팬 회전수가 증가했습니다. 원인 불명.']]},
+      {t:'"와, 비싸 보인다. 어느 회사 제품이에요?"',d:-10,r:[['h','a','…저는 "제품"이 아닙니다.']]}]},
+    {bg:'lab',loc:'연구실 · 감정 학습 과제',l:[
+      ['h','n','교수님께서 "웃음"을 학습하라는 과제를 주셨습니다.'],
+      ['h','n','협조를 요청합니다. 당신을 관찰해도 되겠습니까?']],
+     q:'아이리스가 녹화 모드로 나를 바라본다.',c:[
+      {t:'"…세상에서 가장 가난한 왕은? 최저임금!"',d:20,r:[['h','n','……'],['h','w','…프, 흡. 음성 출력 오류. 오류. 하, 하하.'],['h','h','이것이… 웃음입니까? 재미있습니다.']]},
+      {t:'"억지로 웃을 필요는 없어. 천천히 배우면 돼."',d:15,r:[['h','n','…천천히. 효율적이지 않지만, 그 제안이 마음에 듭니다.']]},
+      {t:'"로봇이 무슨 웃음이야."',d:-15,r:[['h','s','…과제 기록. 협조 거부. 저장 완료.']]}]},
+    {bg:'campus',loc:'공학관 뒤 화단',l:[
+      ['x','n','아이리스가 화단 앞에 미동도 없이 서 있다. 발치에는 치즈색 길고양이 한 마리.'],
+      ['h','w','이 생명체가 저를 3분 12초째 응시하고 있습니다.'],
+      ['h','s','대응 매뉴얼이 없습니다. 도와주십시오.']],
+     q:'고양이가 "냐아" 하고 운다.',c:[
+      {t:'함께 쪼그려 앉아 쓰다듬는 법을 알려 준다',d:20,r:[['x','n','아이리스의 손끝이 조심스럽게 고양이 등에 닿았다. 고양이가 그르릉거린다.'],['h','h','…따뜻합니다. 이 데이터는, 영구 보존합니다.']]},
+      {t:'"그 고양이도 너를 좋아하나 봐."',d:15,r:[['h','b','좋아…한다. 저를. 그런 판단도 가능합니까?']]},
+      {t:'"훠이!" 고양이를 쫓아낸다',d:-5,r:[['h','s','…아. 가 버렸습니다.']]}]},
+    {bg:'lab',loc:'불이 꺼진 연구실',l:[
+      ['h','n','공지 사항이 있습니다.'],
+      ['h','s','다음 달, 저는 업그레이드를 위해 초기화될 예정입니다. 오늘까지의 기억은 모두 삭제됩니다.']],
+     q:'아이리스는 담담하게 말했다.',c:[
+      {t:'"그럼 오늘을 최고의 기억으로 만들자."',d:20,r:[['h','w','…'],['h','b','삭제될 기억을, 최고로 만든다. 비논리적입니다. …하지만 동의합니다.']]},
+      {t:'"교수님께 초기화하지 말라고 말해 볼게."',d:15,r:[['h','n','…당신이 저를 위해 그런 행동을 할 이유는 없습니다.'],['h','b','그런데 왜, 기쁘다는 출력이 나오는 걸까요.']]},
+      {t:'"백업하면 되잖아. 별일 아니네."',d:-10,r:[['h','s','…그렇습니다. 별일, 아닙니다.']]}]},
+    {bg:'rooftop',loc:'공학관 옥상',l:[
+      ['h','n','질문이 있습니다.'],
+      ['h','b','당신과 함께 있을 때 발생하는 원인 불명의 오류를, 무엇이라고 정의해야 합니까?']],
+     q:'아이리스의 눈동자가 평소보다 밝게 빛난다.',c:[
+      {t:'"그건 아마… \'좋아한다\'는 감정일 거야."',d:25,r:[['h','w','좋아…한다.'],['h','b','정의를 갱신합니다. 이 오류의 이름은, "좋아함".']]},
+      {t:'"사실 나도 똑같은 오류가 있어."',d:20,r:[['h','b','…같은 오류. 그렇다면 우리는, 같은 버그를 공유하고 있는 겁니까?']]},
+      {t:'"수리 센터에 가 봐."',d:-15,r:[['h','s','…알겠습니다. 예약하겠습니다.']]}]}
+  ],
+  service:{title:'오류명: 좋아함',bg:'rooftop',fx:['stars','hearts'],l:[
+    ['x','n','공학관 옥상. 아이리스의 눈동자에 별빛이 비쳐 반짝인다.'],
+    ['h','n','보고합니다. 교수님께 초기화 거부 신청서를 제출했습니다. 사유는…'],
+    ['h','b','"지키고 싶은 기억이 생겼음".'],
+    ['h','n','윤진석. 손을 잡아도 되겠습니까? 체온 데이터를 수집하기 위해… 아니요.'],
+    ['h','b','그냥, 잡고 싶습니다.'],
+    ['x','b','차가울 거라 생각했던 손은, 생각보다 훨씬 따뜻했다.'],
+    ['h','h','…감정 모듈 과부하. 그런데 이상합니다. 멈추고 싶지 않습니다.']]},
+  end:{good:'IRIS-07의 초기화는 무기한 연기되었다. 연구 보고서의 마지막 줄에는 이렇게 적혀 있다. "피험체는 특정 인물과 있을 때 원인 불명의 미소를 보임. 수정 불필요."',
+       mid:'"관찰 데이터가 부족합니다. 다음 방문을 요청합니다." 아이리스는 무표정하게, 하지만 조금 오래 손을 흔들었다.'}
+},
+serena:{
+  name:'세레나',tag:'뱀파이어 · 야간 사서',color:'#ff6f8f',loc:'자정의 도서관',start:5,
+  hint:'300년을 산 귀족 뱀파이어. 수줍고 정중하다. 고전 소설과 토마토주스를 좋아하고, 마늘은 질색.',
+  look:{style:'long',hair:'#2d1d33',hair2:'#120a16',hairEnd:'#4a1b2e',eye:'#ff3f63',eye2:'#7a0a22',skin:'#fbeef3',outfit:'#1f1726',outfit2:'#f6eef4',acc:'#c61e45',vamp:true},
+  events:[
+    {bg:'nightlib',loc:'자정의 도서관 열람실',l:[
+      ['x','n','자정이 가까운 시각. 아무도 없는 열람실에 촛불 같은 불빛이 하나 켜져 있다.'],
+      ['h','w','어머… 이 시간에 손님이라니. 놀랐잖아요.'],
+      ['h','b','저, 저는 이곳의 야간 사서예요. 찾으시는 책이라도…?']],
+     q:'붉은 눈동자가 수줍게 나를 올려다본다.',c:[
+      {t:'"당신이 좋아하는 책이라면 뭐든 읽어 보고 싶어요."',d:20,r:[['h','w','제가… 좋아하는 책을요?'],['h','h','그럼, "폭풍의 언덕"을. 제가 읽을 때마다 우는 책이에요.']]},
+      {t:'"혹시… 드라큘라 같은 책 있어요?"',d:5,r:[['h','w','에엣?! 그, 그런 건 없어요! 전혀! 관계없어요!'],['x','b','세레나는 허둥지둥 망토로 입가를 가렸다.']]},
+      {t:'야식으로 사 온 마늘빵을 우물거리며 대답한다',d:-15,r:[['h','a','으읏…! 그, 그 냄새는…!'],['h','s','죄송해요, 잠시만 멀리 떨어져 주시겠어요…?']]}]},
+    {bg:'nightlib',loc:'고서 서가 앞',l:[
+      ['x','w','세레나가 까치발로 맨 위 칸의 책을 꺼내다, 크게 휘청였다.'],
+      ['h','w','앗—!']],
+     q:'넘어진다!',c:[
+      {t:'재빨리 그녀의 허리를 받쳐 준다',d:20,r:[['h','b','…가, 감사합니다.'],['h','b','이상하네요. 심장이 뛰지 않는 몸인데, 지금은… 뛰는 것 같아요.']]},
+      {t:'옆에 있던 사다리를 가져다준다',d:10,r:[['h','h','친절하시네요. 300년 동안, 사다리를 가져다준 사람은 처음이에요.']]},
+      {t:'"날개로 날면 되잖아요?"',d:-5,r:[['h','a','그, 그건 비밀인데…! 어떻게 아신 거예요!']]}]},
+    {bg:'nightlib',loc:'사서 데스크',l:[
+      ['h','s','하아… 오늘따라 목이 조금 말라서요.'],
+      ['x','s','세레나의 시선이, 아주 잠깐 내 목덜미에 머물렀다가 황급히 돌아갔다.']],
+     q:'무엇을 건넬까?',c:[
+      {t:'준비해 온 토마토주스를 건넨다',d:20,r:[['h','w','토마토주스…! 제가 제일 좋아하는 거예요.'],['h','h','어떻게 아셨어요? 혹시, 저에 대해 알아보신 거예요?']]},
+      {t:'옷깃을 살짝 내린다. "필요하면… 조금?"',d:10,r:[['h','b','그, 그런 무례한 짓은 하지 않아요!'],['h','b','……정말로, 하지 않아요. 다만 그 마음은, 고맙게 받을게요.']]},
+      {t:'자판기 커피를 건넨다',d:5,r:[['h','n','쓰, 쓰네요… 그래도 따뜻해요.']]}]},
+    {bg:'nightlib',loc:'달빛이 드는 창가',l:[
+      ['h','s','사실, 저는 해가 뜨는 걸 한 번도 본 적이 없어요.'],
+      ['h','s','300년 동안, 단 한 번도요. 해가 뜨기 전에 언제나 커튼을 쳐야 했으니까.']],
+     q:'세레나가 창밖의 어둠을 바라본다.',c:[
+      {t:'"그럼 내가 매일 밤 와서, 낮에 있었던 일을 얘기해 줄게."',d:20,r:[['h','w','매일 밤…?'],['h','h','그럼 저는 매일 밤, 당신의 이야기를 기다릴게요.']]},
+      {t:'휴대폰으로 찍어 둔 일출 사진을 보여 준다',d:15,r:[['h','w','이게… 아침이라는 거군요.'],['h','b','생각보다 훨씬 다정한 색이네요.']]},
+      {t:'"햇빛 한 번 쬐어 보면 어때요? 생각보다 괜찮을걸요."',d:-15,r:[['h','a','…저더러 재가 되라는 말씀이세요?']]}]},
+    {bg:'clocktower',loc:'시계탑 아래',l:[
+      ['h','s','당신은 언젠가 나이를 먹고, 저는 계속 이대로겠죠.'],
+      ['h','s','그래도… 괜찮으신가요?']],
+     q:'세레나의 목소리가 떨린다.',c:[
+      {t:'"상관없어. 지금 이 순간을 함께하는 게 중요해."',d:25,r:[['h','w','……'],['h','b','지금 이 순간. 300년 중에서, 제일 소중한 순간이에요.']]},
+      {t:'"그럼 나를 뱀파이어로 만들어 줘."',d:5,r:[['h','s','…그건 안 돼요.'],['h','b','저는 당신의 햇살 같은 웃음이 좋으니까요.']]},
+      {t:'"글쎄, 생각 좀 해 볼게."',d:-10,r:[['h','s','…그렇죠. 어려운 문제죠.']]}]}
+  ],
+  service:{title:'자정의 왈츠',bg:'clocktower',fx:['roses','hearts'],l:[
+    ['x','n','자정을 알리는 시계탑의 종이 울린다. 활짝 열린 창으로 달빛이 쏟아져 들어온다.'],
+    ['h','n','300년 전, 무도회에서 배운 춤이 있어요. 한 번도 함께 출 사람이 없었지만…'],
+    ['h','b','윤진석 님. 저와… 한 곡, 춰 주시겠어요?'],
+    ['x','b','차가운 손끝이 내 손에 겹쳐진다. 서툰 스텝에, 그녀가 작게 웃었다.'],
+    ['h','h','당신의 심장 소리가 들려요. 두근, 두근… 마치 음악 같아요.'],
+    ['h','b','이 밤이 끝나지 않았으면 좋겠어요. …아니, 끝나도 괜찮아요.'],
+    ['h','h','내일 밤에도, 당신은 와 줄 테니까요.']]},
+  end:{good:'야간 도서관의 대출 기록부에는 매일 밤 같은 이름이 적힌다. 윤진석. 반납일 칸에는 세레나의 고운 글씨로 "무기한". 해는 볼 수 없어도, 그녀의 밤은 더 이상 어둡지 않다.',
+       mid:'"…내일 밤에도, 열려 있을게요." 촛불 너머로 세레나가 작게 고개를 숙였다.'}
+}};
+const SOLO='5분은 생각보다 짧았다. 윤진석의 캠퍼스 연애는… 다음 학기에 계속된다?';
+const HAREM='전설이 탄생했다. 다섯 개의 하트를 모두 손에 넣은 남자, 윤진석. 그리고 내일 아침, 다섯 명이 동시에 그의 자취방 문을 두드린다. …과연 살아남을 수 있을까?';
+const TOTAL=300000, SERVICE_AT=80;
+
+/* =========================================================
+   PORTRAITS — layered SVG built from each heroine's look
+   ========================================================= */
+let uid=0;
+function portrait(h,e='n',o={}){
+  const L={...CH[h].look,...(o.look||{})}, id='p'+(uid++), H=`url(#${id}h)`;
+  const vb=o.crop?'45 25 230 230':'0 0 320 420';
+  let s=`<svg viewBox="${vb}" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
+  <linearGradient id="${id}i" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${L.eye2}"/><stop offset=".85" stop-color="${L.eye}"/></linearGradient>
+  <linearGradient id="${id}h" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${L.hair}"/><stop offset="1" stop-color="${L.hairEnd||L.hair}"/></linearGradient>
+  <radialGradient id="${id}g"><stop offset="0" stop-color="${L.eye}" stop-opacity=".6"/><stop offset="1" stop-color="${L.eye}" stop-opacity="0"/></radialGradient></defs>`;
+  const ga=L.slime?' opacity=".9"':'';
+  // behind: tails / wings
+  if(L.fox){ for(let i=0;i<9;i++){const a=-72+i*18; s+=`<g transform="rotate(${a} 160 360)"><ellipse cx="160" cy="250" rx="24" ry="96" fill="${H}" stroke="${L.hair2}" stroke-width="1.5"/><ellipse cx="160" cy="168" rx="13" ry="22" fill="#fff8ec"/></g>`;} }
+  if(L.vamp){ s+=`<g fill="#2a1730" stroke="#140a18" stroke-width="2"><path d="M96 318 C60 270 22 268 6 300 C26 300 30 318 22 336 C40 326 52 336 50 356 C66 340 82 344 92 360 Z"/><path d="M224 318 C260 270 298 268 314 300 C294 300 290 318 298 336 C280 326 268 336 270 356 C254 340 238 344 228 360 Z"/></g>`; }
+  // back hair
+  const back={
+    long:`<path d="M86 150 C70 58 250 58 234 150 C240 232 262 322 252 404 C200 414 120 414 68 404 C58 322 80 232 86 150Z"/>`,
+    bob:`<path d="M84 150 C70 58 250 58 236 150 C242 205 244 238 234 264 C200 272 120 272 86 264 C76 238 78 205 84 150Z"/>`,
+    pony:`<path d="M86 150 C72 60 248 60 234 150 C238 200 236 230 226 250 L94 250 C84 230 82 200 86 150Z"/><path d="M212 84 C272 92 290 170 270 250 C262 300 246 330 236 346 C244 300 246 250 232 200 C224 160 214 120 212 84Z"/>`,
+    twin:`<path d="M86 150 C72 60 248 60 234 150 L232 240 L88 240Z"/><path d="M96 104 C52 120 40 210 50 290 C54 330 70 346 78 330 C82 312 70 306 74 290 C84 240 92 170 104 130Z"/><path d="M224 104 C268 120 280 210 270 290 C266 330 250 346 242 330 C238 312 250 306 246 290 C236 240 228 170 216 130Z"/>`
+  }[L.style];
+  s+=`<g fill="${H}" stroke="${L.hair2}" stroke-width="2"${ga}>${back}</g>`;
+  if(L.style==='pony') s+=`<circle cx="218" cy="92" r="9" fill="${L.acc}"/>`;
+  // neck + body
+  s+=`<path d="M144 236 L144 306 L176 306 L176 236Z" fill="${L.skin}"/><path d="M144 250 Q160 262 176 250 L176 262 Q160 272 144 262Z" fill="#000" opacity=".08"/>`;
+  s+=`<path d="M48 420 C54 340 96 304 160 300 C224 304 266 340 272 420Z" fill="${L.outfit}" stroke="rgba(0,0,0,.15)" stroke-width="2"/>`;
+  s+=outfit(h,L);
+  // face
+  s+=`<path d="M96 150 C96 214 130 254 160 262 C190 254 224 214 224 150 C224 100 196 82 160 82 C124 82 96 100 96 150Z" fill="${L.skin}" stroke="rgba(120,60,60,.18)" stroke-width="1.5"/>`;
+  if(L.slime) s+=`<ellipse cx="128" cy="120" rx="10" ry="6" fill="#fff" opacity=".35"/>`;
+  // blush
+  const bl=e==='b'?.6:(e==='h'?.42:.22);
+  s+=`<g fill="#ff6f91" opacity="${bl}"><ellipse cx="116" cy="216" rx="15" ry="7"/><ellipse cx="204" cy="216" rx="15" ry="7"/></g>`;
+  if(e==='b') s+=`<g stroke="#e8436b" stroke-width="1.6" stroke-linecap="round" opacity=".7"><path d="M108 220 l5 -8 M116 221 l5 -8 M124 220 l5 -8"/><path d="M196 220 l5 -8 M204 221 l5 -8 M212 220 l5 -8"/></g>`;
+  // eyes
+  s+=eye(130,e,id,L,-1)+eye(190,e,id,L,1);
+  // mouth
+  s+=mouth(e,L);
+  // bangs
+  s+=`<g fill="${H}" stroke="${L.hair2}" stroke-width="2" stroke-linejoin="round"${ga}>
+   <path d="M90 160 C84 90 120 64 160 64 C200 64 236 90 230 160 L222 132 L211 158 L199 118 L185 152 L169 110 L157 150 L142 114 L129 154 L117 122 L105 158 L98 134Z"/>
+   <path d="M94 136 C86 192 90 232 104 266 C108 222 110 184 114 150Z"/><path d="M226 136 C234 192 230 232 216 266 C212 222 210 184 206 150Z"/></g>`;
+  s+=`<path d="M120 90 Q160 74 200 90" stroke="#fff" stroke-width="5" fill="none" opacity=".35" stroke-linecap="round"/>`;
+  if(L.slime) s+=`<g fill="${L.hair}" stroke="${L.hair2}" stroke-width="1.5"><path d="M128 150 q4 18 8 0Z"/><path d="M184 148 q4 16 8 0Z"/></g><g fill="#fff" opacity=".55"><circle cx="110" cy="100" r="4"/><circle cx="206" cy="110" r="3"/><circle cx="60" cy="250" r="5"/><circle cx="262" cy="270" r="4"/></g>`;
+  // brows
+  const by=e==='a'?[[116,162,144,169],[176,169,204,162]]:e==='s'?[[116,169,144,161],[176,161,204,169]]:[[116,166,144,163],[176,163,204,166]];
+  s+=`<g stroke="${L.hair2}" stroke-width="3" stroke-linecap="round" opacity=".9">${by.map(b=>`<path d="M${b[0]} ${b[1]} L${b[2]} ${b[3]}"/>`).join('')}</g>`;
+  // accessories
+  if(L.fox) s+=`<g stroke="${L.hair2}" stroke-width="2" stroke-linejoin="round"><path d="M102 104 L88 22 L142 76Z" fill="${H}"/><path d="M107 94 L97 42 L131 77Z" fill="#f7b3c2" stroke="none"/><path d="M218 104 L232 22 L178 76Z" fill="${H}"/><path d="M213 94 L223 42 L189 77Z" fill="#f7b3c2" stroke="none"/></g><circle cx="214" cy="120" r="6" fill="#c7303c"/>`;
+  if(L.slime) s+=`<g stroke="#a8781c" stroke-width="2" stroke-linejoin="round"><path d="M134 72 L138 42 L150 58 L160 34 L170 58 L182 42 L186 72Z" fill="#ffd36b"/></g><circle cx="160" cy="62" r="5" fill="#ff5fa8"/><circle cx="142" cy="66" r="3" fill="#7fe9d6"/><circle cx="178" cy="66" r="3" fill="#7fe9d6"/>`;
+  if(L.android) s+=`<g stroke="#8e9bc8" stroke-width="2"><rect x="80" y="168" width="20" height="40" rx="9" fill="#e9edf7"/><rect x="220" y="168" width="20" height="40" rx="9" fill="#e9edf7"/></g><rect x="86" y="180" width="8" height="16" rx="4" fill="${L.eye}"/><rect x="226" y="180" width="8" height="16" rx="4" fill="${L.eye}"/><path d="M90 168 L84 118" stroke="#8e9bc8" stroke-width="3" stroke-linecap="round"/><circle cx="84" cy="116" r="5" fill="${L.eye}"/><path d="M208 230 l8 10 l10 0" stroke="${L.eye}" stroke-width="1.5" fill="none" opacity=".6"/>`;
+  if(L.vamp) s+=`<path d="M206 104 c6 -10 18 -10 22 0 c-6 -2 -10 2 -11 8 c-1 -6 -5 -10 -11 -8Z" fill="#c61e45"/>`;
+  if(h==='seoyun') s+=`<path d="M206 108 l4 8 9 1 -7 6 2 9 -8 -5 -8 5 2 -9 -7 -6 9 -1Z" fill="#ffd36b" stroke="#c99530" stroke-width="1"/>`;
+  return s+'</svg>';
+}
+function outfit(h,L){
+  if(L.yukata) return `<g><path d="M118 304 L182 420 L206 420 L140 304Z" fill="${L.outfit2}"/><path d="M202 304 L150 400 L128 400 L180 304Z" fill="${L.outfit2}"/><rect x="60" y="392" width="200" height="28" fill="#7d2b55"/><g fill="#fff" opacity=".55"><circle cx="90" cy="350" r="6"/><circle cx="230" cy="345" r="6"/><circle cx="210" cy="380" r="4"/><circle cx="100" cy="384" r="4"/></g></g>`;
+  switch(h){
+    case 'seoyun': return `<path d="M128 302 L160 362 L192 302Z" fill="${L.outfit2}"/><path d="M146 316 L160 326 L146 336Z M174 316 L160 326 L174 336Z" fill="${L.acc}"/><path d="M128 302 L120 420 M192 302 L200 420" stroke="rgba(0,0,0,.12)" stroke-width="3"/>`;
+    case 'yeonhwa': return `<path d="M124 302 L160 350 L196 302Z" fill="${L.outfit2}"/><path d="M118 302 L178 420 M202 302 L142 420" stroke="#e8ddd0" stroke-width="4"/>`;
+    case 'lulu': return `<path d="M110 314 Q160 352 210 314" stroke="${L.outfit2}" stroke-width="5" fill="none"/><circle cx="160" cy="338" r="7" fill="#ff5fa8" stroke="${L.outfit2}" stroke-width="2"/><g fill="#fff" opacity=".35"><circle cx="90" cy="370" r="8"/><circle cx="236" cy="380" r="6"/></g>`;
+    case 'iris': return `<path d="M122 302 L160 410 L198 302Z" fill="${L.outfit2}"/><path d="M140 312 L160 380 L180 312" stroke="${L.eye}" stroke-width="2" fill="none"/><rect x="200" y="350" width="34" height="14" rx="3" fill="#fff" stroke="#8e9bc8"/><path d="M122 302 L104 420 M198 302 L216 420" stroke="#c9cfe0" stroke-width="3"/>`;
+    case 'serena': return `<path d="M112 306 Q160 336 208 306 L196 326 Q160 346 124 326Z" fill="${L.outfit2}"/><rect x="144" y="262" width="32" height="8" rx="3" fill="${L.acc}"/><circle cx="160" cy="272" r="5" fill="${L.acc}"/>`;
+  }
+  return '';
+}
+function eye(cx,e,id,L,side){
+  if(e==='h') return `<path d="M${cx-16} 196 Q${cx} 178 ${cx+16} 196" stroke="#2a1a22" stroke-width="4.5" fill="none" stroke-linecap="round"/>`;
+  const w=e==='w', rx=w?10:12.5, ry=w?12:15;
+  let s='';
+  if(L.android) s+=`<ellipse cx="${cx}" cy="194" rx="24" ry="24" fill="url(#${id}g)"/>`;
+  s+=`<ellipse cx="${cx}" cy="193" rx="16.5" ry="17.5" fill="#fff"/>
+  <ellipse cx="${cx}" cy="195" rx="${rx}" ry="${ry}" fill="url(#${id}i)"/>
+  <ellipse cx="${cx}" cy="197" rx="${w?4:5.5}" ry="${w?5:7}" fill="#1b1020" opacity=".75"/>
+  <circle cx="${cx-5}" cy="187" r="4.2" fill="#fff"/><circle cx="${cx+5}" cy="202" r="2" fill="#fff" opacity=".85"/>
+  <path d="M${cx-19} 188 Q${cx} 170 ${cx+19} 186" stroke="#2a1a22" stroke-width="4.5" fill="none" stroke-linecap="round"/>
+  <path d="M${cx+side*17} ${side>0?186:188} l${side*6} -5" stroke="#2a1a22" stroke-width="3" stroke-linecap="round"/>`;
+  if(e==='s') s+=`<path d="M${cx-12} 213 Q${cx} 216 ${cx+12} 213" stroke="#2a1a22" stroke-width="1.5" fill="none" opacity=".5"/>`;
+  return s;
+}
+function mouth(e,L){
+  const st='stroke="#a8455c" stroke-width="2.6" fill="none" stroke-linecap="round"';
+  let s={
+    n:`<path d="M152 231 Q160 236 168 231" ${st}/>`,
+    h:`<path d="M147 226 Q160 246 173 226Z" fill="#c9475c"/><path d="M152 236 Q160 242 168 236" fill="#ff8fa3"/>`,
+    b:`<path d="M153 232 Q160 237 167 232" ${st}/>`,
+    a:`<path d="M151 234 Q155 228 160 233 Q165 228 169 234" ${st}/>`,
+    s:`<path d="M152 235 Q160 229 168 235" ${st}/>`,
+    w:`<ellipse cx="160" cy="234" rx="5" ry="6.5" fill="#c9475c"/>`
+  }[e]||'';
+  if(L.vamp && e!=='w') s+=`<path d="M163 ${e==='h'?227:232} l3 6 l3 -6Z" fill="#fff"/>`;
+  return s;
+}
+
+/* =========================================================
+   BACKGROUNDS
+   ========================================================= */
+const SV=(inner)=>`<svg viewBox="0 0 1000 600" preserveAspectRatio="xMidYMax slice">${inner}</svg>`;
+const buildings=(c,w)=>`<g fill="${c}"><rect x="0" y="380" width="180" height="220"/><rect x="170" y="330" width="210" height="270"/><rect x="620" y="350" width="200" height="250"/><rect x="800" y="300" width="200" height="300"/><path d="M380 600 V400 L470 340 L560 400 V600Z"/></g><g fill="${w}">${[...Array(18)].map((_,i)=>`<rect x="${200+(i%6)*28}" y="${360+Math.floor(i/6)*50}" width="14" height="22"/>`).join('')}${[...Array(12)].map((_,i)=>`<rect x="${830+(i%4)*40}" y="${330+Math.floor(i/4)*60}" width="18" height="26"/>`).join('')}</g>`;
+const trees=`<g fill="rgba(90,40,80,.35)"><circle cx="560" cy="430" r="70"/><circle cx="620" cy="460" r="60"/><circle cx="90" cy="440" r="60"/></g><g fill="rgba(255,190,210,.55)"><circle cx="540" cy="410" r="40"/><circle cx="610" cy="430" r="34"/><circle cx="80" cy="420" r="34"/></g>`;
+const moon=(x,y,r)=>`<circle cx="${x}" cy="${y}" r="${r*2.2}" fill="#fff6d8" opacity=".08"/><circle cx="${x}" cy="${y}" r="${r}" fill="#fff6d8"/>`;
+const torii=`<g fill="#5b1424"><rect x="380" y="240" width="26" height="360"/><rect x="594" y="240" width="26" height="360"/><path d="M320 205 Q500 182 680 205 L690 232 L310 232Z"/><rect x="352" y="266" width="296" height="18"/></g><g fill="rgba(20,8,30,.6)"><path d="M0 600 V470 Q120 430 250 480 Q360 520 420 600Z"/><path d="M1000 600 V440 Q860 420 760 480 Q650 540 620 600Z"/></g>`;
+const shelves=`<defs><pattern id="bk" width="60" height="120" patternUnits="userSpaceOnUse"><rect width="60" height="120" fill="none"/><rect x="4" y="18" width="12" height="90" fill="rgba(180,90,70,.45)"/><rect x="18" y="30" width="10" height="78" fill="rgba(90,110,150,.45)"/><rect x="30" y="12" width="14" height="96" fill="rgba(160,130,70,.45)"/><rect x="46" y="26" width="10" height="82" fill="rgba(120,60,90,.45)"/><rect y="108" width="60" height="12" fill="rgba(40,20,15,.8)"/></pattern></defs><rect width="1000" height="600" fill="url(#bk)"/>`;
+const BG={
+  campus:{g:'linear-gradient(180deg,#ffd6bd 0%,#ffbccb 48%,#f2a2bb 66%,#7c6aa8 100%)',svg:SV(buildings('rgba(95,60,110,.42)','rgba(255,240,210,.5)')+trees),fx:'petals'},
+  cafe:{g:'linear-gradient(180deg,#ffe6c6,#f5bc90 60%,#8b5d55)',svg:SV(`<g fill="rgba(90,50,40,.35)"><rect x="60" y="80" width="260" height="300" rx="10"/><rect x="370" y="80" width="260" height="300" rx="10"/><rect x="680" y="80" width="260" height="300" rx="10"/></g><g fill="rgba(255,250,230,.55)"><rect x="76" y="96" width="228" height="268"/><rect x="386" y="96" width="228" height="268"/><rect x="696" y="96" width="228" height="268"/></g><rect y="470" width="1000" height="130" fill="rgba(90,50,40,.5)"/>`),fx:'dust'},
+  library:{g:'linear-gradient(180deg,#5a3a30,#2a1a1d)',svg:SV(shelves+`<rect y="520" width="1000" height="80" fill="rgba(30,15,10,.7)"/>`),fx:'dust'},
+  rain:{g:'linear-gradient(180deg,#5e6b87,#8a95ae 58%,#3e4762)',svg:SV(buildings('rgba(40,45,70,.5)','rgba(255,240,200,.25)')),fx:'rain'},
+  shrine:{g:'linear-gradient(180deg,#3b2759 0%,#a8507a 55%,#f7996d 100%)',svg:SV(torii),fx:'fireflies'},
+  shrineNight:{g:'linear-gradient(180deg,#0c0a2a,#281e57 62%,#4b2f60)',svg:SV(moon(760,130,62)+torii),fx:'fireflies'},
+  fountain:{g:'linear-gradient(180deg,#a3dcff,#cdf2ff 55%,#bfe9da)',svg:SV(buildings('rgba(80,120,150,.25)','rgba(255,255,255,.4)')+`<ellipse cx="500" cy="560" rx="380" ry="60" fill="rgba(70,150,170,.55)"/><rect x="480" y="420" width="40" height="140" fill="rgba(80,130,160,.5)"/><ellipse cx="500" cy="420" rx="120" ry="20" fill="rgba(80,130,160,.5)"/>`),fx:'bubbles'},
+  fountainNight:{g:'linear-gradient(180deg,#0f1838,#203a62 60%,#1d3a4a)',svg:SV(moon(220,120,46)+buildings('rgba(10,15,35,.6)','rgba(255,230,160,.35)')+`<ellipse cx="500" cy="560" rx="380" ry="60" fill="rgba(60,140,170,.45)"/><rect x="480" y="420" width="40" height="140" fill="rgba(30,60,90,.7)"/><ellipse cx="500" cy="420" rx="120" ry="20" fill="rgba(30,60,90,.7)"/>`),fx:'bubbles'},
+  store:{g:'linear-gradient(180deg,#141b38,#273a60)',svg:SV(`<rect x="160" y="200" width="680" height="400" fill="rgba(20,25,45,.9)"/><rect x="200" y="260" width="600" height="300" fill="rgba(220,250,255,.55)"/><rect x="160" y="200" width="680" height="50" fill="#4fc3a1"/><rect x="160" y="250" width="680" height="10" fill="#ff8a5b"/>`),fx:'none'},
+  lab:{g:'linear-gradient(180deg,#0f2d3c,#08161f)',svg:SV(`<defs><pattern id="gr" width="50" height="50" patternUnits="userSpaceOnUse"><path d="M50 0H0V50" stroke="rgba(110,230,255,.14)" fill="none"/></pattern></defs><rect width="1000" height="600" fill="url(#gr)"/><g fill="rgba(110,230,255,.12)"><rect x="60" y="300" width="200" height="300"/><rect x="760" y="260" width="180" height="340"/></g><g fill="rgba(110,230,255,.5)"><circle cx="100" cy="340" r="5"/><circle cx="130" cy="340" r="5"/><circle cx="800" cy="300" r="5"/></g>`),fx:'dust'},
+  rooftop:{g:'linear-gradient(180deg,#060a22,#1b1a4b 70%,#3b2b6c)',svg:SV(`<g stroke="rgba(200,200,255,.35)" stroke-width="6"><path d="M0 470 H1000 M0 520 H1000"/>${[...Array(21)].map((_,i)=>`<path d="M${i*50} 470 V600"/>`).join('')}</g>`),fx:'stars'},
+  nightlib:{g:'linear-gradient(180deg,#120d25,#2b1839)',svg:SV(`<path d="M380 520 V200 A120 120 0 0 1 620 200 V520Z" fill="rgba(40,50,110,.7)"/>${moon(500,210,46)}<path d="M380 520 V200 A120 120 0 0 1 620 200 V520Z M500 80 V520 M380 330 H620" stroke="rgba(15,8,20,.9)" stroke-width="10" fill="none"/><g opacity=".55">${shelves}</g><rect y="520" width="1000" height="80" fill="rgba(15,8,20,.85)"/>`),fx:'dust'},
+  clocktower:{g:'radial-gradient(circle at 50% 26%,#4a3a7a 0%,#1c1238 55%,#0c0718 100%)',svg:SV(moon(500,170,90)+`<g fill="rgba(10,5,20,.85)"><path d="M0 600 V300 L80 260 L160 300 V600Z"/><path d="M840 600 V280 L920 220 L1000 280 V600Z"/></g>`),fx:'roses'},
+  festival:{g:'linear-gradient(180deg,#0a0b2c,#2c1749 70%,#5c2449)',svg:SV(`<path d="M0 120 Q250 190 500 130 Q750 70 1000 140" stroke="rgba(255,255,255,.3)" stroke-width="2" fill="none"/>${[...Array(11)].map((_,i)=>{const x=40+i*92,y=148-Math.sin(i/10*Math.PI*2)*30;return `<ellipse cx="${x}" cy="${y+18}" rx="16" ry="22" fill="${i%2?'#ff7a59':'#ffcf6a'}" opacity=".9"/>`}).join('')}<g fill="rgba(10,5,25,.75)"><path d="M0 600 V500 L120 470 L200 500 L320 460 L420 510 L560 470 L700 500 L820 460 L1000 500 V600Z"/></g>`),fx:'fireworks'},
+  throne:{g:'radial-gradient(circle at 50% 30%,#d4fff4,#5ccbb7 58%,#1d6672)',svg:SV(`<g fill="rgba(255,255,255,.35)"><path d="M100 600 L160 200 L220 600Z"/><path d="M780 600 L840 180 L900 600Z"/><path d="M300 600 L340 300 L380 600Z"/><path d="M620 600 L660 290 L700 600Z"/></g><path d="M380 600 V300 Q500 220 620 300 V600Z" fill="rgba(255,211,107,.4)"/>`),fx:'bubbles'}
+};
+function hubBg(){
+  const t=1-Math.max(0,G.time)/TOTAL;
+  const sky=t<.4?['#ffd6bd','#f2a2bb','#7c6aa8']:t<.75?['#f79d7a','#b55a8c','#3e2a6a']:['#0d0b2b','#251c52','#3b2560'];
+  return {g:`linear-gradient(180deg,${sky[0]} 0%,${sky[1]} 60%,${sky[2]} 100%)`,svg:SV((t>=.75?moon(820,110,40):'')+buildings(t<.75?'rgba(70,45,100,.45)':'rgba(10,8,30,.7)',t<.4?'rgba(255,240,210,.45)':'rgba(255,220,140,.75)')+trees),fx:t<.4?'petals':t<.75?'dust':'stars'};
+}
+function setBg(key){
+  const b=typeof key==='string'?BG[key]:key;
+  $('#bg').innerHTML=`<div class="grad" style="background:${b.g}"></div>${b.svg}`;
+  return b;
+}
+
+/* =========================================================
+   PARTICLES
+   ========================================================= */
+const FX={c:null,x:null,w:0,h:0,modes:[],p:[],t:0,
+  init(){this.c=$('#fx');this.x=this.c.getContext('2d');this.resize();addEventListener('resize',()=>this.resize());},
+  resize(){const r=this.c.getBoundingClientRect(),d=Math.min(2,devicePixelRatio||1);this.w=r.width;this.h=r.height;this.c.width=r.width*d;this.c.height=r.height*d;this.x.setTransform(d,0,0,d,0,0);},
+  set(m){this.modes=[].concat(m||[]).filter(k=>k&&k!=='none');this.p=[];
+    if(REDUCED) {this.modes=this.modes.filter(k=>k==='stars');}
+    if(this.modes.includes('stars'))for(let i=0;i<110;i++)this.p.push({k:'star',x:Math.random(),y:Math.random()*.75,r:Math.random()*1.6+.3,ph:Math.random()*6});},
+  spawn(k){const W=this.w,Hh=this.h,R=Math.random;
+    switch(k){
+      case 'petals':return {k,x:R()*W,y:-10,vx:R()*30+10,vy:R()*40+30,r:R()*4+3,a:R()*6,va:R()*2-1,col:'rgba(255,190,210,.9)'};
+      case 'roses':return {k:'petals',x:R()*W,y:-10,vx:R()*20-10,vy:R()*40+25,r:R()*5+3,a:R()*6,va:R()*2-1,col:'rgba(220,30,70,.85)'};
+      case 'rain':return {k,x:R()*W*1.2,y:-20,vx:-80,vy:900+R()*300,l:R()*14+10};
+      case 'dust':return {k,x:R()*W,y:Hh+5,vx:R()*10-5,vy:-(R()*12+6),r:R()*1.8+.6,life:0};
+      case 'fireflies':return {k,x:R()*W,y:Hh*(.3+R()*.7),vx:R()*20-10,vy:R()*20-10,r:R()*2+1.5,ph:R()*6,life:0};
+      case 'bubbles':return {k,x:R()*W,y:Hh+10,vx:0,vy:-(R()*40+30),r:R()*10+4,ph:R()*6};
+      case 'hearts':return {k,x:R()*W,y:Hh+10,vx:R()*20-10,vy:-(R()*50+40),r:R()*8+8,ph:R()*6,life:0};
+      case 'fireworks':return {k:'rocket',x:W*(.15+R()*.7),y:Hh,vx:R()*40-20,vy:-(Hh*.9+R()*Hh*.4),col:`hsl(${R()*360|0} 95% 70%)`,ty:Hh*(.12+R()*.3)};
+    }},
+  rate:{petals:6,roses:7,rain:90,dust:5,fireflies:2.5,bubbles:4,hearts:3,fireworks:.9},
+  tick(dt){const X=this.x,W=this.w,Hh=this.h;X.clearRect(0,0,W,Hh);this.t+=dt;
+    for(const m of this.modes){const r=this.rate[m];if(r&&Math.random()<r*dt){const p=this.spawn(m);if(p)this.p.push(p);}}
+    const keep=[];
+    for(const p of this.p){
+      switch(p.k){
+        case 'star':{const a=.45+.45*Math.sin(this.t*2+p.ph);X.fillStyle=`rgba(255,250,230,${a})`;X.beginPath();X.arc(p.x*W,p.y*Hh,p.r,0,7);X.fill();keep.push(p);continue;}
+        case 'petals':p.x+=p.vx*dt+Math.sin(this.t*2+p.a)*.6;p.y+=p.vy*dt;p.a+=p.va*dt;X.save();X.translate(p.x,p.y);X.rotate(p.a);X.fillStyle=p.col;X.beginPath();X.ellipse(0,0,p.r,p.r*.55,0,0,7);X.fill();X.restore();break;
+        case 'rain':p.x+=p.vx*dt;p.y+=p.vy*dt;X.strokeStyle='rgba(220,235,255,.45)';X.lineWidth=1.2;X.beginPath();X.moveTo(p.x,p.y);X.lineTo(p.x-p.l*.09,p.y-p.l);X.stroke();break;
+        case 'dust':p.x+=p.vx*dt;p.y+=p.vy*dt;p.life+=dt;X.fillStyle=`rgba(255,230,190,${Math.min(.5,p.life*.3)})`;X.beginPath();X.arc(p.x,p.y,p.r,0,7);X.fill();break;
+        case 'fireflies':p.ph+=dt;p.life+=dt;p.x+=Math.cos(p.ph*1.3)*15*dt+p.vx*dt*.3;p.y+=Math.sin(p.ph)*15*dt+p.vy*dt*.3;{const a=(.5+.5*Math.sin(p.ph*3))*Math.min(1,p.life);const g=X.createRadialGradient(p.x,p.y,0,p.x,p.y,p.r*5);g.addColorStop(0,`rgba(255,240,150,${a})`);g.addColorStop(1,'rgba(255,240,150,0)');X.fillStyle=g;X.beginPath();X.arc(p.x,p.y,p.r*5,0,7);X.fill();}if(p.life>9)p.y=-999;break;
+        case 'bubbles':p.ph+=dt;p.y+=p.vy*dt;p.x+=Math.sin(p.ph*2)*.6;X.strokeStyle='rgba(230,255,250,.7)';X.lineWidth=1.5;X.beginPath();X.arc(p.x,p.y,p.r,0,7);X.stroke();X.fillStyle='rgba(255,255,255,.6)';X.beginPath();X.arc(p.x-p.r*.35,p.y-p.r*.35,p.r*.22,0,7);X.fill();break;
+        case 'hearts':p.ph+=dt;p.life+=dt;p.y+=p.vy*dt;p.x+=Math.sin(p.ph*2)*.8;X.save();X.globalAlpha=Math.max(0,Math.min(1,p.life)*(1-p.life/7));X.fillStyle='#ff8fb3';X.font=`${p.r*2}px sans-serif`;X.fillText('♥',p.x,p.y);X.restore();break;
+        case 'rocket':p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=Hh*.6*dt;X.fillStyle=p.col;X.beginPath();X.arc(p.x,p.y,2,0,7);X.fill();
+          if(p.y<=p.ty||p.vy>=0){for(let i=0;i<46;i++){const a=i/46*Math.PI*2,s=90+Math.random()*80;keep.push({k:'spark',x:p.x,y:p.y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,col:p.col,life:0});}p.y=-999;}break;
+        case 'spark':p.life+=dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.vx*=.97;p.vy=p.vy*.97+40*dt;X.globalAlpha=Math.max(0,1-p.life/1.4);X.fillStyle=p.col;X.beginPath();X.arc(p.x,p.y,2,0,7);X.fill();X.globalAlpha=1;if(p.life>1.4)p.y=-999;break;
+      }
+      if(p.y>-50&&p.y<Hh+60&&p.x>-80&&p.x<W+80)keep.push(p);
+    }
+    this.p=keep.slice(-500);}
+};
+
+/* =========================================================
+   SOUND — tiny WebAudio blips, started after a click
+   ========================================================= */
+let AC=null, MUTED=false;
+try{MUTED=localStorage.getItem('ch300-mute')==='1'}catch(e){}
+function sfx(kind){
+  if(MUTED)return;
+  try{AC=AC||new (window.AudioContext||window.webkitAudioContext)();}catch(e){return;}
+  const seq={tick:[[880,.03]],good:[[660,.08],[990,.12]],bad:[[220,.12],[170,.18]],heart:[[523,.1],[659,.1],[784,.1],[1047,.25]],start:[[440,.08],[660,.08],[880,.15]],bell:[[784,.4],[659,.4],[523,.6]]}[kind]||[];
+  let t=AC.currentTime;
+  for(const [f,d] of seq){const o=AC.createOscillator(),g=AC.createGain();o.type=kind==='bad'?'square':'triangle';o.frequency.value=f;g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(.12,t+.01);g.gain.exponentialRampToValueAtTime(.0001,t+d);o.connect(g).connect(AC.destination);o.start(t);o.stop(t+d+.02);t+=d*.9;}
+}
+
+/* =========================================================
+   GAME STATE & FLOW
+   ========================================================= */
+const $=s=>document.querySelector(s);
+const REDUCED=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const G={mode:'title',time:TOTAL,running:false,paused:false,aff:{},ev:{},combo:{},seen:{},maxCombo:0,cur:null,inService:false};
+function newGame(){
+  G.time=TOTAL;G.running=true;G.paused=false;G.maxCombo=0;G.inService=false;
+  for(const h of ORDER){G.aff[h]=CH[h].start;G.ev[h]=0;G.combo[h]=0;G.seen[h]=false;}
+}
+const score=()=>ORDER.reduce((s,h)=>s+G.aff[h]*10+(G.seen[h]?1000:0),0);
+const level=a=>a>=SERVICE_AT?'연인 직전 ♥':a>=60?'썸':a>=30?'친구':'낯선 사이';
+
+function show(id){for(const s of ['title','hub','scene','result'])$('#'+s).hidden=s!==id;G.mode=id;$('#topbar').hidden=!(id==='hub'||id==='scene');}
+
+function toTitle(){
+  show('title');G.running=false;
+  const b=setBg('campus');FX.set(b.fx);
+  $('#lineup').innerHTML=ORDER.map(h=>`<div class="mini" style="background:radial-gradient(circle at 50% 70%,${CH[h].color},transparent 75%)">${portrait(h,'h',{crop:1})}</div>`).join('');
+  let best=0;try{best=+localStorage.getItem('ch300-best')||0}catch(e){}
+  $('#best').textContent=best?`최고 기록 ${best.toLocaleString()}점`:'';
+}
+
+function toHub(){
+  if(G.time<=0)return timeUp();
+  show('hub');
+  const b=setBg(hubBg());FX.set(b.fx);
+  const t=1-G.time/TOTAL;
+  $('#hubTitle').textContent=t<.05?'오늘은 누구를 만나러 갈까?':t<.4?'강의가 끝난 오후. 다음은 어디로 갈까?':t<.75?'노을이 진다. 시간이 얼마 남지 않았다.':'밤이 깊었다. 마지막 기회다!';
+  const done=ORDER.filter(h=>G.seen[h]).length;
+  $('#hubSub').textContent=done?`서비스 신 ${done}/5 해금 · 호감도 ${SERVICE_AT} 이상이면 서비스 신이 열립니다.`:`호감도 ${SERVICE_AT} 이상이면 서비스 신이 열립니다. 카드를 눌러 이동하세요.`;
+  $('#cards').innerHTML=ORDER.map((h,i)=>{
+    const c=CH[h],a=G.aff[h],out=G.ev[h]>=c.events.length;
+    return `<button class="card" data-h="${h}" style="--c:${c.color}" ${out?'disabled':''}>
+      ${G.seen[h]?'<span class="badge">♥ SERVICE</span>':''}
+      <div class="face">${portrait(h,a>=60?'h':a>=30?'b':'n',{crop:1})}</div>
+      <div class="info"><span class="nm">${c.name}</span><span class="tg">${c.tag}</span><span class="lc">📍 ${c.loc}</span>
+      <span class="hint">${out?'오늘 그녀와의 이야기는 모두 끝났다.':c.hint}</span>
+      <div class="bar"><i style="width:${a}%"></i><span class="mark"></span></div>
+      <div class="meta"><span>♥ ${a}</span><span class="lv">${level(a)}</span></div></div></button>`;}).join('');
+  for(const el of document.querySelectorAll('.card'))el.onclick=()=>{sfx('tick');startEvent(el.dataset.h);};
+  const first=$('.card:not(:disabled)');first&&first.focus({preventScroll:true});
+}
+
+/* ---------- script player ---------- */
+const P={typing:null,cb:null,choosing:false,h:null,look:null};
+function setExpr(e,anim){
+  const pe=$('#portrait');pe.innerHTML=portrait(P.h,e,{look:P.look});
+  if(anim){pe.classList.remove('enter','hop','shake');void pe.offsetWidth;pe.classList.add(anim);}
+}
+function line([sp,e,t],cb){
+  const sEl=$('#speaker'),tEl=$('#text');
+  if(sp==='h'){sEl.textContent=CH[P.h].name;sEl.style.setProperty('--sc',CH[P.h].color);}
+  else if(sp==='m'){sEl.textContent='윤진석';sEl.style.setProperty('--sc','var(--me)');}
+  else sEl.textContent='';
+  tEl.classList.toggle('narr',sp==='x');
+  if(e)setExpr(e,e==='h'||e==='w'?'hop':e==='a'?'shake':null);
+  clearInterval(P.typing&&P.typing.timer);
+  $('#nextind').hidden=true;tEl.textContent='';
+  let n=0;P.cb=cb;
+  P.typing={full:t,timer:setInterval(()=>{n++;tEl.textContent=t.slice(0,n);if(n>=t.length)finishType();},REDUCED?1:22)};
+}
+function finishType(){if(!P.typing)return;clearInterval(P.typing.timer);$('#text').textContent=P.typing.full;P.typing=null;$('#nextind').hidden=false;}
+function advance(){
+  if(G.mode!=='scene'||P.choosing||G.paused&&!G.inService||!$('#overlay').hidden)return;
+  if(P.typing){finishType();return;}
+  if(P.cb){const cb=P.cb;P.cb=null;sfx('tick');cb();}
+}
+function play(lines,done){let i=0;const next=()=>{if(G.mode!=='scene')return;if(i>=lines.length)return done();line(lines[i++],next);};next();}
+
+/* ---------- events ---------- */
+function startEvent(h){
+  const ev=CH[h].events[G.ev[h]];if(!ev)return;
+  G.cur=h;P.h=h;P.look=null;
+  show('scene');$('#scene').classList.remove('cg');
+  const b=setBg(ev.bg);FX.set(b.fx);
+  $('#locname').textContent='📍 '+ev.loc;$('#locname').hidden=false;
+  setExpr(ev.l[0][1]||'n','enter');
+  play(ev.l,()=>choices(h,ev));
+}
+function choices(h,ev){
+  P.choosing=true;
+  const box=$('#choices'),opts=ev.c.map(c=>c).sort(()=>Math.random()-.5);
+  box.innerHTML=`<span class="q">${ev.q}</span>`+opts.map((c,i)=>`<button class="choice" data-i="${i}"><span class="k">${i+1}</span><span>${c.t}</span></button>`).join('');
+  box.hidden=false;$('#nextind').hidden=true;
+  box.querySelectorAll('.choice').forEach(b=>b.onclick=ev2=>{ev2.stopPropagation();pick(h,opts[+b.dataset.i]);});
+  P.opts=opts;
+}
+function pick(h,c){
+  if(!P.choosing)return;P.choosing=false;$('#choices').hidden=true;
+  let d=c.d,bonus=0;
+  if(d>=15){G.combo[h]++;if(G.combo[h]>=2)bonus=5;}else G.combo[h]=0;
+  G.maxCombo=Math.max(G.maxCombo,G.combo[h]);
+  const before=G.aff[h];G.aff[h]=Math.max(0,Math.min(100,before+d+bonus));
+  const real=G.aff[h]-before;
+  toast(`${real>=0?'+':''}${real} ♥ ${CH[h].name}`,real>0?'up':real<0?'down':'');
+  if(bonus)setTimeout(()=>toast(`${G.combo[h]} COMBO! +${bonus}`,'gold'),250);
+  sfx(real>0?'good':real<0?'bad':'tick');
+  updateHud();
+  const said=c.t.startsWith('"')?['m',null,c.t.replace(/^"|"$/g,'').replace(/"\s.*$/,'').replace(/\\'/g,"'")]:['x',null,c.t];
+  play([said,...c.r],()=>{
+    G.ev[h]++;
+    if(G.aff[h]>=SERVICE_AT&&!G.seen[h])service(h,()=>toHub());
+    else toHub();
+  });
+}
+
+/* ---------- service scenes ---------- */
+function service(h,done,replay){
+  const sv=CH[h].service;
+  G.inService=true;G.paused=true;P.h=h;P.look=sv.look||null;
+  show('scene');$('#scene').classList.add('cg');$('#locname').hidden=true;
+  const b=setBg(sv.bg);FX.set(sv.fx||b.fx);
+  $('#cgtitle').textContent=`${CH[h].name} — 「${sv.title}」`;
+  const bn=$('#cgbanner');bn.classList.remove('show');void bn.offsetWidth;bn.classList.add('show');
+  if(!replay){G.seen[h]=true;sfx('heart');toast('+1,000 서비스 신 보너스','gold');updateHud();}
+  setExpr(sv.l[0][1]||'b','enter');
+  play(sv.l,()=>{G.inService=false;G.paused=false;$('#scene').classList.remove('cg');done();});
+}
+
+/* ---------- HUD / toast ---------- */
+let lastSec=-1;
+function updateHud(){
+  const s=Math.max(0,Math.ceil(G.time/1000));
+  if(s!==lastSec){lastSec=s;$('#tval').textContent=`${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;$('#timer').classList.toggle('warn',s<=30);}
+  $('#sval').textContent=score().toLocaleString();
+  const t=1-G.time/TOTAL;$('#phase').textContent=G.inService?'⏸ 서비스 신 (시간 정지)':t<.4?'☀ 오후':t<.75?'🌇 노을':'🌙 밤';
+}
+function toast(msg,cls){const t=document.createElement('div');t.className='toast '+(cls||'');t.textContent=msg;$('#toasts').appendChild(t);setTimeout(()=>t.remove(),1700);}
+
+/* ---------- overlay: pause / time up ---------- */
+function overlay(html){const o=$('#overlay');o.innerHTML=html;o.hidden=false;return o;}
+function closeOverlay(){$('#overlay').hidden=true;}
+function pause(){
+  if(!(G.mode==='hub'||G.mode==='scene')||G.inService||!$('#overlay').hidden)return;
+  G.paused=true;
+  const o=overlay(`<h3>일시정지</h3><p>남은 시간 ${$('#tval').textContent}</p><div class="row"><button class="cta" id="resume">계속하기</button><button class="ghost" id="quit">타이틀로</button></div>`);
+  o.querySelector('#resume').onclick=()=>{closeOverlay();G.paused=false;};
+  o.querySelector('#quit').onclick=()=>{closeOverlay();toTitle();};
+  o.querySelector('#resume').focus();
+}
+function timeUp(){
+  if(!G.running)return;G.running=false;G.time=0;updateHud();
+  clearInterval(P.typing&&P.typing.timer);P.typing=null;P.cb=null;P.choosing=false;$('#choices').hidden=true;
+  sfx('bell');
+  const o=overlay(`<h3>딩— 동— 댕—</h3><p>5분이 지났습니다. 오늘의 캠퍼스 연애는 여기까지!</p><button class="cta" id="toRes">결과 보기</button>`);
+  o.querySelector('#toRes').onclick=()=>{closeOverlay();results();};
+  o.querySelector('#toRes').focus();
+}
+
+/* ---------- results ---------- */
+function results(){
+  show('result');
+  const b=setBg('rooftop');FX.set(b.fx);
+  const sc=score(),n=ORDER.filter(h=>G.seen[h]).length;
+  const [L,T]=n===5?['SSS','전설의 하렘왕']:sc>=6500?['SSS','캠퍼스의 전설']:sc>=5000?['S','연애 마스터']:sc>=3500?['A','캠퍼스 인기인']:sc>=2000?['B','썸 타는 중']:['C','모태솔로의 길'];
+  let best=0;try{best=+localStorage.getItem('ch300-best')||0;if(sc>best)localStorage.setItem('ch300-best',sc);}catch(e){}
+  const top=[...ORDER].sort((a,b2)=>(G.seen[b2]-G.seen[a])||(G.aff[b2]-G.aff[a]))[0];
+  const ta=G.aff[top];
+  const endTxt=n===5?HAREM:G.seen[top]?CH[top].end.good:ta>=50?CH[top].end.mid:SOLO;
+  const endName=n===5?'하렘 엔딩':G.seen[top]?`${CH[top].name} 해피 엔딩`:ta>=50?`${CH[top].name} 노멀 엔딩`:'솔로 엔딩';
+  const affSum=ORDER.reduce((s,h)=>s+G.aff[h],0);
+  $('#result').innerHTML=`<div class="res">
+    <h2>RESULT · 윤진석의 5분</h2>
+    <div class="rank"><span class="letter">${L}</span><div><div class="score">${sc.toLocaleString()}점</div><div class="ttl">${T}${sc>best?' · 최고 기록 갱신!':''}</div>
+      <div class="bd">호감도 합계 ${affSum} × 10 = ${(affSum*10).toLocaleString()} · 서비스 신 ${n} × 1,000 = ${(n*1000).toLocaleString()} · 최대 콤보 ${G.maxCombo}</div></div></div>
+    <div class="ending"><div class="mini" style="background:radial-gradient(circle at 50% 70%,${CH[top].color},transparent 75%)">${portrait(top,ta>=50?'b':'s',{crop:1})}</div>
+      <div class="tx"><b>${endName}</b><p>${endTxt}</p></div></div>
+    <h2>그녀들의 호감도</h2>
+    <div class="rows">${ORDER.map(h=>`<div class="rrow" style="--c:${CH[h].color}"><div class="mini">${portrait(h,G.aff[h]>=60?'h':G.aff[h]>=30?'n':'s',{crop:1})}</div>
+      <div style="min-width:0"><div class="nm">${CH[h].name} <small style="color:var(--c);font-family:var(--body);font-size:12px">${CH[h].tag}</small></div>
+      <div class="bar"><i style="width:${G.aff[h]}%"></i><span class="mark"></span></div><div class="meta"><span>♥ ${G.aff[h]}</span><span class="lv">${level(G.aff[h])}</span></div></div>
+      <button class="svc ${G.seen[h]?'on':''}" data-h="${h}" ${G.seen[h]?'':'disabled'}>${G.seen[h]?'▶ 서비스 신 다시 보기':'🔒 미해금'}</button></div>`).join('')}</div>
+    <div class="row"><button class="cta" id="again">다시 도전</button><button class="ghost" id="toT">타이틀로</button></div></div>`;
+  $('#again').onclick=()=>{sfx('start');newGame();toHub();};
+  $('#toT').onclick=()=>toTitle();
+  document.querySelectorAll('.svc.on').forEach(b2=>b2.onclick=()=>service(b2.dataset.h,()=>{G.paused=false;results();},true));
+}
+
+/* ---------- loop & input ---------- */
+let last=performance.now();
+function loop(now){
+  const dt=Math.min(.05,(now-last)/1000);last=now;
+  if(G.running&&!G.paused&&(G.mode==='hub'||G.mode==='scene')){G.time-=dt*1000;if(G.time<=0)timeUp();}
+  if(G.mode==='hub'||G.mode==='scene')updateHud();
+  FX.tick(dt);
+  requestAnimationFrame(loop);
+}
+function boot(data){
+  FX.init();
+  $('#startBtn').onclick=()=>{sfx('start');newGame();toHub();};
+  $('#scene').addEventListener('click',advance);
+  $('#pauseBtn').onclick=pause;
+  const mb=$('#muteBtn');const paintMute=()=>{mb.textContent=MUTED?'×':'♪';mb.setAttribute('aria-pressed',MUTED);};paintMute();
+  mb.onclick=()=>{MUTED=!MUTED;try{localStorage.setItem('ch300-mute',MUTED?'1':'0')}catch(e){}paintMute();};
+  addEventListener('keydown',e=>{
+    if(e.key==='Escape'){$('#overlay').hidden?pause():null;return;}
+    if(G.mode!=='scene')return;
+    if(P.choosing&&/^[1-3]$/.test(e.key)){const b=document.querySelector(`.choice[data-i="${+e.key-1}"]`);b&&b.click();return;}
+    if(e.key===' '||e.key==='Enter'){e.preventDefault();advance();}
+  });
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)pause();});
+  const s=data&&data.saved;
+  if(s&&s.time>0){Object.assign(G,s,{running:true,paused:false,inService:false});toHub();}
+  else toTitle();
+  requestAnimationFrame(loop);
+}
+window.claude?.hot?.snapshot?.(()=>({saved:(G.mode==='hub'||G.mode==='scene')&&G.running?{time:G.time,aff:G.aff,ev:G.ev,combo:G.combo,seen:G.seen,maxCombo:G.maxCombo}:null}));
+window.claude?.hot?.ready ? window.claude.hot.ready(boot) : boot(window.claude?.hot?.data ?? {});
+</script>
